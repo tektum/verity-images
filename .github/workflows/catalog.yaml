@@ -42,10 +42,12 @@ jobs:
         run: |
           if [[ "$EVENT" == workflow_dispatch ]]; then
             metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${DISPATCH_RUN_ID}")
-            printf 'run-id=%s\n' "$DISPATCH_RUN_ID" >> "$GITHUB_OUTPUT"
-            printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")" >> "$GITHUB_OUTPUT"
-            printf 'source-sha=%s\n' "$(jq -r .head_sha <<<"$metadata")" >> "$GITHUB_OUTPUT"
-            printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")" >> "$GITHUB_OUTPUT"
+            {
+              printf 'run-id=%s\n' "$DISPATCH_RUN_ID"
+              printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")"
+              printf 'source-sha=%s\n' "$(jq -r .head_sha <<<"$metadata")"
+              printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
+            } >> "$GITHUB_OUTPUT"
           else
             printf 'run-id=%s\nrun-url=%s\nsource-sha=%s\npublished-at=%s\n' \
               "$EVENT_RUN_ID" "$EVENT_RUN_URL" "$EVENT_SHA" "$EVENT_TIME" >> "$GITHUB_OUTPUT"
