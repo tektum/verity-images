@@ -13,6 +13,12 @@ permissions: {}
 env:
   APKO_VERSION: 1.2.29
   APKO_SHA256: cfc96582d2643271bf94577c0747953718d7b9f0760d0685ba5225a9bd754626
+  COPA_VERSION: 0.14.2
+  COPA_SHA256: 756c6e0f287dc7839c0a72e91b4d4712b1d8cd86a7233c068c0208a28bcb9ede
+  SYFT_VERSION: 1.50.0
+  SYFT_SHA256: bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788
+  TRIVY_VERSION: 0.72.0
+  TRIVY_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
 
 jobs:
   matrix:
@@ -61,33 +67,26 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install apko
+      - name: Set up QEMU
+        if: matrix.track == 'patched'
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+
+      - name: Install image tools
         shell: bash
-        run: |
-          set -euo pipefail
-          archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
-          curl --fail --location --silent --show-error \
-            "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
-            --output "/tmp/${archive}"
-          printf '%s  %s\n' "$APKO_SHA256" "/tmp/${archive}" | sha256sum --check
-          tar -xzf "/tmp/${archive}" -C /tmp
-          sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
+        env:
+          TRACK: ${{ matrix.track }}
+        run: scripts/install_image_tools.sh "$TRACK"
 
       - name: Build candidate
         shell: bash
         env:
           CONTEXT: ${{ matrix.context }}
+          REFRESH_SOURCE: "false"
           NAME: ${{ matrix.name }}
+          TRACK: ${{ matrix.track }}
+          VERSION: ${{ matrix.version }}
         run: |
-          set -euo pipefail
-          mkdir -p "dist/${NAME}/sbom"
-          apko show-config "${CONTEXT}/apko.yaml" >/dev/null
-          apko lock "${CONTEXT}/apko.yaml" --arch amd64,arm64 \
-            --output "dist/${NAME}/apko.lock.json"
-          apko build "${CONTEXT}/apko.yaml" "local/verity-${NAME}:${GITHUB_SHA}" \
-            "dist/${NAME}/image.tar" --arch amd64,arm64 \
-            --lockfile "dist/${NAME}/apko.lock.json" --sbom-path "dist/${NAME}/sbom"
-          docker load < "dist/${NAME}/image.tar"
+          scripts/build_candidate.sh "$CONTEXT" "$NAME" "$TRACK" "$VERSION"
 
       - name: Validate publish tail
         id: publish
@@ -96,13 +95,14 @@ jobs:
           image-name: ${{ matrix.name }}
           track: ${{ matrix.track }}
           candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
+          upstream-image: local/verity-${{ matrix.name }}:${{ github.sha }}-upstream
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
           sbom-directory: dist/${{ matrix.name }}/sbom
-          lockfile: dist/${{ matrix.name }}/apko.lock.json
+          evidence-file: ${{ matrix.evidence_file }}
 
       - name: Write build report
         shell: bash
@@ -146,33 +146,26 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install apko
+      - name: Set up QEMU
+        if: matrix.track == 'patched'
+        uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+
+      - name: Install image tools
         shell: bash
-        run: |
-          set -euo pipefail
-          archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
-          curl --fail --location --silent --show-error \
-            "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
-            --output "/tmp/${archive}"
-          printf '%s  %s\n' "$APKO_SHA256" "/tmp/${archive}" | sha256sum --check
-          tar -xzf "/tmp/${archive}" -C /tmp
-          sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
+        env:
+          TRACK: ${{ matrix.track }}
+        run: scripts/install_image_tools.sh "$TRACK"
 
       - name: Build candidate
         shell: bash
         env:
           CONTEXT: ${{ matrix.context }}
+          REFRESH_SOURCE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           NAME: ${{ matrix.name }}
+          TRACK: ${{ matrix.track }}
+          VERSION: ${{ matrix.version }}
         run: |
-          set -euo pipefail
-          mkdir -p "dist/${NAME}/sbom"
-          apko show-config "${CONTEXT}/apko.yaml" >/dev/null
-          apko lock "${CONTEXT}/apko.yaml" --arch amd64,arm64 \
-            --output "dist/${NAME}/apko.lock.json"
-          apko build "${CONTEXT}/apko.yaml" "local/verity-${NAME}:${GITHUB_SHA}" \
-            "dist/${NAME}/image.tar" --arch amd64,arm64 \
-            --lockfile "dist/${NAME}/apko.lock.json" --sbom-path "dist/${NAME}/sbom"
-          docker load < "dist/${NAME}/image.tar"
+          scripts/build_candidate.sh "$CONTEXT" "$NAME" "$TRACK" "$VERSION"
 
       - name: Publish image
         id: publish
@@ -181,13 +174,14 @@ jobs:
           image-name: ${{ matrix.name }}
           track: ${{ matrix.track }}
           candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
+          upstream-image: local/verity-${{ matrix.name }}:${{ github.sha }}-upstream
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
           sbom-directory: dist/${{ matrix.name }}/sbom
-          lockfile: dist/${{ matrix.name }}/apko.lock.json
+          evidence-file: ${{ matrix.evidence_file }}
           publish: "true"
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
