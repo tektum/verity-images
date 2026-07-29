@@ -32,12 +32,17 @@ jq -n --arg image "$image" --arg pinned "$pinned" --arg resolved "$digest" \
   '{image:$image,pinnedDigest:$pinned,resolvedDigest:$resolved,version:$version}' \
   > "${output}/source-resolved.json"
 
+repository=${image%:*}
+index=$(docker buildx imagetools inspect "${repository}@${digest}" --raw)
 for arch in amd64 arm64; do
   upstream="${candidate}-upstream-${arch}"
   patched="${candidate}-${arch}"
   report="${output}/trivy-${arch}.json"
-  docker pull --platform "linux/${arch}" "${image}@${digest}"
-  docker tag "${image}@${digest}" "$upstream"
+  child=$(jq -r --arg arch "$arch" '
+    .manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' <<<"$index")
+  [[ "$child" == sha256:* ]]
+  docker pull "${repository}@${child}"
+  docker tag "${repository}@${child}" "$upstream"
   trivy image --image-src docker --scanners vuln --pkg-types os --ignore-unfixed \
     --format json --output "$report" "$upstream"
   updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$report")
