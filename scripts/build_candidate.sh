@@ -22,6 +22,8 @@ fi
 
 image=$(awk '$1 == "image:" {print $2}' "${context}/source.yaml")
 pinned=$(awk '$1 == "digest:" {print $2}' "${context}/source.yaml")
+library_patch_level=$(awk '$1 == "library-patch-level:" {print $2}' "${context}/source.yaml")
+library_patch_level=${library_patch_level:-patch}
 digest=$pinned
 if [[ "${REFRESH_SOURCE:-false}" == true ]]; then
   digest="sha256:$(docker buildx imagetools inspect "$image" --raw | sha256sum | cut -d' ' -f1)"
@@ -62,7 +64,8 @@ for arch in amd64 arm64; do
     library_source="${candidate}-library-${arch}"
     docker tag "$patched" "$library_source"
     COPA_EXPERIMENTAL=1 copa patch --image "$library_source" --report "$library_report" \
-      --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library --library-patch-level patch \
+      --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library \
+      --library-patch-level "$library_patch_level" \
       --addr docker:// --timeout 20m --progress plain
     library_repository=${library_source%:*}
     docker tag "${library_repository}:${GITHUB_SHA}-library-${arch}" "$patched"
