@@ -176,5 +176,5 @@ jobs:
           SCAN: ${{ steps.publish.outputs.scan-summary }}
           TAGS: ${{ steps.publish.outputs.tags }}
         run: |
-          printf '## %s\n\n- Digest: `%s`\n- Tags: `%s`\n- Scan: `%s`\n' \
+          printf "## %s\n\n- Digest: \`%s\`\n- Tags: \`%s\`\n- Scan: \`%s\`\n" \
             "$NAME" "$DIGEST" "$TAGS" "$SCAN" >> "$GITHUB_STEP_SUMMARY"
