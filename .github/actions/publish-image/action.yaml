@@ -186,7 +186,21 @@ runs:
         fi
         printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
         count=$(jq -s '[.[].matches[]] | length' "${files[@]}")
-        [[ "$count" -eq 0 ]]
+        if [[ "$count" -ne 0 ]]; then
+          blockers=$(jq -s -r '
+            [.[].matches[] |
+              {id:.vulnerability.id,severity:.vulnerability.severity,
+               package:.artifact.name,installed:.artifact.version,
+               fixed:(.vulnerability.fix.versions | join(","))}] |
+            unique_by(.id,.package,.installed) |
+            map("\(.severity) \(.id) in \(.package) \(.installed) -> \(.fixed)") |
+            join("; ")' "${files[@]}")
+          message='::error title=Fixable vulnerabilities block %s::Found %s fixable findings across %s. '
+          message+='Severity summary: %s. %s\n'
+          printf "$message" \
+            "$IMAGE_NAME" "$count" "${#files[@]} platforms" "$final" "$blockers"
+          exit 1
+        fi
 
     - name: Run smoke test
       shell: bash
