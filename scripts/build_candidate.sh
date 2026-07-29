@@ -22,8 +22,7 @@ fi
 
 image=$(awk '$1 == "image:" {print $2}' "${context}/source.yaml")
 pinned=$(awk '$1 == "digest:" {print $2}' "${context}/source.yaml")
-library_patch_level=$(awk '$1 == "library-patch-level:" {print $2}' "${context}/source.yaml")
-library_patch_level=${library_patch_level:-patch}
+npm_version=$(awk '$1 == "npm-version:" {print $2}' "${context}/source.yaml")
 digest=$pinned
 if [[ "${REFRESH_SOURCE:-false}" == true ]]; then
   digest="sha256:$(docker buildx imagetools inspect "$image" --raw | sha256sum | cut -d' ' -f1)"
@@ -57,15 +56,25 @@ for arch in amd64 arm64; do
     source_repository=${upstream%:*}
     docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
   fi
+  if [[ -n "$npm_version" ]]; then
+    npm_patched="${candidate}-npm-${arch}"
+    docker build --build-arg BASE="$patched" --build-arg NPM_VERSION="$npm_version" \
+      --tag "$npm_patched" - <<'EOF'
+ARG BASE
+FROM ${BASE}
+ARG NPM_VERSION
+RUN npm install --global "npm@${NPM_VERSION}" --ignore-scripts
+EOF
+    docker tag "$npm_patched" "$patched"
+  fi
   trivy image --image-src docker --scanners vuln --pkg-types library --ignore-unfixed \
     --format json --output "$library_report" "$patched"
   library_updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$library_report")
-  if [[ "$library_updates" -ne 0 ]]; then
+  if [[ "$library_updates" -ne 0 && -z "$npm_version" ]]; then
     library_source="${candidate}-library-${arch}"
     docker tag "$patched" "$library_source"
     COPA_EXPERIMENTAL=1 copa patch --image "$library_source" --report "$library_report" \
-      --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library \
-      --library-patch-level "$library_patch_level" \
+      --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library --library-patch-level patch \
       --addr docker:// --timeout 20m --progress plain
     library_repository=${library_source%:*}
     docker tag "${library_repository}:${GITHUB_SHA}-library-${arch}" "$patched"
