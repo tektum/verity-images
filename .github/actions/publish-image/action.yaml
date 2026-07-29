@@ -20,6 +20,9 @@ inputs:
   version:
     description: Version tag to publish.
     required: true
+  publish-latest:
+    description: Move the latest tag when true.
+    default: "false"
   context:
     description: Image source directory.
     required: true
@@ -68,9 +71,10 @@ runs:
       env:
         CANDIDATE: ${{ inputs.candidate-image }}
         TARGET: ${{ inputs.target-repository }}
+        VERSION: ${{ inputs.version }}
       run: |
         set -euo pipefail
-        transport="build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        transport="build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${VERSION//./-}"
         for arch in amd64 arm64; do
           docker tag "${CANDIDATE}-${arch}" "${TARGET}:${transport}-${arch}"
           docker push "${TARGET}:${transport}-${arch}"
@@ -106,7 +110,7 @@ runs:
     - name: Upload scan and build evidence
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
-        name: scan-${{ inputs.image-name }}
+        name: scan-${{ inputs.image-name }}-${{ inputs.version }}
         path: |
           scan-${{ inputs.image-name }}-*.json
           ${{ inputs.lockfile }}
@@ -174,16 +178,21 @@ runs:
         DIGEST: ${{ steps.push.outputs.digest }}
         TARGET: ${{ inputs.target-repository }}
         VERSION: ${{ inputs.version }}
+        PUBLISH_LATEST: ${{ inputs.publish-latest }}
       run: |
         set -euo pipefail
         dated="${VERSION}-$(date -u +%Y%m%d)"
-        for tag in "$VERSION" "$dated" latest; do
+        tags=("$VERSION" "$dated")
+        if [[ "$PUBLISH_LATEST" == true ]]; then
+          tags+=(latest)
+        fi
+        for tag in "${tags[@]}"; do
           docker buildx imagetools create --tag "${TARGET}:${tag}" "${TARGET}@${DIGEST}"
           actual=$(docker buildx imagetools inspect "${TARGET}:${tag}" --raw |
             sha256sum | cut -d' ' -f1)
           [[ "sha256:${actual}" == "$DIGEST" ]]
         done
-        printf 'tags=%s,%s,latest\n' "$VERSION" "$dated" >> "$GITHUB_OUTPUT"
+        printf 'tags=%s\n' "$(IFS=,; echo "${tags[*]}")" >> "$GITHUB_OUTPUT"
 
     - name: Emit outputs
       id: result
