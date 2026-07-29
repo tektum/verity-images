@@ -19,6 +19,11 @@ as a workflow artifact and later consumed by the catalog.
 No image is admitted on the basis of improvement alone. A residual CVE delta is
 evidence for diagnosis, not an exception to the publication gate.
 
+Patched images enable Copa's experimental patch-level library remediation for
+Trivy findings in supported npm and pip packages. Experimental remediation does
+not weaken the final Grype gate. Unsupported runtime or library findings still
+block publication.
+
 Trivy is used only to produce the Copacetic patch report. It never generates an
 SBOM.
 

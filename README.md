@@ -54,6 +54,8 @@ with Trivy, patches it with Copacetic, and records the residual vulnerability
 delta. It preserves upstream compatibility and platforms.
 
 Both tracks must have zero fixable Grype findings before publication.
+Patched images also use Copa's experimental patch-level library remediation for
+supported npm and pip findings before the final gate.
 
 The starting patched catalog is Debian 12 slim, Python 3.12 slim, and Node.js
 22 slim. Their source index digests and enabled platforms are declared in each
