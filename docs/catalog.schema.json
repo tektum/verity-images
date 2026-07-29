@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tektum.github.io/verity-images/catalog.schema.json",
+  "title": "Verity Images Catalog",
+  "type": "object",
+  "required": ["schemaVersion", "publishedAt", "source", "policy", "images"],
+  "properties": {
+    "schemaVersion": {"const": 1},
+    "publishedAt": {"type": "string", "format": "date-time"},
+    "source": {
+      "type": "object",
+      "required": ["runId", "runUrl", "commit"]
+    },
+    "policy": {
+      "type": "object",
+      "required": ["fixableVulnerabilitiesAllowed", "sbomFormat", "certificateIdentity", "certificateIssuer"]
+    },
+    "images": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "version", "track", "digest", "tags", "scan", "scanArtifact", "verification"]
+      }
+    }
+  }
+}

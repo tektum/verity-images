@@ -1,7 +1,7 @@
 # Verity Images
 
 [![build](https://github.com/tektum/verity-images/actions/workflows/build.yaml/badge.svg)](https://github.com/tektum/verity-images/actions/workflows/build.yaml)
-[Catalog](https://tektum.github.io/verity-images/)
+[Catalog data](https://tektum.github.io/verity-images/catalog.json)
 
 Verity Images is an open registry of small container images rebuilt daily from
 public inputs. The repository contains the complete build, scan, test, signing,
@@ -34,8 +34,8 @@ Fetch the SPDX JSON SBOM attestation:
 cosign download attestation ghcr.io/tektum/nginx@sha256:DIGEST > attestation.json
 ```
 
-The generated catalog links each digest to its scan result and verification
-commands.
+The `catalog-json` workflow artifact contains every digest, scan result, and
+verification command. A static user interface is intentionally deferred.
 
 ## Tracks
 
