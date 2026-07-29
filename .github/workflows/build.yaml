@@ -71,6 +71,12 @@ jobs:
         if: matrix.track == 'patched'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
 
+      - name: Enable Docker containerd snapshotter
+        if: matrix.track == 'patched'
+        run: |
+          printf '%s\n' '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
+
       - name: Install image tools
         shell: bash
         env:
@@ -149,6 +155,12 @@ jobs:
       - name: Set up QEMU
         if: matrix.track == 'patched'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+
+      - name: Enable Docker containerd snapshotter
+        if: matrix.track == 'patched'
+        run: |
+          printf '%s\n' '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl restart docker
 
       - name: Install image tools
         shell: bash

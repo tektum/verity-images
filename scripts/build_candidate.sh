@@ -51,7 +51,7 @@ for arch in amd64 arm64; do
     docker tag "$upstream" "$patched"
   else
     copa patch --image "$upstream" --report "$report" --tag "${GITHUB_SHA}-${arch}" \
-      --addr docker:// --loader docker --timeout 20m --progress plain
+      --addr docker:// --timeout 20m --progress plain
     source_repository=${upstream%:*}
     docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
   fi
@@ -63,7 +63,7 @@ for arch in amd64 arm64; do
     docker tag "$patched" "$library_source"
     COPA_EXPERIMENTAL=1 copa patch --image "$library_source" --report "$library_report" \
       --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library --library-patch-level patch \
-      --addr docker:// --loader docker --timeout 20m --progress plain
+      --addr docker:// --timeout 20m --progress plain
     library_repository=${library_source%:*}
     docker tag "${library_repository}:${GITHUB_SHA}-library-${arch}" "$patched"
   fi
