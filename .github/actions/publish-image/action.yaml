@@ -92,6 +92,7 @@ runs:
     - name: Scan amd64 candidate
       uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
       with:
+        cache-db: true
         image: ${{ inputs.candidate-image }}-amd64
         output-format: json
         output-file: scan-${{ inputs.image-name }}-amd64.json
@@ -101,6 +102,7 @@ runs:
     - name: Scan arm64 candidate
       uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
       with:
+        cache-db: true
         image: ${{ inputs.candidate-image }}-arm64
         output-format: json
         output-file: scan-${{ inputs.image-name }}-arm64.json
