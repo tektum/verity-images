@@ -34,7 +34,8 @@ class MatrixEntry(TypedDict):
     platforms: str
     description: str
     upstream: str
-    versions: list[str]
+    version: str
+    latest: bool
     owner: str
 
 
@@ -90,8 +91,8 @@ def parse_metadata(path: Path) -> Metadata:
         case _:
             raise MetadataError(f"{path}: track must be wolfi or patched")
     versions = values["versions"]
-    if not isinstance(versions, tuple) or not versions:
-        raise MetadataError(f"{path}: versions must be a non-empty inline list")
+    if not isinstance(versions, tuple) or len(versions) != 1:
+        raise MetadataError(f"{path}: versions must contain exactly one version")
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
@@ -122,15 +123,26 @@ def image_directories() -> list[Path]:
     return sorted(path.parent for root in ("images", "patched") for path in (ROOT / root).glob("**/metadata.yaml"))
 
 
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
+
+
 def generate(base_ref: str | None) -> Matrix:
     changed: set[str] = changed_paths(base_ref) if base_ref else set()
     all_changed = bool(changed & GLOBAL_PATHS)
+    catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
+    latest = {
+        metadata.name: max(
+            (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
+            key=version_key,
+        )
+        for _, metadata in catalog
+    }
     entries: list[MatrixEntry] = []
-    for directory in image_directories():
+    for directory, metadata in catalog:
         relative = directory.relative_to(ROOT).as_posix()
         if base_ref and not all_changed and not any(path.startswith(f"{relative}/") for path in changed):
             continue
-        metadata = parse_metadata(directory / "metadata.yaml")
         required = directory / ("apko.yaml" if metadata.track == "wolfi" else "source.yaml")
         smoke_test = directory / "tests/test.sh"
         if not required.is_file() or not smoke_test.is_file():
@@ -145,7 +157,8 @@ def generate(base_ref: str | None) -> Matrix:
                 "platforms": "linux/amd64,linux/arm64" if metadata.track == "wolfi" else "upstream",
                 "description": metadata.description,
                 "upstream": metadata.upstream,
-                "versions": list(metadata.versions),
+                "version": metadata.versions[0],
+                "latest": metadata.versions[0] == latest[metadata.name],
                 "owner": metadata.owner,
             }
         )
