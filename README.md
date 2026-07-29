@@ -41,7 +41,7 @@ commands.
 
 The Wolfi track assembles minimal images from the public Wolfi package
 repository with apko. It publishes linux/amd64 and linux/arm64 images and fails
-on any fixable High or Critical vulnerability.
+on any fixable vulnerability.
 
 The starting Wolfi catalog includes static and wolfi-base images, Node.js
 20/22/24/26, Python 3.10/3.11/3.12/3.13/3.14, Go 1.25/1.26, and nginx.
@@ -52,6 +52,8 @@ Critical vulnerabilities and no fixed 1.24 release exists.
 The patched track starts from a pinned upstream Debian or slim image, scans it
 with Trivy, patches it with Copacetic, and records the residual vulnerability
 delta. It preserves upstream compatibility and platforms.
+
+Both tracks must have zero fixable Grype findings before publication.
 
 The starting patched catalog is Debian 12 slim, Python 3.12 slim, and Node.js
 22 slim. Their source index digests and enabled platforms are declared in each

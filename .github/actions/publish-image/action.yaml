@@ -185,11 +185,8 @@ runs:
             --argjson delta "$delta" '{upstream:$upstream,final:$final,delta:$delta}')
         fi
         printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
-        if [[ "$TRACK" == wolfi ]]; then
-          count=$(jq -s '[.[].matches[].vulnerability.severity | ascii_downcase |
-            select(. == "high" or . == "critical")] | length' "${files[@]}")
-          [[ "$count" -eq 0 ]]
-        fi
+        count=$(jq -s '[.[].matches[]] | length' "${files[@]}")
+        [[ "$count" -eq 0 ]]
 
     - name: Run smoke test
       shell: bash

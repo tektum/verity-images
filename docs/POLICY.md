@@ -11,10 +11,13 @@ never authenticate to GHCR, publish, sign, attest, or move tags.
 Grype scans every candidate before release tags are applied. Scan JSON is kept
 as a workflow artifact and later consumed by the catalog.
 
-- Wolfi images fail on any fixable High or Critical vulnerability.
-- Patched images publish after recording the upstream and final scan results.
-  The catalog shows the residual CVE delta. A patched image is an improvement
-  claim, not a zero-CVE claim.
+- Every image fails on any fixable vulnerability reported by Grype, regardless
+  of severity or track.
+- Patched images record upstream and final scan results and may publish only
+  when the final scan contains zero fixable vulnerabilities.
+
+No image is admitted on the basis of improvement alone. A residual CVE delta is
+evidence for diagnosis, not an exception to the publication gate.
 
 Trivy is used only to produce the Copacetic patch report. It never generates an
 SBOM.
