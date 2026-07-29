@@ -11,10 +11,19 @@ never authenticate to GHCR, publish, sign, attest, or move tags.
 Grype scans every candidate before release tags are applied. Scan JSON is kept
 as a workflow artifact and later consumed by the catalog.
 
-- Wolfi images fail on any fixable High or Critical vulnerability.
-- Patched images publish after recording the upstream and final scan results.
-  The catalog shows the residual CVE delta. A patched image is an improvement
-  claim, not a zero-CVE claim.
+- Every image fails on any fixable vulnerability reported by Grype, regardless
+  of severity or track.
+- Patched images record upstream and final scan results and may publish only
+  when the final scan contains zero fixable vulnerabilities.
+
+No image is admitted on the basis of improvement alone. A residual CVE delta is
+evidence for diagnosis, not an exception to the publication gate.
+
+Patched images enable Copa's experimental patch-level library remediation.
+When vulnerabilities affect npm's own bundled dependency tree, the source may
+pin a complete npm distribution upgrade instead of replacing internals
+independently. Its smoke test must exercise npm. Neither path weakens the final
+Grype gate.
 
 Trivy is used only to produce the Copacetic patch report. It never generates an
 SBOM.
@@ -69,6 +78,9 @@ Every pushed digest receives SLSA build provenance through
 Wolfi builds upload the exact apko lock used by the build. Patched builds keep
 the checked-in source digest and record any newly resolved upstream digest in
 immutable build metadata instead of committing from a scheduled workflow.
+The daily schedule resolves the current upstream tag, records both the pinned
+and resolved digests, and patches the resolved digest. Pull requests and pushes
+use the checked-in digest so their inputs remain reproducible.
 
 ## Support
 

@@ -37,6 +37,7 @@ class MatrixEntry(TypedDict):
     version: str
     latest: bool
     owner: str
+    evidence_file: str
 
 
 class Matrix(TypedDict):
@@ -56,6 +57,13 @@ class Metadata:
 
 class MetadataError(ValueError):
     ...
+
+
+@dataclass(frozen=True, slots=True)
+class Source:
+    image: str
+    digest: str
+    platforms: tuple[str, ...]
 
 
 def parse_scalar(raw: str) -> str | bool | tuple[str, ...]:
@@ -108,6 +116,24 @@ def parse_metadata(path: Path) -> Metadata:
     )
 
 
+def parse_source(path: Path) -> Source:
+    values: dict[str, str | bool | tuple[str, ...]] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        key, separator, raw = line.partition(":")
+        if separator:
+            values[key.strip()] = parse_scalar(raw)
+    image = values.get("image")
+    digest = values.get("digest")
+    platforms = values.get("platforms")
+    if not isinstance(image, str) or not image.startswith("docker.io/"):
+        raise MetadataError(f"{path}: image must be fully qualified on docker.io")
+    if not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
+        raise MetadataError(f"{path}: digest must be a pinned sha256")
+    if not isinstance(platforms, tuple) or not platforms:
+        raise MetadataError(f"{path}: platforms must be a non-empty inline list")
+    return Source(image=image, digest=digest, platforms=platforms)
+
+
 def changed_paths(base_ref: str) -> set[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
@@ -149,17 +175,28 @@ def generate(base_ref: str | None) -> Matrix:
             raise MetadataError(f"{relative}: missing {required.name} or tests/test.sh")
         if not metadata.enabled:
             continue
+        platforms = "linux/amd64,linux/arm64"
+        if metadata.track == "patched":
+            source = parse_source(required)
+            if source.image != metadata.upstream:
+                raise MetadataError(f"{relative}: metadata upstream must match source image")
+            platforms = ",".join(source.platforms)
         entries.append(
             {
                 "name": metadata.name,
                 "track": metadata.track,
                 "context": relative,
-                "platforms": "linux/amd64,linux/arm64" if metadata.track == "wolfi" else "upstream",
+                "platforms": platforms,
                 "description": metadata.description,
                 "upstream": metadata.upstream,
                 "version": metadata.versions[0],
                 "latest": metadata.versions[0] == latest[metadata.name],
                 "owner": metadata.owner,
+                "evidence_file": (
+                    f"dist/{metadata.name}/apko.lock.json"
+                    if metadata.track == "wolfi"
+                    else f"dist/{metadata.name}/source-resolved.json"
+                ),
             }
         )
     return {"include": entries}
