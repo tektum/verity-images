@@ -9,8 +9,11 @@ inputs:
     description: Image track, wolfi or patched.
     required: true
   candidate-image:
-    description: Local daemon image before the apko architecture suffix.
+    description: Local daemon image before the architecture suffix.
     required: true
+  upstream-image:
+    description: Local upstream image before the architecture suffix for patched-track deltas.
+    default: ""
   target-repository:
     description: Fully qualified GHCR repository.
     required: true
@@ -29,8 +32,8 @@ inputs:
   sbom-directory:
     description: Directory containing native SPDX JSON files.
     required: true
-  lockfile:
-    description: Exact apko lock used for the candidate.
+  evidence-file:
+    description: Exact resolved build input used for the candidate.
     required: true
   publish:
     description: Push, sign, attest, and tag when true.
@@ -89,6 +92,15 @@ runs:
         docker buildx imagetools inspect "${TARGET}@${digest}" >/dev/null
         printf 'digest=%s\ntransport=%s\n' "$digest" "$transport" >> "$GITHUB_OUTPUT"
 
+    - name: Generate patched index SPDX SBOM
+      if: inputs.publish == 'true' && inputs.track == 'patched'
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        SBOM: ${{ inputs.sbom-directory }}/sbom-index.spdx.json
+        TARGET: ${{ inputs.target-repository }}
+      run: syft "registry:${TARGET}@${DIGEST}" -o "spdx-json=${SBOM}"
+
     - name: Scan amd64 candidate
       uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
       with:
@@ -109,14 +121,38 @@ runs:
         fail-build: false
         only-fixed: true
 
+    - name: Scan amd64 upstream
+      if: inputs.track == 'patched'
+      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
+      with:
+        cache-db: true
+        image: ${{ inputs.upstream-image }}-amd64
+        output-format: json
+        output-file: scan-${{ inputs.image-name }}-upstream-amd64.json
+        fail-build: false
+        only-fixed: true
+
+    - name: Scan arm64 upstream
+      if: inputs.track == 'patched'
+      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
+      with:
+        cache-db: true
+        image: ${{ inputs.upstream-image }}-arm64
+        output-format: json
+        output-file: scan-${{ inputs.image-name }}-upstream-arm64.json
+        fail-build: false
+        only-fixed: true
+
     - name: Upload scan and build evidence
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: scan-${{ inputs.image-name }}-${{ inputs.version }}
         path: |
           scan-${{ inputs.image-name }}-*.json
-          ${{ inputs.lockfile }}
+          ${{ inputs.evidence-file }}
           ${{ inputs.sbom-directory }}/*.spdx.json
+          ${{ inputs.context }}/source.yaml
+          dist/${{ inputs.image-name }}/trivy-*.json
         if-no-files-found: error
 
     - name: Evaluate vulnerability gate
@@ -128,11 +164,26 @@ runs:
       run: |
         set -euo pipefail
         files=("scan-${IMAGE_NAME}-amd64.json" "scan-${IMAGE_NAME}-arm64.json")
-        summary=$(jq -s -c '
+        final=$(jq -s -c '
           [.[].matches[].vulnerability.severity] |
           group_by(ascii_downcase) |
           map({(.[0] | ascii_downcase): length}) |
           add // {}' "${files[@]}")
+        summary=$final
+        if [[ "$TRACK" == patched ]]; then
+          upstream_files=("scan-${IMAGE_NAME}-upstream-amd64.json" "scan-${IMAGE_NAME}-upstream-arm64.json")
+          upstream=$(jq -s -c '
+            [.[].matches[].vulnerability.severity] |
+            group_by(ascii_downcase) |
+            map({(.[0] | ascii_downcase): length}) |
+            add // {}' "${upstream_files[@]}")
+          delta=$(jq -cn --argjson upstream "$upstream" --argjson final "$final" '
+            (($upstream + $final) | keys) |
+            map({(.): (($final[.] // 0) - ($upstream[.] // 0))}) |
+            add // {}')
+          summary=$(jq -cn --argjson upstream "$upstream" --argjson final "$final" \
+            --argjson delta "$delta" '{upstream:$upstream,final:$final,delta:$delta}')
+        fi
         printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
         if [[ "$TRACK" == wolfi ]]; then
           count=$(jq -s '[.[].matches[].vulnerability.severity | ascii_downcase |
