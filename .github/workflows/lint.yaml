@@ -1,0 +1,65 @@
+name: Lint
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install linters
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_amd64.tar.gz \
+            --output /tmp/actionlint.tar.gz
+          printf '%s  %s\n' \
+            8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 \
+            /tmp/actionlint.tar.gz | sha256sum --check
+          tar -xzf /tmp/actionlint.tar.gz -C /tmp
+          sudo install /tmp/actionlint /usr/local/bin/actionlint
+          curl --fail --location --silent --show-error \
+            https://github.com/koalaman/shellcheck/releases/download/v0.11.0/shellcheck-v0.11.0.linux.x86_64.tar.xz \
+            --output /tmp/shellcheck.tar.xz
+          printf '%s  %s\n' \
+            8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198 \
+            /tmp/shellcheck.tar.xz | sha256sum --check
+          tar -xJf /tmp/shellcheck.tar.xz -C /tmp
+          sudo install /tmp/shellcheck-v0.11.0/shellcheck /usr/local/bin/shellcheck
+
+      - name: Run actionlint
+        run: actionlint
+
+      - name: Run yamllint
+        run: pipx run --spec yamllint==1.37.1 yamllint .
+
+      - name: Run shellcheck
+        run: find . -path '*/tests/test.sh' -type f -exec shellcheck {} +
+
+      - name: Validate catalog
+        run: python3 scripts/gen_matrix.py --all
+
+      - name: Check README paths
+        run: python3 scripts/check_readme_refs.py
+
+      - name: Check keyboard-only text
+        shell: bash
+        run: |
+          if LC_ALL=C grep -PRn '[^\x00-\x7F]' \
+            --include='*.md' --include='*.yaml' --include='*.yml' --include='*.py' --include='*.sh' .; then
+            exit 1
+          fi

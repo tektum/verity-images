@@ -1,0 +1,180 @@
+name: Build images
+
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+env:
+  APKO_VERSION: 1.2.29
+  APKO_SHA256: cfc96582d2643271bf94577c0747953718d7b9f0760d0685ba5225a9bd754626
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      images: ${{ steps.generate.outputs.images }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate matrix
+        id: generate
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == schedule || "$EVENT" == workflow_dispatch ]]; then
+            matrix=$(python3 scripts/gen_matrix.py --all)
+          elif [[ "$EVENT" == pull_request ]]; then
+            matrix=$(python3 scripts/gen_matrix.py --changed "origin/${BASE_REF}")
+          else
+            matrix=$(python3 scripts/gen_matrix.py --changed "$BEFORE")
+          fi
+          printf 'images=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+
+  validate:
+    if: github.event_name == 'pull_request' && fromJSON(needs.matrix.outputs.images).include[0] != null
+    needs: matrix
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.images) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install apko
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
+            --output "/tmp/${archive}"
+          printf '%s  %s\n' "$APKO_SHA256" "/tmp/${archive}" | sha256sum --check
+          tar -xzf "/tmp/${archive}" -C /tmp
+          sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
+
+      - name: Build candidate
+        shell: bash
+        env:
+          CONTEXT: ${{ matrix.context }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${NAME}/sbom"
+          apko show-config "${CONTEXT}/apko.yaml" >/dev/null
+          apko lock "${CONTEXT}/apko.yaml" --arch amd64,arm64 \
+            --output "dist/${NAME}/apko.lock.json"
+          apko build "${CONTEXT}/apko.yaml" "local/verity-${NAME}:${GITHUB_SHA}" \
+            "dist/${NAME}/image.tar" --arch amd64,arm64 \
+            --lockfile "dist/${NAME}/apko.lock.json" --sbom-path "dist/${NAME}/sbom"
+          docker load < "dist/${NAME}/image.tar"
+
+      - name: Validate publish tail
+        uses: ./.github/actions/publish-image
+        with:
+          image-name: ${{ matrix.name }}
+          track: ${{ matrix.track }}
+          candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
+          target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
+          platforms: ${{ matrix.platforms }}
+          version: ${{ matrix.versions[0] }}
+          context: ${{ matrix.context }}
+          sbom-directory: dist/${{ matrix.name }}/sbom
+          lockfile: dist/${{ matrix.name }}/apko.lock.json
+
+  publish:
+    if: github.event_name != 'pull_request' && fromJSON(needs.matrix.outputs.images).include[0] != null
+    needs: matrix
+    runs-on: ubuntu-latest
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+      packages: write
+    concurrency:
+      group: publish-${{ matrix.owner }}-${{ matrix.name }}
+      cancel-in-progress: false
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.images) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install apko
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
+          curl --fail --location --silent --show-error \
+            "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
+            --output "/tmp/${archive}"
+          printf '%s  %s\n' "$APKO_SHA256" "/tmp/${archive}" | sha256sum --check
+          tar -xzf "/tmp/${archive}" -C /tmp
+          sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
+
+      - name: Build candidate
+        shell: bash
+        env:
+          CONTEXT: ${{ matrix.context }}
+          NAME: ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/${NAME}/sbom"
+          apko show-config "${CONTEXT}/apko.yaml" >/dev/null
+          apko lock "${CONTEXT}/apko.yaml" --arch amd64,arm64 \
+            --output "dist/${NAME}/apko.lock.json"
+          apko build "${CONTEXT}/apko.yaml" "local/verity-${NAME}:${GITHUB_SHA}" \
+            "dist/${NAME}/image.tar" --arch amd64,arm64 \
+            --lockfile "dist/${NAME}/apko.lock.json" --sbom-path "dist/${NAME}/sbom"
+          docker load < "dist/${NAME}/image.tar"
+
+      - name: Publish image
+        id: publish
+        uses: ./.github/actions/publish-image
+        with:
+          image-name: ${{ matrix.name }}
+          track: ${{ matrix.track }}
+          candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
+          target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
+          platforms: ${{ matrix.platforms }}
+          version: ${{ matrix.versions[0] }}
+          context: ${{ matrix.context }}
+          sbom-directory: dist/${{ matrix.name }}/sbom
+          lockfile: dist/${{ matrix.name }}/apko.lock.json
+          publish: "true"
+          registry-username: ${{ github.actor }}
+          registry-password: ${{ github.token }}
+
+      - name: Add job summary
+        shell: bash
+        env:
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          NAME: ${{ matrix.name }}
+          SCAN: ${{ steps.publish.outputs.scan-summary }}
+          TAGS: ${{ steps.publish.outputs.tags }}
+        run: |
+          printf "## %s\n\n- Digest: \`%s\`\n- Tags: \`%s\`\n- Scan: \`%s\`\n" \
+            "$NAME" "$DIGEST" "$TAGS" "$SCAN" >> "$GITHUB_STEP_SUMMARY"

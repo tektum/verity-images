@@ -1,0 +1,200 @@
+name: Publish image
+description: Scan, test, sign, attest, and promote one container image.
+
+inputs:
+  image-name:
+    description: Published image name.
+    required: true
+  track:
+    description: Image track, wolfi or patched.
+    required: true
+  candidate-image:
+    description: Local daemon image before the apko architecture suffix.
+    required: true
+  target-repository:
+    description: Fully qualified GHCR repository.
+    required: true
+  platforms:
+    description: Comma-separated target platforms.
+    required: true
+  version:
+    description: Version tag to publish.
+    required: true
+  context:
+    description: Image source directory.
+    required: true
+  sbom-directory:
+    description: Directory containing native SPDX JSON files.
+    required: true
+  lockfile:
+    description: Exact apko lock used for the candidate.
+    required: true
+  publish:
+    description: Push, sign, attest, and tag when true.
+    default: "false"
+  registry-username:
+    description: GHCR username.
+    default: ""
+  registry-password:
+    description: GITHUB_TOKEN supplied by the caller.
+    default: ""
+
+outputs:
+  digest:
+    description: Published multi-architecture digest.
+    value: ${{ steps.result.outputs.digest }}
+  tags:
+    description: Published tags separated by commas.
+    value: ${{ steps.result.outputs.tags }}
+  scan-summary:
+    description: Vulnerability counts by severity as compact JSON.
+    value: ${{ steps.gate.outputs.summary }}
+
+runs:
+  using: composite
+  steps:
+    - name: Log in to GHCR
+      if: inputs.publish == 'true'
+      uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c  # v4.5.2
+      with:
+        registry: ghcr.io
+        username: ${{ inputs.registry-username }}
+        password: ${{ inputs.registry-password }}
+
+    - name: Push candidate under transport tags
+      if: inputs.publish == 'true'
+      id: push
+      shell: bash
+      env:
+        CANDIDATE: ${{ inputs.candidate-image }}
+        TARGET: ${{ inputs.target-repository }}
+      run: |
+        set -euo pipefail
+        transport="build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+        for arch in amd64 arm64; do
+          docker tag "${CANDIDATE}-${arch}" "${TARGET}:${transport}-${arch}"
+          docker push "${TARGET}:${transport}-${arch}"
+        done
+        docker manifest create "${TARGET}:${transport}" \
+          "${TARGET}:${transport}-amd64" "${TARGET}:${transport}-arm64"
+        docker manifest annotate "${TARGET}:${transport}" \
+          "${TARGET}:${transport}-arm64" --arch arm64
+        docker manifest push --purge "${TARGET}:${transport}"
+        raw=$(docker buildx imagetools inspect "${TARGET}:${transport}" --raw)
+        digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)"
+        docker buildx imagetools inspect "${TARGET}@${digest}" >/dev/null
+        printf 'digest=%s\ntransport=%s\n' "$digest" "$transport" >> "$GITHUB_OUTPUT"
+
+    - name: Scan amd64 candidate
+      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
+      with:
+        image: ${{ inputs.candidate-image }}-amd64
+        output-format: json
+        output-file: scan-${{ inputs.image-name }}-amd64.json
+        fail-build: false
+        only-fixed: true
+
+    - name: Scan arm64 candidate
+      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
+      with:
+        image: ${{ inputs.candidate-image }}-arm64
+        output-format: json
+        output-file: scan-${{ inputs.image-name }}-arm64.json
+        fail-build: false
+        only-fixed: true
+
+    - name: Upload scan and build evidence
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+      with:
+        name: scan-${{ inputs.image-name }}
+        path: |
+          scan-${{ inputs.image-name }}-*.json
+          ${{ inputs.lockfile }}
+          ${{ inputs.sbom-directory }}/*.spdx.json
+        if-no-files-found: error
+
+    - name: Evaluate vulnerability gate
+      id: gate
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+        TRACK: ${{ inputs.track }}
+      run: |
+        set -euo pipefail
+        files=("scan-${IMAGE_NAME}-amd64.json" "scan-${IMAGE_NAME}-arm64.json")
+        summary=$(jq -s -c '
+          [.[].matches[].vulnerability.severity] |
+          group_by(ascii_downcase) |
+          map({(.[0] | ascii_downcase): length}) |
+          add // {}' "${files[@]}")
+        printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
+        if [[ "$TRACK" == wolfi ]]; then
+          count=$(jq -s '[.[].matches[].vulnerability.severity | ascii_downcase |
+            select(. == "high" or . == "critical")] | length' "${files[@]}")
+          [[ "$count" -eq 0 ]]
+        fi
+
+    - name: Run smoke test
+      shell: bash
+      env:
+        CANDIDATE: ${{ inputs.candidate-image }}
+        TEST: ${{ inputs.context }}/tests/test.sh
+      run: |
+        "$TEST" "${CANDIDATE}-amd64"
+
+    - name: Install cosign
+      if: inputs.publish == 'true'
+      uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+
+    - name: Sign digest and attach SPDX SBOM
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        SBOM: ${{ inputs.sbom-directory }}/sbom-index.spdx.json
+        TARGET: ${{ inputs.target-repository }}
+      run: |
+        set -euo pipefail
+        cosign sign --yes "${TARGET}@${DIGEST}"
+        cosign attest --yes --type spdxjson --predicate "$SBOM" "${TARGET}@${DIGEST}"
+
+    - name: Attach build provenance
+      if: inputs.publish == 'true'
+      uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+      with:
+        subject-name: ${{ inputs.target-repository }}
+        subject-digest: ${{ steps.push.outputs.digest }}
+        push-to-registry: true
+
+    - name: Promote release tags
+      if: inputs.publish == 'true'
+      id: promote
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        TARGET: ${{ inputs.target-repository }}
+        VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        dated="${VERSION}-$(date -u +%Y%m%d)"
+        for tag in "$VERSION" "$dated" latest; do
+          docker buildx imagetools create --tag "${TARGET}:${tag}" "${TARGET}@${DIGEST}"
+          actual=$(docker buildx imagetools inspect "${TARGET}:${tag}" --raw |
+            sha256sum | cut -d' ' -f1)
+          [[ "sha256:${actual}" == "$DIGEST" ]]
+        done
+        printf 'tags=%s,%s,latest\n' "$VERSION" "$dated" >> "$GITHUB_OUTPUT"
+
+    - name: Emit outputs
+      id: result
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        PUBLISH: ${{ inputs.publish }}
+        TAGS: ${{ steps.promote.outputs.tags }}
+      run: |
+        if [[ "$PUBLISH" == true ]]; then
+          printf 'digest=%s\ntags=%s\n' "$DIGEST" "$TAGS" >> "$GITHUB_OUTPUT"
+        else
+          printf 'digest=local\ntags=\n' >> "$GITHUB_OUTPUT"
+        fi
