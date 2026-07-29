@@ -38,6 +38,7 @@ for arch in amd64 arm64; do
   upstream="${candidate}-upstream-${arch}"
   patched="${candidate}-${arch}"
   report="${output}/trivy-${arch}.json"
+  library_report="${output}/trivy-library-${arch}.json"
   child=$(jq -r --arg arch "$arch" '
     .manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest' <<<"$index")
   [[ "$child" == sha256:* ]]
@@ -53,6 +54,18 @@ for arch in amd64 arm64; do
       --addr docker:// --loader docker --timeout 20m --progress plain
     source_repository=${upstream%:*}
     docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
+  fi
+  trivy image --image-src docker --scanners vuln --pkg-types library --ignore-unfixed \
+    --format json --output "$library_report" "$patched"
+  library_updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$library_report")
+  if [[ "$library_updates" -ne 0 ]]; then
+    library_source="${candidate}-library-${arch}"
+    docker tag "$patched" "$library_source"
+    COPA_EXPERIMENTAL=1 copa patch --image "$library_source" --report "$library_report" \
+      --tag "${GITHUB_SHA}-library-${arch}" --pkg-types library --library-patch-level patch \
+      --addr docker:// --loader docker --timeout 20m --progress plain
+    library_repository=${library_source%:*}
+    docker tag "${library_repository}:${GITHUB_SHA}-library-${arch}" "$patched"
   fi
   syft "docker:${patched}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
 done
