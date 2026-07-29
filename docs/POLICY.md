@@ -69,6 +69,9 @@ Every pushed digest receives SLSA build provenance through
 Wolfi builds upload the exact apko lock used by the build. Patched builds keep
 the checked-in source digest and record any newly resolved upstream digest in
 immutable build metadata instead of committing from a scheduled workflow.
+The daily schedule resolves the current upstream tag, records both the pinned
+and resolved digests, and patches the resolved digest. Pull requests and pushes
+use the checked-in digest so their inputs remain reproducible.
 
 ## Support
 

@@ -53,6 +53,10 @@ The patched track starts from a pinned upstream Debian or slim image, scans it
 with Trivy, patches it with Copacetic, and records the residual vulnerability
 delta. It preserves upstream compatibility and platforms.
 
+The starting patched catalog is Debian 12 slim, Python 3.12 slim, and Node.js
+22 slim. Their source index digests and enabled platforms are declared in each
+`source.yaml`.
+
 Both tracks use the same `.github/actions/publish-image/action.yaml` tail for
 the scan gate, smoke test, digest signing, SPDX attestation, provenance, and tag
 promotion.
