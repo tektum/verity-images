@@ -40,10 +40,15 @@ for arch in amd64 arm64; do
   docker tag "${image}@${digest}" "$upstream"
   trivy image --image-src docker --scanners vuln --pkg-types os --ignore-unfixed \
     --format json --output "$report" "$upstream"
-  copa patch --image "$upstream" --report "$report" --tag "${GITHUB_SHA}-${arch}" \
-    --addr docker:// --loader docker --timeout 20m --progress plain
-  source_repository=${upstream%:*}
-  docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
+  updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$report")
+  if [[ "$updates" -eq 0 ]]; then
+    docker tag "$upstream" "$patched"
+  else
+    copa patch --image "$upstream" --report "$report" --tag "${GITHUB_SHA}-${arch}" \
+      --addr docker:// --loader docker --timeout 20m --progress plain
+    source_repository=${upstream%:*}
+    docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
+  fi
   syft "docker:${patched}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
 done
 
