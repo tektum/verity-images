@@ -1,0 +1,67 @@
+# Verity Images
+
+[![build](https://github.com/tektum/verity-images/actions/workflows/build.yaml/badge.svg)](https://github.com/tektum/verity-images/actions/workflows/build.yaml)
+[Catalog](https://tektum.github.io/verity-images/)
+
+Verity Images is an open registry of small container images rebuilt daily from
+public inputs. The repository contains the complete build, scan, test, signing,
+SBOM, and provenance pipeline. Published vulnerability reports are tied to image
+digests so every claim can be checked.
+
+There are no accounts, private package feeds, or long-lived signing keys. A fork
+can run the same pipeline with only its GitHub workflow token.
+
+## Quickstart
+
+Pull by digest in production:
+
+```sh
+docker pull ghcr.io/tektum/nginx@sha256:DIGEST
+```
+
+Verify the keyless signature:
+
+```sh
+cosign verify \
+  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  ghcr.io/tektum/nginx@sha256:DIGEST
+```
+
+Fetch the SPDX JSON SBOM attestation:
+
+```sh
+cosign download attestation ghcr.io/tektum/nginx@sha256:DIGEST > attestation.json
+```
+
+The generated catalog links each digest to its scan result and verification
+commands.
+
+## Tracks
+
+The Wolfi track assembles minimal images from the public Wolfi package
+repository with apko. It publishes linux/amd64 and linux/arm64 images and fails
+on any fixable High or Critical vulnerability.
+
+The patched track starts from a pinned upstream Debian or slim image, scans it
+with Trivy, patches it with Copacetic, and records the residual vulnerability
+delta. It preserves upstream compatibility and platforms.
+
+Both tracks use the same `.github/actions/publish-image/action.yaml` tail for
+the scan gate, smoke test, digest signing, SPDX attestation, provenance, and tag
+promotion.
+
+## Repository map
+
+- `images/nginx/apko.yaml` defines the first Wolfi image.
+- `scripts/gen_matrix.py` generates the workflow matrix.
+- `.github/workflows/build.yaml` builds and publishes images.
+- `.github/workflows/lint.yaml` validates repository policy.
+- `docs/POLICY.md` defines publication and support policy.
+- `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
+
+To add an image, add one image directory with its build source, `metadata.yaml`,
+and `tests/test.sh`, then open a pull request. See `CONTRIBUTING.md` for the
+required fields and checks.
+
+Licensed under `LICENSE`.
