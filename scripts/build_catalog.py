@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 # How to run:
-#   uv run scripts/build_catalog.py BUILD_REPORT SCAN_DIR OUTPUT RUN_ID RUN_URL SOURCE_SHA PUBLISHED_AT
+#   uv run scripts/build_catalog.py BUILD_REPORT SCAN_DIR PREVIOUS OUTPUT RUN_ID RUN_URL SOURCE_SHA PUBLISHED_AT
 
 from __future__ import annotations
 
@@ -29,6 +29,14 @@ FILTER: Final = r"""
     provenance: ("gh attestation verify oci://" + .reference + " --repo tektum/verity-images")
   }
 ) |
+if $previous != "" then
+  . as $updates | input as $current |
+  .images = (reduce ($current.images + $updates.images)[] as $image ({};
+    .[$image.name + "@" + $image.version] = $image
+  ) | [.[]] | sort_by(.name, .version))
+else
+  .images |= sort_by(.name, .version)
+end |
 {
   schemaVersion: 1,
   publishedAt: $publishedAt,
@@ -49,10 +57,14 @@ def run(command: list[str]) -> str:
 
 
 def main() -> None:
-    if len(sys.argv) != 8:
-        raise SystemExit("usage: build_catalog.py BUILD_REPORT SCAN_DIR OUTPUT RUN_ID RUN_URL SOURCE_SHA PUBLISHED_AT")
-    report, scans, output = map(Path, sys.argv[1:4])
-    run_id, run_url, source_sha, published_at = sys.argv[4:]
+    if len(sys.argv) != 9:
+        raise SystemExit(
+            "usage: build_catalog.py BUILD_REPORT SCAN_DIR PREVIOUS OUTPUT RUN_ID RUN_URL SOURCE_SHA PUBLISHED_AT"
+        )
+    report, scans = map(Path, sys.argv[1:3])
+    previous = Path(sys.argv[3]) if sys.argv[3] else None
+    output = Path(sys.argv[4])
+    run_id, run_url, source_sha, published_at = sys.argv[5:]
     for line in run(["jq", "-r", ".images[] | [.name,.version] | @tsv", str(report)]).splitlines():
         name, version = line.split("\t", maxsplit=1)
         artifact = scans / f"scan-{name}-{version}"
@@ -80,8 +92,12 @@ def main() -> None:
             "--arg",
             "issuer",
             ISSUER,
+            "--arg",
+            "previous",
+            str(previous or ""),
             FILTER,
             str(report),
+            *([str(previous)] if previous else []),
         ]
     )
     _ = output.write_text(catalog, encoding="utf-8")
