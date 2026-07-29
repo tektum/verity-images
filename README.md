@@ -1,7 +1,7 @@
 # Verity Images
 
 [![build](https://github.com/tektum/verity-images/actions/workflows/build.yaml/badge.svg)](https://github.com/tektum/verity-images/actions/workflows/build.yaml)
-[Catalog data](https://github.com/tektum/verity-images/actions/workflows/catalog.yaml)
+[Catalog data](https://tektum.github.io/verity-images/catalog.json)
 
 Verity Images is an open registry of small container images rebuilt daily from
 public inputs. The repository contains the complete build, scan, test, signing,
