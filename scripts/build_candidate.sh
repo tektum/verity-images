@@ -70,7 +70,7 @@ EOF
   trivy image --image-src docker --scanners vuln --pkg-types library --ignore-unfixed \
     --format json --output "$library_report" "$patched"
   library_updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$library_report")
-  if [[ "$library_updates" -ne 0 && -z "$npm_version" ]]; then
+  if [[ "$library_updates" -ne 0 ]]; then
     library_source="${candidate}-library-${arch}"
     docker tag "$patched" "$library_source"
     COPA_EXPERIMENTAL=1 copa patch --image "$library_source" --report "$library_report" \
