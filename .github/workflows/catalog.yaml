@@ -97,11 +97,18 @@ jobs:
           run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ github.token }}
 
+      - name: Download current catalog
+        if: steps.artifacts.outputs.ready == 'true'
+        shell: bash
+        run: curl --fail --silent --show-error --location --output previous.json \
+          https://tektum.github.io/verity-images/catalog.json || rm -f previous.json
+
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
         run: |
-          python3 scripts/build_catalog.py input/report/build-report.json input/scans catalog.json \
+          python3 scripts/build_catalog.py input/report/build-report.json input/scans \
+            "$(test -f previous.json && printf previous.json)" catalog.json \
             '${{ steps.source.outputs.run-id }}' '${{ steps.source.outputs.run-url }}' \
             '${{ steps.source.outputs.source-sha }}' '${{ steps.source.outputs.published-at }}'
           jq -e '.schemaVersion == 1 and (.images | length > 0) and all(.images[]; \
