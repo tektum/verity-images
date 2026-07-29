@@ -90,6 +90,7 @@ jobs:
           docker load < "dist/${NAME}/image.tar"
 
       - name: Validate publish tail
+        id: publish
         uses: ./.github/actions/publish-image
         with:
           image-name: ${{ matrix.name }}
@@ -97,10 +98,32 @@ jobs:
           candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
-          version: ${{ matrix.versions[0] }}
+          version: ${{ matrix.version }}
+          publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
           sbom-directory: dist/${{ matrix.name }}/sbom
           lockfile: dist/${{ matrix.name }}/apko.lock.json
+
+      - name: Write build report
+        shell: bash
+        env:
+          DESCRIPTION: ${{ matrix.description }}
+          DIGEST: local
+          NAME: ${{ matrix.name }}
+          SCAN: ${{ steps.publish.outputs.scan-summary }}
+          TRACK: ${{ matrix.track }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
+            --arg description "$DESCRIPTION" --arg digest "$DIGEST" --argjson scan "$SCAN" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,scan:$scan}' \
+            > "report-${NAME}-${VERSION}.json"
+
+      - name: Upload build report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: report-${{ matrix.name }}-${{ matrix.version }}
+          path: report-${{ matrix.name }}-${{ matrix.version }}.json
 
   publish:
     if: github.event_name != 'pull_request' && fromJSON(needs.matrix.outputs.images).include[0] != null
@@ -112,7 +135,7 @@ jobs:
       id-token: write
       packages: write
     concurrency:
-      group: publish-${{ matrix.owner }}-${{ matrix.name }}
+      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.version }}
       cancel-in-progress: false
     strategy:
       fail-fast: false
@@ -160,13 +183,36 @@ jobs:
           candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
-          version: ${{ matrix.versions[0] }}
+          version: ${{ matrix.version }}
+          publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
           sbom-directory: dist/${{ matrix.name }}/sbom
           lockfile: dist/${{ matrix.name }}/apko.lock.json
           publish: "true"
           registry-username: ${{ github.actor }}
           registry-password: ${{ github.token }}
+
+      - name: Write build report
+        shell: bash
+        env:
+          DESCRIPTION: ${{ matrix.description }}
+          DIGEST: ${{ steps.publish.outputs.digest }}
+          NAME: ${{ matrix.name }}
+          SCAN: ${{ steps.publish.outputs.scan-summary }}
+          TAGS: ${{ steps.publish.outputs.tags }}
+          TRACK: ${{ matrix.track }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
+            --arg description "$DESCRIPTION" --arg digest "$DIGEST" --arg tags "$TAGS" --argjson scan "$SCAN" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,tags:$tags,scan:$scan}' \
+            > "report-${NAME}-${VERSION}.json"
+
+      - name: Upload build report
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: report-${{ matrix.name }}-${{ matrix.version }}
+          path: report-${{ matrix.name }}-${{ matrix.version }}.json
 
       - name: Add job summary
         shell: bash
@@ -178,3 +224,54 @@ jobs:
         run: |
           printf "## %s\n\n- Digest: \`%s\`\n- Tags: \`%s\`\n- Scan: \`%s\`\n" \
             "$NAME" "$DIGEST" "$TAGS" "$SCAN" >> "$GITHUB_STEP_SUMMARY"
+
+  build-gate:
+    if: always()
+    needs: [matrix, validate, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Require successful image jobs
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          IMAGES: ${{ needs.matrix.outputs.images }}
+          MATRIX_RESULT: ${{ needs.matrix.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          VALIDATE_RESULT: ${{ needs.validate.result }}
+        run: |
+          set -euo pipefail
+          [[ "$MATRIX_RESULT" == success ]]
+          [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
+          if [[ "$EVENT" == pull_request ]]; then
+            [[ "$VALIDATE_RESULT" == success ]]
+          else
+            [[ "$PUBLISH_RESULT" == success ]]
+          fi
+
+      - name: Download image reports
+        if: fromJSON(needs.matrix.outputs.images).include[0] != null
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          pattern: report-*
+          path: reports
+          merge-multiple: true
+
+      - name: Combine reports
+        if: fromJSON(needs.matrix.outputs.images).include[0] != null
+        shell: bash
+        run: |
+          jq -s '{images: sort_by(.name, .version)}' reports/*.json > build-report.json
+          {
+            printf '## Image build report\n\n'
+            printf '| Image | Version | Digest | Scan |\n|---|---|---|---|\n'
+            jq -r '.images[] | "| \(.name) | \(.version) | `\(.digest)` | `\(.scan | tojson)` |"' build-report.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload combined report
+        if: fromJSON(needs.matrix.outputs.images).include[0] != null
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: build-report
+          path: build-report.json

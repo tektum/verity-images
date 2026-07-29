@@ -21,11 +21,13 @@ SBOM.
 
 ## Tags and platforms
 
-Each successful publication moves three tags:
+Each successful version publication moves two tags:
 
 - `:<version>`
 - `:<version>-<YYYYMMDD>`
-- `:latest`
+
+The highest enabled version for each image also moves `:latest`. Older streams
+never overwrite `:latest` when rebuilt.
 
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
