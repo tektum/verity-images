@@ -20,6 +20,9 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
     ".github/workflows/build.yaml",
+    "scripts/build_candidate.sh",
+    "scripts/evaluate_scan_gate.sh",
+    "scripts/install_image_tools.sh",
     "scripts/gen_matrix.py",
 }
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
@@ -129,8 +132,8 @@ def parse_source(path: Path) -> Source:
         raise MetadataError(f"{path}: image must be fully qualified on docker.io")
     if not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
         raise MetadataError(f"{path}: digest must be a pinned sha256")
-    if not isinstance(platforms, tuple) or not platforms:
-        raise MetadataError(f"{path}: platforms must be a non-empty inline list")
+    if platforms != ("linux/amd64", "linux/arm64"):
+        raise MetadataError(f"{path}: platforms must be [linux/amd64, linux/arm64]")
     return Source(image=image, digest=digest, platforms=platforms)
 
 
@@ -173,6 +176,8 @@ def generate(base_ref: str | None) -> Matrix:
         smoke_test = directory / "tests/test.sh"
         if not required.is_file() or not smoke_test.is_file():
             raise MetadataError(f"{relative}: missing {required.name} or tests/test.sh")
+        if metadata.track == "wolfi" and not (directory / "apko.lock.json").is_file():
+            raise MetadataError(f"{relative}: missing apko.lock.json")
         if not metadata.enabled:
             continue
         platforms = "linux/amd64,linux/arm64"

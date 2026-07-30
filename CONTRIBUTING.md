@@ -4,9 +4,10 @@
 
 Add one directory under `images/` for a Wolfi image or `patched/` for an
 upstream-compatible image. Include `metadata.yaml`, `tests/test.sh`, and either
-`apko.yaml` or `source.yaml`. The smoke test must run the built image and assert
-real behavior. Open a pull request; CI generates the affected matrix, builds the
-image, scans it, and runs the smoke test without publishing.
+`apko.yaml` plus its reviewed `apko.lock.json`, or `source.yaml`. The smoke test
+must run the built image and assert real behavior. Open a pull request; CI
+generates the affected matrix, builds the image, scans it, and runs the smoke test
+without publishing.
 
 Metadata uses this schema:
 
@@ -21,8 +22,8 @@ enabled: true
 ```
 
 Use lowercase image names and current upstream versions. Do not add private
-repositories, credentials, custom package feeds, or generated lock files to a
-pull request unless the build source requires them.
+repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
+update for review with its source change.
 
 ## Style
 
@@ -31,7 +32,7 @@ pull request unless the build source requires them.
   comment.
 - Keep job permissions empty by default and opt in per job.
 - Use shell scripts compatible with POSIX `sh`.
-- Run `.github/workflows/lint.yaml` checks locally before requesting review.
+- Run `devbox run lint` before requesting review.
 
 ## Recommended branch protection
 
