@@ -1,10 +1,6 @@
-vars:
-  caddy-version: "2.11.4"
-  caddy-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
-
 package:
   name: caddy
-  version: ${{vars.caddy-version}}
+  version: "2.11.4"
   epoch: 5
   description: Fast and extensible HTTP/1-2-3 web server with automatic HTTPS
   copyright:
@@ -26,10 +22,9 @@ pipeline:
     with:
       repository: https://github.com/caddyserver/caddy
       tag: v${{package.version}}
-      expected-commit: ${{vars.caddy-commit}}
-  - uses: patch
-    with:
-      patches: cel-go-0.29.patch
+      expected-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
+      cherry-picks: |
+        master/b2693fb63a30e6d7be0972c3645e9a2c0a500e93: update CEL APIs for cel-go v0.29.2
   - uses: go/bump
     with:
       deps: |-
