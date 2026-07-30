@@ -126,8 +126,7 @@ runs:
         for arch in amd64 arm64; do
           docker tag "${CANDIDATE}-${arch}" "${TARGET}:${transport}-${arch}"
           pushed=$(docker push "${TARGET}:${transport}-${arch}")
-          digest=$(awk '/digest: sha256:/ {print $2}' <<<"$pushed")
-          [[ "$digest" == sha256:* ]]
+          digest=$(printf '%s\n' "$pushed" | scripts/parse_push_digest.sh)
           references+=("${TARGET}@${digest}")
         done
         docker manifest create "${TARGET}:${transport}" \
