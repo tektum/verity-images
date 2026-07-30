@@ -15,8 +15,10 @@ permissions: {}
 jobs:
   catalog:
     if: >-
-      github.event_name == 'workflow_dispatch' ||
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      )
     runs-on: ubuntu-latest
     outputs:
       ready: ${{ steps.artifacts.outputs.ready }}
@@ -27,7 +29,11 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Install locked catalog tools
+        uses: ./.github/actions/setup-devbox
 
       - name: Select source run
         id: source
@@ -36,24 +42,32 @@ jobs:
           DISPATCH_RUN_ID: ${{ inputs.run-id }}
           EVENT: ${{ github.event_name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
-          EVENT_RUN_URL: ${{ github.event.workflow_run.html_url }}
-          EVENT_SHA: ${{ github.event.workflow_run.head_sha }}
-          EVENT_TIME: ${{ github.event.workflow_run.updated_at }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |
+          set -euo pipefail
           if [[ "$EVENT" == workflow_dispatch ]]; then
-            metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${DISPATCH_RUN_ID}")
-            {
-              printf 'run-id=%s\n' "$DISPATCH_RUN_ID"
-              printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")"
-              printf 'source-sha=%s\n' "$(jq -r .head_sha <<<"$metadata")"
-              printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
-            } >> "$GITHUB_OUTPUT"
+            run_id=$DISPATCH_RUN_ID
           else
-            printf 'run-id=%s\nrun-url=%s\nsource-sha=%s\npublished-at=%s\n' \
-              "$EVENT_RUN_ID" "$EVENT_RUN_URL" "$EVENT_SHA" "$EVENT_TIME" >> "$GITHUB_OUTPUT"
+            run_id=$EVENT_RUN_ID
           fi
+          metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")
+          jq -e --arg repository "$REPOSITORY" '
+            .name == "Build images" and
+            .path == ".github/workflows/build.yaml" and
+            .conclusion == "success" and
+            .head_branch == "main" and
+            .head_repository.full_name == $repository and
+            (.event == "push" or .event == "schedule" or .event == "workflow_dispatch")
+          ' <<<"$metadata" >/dev/null
+          source_sha=$(jq -r .head_sha <<<"$metadata")
+          git merge-base --is-ancestor "$source_sha" HEAD
+          {
+            printf 'run-id=%s\n' "$run_id"
+            printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")"
+            printf 'source-sha=%s\n' "$source_sha"
+            printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Check source artifacts
         id: artifacts
@@ -97,24 +111,33 @@ jobs:
           run-id: ${{ steps.source.outputs.run-id }}
           github-token: ${{ github.token }}
 
-      - name: Download current catalog
+      - name: Validate build report
         if: steps.artifacts.outputs.ready == 'true'
-        shell: bash
         run: |
-          curl --fail --silent --show-error --location --output previous.json \
-            https://tektum.github.io/verity-images/catalog.json || rm -f previous.json
+          jq -e '
+            (.images | length > 0) and
+            all(.images[];
+              (.name | type == "string" and length > 0) and
+              (.version | type == "string" and length > 0) and
+              (.track == "wolfi" or .track == "patched") and
+              (.digest | test("^sha256:[0-9a-f]{64}$")) and
+              (.tags | type == "string" and length > 0) and
+              (.scan | type == "object")
+            )
+          ' input/report/build-report.json >/dev/null
 
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
         run: |
-          python3 scripts/build_catalog.py input/report/build-report.json input/scans \
-            "$(test -f previous.json && printf previous.json)" catalog.json \
+          devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
+            "" catalog.json \
             '${{ steps.source.outputs.run-id }}' '${{ steps.source.outputs.run-url }}' \
             '${{ steps.source.outputs.source-sha }}' '${{ steps.source.outputs.published-at }}'
-          jq -e '.schemaVersion == 1 and (.images | length > 0) and
-            all(.images[]; if .track == "patched" then .scan.final == {} else .scan == {} end)' \
+          devbox run -- jq -e '.schemaVersion == 2 and (.images | length > 0) and
+            all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
+          devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
 
       - name: Upload catalog data
         if: steps.artifacts.outputs.ready == 'true'
