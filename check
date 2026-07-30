@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+
+root=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+
+case "${1:-}" in
+  "") ;;
+  -h|--help)
+    printf 'usage: ./check\n\nRun the complete local pre-PR verification suite.\n'
+    exit 0
+    ;;
+  *)
+    printf 'usage: ./check\n' >&2
+    exit 2
+    ;;
+esac
+
+exec "$root/scripts/devbox.sh" run lint

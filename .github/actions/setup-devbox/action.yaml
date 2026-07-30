@@ -19,13 +19,5 @@ runs:
     - name: Install verified Devbox 0.17.5
       shell: bash
       run: |
-        curl --fail --location --silent --show-error \
-          https://github.com/jetify-com/devbox/releases/download/0.17.5/devbox_0.17.5_linux_amd64.tar.gz \
-          --output /tmp/devbox.tar.gz
-        printf '%s  %s\n' \
-          eb2d8fb34266ba3befc294d7d6f56e2cd4da2cacb7a0cf52db5b8092575544f8 \
-          /tmp/devbox.tar.gz | sha256sum --check
-        tar -xzf /tmp/devbox.tar.gz -C /tmp
-        mkdir -p "$HOME/.local/bin"
-        install /tmp/devbox "$HOME/.local/bin/devbox"
+        DEVBOX_BIN_DIR="$HOME/.local/bin" scripts/devbox.sh version
         printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"
