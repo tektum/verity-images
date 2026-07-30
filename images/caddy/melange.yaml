@@ -1,6 +1,10 @@
+vars:
+  caddy-version: "2.11.4"
+  caddy-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
+
 package:
   name: caddy
-  version: "2.11.4"
+  version: ${{vars.caddy-version}}
   epoch: 5
   description: Fast and extensible HTTP/1-2-3 web server with automatic HTTPS
   copyright:
@@ -22,13 +26,23 @@ pipeline:
     with:
       repository: https://github.com/caddyserver/caddy
       tag: v${{package.version}}
-      expected-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
-      cherry-picks: |
-        master/b2693fb63a30e6d7be0972c3645e9a2c0a500e93: update CEL APIs for cel-go v0.29.2
+      expected-commit: ${{vars.caddy-commit}}
+  - uses: patch
+    with:
+      patches: cel-go-0.29.patch
   - uses: go/bump
     with:
       deps: |-
+        github.com/go-jose/go-jose/v3@v3.0.5
+        github.com/go-jose/go-jose/v4@v4.1.4
+        github.com/google/cel-go@v0.29.2
+        github.com/jackc/pgx/v5@v5.9.2
+        github.com/quic-go/quic-go@v0.59.1
+        github.com/smallstep/certificates@v0.30.2
         go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.19.0
+        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0
+        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
         go.opentelemetry.io/otel/metric@v1.44.0
         go.opentelemetry.io/otel/sdk@v1.44.0
         go.opentelemetry.io/otel/sdk/metric@v1.44.0
