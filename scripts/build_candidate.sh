@@ -17,15 +17,17 @@ if [[ "$track" == wolfi ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
     config=$(mktemp)
+    vars=()
+    [[ -f "${context}/versions/${version}.yaml" ]] && vars=(--vars-file "${context}/versions/${version}.yaml")
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
     melange keygen "$key"
     if [[ -f "${context}/${flavor}.env" ]]; then
       melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
         --signing-key "$key" --out-dir "${output}/packages" --generate-provenance \
-        --env-file "${context}/${flavor}.env"
+        --env-file "${context}/${flavor}.env" "${vars[@]}"
     else
       melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance
+        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance "${vars[@]}"
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on
