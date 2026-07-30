@@ -115,6 +115,7 @@ jobs:
           major: ${{ matrix.major }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
+          build-directory: dist/${{ matrix.build_name }}
           sbom-directory: dist/${{ matrix.build_name }}/sbom
           evidence-file: ${{ matrix.evidence_file }}
 
@@ -208,6 +209,7 @@ jobs:
           major: ${{ matrix.major }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
+          build-directory: dist/${{ matrix.build_name }}
           sbom-directory: dist/${{ matrix.build_name }}/sbom
           evidence-file: ${{ matrix.evidence_file }}
           publish: "true"

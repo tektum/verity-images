@@ -21,11 +21,11 @@ if [[ "$track" == wolfi ]]; then
     melange keygen "$key"
     if [[ -f "${context}/${flavor}.env" ]]; then
       melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" \
+        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance \
         --env-file "${context}/${flavor}.env"
     else
       melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages"
+        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on

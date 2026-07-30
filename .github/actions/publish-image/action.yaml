@@ -38,6 +38,9 @@ inputs:
   context:
     description: Image source directory.
     required: true
+  build-directory:
+    description: Directory containing build evidence and generated packages.
+    required: true
   sbom-directory:
     description: Directory containing native SPDX JSON files.
     required: true
@@ -168,8 +171,12 @@ runs:
           scan-${{ inputs.image-name }}-*.json
           ${{ inputs.evidence-file }}
           ${{ inputs.sbom-directory }}/*.spdx.json
+          ${{ inputs.context }}/melange.yaml
+          ${{ inputs.context }}/*.env
           ${{ inputs.context }}/source.yaml
-          dist/${{ inputs.image-name }}/trivy-*.json
+          ${{ inputs.build-directory }}/packages/**/*.attest.tar.gz
+          ${{ inputs.build-directory }}/packages/**/*-build-metadata-*.apk
+          ${{ inputs.build-directory }}/trivy-*.json
         if-no-files-found: error
 
     - name: Install cosign
