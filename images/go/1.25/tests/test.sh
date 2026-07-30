@@ -21,7 +21,7 @@ func main() {
 EOF
 
 expected_enabled=false
-expected_version=
+expected_version=off
 if [ "$flavor" = fips ]; then
   expected_enabled=true
   expected_version=v1.0.0
