@@ -1,7 +1,8 @@
 name: go
 track: wolfi
-description: Go 1.26 toolchain assembled from Wolfi packages.
+description: Go 1.26 toolchain assembled from Wolfi packages with plain and FIPS flavors.
 upstream: https://go.dev/
 versions: [1.26]
+flavors: [plain, fips]
 owner: tektum
 enabled: true
