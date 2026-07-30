@@ -14,7 +14,7 @@ mkdir -p "${output}/sbom"
 if [[ "$track" == wolfi ]]; then
   config="${context}/apko.yaml"
   lockfile="${context}/apko.lock.json"
-  if [[ "$flavor" != plain && -f "${context}/${flavor}.apko.yaml" ]]; then
+  if [[ "$flavor" != plain ]]; then
     config="${context}/${flavor}.apko.yaml"
     lockfile="${context}/${flavor}.apko.lock.json"
   fi
