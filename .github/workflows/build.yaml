@@ -10,6 +10,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: build-images-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   APKO_VERSION: 1.2.29
   APKO_SHA256: cfc96582d2643271bf94577c0747953718d7b9f0760d0685ba5225a9bd754626
@@ -147,13 +151,14 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       attestations: write
       contents: read
       id-token: write
       packages: write
     concurrency:
-      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.flavor }}
+      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}
       cancel-in-progress: false
     environment: release
     strategy:
