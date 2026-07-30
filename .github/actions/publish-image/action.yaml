@@ -173,7 +173,6 @@ runs:
           ${{ inputs.sbom-directory }}/*.spdx.json
           ${{ inputs.context }}/melange.yaml
           ${{ inputs.context }}/*.env
-          ${{ inputs.context }}/versions/${{ inputs.version }}.yaml
           ${{ inputs.context }}/source.yaml
           ${{ inputs.build-directory }}/packages/**/*.attest.tar.gz
           ${{ inputs.build-directory }}/packages/**/*-build-metadata-*.apk
