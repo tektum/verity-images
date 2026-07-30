@@ -123,6 +123,14 @@ Trivy does not generate an SBOM.
 - Per-image workflow families and sharding: one generated matrix and one shared
   publish action are enough for the v1 catalog.
 
+## Revisited decisions
+
+- Caddy requires one locally built package so its plain and Go FIPS flavors use
+  the same pinned source. Melange signs an ephemeral repository consumed only
+  by APKO during that build; no package repository or signing key is published.
+- Caddy publishes major, minor, and latest discovery tags for each flavor.
+  Production consumers remain directed to signed digests.
+
 ## Rebuild decisions
 
 - Patched upstream digest updates are recorded in build metadata, not committed

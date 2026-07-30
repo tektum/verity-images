@@ -30,13 +30,17 @@ SBOM.
 
 ## Tags and platforms
 
-Each successful version publication moves two tags:
+Each successful version publication moves a version tag and either a dated tag
+or, when declared by the image metadata, a major-version tag:
 
 - `:<version>`
-- `:<version>-<YYYYMMDD>`
+- `:<version>-<YYYYMMDD>` or `:<major>`
 
 The highest enabled version for each image also moves `:latest`. Older streams
 never overwrite `:latest` when rebuilt.
+
+Non-default flavors suffix every tag, for example `:2-fips`, `:2.11-fips`, and
+`:latest-fips`.
 
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
