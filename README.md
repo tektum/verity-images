@@ -49,7 +49,8 @@ on any fixable vulnerability.
 The starting Wolfi catalog includes static and wolfi-base images, Node.js
 20/22/24/26, Python 3.10/3.11/3.12/3.13/3.14, Go 1.25/1.26, nginx, and Caddy.
 Caddy is compiled into local plain and FIPS APK flavors with Melange before
-APKO assembles the corresponding image tags.
+APKO assembles the corresponding image tags. Go toolchains also publish FIPS
+flavors that build with the Go Cryptographic Module v1.0.0 enabled by default.
 Each language stream is built from its versioned Wolfi package. Go 1.24 is
 defined but disabled because its last Wolfi package has fixable High and
 Critical vulnerabilities and no fixed 1.24 release exists.
