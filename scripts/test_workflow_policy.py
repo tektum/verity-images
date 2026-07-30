@@ -49,6 +49,20 @@ VERIFY_STEP_COMMANDS: Final = (
     SIGNATURE_COMMAND,
     ATTESTATION_COMMAND,
 )
+CATALOG_JQ_FILTER: Final = (
+    ".schemaVersion == 2 and (.images | length > 0) and "
+    "all(.images[]; .scan.fixable == 0)"
+)
+CATALOG_JQ_COMMAND: Final = (
+    "devbox",
+    "run",
+    "--",
+    "jq",
+    "-e",
+    CATALOG_JQ_FILTER,
+    "catalog.json",
+    ">/dev/null",
+)
 
 
 def between(text: str, start: str, end: str) -> str:
@@ -78,6 +92,7 @@ def main() -> None:
     action = (ROOT / ".github/actions/publish-image/action.yaml").read_text(
         encoding="utf-8"
     )
+    catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
     verify_step = between(
@@ -105,6 +120,15 @@ def main() -> None:
         "      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}\n"
         "      cancel-in-progress: false\n"
     ) in publish_job
+
+    catalog_step = between(
+        catalog,
+        "      - name: Generate catalog\n",
+        "\n      - name: Upload catalog data\n",
+    )
+    assert catalog_step.count("        run: |\n") == 1
+    catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
+    assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
 
 
 if __name__ == "__main__":
