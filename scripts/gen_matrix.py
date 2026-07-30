@@ -23,6 +23,7 @@ GLOBAL_PATHS: Final = {
     "scripts/build_candidate.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/install_image_tools.sh",
+    "scripts/parse_push_digest.sh",
     "scripts/gen_matrix.py",
 }
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
