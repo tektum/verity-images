@@ -1,19 +1,44 @@
 #!/bin/bash
 set -euo pipefail
 
-context=${1:?usage: build_candidate.sh CONTEXT NAME TRACK VERSION}
-name=${2:?usage: build_candidate.sh CONTEXT NAME TRACK VERSION}
-track=${3:?usage: build_candidate.sh CONTEXT NAME TRACK VERSION}
-version=${4:?usage: build_candidate.sh CONTEXT NAME TRACK VERSION}
-output="dist/${name}"
-candidate="local/verity-${name}:${GITHUB_SHA}"
+context=${1:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
+build_name=${2:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
+flavor=${3:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
+track=${4:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
+version=${5:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
+output="dist/${build_name}"
+candidate="local/verity-${build_name}:${GITHUB_SHA}"
 
 mkdir -p "${output}/sbom"
 
 if [[ "$track" == wolfi ]]; then
-  apko show-config "${context}/apko.yaml" >/dev/null
-  cp "${context}/apko.lock.json" "${output}/apko.lock.json"
-  apko build "${context}/apko.yaml" "$candidate" "${output}/image.tar" \
+  config="${context}/apko.yaml"
+  if [[ -f "${context}/melange.yaml" ]]; then
+    key_dir=$(mktemp -d)
+    key="$key_dir/melange.rsa"
+    config=$(mktemp)
+    trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
+    melange keygen "$key"
+    if [[ -f "${context}/${flavor}.env" ]]; then
+      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
+        --signing-key "$key" --out-dir "${output}/packages" \
+        --env-file "${context}/${flavor}.env"
+    else
+      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
+        --signing-key "$key" --out-dir "${output}/packages"
+    fi
+    godebug=fips140=off
+    [[ "$flavor" == fips ]] && godebug=fips140=on
+    sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
+      -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
+      "${context}/apko.yaml" > "$config"
+    apko show-config "$config" >/dev/null
+    apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"
+  else
+    apko show-config "$config" >/dev/null
+    cp "${context}/apko.lock.json" "${output}/apko.lock.json"
+  fi
+  apko build "$config" "$candidate" "${output}/image.tar" \
     --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/sbom"
   docker load < "${output}/image.tar"
   printf '%s\n' "${output}/apko.lock.json" > "${output}/evidence-path"
@@ -25,7 +50,7 @@ pinned=$(awk '$1 == "digest:" {print $2}' "${context}/source.yaml")
 npm_version=$(awk '$1 == "npm-version:" {print $2}' "${context}/source.yaml")
 digest=$pinned
 
-jq -n --arg image "$image" --arg pinned "$pinned" --arg resolved "$digest" \
+  jq -n --arg image "$image" --arg pinned "$pinned" --arg resolved "$digest" \
   --arg version "$version" \
   '{image:$image,pinnedDigest:$pinned,resolvedDigest:$resolved,version:$version}' \
   > "${output}/source-resolved.json"

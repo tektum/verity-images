@@ -13,6 +13,8 @@ permissions: {}
 env:
   APKO_VERSION: 1.2.29
   APKO_SHA256: cfc96582d2643271bf94577c0747953718d7b9f0760d0685ba5225a9bd754626
+  MELANGE_VERSION: 0.56.4
+  MELANGE_SHA256: ebb54361ef1d853002841f279776fa2ee3019ae2490c3184045bc1b9aeb3d7d8
   COPA_VERSION: 0.14.2
   COPA_SHA256: 756c6e0f287dc7839c0a72e91b4d4712b1d8cd86a7233c068c0208a28bcb9ede
   SYFT_VERSION: 1.50.0
@@ -89,12 +91,13 @@ jobs:
       - name: Build candidate
         shell: bash
         env:
+          BUILD_NAME: ${{ matrix.build_name }}
           CONTEXT: ${{ matrix.context }}
-          NAME: ${{ matrix.name }}
+          FLAVOR: ${{ matrix.flavor }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
         run: |
-          scripts/build_candidate.sh "$CONTEXT" "$NAME" "$TRACK" "$VERSION"
+          scripts/build_candidate.sh "$CONTEXT" "$BUILD_NAME" "$FLAVOR" "$TRACK" "$VERSION"
 
       - name: Validate publish tail
         id: publish
@@ -102,14 +105,17 @@ jobs:
         with:
           image-name: ${{ matrix.name }}
           track: ${{ matrix.track }}
-          candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
-          upstream-image: local/verity-${{ matrix.name }}:${{ github.sha }}-upstream
+          candidate-image: local/verity-${{ matrix.build_name }}:${{ github.sha }}
+          upstream-image: local/verity-${{ matrix.build_name }}:${{ github.sha }}-upstream
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
+          tag-version: ${{ matrix.tag_version }}
+          flavor: ${{ matrix.flavor }}
+          major: ${{ matrix.major }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
-          sbom-directory: dist/${{ matrix.name }}/sbom
+          sbom-directory: dist/${{ matrix.build_name }}/sbom
           evidence-file: ${{ matrix.evidence_file }}
 
       - name: Write build report
@@ -120,7 +126,7 @@ jobs:
           NAME: ${{ matrix.name }}
           SCAN: ${{ steps.publish.outputs.scan-summary }}
           TRACK: ${{ matrix.track }}
-          VERSION: ${{ matrix.version }}
+          VERSION: ${{ matrix.tag_version }}
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --argjson scan "$SCAN" \
@@ -130,8 +136,8 @@ jobs:
       - name: Upload build report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: report-${{ matrix.name }}-${{ matrix.version }}
-          path: report-${{ matrix.name }}-${{ matrix.version }}.json
+          name: report-${{ matrix.name }}-${{ matrix.tag_version }}
+          path: report-${{ matrix.name }}-${{ matrix.tag_version }}.json
 
   publish:
     if: >-
@@ -146,7 +152,7 @@ jobs:
       id-token: write
       packages: write
     concurrency:
-      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.version }}
+      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.flavor }}
       cancel-in-progress: false
     environment: release
     strategy:
@@ -178,12 +184,13 @@ jobs:
       - name: Build candidate
         shell: bash
         env:
+          BUILD_NAME: ${{ matrix.build_name }}
           CONTEXT: ${{ matrix.context }}
-          NAME: ${{ matrix.name }}
+          FLAVOR: ${{ matrix.flavor }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
         run: |
-          scripts/build_candidate.sh "$CONTEXT" "$NAME" "$TRACK" "$VERSION"
+          scripts/build_candidate.sh "$CONTEXT" "$BUILD_NAME" "$FLAVOR" "$TRACK" "$VERSION"
 
       - name: Publish image
         id: publish
@@ -191,14 +198,17 @@ jobs:
         with:
           image-name: ${{ matrix.name }}
           track: ${{ matrix.track }}
-          candidate-image: local/verity-${{ matrix.name }}:${{ github.sha }}
-          upstream-image: local/verity-${{ matrix.name }}:${{ github.sha }}-upstream
+          candidate-image: local/verity-${{ matrix.build_name }}:${{ github.sha }}
+          upstream-image: local/verity-${{ matrix.build_name }}:${{ github.sha }}-upstream
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
+          tag-version: ${{ matrix.tag_version }}
+          flavor: ${{ matrix.flavor }}
+          major: ${{ matrix.major }}
           publish-latest: ${{ matrix.latest }}
           context: ${{ matrix.context }}
-          sbom-directory: dist/${{ matrix.name }}/sbom
+          sbom-directory: dist/${{ matrix.build_name }}/sbom
           evidence-file: ${{ matrix.evidence_file }}
           publish: "true"
           registry-username: ${{ github.actor }}
@@ -213,7 +223,7 @@ jobs:
           SCAN: ${{ steps.publish.outputs.scan-summary }}
           TAGS: ${{ steps.publish.outputs.tags }}
           TRACK: ${{ matrix.track }}
-          VERSION: ${{ matrix.version }}
+          VERSION: ${{ matrix.tag_version }}
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --arg tags "$TAGS" --argjson scan "$SCAN" \
@@ -223,8 +233,8 @@ jobs:
       - name: Upload build report
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: report-${{ matrix.name }}-${{ matrix.version }}
-          path: report-${{ matrix.name }}-${{ matrix.version }}.json
+          name: report-${{ matrix.name }}-${{ matrix.tag_version }}
+          path: report-${{ matrix.name }}-${{ matrix.tag_version }}.json
 
       - name: Add job summary
         shell: bash
