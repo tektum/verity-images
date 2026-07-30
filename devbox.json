@@ -15,7 +15,7 @@
       "lint": [
         "actionlint",
         "yamllint .",
-        "find . -path '*/tests/test.sh' -type f -exec shellcheck {} +",
+        "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
         "python3 scripts/gen_matrix.py --all >/dev/null",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",

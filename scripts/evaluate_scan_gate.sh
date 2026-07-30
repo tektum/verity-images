@@ -53,7 +53,6 @@ blockers=$(jq -s -r '
   unique_by(.id,.package,.installed) |
   map("\(.severity) \(.id) in \(.package) \(.installed) -> \(.fixed)") |
   join("; ")' "${files[@]}")
-message='::error title=Fixable vulnerabilities block %s::Found %s fixable findings across %s. '
-message+='Severity summary: %s. %s\n'
-printf "$message" "$image_name" "$count" "${#files[@]} platforms" "$final" "$blockers"
+printf '::error title=Fixable vulnerabilities block %s::Found %s fixable findings across %s. Severity summary: %s. %s\n' \
+  "$image_name" "$count" "${#files[@]} platforms" "$final" "$blockers"
 exit 1
