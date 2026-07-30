@@ -17,6 +17,7 @@
         "yamllint .",
         "find . -path '*/tests/test.sh' -type f -exec shellcheck {} +",
         "python3 scripts/gen_matrix.py --all >/dev/null",
+        "python3 scripts/test_gen_matrix.py",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",
         "scripts/test_evaluate_scan_gate.sh",
