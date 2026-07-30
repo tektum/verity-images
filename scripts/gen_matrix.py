@@ -109,8 +109,8 @@ def parse_metadata(path: Path) -> Metadata:
         case _:
             raise MetadataError(f"{path}: track must be wolfi or patched")
     versions = values["versions"]
-    if not isinstance(versions, tuple) or not versions or len(versions) != len(set(versions)):
-        raise MetadataError(f"{path}: versions must be a non-empty unique list")
+    if not isinstance(versions, tuple) or len(versions) != 1:
+        raise MetadataError(f"{path}: versions must contain exactly one version")
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
@@ -177,12 +177,7 @@ def generate(base_ref: str | None) -> Matrix:
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     latest = {
         metadata.name: max(
-            (
-                version
-                for _, candidate in catalog
-                if candidate.name == metadata.name
-                for version in candidate.versions
-            ),
+            (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
             key=version_key,
         )
         for _, metadata in catalog
@@ -210,31 +205,32 @@ def generate(base_ref: str | None) -> Matrix:
             if source.image != metadata.upstream:
                 raise MetadataError(f"{relative}: metadata upstream must match source image")
             platforms = ",".join(source.platforms)
-        for version in metadata.versions:
-            for flavor in metadata.flavors:
-                build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
-                entries.append(
-                    {
-                        "name": metadata.name,
-                        "build_name": build_name,
-                        "flavor": flavor,
-                        "track": metadata.track,
-                        "context": relative,
-                        "platforms": platforms,
-                        "description": metadata.description,
-                        "upstream": metadata.upstream,
-                        "version": version,
-                        "tag_version": version if flavor == "plain" else f"{version}-{flavor}",
-                        "major": metadata.major if version == latest[metadata.name] else "",
-                        "latest": version == latest[metadata.name],
-                        "owner": metadata.owner,
-                        "evidence_file": (
-                            f"dist/{build_name}/apko.lock.json"
-                            if metadata.track == "wolfi"
-                            else f"dist/{build_name}/source-resolved.json"
-                        ),
-                    }
-                )
+        for flavor in metadata.flavors:
+            build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
+            entries.append(
+                {
+                    "name": metadata.name,
+                    "build_name": build_name,
+                    "flavor": flavor,
+                    "track": metadata.track,
+                    "context": relative,
+                    "platforms": platforms,
+                    "description": metadata.description,
+                    "upstream": metadata.upstream,
+                    "version": metadata.versions[0],
+                    "tag_version": (
+                        metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
+                    ),
+                    "major": metadata.major if metadata.versions[0] == latest[metadata.name] else "",
+                    "latest": metadata.versions[0] == latest[metadata.name],
+                    "owner": metadata.owner,
+                    "evidence_file": (
+                        f"dist/{build_name}/apko.lock.json"
+                        if metadata.track == "wolfi"
+                        else f"dist/{build_name}/source-resolved.json"
+                    ),
+                }
+            )
     return {"include": entries}
 
 
