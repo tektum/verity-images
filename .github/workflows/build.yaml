@@ -17,6 +17,8 @@ env:
   COPA_SHA256: 756c6e0f287dc7839c0a72e91b4d4712b1d8cd86a7233c068c0208a28bcb9ede
   SYFT_VERSION: 1.50.0
   SYFT_SHA256: bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788
+  GRYPE_VERSION: 0.115.0
+  GRYPE_SHA256: 3fad92940650e514c0aa2dad83526942a055e210cec09a8a59d9c024adc2b90e
   TRIVY_VERSION: 0.72.0
   TRIVY_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
 
@@ -48,12 +50,12 @@ jobs:
           elif [[ "$EVENT" == pull_request ]]; then
             matrix=$(python3 scripts/gen_matrix.py --changed "origin/${BASE_REF}")
           else
-            matrix=$(python3 scripts/gen_matrix.py --changed "$BEFORE")
+            matrix=$(python3 scripts/gen_matrix.py --all)
           fi
           printf 'images=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
   validate:
-    if: github.event_name == 'pull_request' && fromJSON(needs.matrix.outputs.images).include[0] != null
+    if: github.ref != 'refs/heads/main' && fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: ubuntu-latest
     permissions:
@@ -68,8 +70,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up QEMU
-        if: matrix.track == 'patched'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+        with:
+          image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
       - name: Enable Docker containerd snapshotter
         if: matrix.track == 'patched'
@@ -87,7 +90,6 @@ jobs:
         shell: bash
         env:
           CONTEXT: ${{ matrix.context }}
-          REFRESH_SOURCE: "false"
           NAME: ${{ matrix.name }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
@@ -132,7 +134,10 @@ jobs:
           path: report-${{ matrix.name }}-${{ matrix.version }}.json
 
   publish:
-    if: github.event_name != 'pull_request' && fromJSON(needs.matrix.outputs.images).include[0] != null
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: ubuntu-latest
     permissions:
@@ -143,6 +148,7 @@ jobs:
     concurrency:
       group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.version }}
       cancel-in-progress: false
+    environment: release
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.matrix.outputs.images) }}
@@ -153,8 +159,9 @@ jobs:
           persist-credentials: false
 
       - name: Set up QEMU
-        if: matrix.track == 'patched'
         uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a  # v4.0.0
+        with:
+          image: docker.io/tonistiigi/binfmt@sha256:400a4873b838d1b89194d982c45e5fb3cda4593fbfd7e08a02e76b03b21166f0
 
       - name: Enable Docker containerd snapshotter
         if: matrix.track == 'patched'
@@ -172,7 +179,6 @@ jobs:
         shell: bash
         env:
           CONTEXT: ${{ matrix.context }}
-          REFRESH_SOURCE: ${{ github.event_name == 'schedule' && 'true' || 'false' }}
           NAME: ${{ matrix.name }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
@@ -250,7 +256,7 @@ jobs:
           set -euo pipefail
           [[ "$MATRIX_RESULT" == success ]]
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
-          if [[ "$EVENT" == pull_request ]]; then
+          if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
           else
             [[ "$PUBLISH_RESULT" == success ]]

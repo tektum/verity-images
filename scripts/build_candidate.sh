@@ -12,7 +12,7 @@ mkdir -p "${output}/sbom"
 
 if [[ "$track" == wolfi ]]; then
   apko show-config "${context}/apko.yaml" >/dev/null
-  apko lock "${context}/apko.yaml" --arch amd64,arm64 --output "${output}/apko.lock.json"
+  cp "${context}/apko.lock.json" "${output}/apko.lock.json"
   apko build "${context}/apko.yaml" "$candidate" "${output}/image.tar" \
     --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/sbom"
   docker load < "${output}/image.tar"
@@ -24,9 +24,6 @@ image=$(awk '$1 == "image:" {print $2}' "${context}/source.yaml")
 pinned=$(awk '$1 == "digest:" {print $2}' "${context}/source.yaml")
 npm_version=$(awk '$1 == "npm-version:" {print $2}' "${context}/source.yaml")
 digest=$pinned
-if [[ "${REFRESH_SOURCE:-false}" == true ]]; then
-  digest="sha256:$(docker buildx imagetools inspect "$image" --raw | sha256sum | cut -d' ' -f1)"
-fi
 
 jq -n --arg image "$image" --arg pinned "$pinned" --arg resolved "$digest" \
   --arg version "$version" \

@@ -1,0 +1,31 @@
+name: Set up locked Devbox
+description: Install checksum-verified Nix and Devbox binaries.
+
+runs:
+  using: composite
+  steps:
+    - name: Install verified Nix 3.21.8
+      shell: bash
+      run: |
+        curl --fail --location --silent --show-error \
+          https://github.com/DeterminateSystems/nix-installer/releases/download/v3.21.8/nix-installer-x86_64-linux \
+          --output /tmp/nix-installer
+        printf '%s  %s\n' \
+          eecf66f62b044f40b0632d8e9ea72ffc3bd3214357d09317117febff748e71b3 \
+          /tmp/nix-installer | sha256sum --check
+        chmod +x /tmp/nix-installer
+        /tmp/nix-installer install --no-confirm --diagnostic-endpoint ""
+
+    - name: Install verified Devbox 0.17.5
+      shell: bash
+      run: |
+        curl --fail --location --silent --show-error \
+          https://github.com/jetify-com/devbox/releases/download/0.17.5/devbox_0.17.5_linux_amd64.tar.gz \
+          --output /tmp/devbox.tar.gz
+        printf '%s  %s\n' \
+          eb2d8fb34266ba3befc294d7d6f56e2cd4da2cacb7a0cf52db5b8092575544f8 \
+          /tmp/devbox.tar.gz | sha256sum --check
+        tar -xzf /tmp/devbox.tar.gz -C /tmp
+        mkdir -p "$HOME/.local/bin"
+        install /tmp/devbox "$HOME/.local/bin/devbox"
+        printf '%s\n' "$HOME/.local/bin" >> "$GITHUB_PATH"

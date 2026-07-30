@@ -3,6 +3,12 @@ set -euo pipefail
 
 track=${1:?usage: install_image_tools.sh TRACK}
 
+grype_url="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
+curl -fsSL "${grype_url}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o /tmp/grype.tar.gz
+printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
+tar -xzf /tmp/grype.tar.gz -C /tmp
+sudo install /tmp/grype /usr/local/bin/grype
+
 if [[ "$track" == wolfi ]]; then
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
   curl -fsSL "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \

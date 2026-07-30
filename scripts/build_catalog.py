@@ -38,12 +38,13 @@ else
   .images |= sort_by(.name, .version)
 end |
 {
-  schemaVersion: 1,
+  schemaVersion: 2,
   publishedAt: $publishedAt,
   source: {runId: $runId, runUrl: $runUrl, commit: $sourceSha},
   policy: {
     fixableVulnerabilitiesAllowed: 0,
     sbomFormat: "SPDX-JSON",
+    cosignMinimumVersion: "3.0.6",
     certificateIdentity: $identity,
     certificateIssuer: $issuer
   },

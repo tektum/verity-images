@@ -8,11 +8,11 @@ never authenticate to GHCR, publish, sign, attest, or move tags.
 
 ## Vulnerability gates
 
-Grype scans every candidate before release tags are applied. Scan JSON is kept
-as a workflow artifact and later consumed by the catalog.
+Grype records every known candidate vulnerability before any registry push. Scan
+JSON is kept as a workflow artifact and later consumed by the catalog.
 
 - Every image fails on any fixable vulnerability reported by Grype, regardless
-  of severity or track.
+  of severity or track. Unfixed findings remain in the report and catalog.
 - Patched images record upstream and final scan results and may publish only
   when the final scan contains zero fixable vulnerabilities.
 
@@ -54,6 +54,9 @@ identity: https://github.com/tektum/verity-images/.github/workflows/build.yaml@r
 issuer: https://token.actions.githubusercontent.com
 ```
 
+Use Cosign 3.0.6 or newer to verify these OCI-stored signatures and
+attestations.
+
 Verify a digest with:
 
 ```sh
@@ -75,12 +78,10 @@ the corresponding image digest. Trivy is never an SBOM generator.
 Every pushed digest receives SLSA build provenance through
 `actions/attest-build-provenance` and GitHub artifact attestations.
 
-Wolfi builds upload the exact apko lock used by the build. Patched builds keep
-the checked-in source digest and record any newly resolved upstream digest in
-immutable build metadata instead of committing from a scheduled workflow.
-The daily schedule resolves the current upstream tag, records both the pinned
-and resolved digests, and patches the resolved digest. Pull requests and pushes
-use the checked-in digest so their inputs remain reproducible.
+Wolfi builds use and upload the reviewed, checked-in apko lock. Patched builds
+use only the checked-in source digest and record it in immutable build metadata.
+Schedules, pushes, and pull requests all use reviewed inputs. Upstream and Wolfi
+package updates require a pull request that changes the pin or lock.
 
 ## Support
 

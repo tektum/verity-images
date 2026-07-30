@@ -59,6 +59,50 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Scan amd64 candidate
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.candidate-image }}-amd64
+      run: grype "docker:${IMAGE}" --output json --file scan-${{ inputs.image-name }}-amd64.json
+
+    - name: Scan arm64 candidate
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.candidate-image }}-arm64
+      run: grype "docker:${IMAGE}" --output json --file scan-${{ inputs.image-name }}-arm64.json
+
+    - name: Scan amd64 upstream
+      if: inputs.track == 'patched'
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.upstream-image }}-amd64
+      run: grype "docker:${IMAGE}" --output json --file scan-${{ inputs.image-name }}-upstream-amd64.json
+
+    - name: Scan arm64 upstream
+      if: inputs.track == 'patched'
+      shell: bash
+      env:
+        IMAGE: ${{ inputs.upstream-image }}-arm64
+      run: grype "docker:${IMAGE}" --output json --file scan-${{ inputs.image-name }}-upstream-arm64.json
+
+    - name: Evaluate vulnerability gate
+      id: gate
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ inputs.image-name }}
+        TRACK: ${{ inputs.track }}
+      run: scripts/evaluate_scan_gate.sh "$IMAGE_NAME" "$TRACK" "$GITHUB_OUTPUT"
+
+    - name: Run smoke test
+      shell: bash
+      env:
+        CANDIDATE: ${{ inputs.candidate-image }}
+        TEST: ${{ inputs.context }}/tests/test.sh
+      run: |
+        for arch in amd64 arm64; do
+          "$TEST" "${CANDIDATE}-${arch}"
+        done
+
     - name: Log in to GHCR
       if: inputs.publish == 'true'
       uses: docker/login-action@371161bbe7024a29a25c5e19bfcbc0804fe9ad2c  # v4.5.2
@@ -78,14 +122,18 @@ runs:
       run: |
         set -euo pipefail
         transport="build-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${VERSION//./-}"
+        references=()
         for arch in amd64 arm64; do
           docker tag "${CANDIDATE}-${arch}" "${TARGET}:${transport}-${arch}"
-          docker push "${TARGET}:${transport}-${arch}"
+          pushed=$(docker push "${TARGET}:${transport}-${arch}")
+          digest=$(awk '/digest: sha256:/ {print $2}' <<<"$pushed")
+          [[ "$digest" == sha256:* ]]
+          references+=("${TARGET}@${digest}")
         done
         docker manifest create "${TARGET}:${transport}" \
-          "${TARGET}:${transport}-amd64" "${TARGET}:${transport}-arm64"
+          "${references[@]}"
         docker manifest annotate "${TARGET}:${transport}" \
-          "${TARGET}:${transport}-arm64" --arch arm64
+          "${references[1]}" --arch arm64
         docker manifest push --purge "${TARGET}:${transport}"
         raw=$(docker buildx imagetools inspect "${TARGET}:${transport}" --raw)
         digest="sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)"
@@ -101,49 +149,8 @@ runs:
         TARGET: ${{ inputs.target-repository }}
       run: syft "registry:${TARGET}@${DIGEST}" -o "spdx-json=${SBOM}"
 
-    - name: Scan amd64 candidate
-      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
-      with:
-        cache-db: true
-        image: ${{ inputs.candidate-image }}-amd64
-        output-format: json
-        output-file: scan-${{ inputs.image-name }}-amd64.json
-        fail-build: false
-        only-fixed: true
-
-    - name: Scan arm64 candidate
-      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
-      with:
-        cache-db: true
-        image: ${{ inputs.candidate-image }}-arm64
-        output-format: json
-        output-file: scan-${{ inputs.image-name }}-arm64.json
-        fail-build: false
-        only-fixed: true
-
-    - name: Scan amd64 upstream
-      if: inputs.track == 'patched'
-      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
-      with:
-        cache-db: true
-        image: ${{ inputs.upstream-image }}-amd64
-        output-format: json
-        output-file: scan-${{ inputs.image-name }}-upstream-amd64.json
-        fail-build: false
-        only-fixed: true
-
-    - name: Scan arm64 upstream
-      if: inputs.track == 'patched'
-      uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2  # v7.4.0
-      with:
-        cache-db: true
-        image: ${{ inputs.upstream-image }}-arm64
-        output-format: json
-        output-file: scan-${{ inputs.image-name }}-upstream-arm64.json
-        fail-build: false
-        only-fixed: true
-
     - name: Upload scan and build evidence
+      if: always()
       uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
       with:
         name: scan-${{ inputs.image-name }}-${{ inputs.version }}
@@ -154,61 +161,6 @@ runs:
           ${{ inputs.context }}/source.yaml
           dist/${{ inputs.image-name }}/trivy-*.json
         if-no-files-found: error
-
-    - name: Evaluate vulnerability gate
-      id: gate
-      shell: bash
-      env:
-        IMAGE_NAME: ${{ inputs.image-name }}
-        TRACK: ${{ inputs.track }}
-      run: |
-        set -euo pipefail
-        files=("scan-${IMAGE_NAME}-amd64.json" "scan-${IMAGE_NAME}-arm64.json")
-        final=$(jq -s -c '
-          [.[].matches[].vulnerability.severity] |
-          group_by(ascii_downcase) |
-          map({(.[0] | ascii_downcase): length}) |
-          add // {}' "${files[@]}")
-        summary=$final
-        if [[ "$TRACK" == patched ]]; then
-          upstream_files=("scan-${IMAGE_NAME}-upstream-amd64.json" "scan-${IMAGE_NAME}-upstream-arm64.json")
-          upstream=$(jq -s -c '
-            [.[].matches[].vulnerability.severity] |
-            group_by(ascii_downcase) |
-            map({(.[0] | ascii_downcase): length}) |
-            add // {}' "${upstream_files[@]}")
-          delta=$(jq -cn --argjson upstream "$upstream" --argjson final "$final" '
-            (($upstream + $final) | keys) |
-            map({(.): (($final[.] // 0) - ($upstream[.] // 0))}) |
-            add // {}')
-          summary=$(jq -cn --argjson upstream "$upstream" --argjson final "$final" \
-            --argjson delta "$delta" '{upstream:$upstream,final:$final,delta:$delta}')
-        fi
-        printf 'summary=%s\n' "$summary" >> "$GITHUB_OUTPUT"
-        count=$(jq -s '[.[].matches[]] | length' "${files[@]}")
-        if [[ "$count" -ne 0 ]]; then
-          blockers=$(jq -s -r '
-            [.[].matches[] |
-              {id:.vulnerability.id,severity:.vulnerability.severity,
-               package:.artifact.name,installed:.artifact.version,
-               fixed:(.vulnerability.fix.versions | join(","))}] |
-            unique_by(.id,.package,.installed) |
-            map("\(.severity) \(.id) in \(.package) \(.installed) -> \(.fixed)") |
-            join("; ")' "${files[@]}")
-          message='::error title=Fixable vulnerabilities block %s::Found %s fixable findings across %s. '
-          message+='Severity summary: %s. %s\n'
-          printf "$message" \
-            "$IMAGE_NAME" "$count" "${#files[@]} platforms" "$final" "$blockers"
-          exit 1
-        fi
-
-    - name: Run smoke test
-      shell: bash
-      env:
-        CANDIDATE: ${{ inputs.candidate-image }}
-        TEST: ${{ inputs.context }}/tests/test.sh
-      run: |
-        "$TEST" "${CANDIDATE}-amd64"
 
     - name: Install cosign
       if: inputs.publish == 'true'
@@ -225,6 +177,21 @@ runs:
         set -euo pipefail
         cosign sign --yes "${TARGET}@${DIGEST}"
         cosign attest --yes --type spdxjson --predicate "$SBOM" "${TARGET}@${DIGEST}"
+
+    - name: Verify published signature and SPDX SBOM
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        TARGET: ${{ inputs.target-repository }}
+      run: |
+        set -euo pipefail
+        identity='https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main'
+        issuer='https://token.actions.githubusercontent.com'
+        cosign verify --certificate-identity "$identity" --certificate-oidc-issuer "$issuer" \
+          "${TARGET}@${DIGEST}"
+        cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
+          --certificate-oidc-issuer "$issuer" "${TARGET}@${DIGEST}"
 
     - name: Attach build provenance
       if: inputs.publish == 'true'

@@ -28,6 +28,9 @@ cosign verify \
   ghcr.io/tektum/nginx@sha256:DIGEST
 ```
 
+Verification requires Cosign 3.0.6 or newer because signatures and attestations
+use its OCI storage format.
+
 Fetch the SPDX JSON SBOM attestation:
 
 ```sh
@@ -70,6 +73,7 @@ promotion.
 - `scripts/gen_matrix.py` generates the workflow matrix.
 - `.github/workflows/build.yaml` builds and publishes images.
 - `.github/workflows/lint.yaml` validates repository policy.
+- `devbox.json` locks local and CI lint tooling.
 - `docs/POLICY.md` defines publication and support policy.
 - `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
 
