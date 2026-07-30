@@ -38,7 +38,8 @@ update for review with its source change.
   comment.
 - Keep job permissions empty by default and opt in per job.
 - Use shell scripts compatible with POSIX `sh`.
-- Run `devbox run lint` before requesting review.
+- Run `./check` before requesting review. It bootstraps the pinned Devbox
+  toolchain and runs the same lint suite as CI.
 
 ## Recommended branch protection
 
