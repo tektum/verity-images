@@ -22,9 +22,9 @@ GLOBAL_PATHS: Final = {
     ".github/workflows/build.yaml",
     "scripts/build_candidate.sh",
     "scripts/evaluate_scan_gate.sh",
-    "scripts/install_image_tools.sh",
     "scripts/parse_push_digest.sh",
     "scripts/gen_matrix.py",
+    "scripts/install_image_tools.sh",
 }
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
 
@@ -33,12 +33,16 @@ type Track = Literal["wolfi", "patched"]
 
 class MatrixEntry(TypedDict):
     name: str
+    build_name: str
+    flavor: str
     track: Track
     context: str
     platforms: str
     description: str
     upstream: str
     version: str
+    tag_version: str
+    major: str
     latest: bool
     owner: str
     evidence_file: str
@@ -55,6 +59,8 @@ class Metadata:
     description: str
     upstream: str
     versions: tuple[str, ...]
+    flavors: tuple[str, ...]
+    major: str
     owner: str
     enabled: bool
 
@@ -91,7 +97,7 @@ def parse_metadata(path: Path) -> Metadata:
         values[key] = parse_scalar(raw)
 
     missing = REQUIRED_FIELDS - values.keys()
-    unknown = values.keys() - (REQUIRED_FIELDS | {"owner"})
+    unknown = values.keys() - (REQUIRED_FIELDS | {"flavors", "major", "owner"})
     if missing or unknown:
         raise MetadataError(f"{path}: missing={sorted(missing)} unknown={sorted(unknown)}")
 
@@ -108,6 +114,12 @@ def parse_metadata(path: Path) -> Metadata:
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
+    flavors = values.get("flavors", ("plain",))
+    if not isinstance(flavors, tuple) or not flavors or len(flavors) != len(set(flavors)):
+        raise MetadataError(f"{path}: flavors must be a non-empty unique list")
+    major = values.get("major", "")
+    if not isinstance(major, str):
+        raise MetadataError(f"{path}: major must be a string")
 
     return Metadata(
         name=str(values["name"]),
@@ -115,6 +127,8 @@ def parse_metadata(path: Path) -> Metadata:
         description=str(values["description"]),
         upstream=str(values["upstream"]),
         versions=versions,
+        flavors=flavors,
+        major=major,
         owner=str(values.get("owner", "tektum")),
         enabled=enabled,
     )
@@ -133,7 +147,7 @@ def parse_source(path: Path) -> Source:
         raise MetadataError(f"{path}: image must be fully qualified on docker.io")
     if not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
         raise MetadataError(f"{path}: digest must be a pinned sha256")
-    if platforms != ("linux/amd64", "linux/arm64"):
+    if not isinstance(platforms, tuple) or platforms != ("linux/amd64", "linux/arm64"):
         raise MetadataError(f"{path}: platforms must be [linux/amd64, linux/arm64]")
     return Source(image=image, digest=digest, platforms=platforms)
 
@@ -177,7 +191,11 @@ def generate(base_ref: str | None) -> Matrix:
         smoke_test = directory / "tests/test.sh"
         if not required.is_file() or not smoke_test.is_file():
             raise MetadataError(f"{relative}: missing {required.name} or tests/test.sh")
-        if metadata.track == "wolfi" and not (directory / "apko.lock.json").is_file():
+        if (
+            metadata.track == "wolfi"
+            and not (directory / "melange.yaml").is_file()
+            and not (directory / "apko.lock.json").is_file()
+        ):
             raise MetadataError(f"{relative}: missing apko.lock.json")
         if not metadata.enabled:
             continue
@@ -187,24 +205,32 @@ def generate(base_ref: str | None) -> Matrix:
             if source.image != metadata.upstream:
                 raise MetadataError(f"{relative}: metadata upstream must match source image")
             platforms = ",".join(source.platforms)
-        entries.append(
-            {
-                "name": metadata.name,
-                "track": metadata.track,
-                "context": relative,
-                "platforms": platforms,
-                "description": metadata.description,
-                "upstream": metadata.upstream,
-                "version": metadata.versions[0],
-                "latest": metadata.versions[0] == latest[metadata.name],
-                "owner": metadata.owner,
-                "evidence_file": (
-                    f"dist/{metadata.name}/apko.lock.json"
-                    if metadata.track == "wolfi"
-                    else f"dist/{metadata.name}/source-resolved.json"
-                ),
-            }
-        )
+        for flavor in metadata.flavors:
+            build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
+            entries.append(
+                {
+                    "name": metadata.name,
+                    "build_name": build_name,
+                    "flavor": flavor,
+                    "track": metadata.track,
+                    "context": relative,
+                    "platforms": platforms,
+                    "description": metadata.description,
+                    "upstream": metadata.upstream,
+                    "version": metadata.versions[0],
+                    "tag_version": (
+                        metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
+                    ),
+                    "major": metadata.major if metadata.versions[0] == latest[metadata.name] else "",
+                    "latest": metadata.versions[0] == latest[metadata.name],
+                    "owner": metadata.owner,
+                    "evidence_file": (
+                        f"dist/{build_name}/apko.lock.json"
+                        if metadata.track == "wolfi"
+                        else f"dist/{build_name}/source-resolved.json"
+                    ),
+                }
+            )
     return {"include": entries}
 
 

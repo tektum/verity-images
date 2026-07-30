@@ -4,10 +4,13 @@
 
 Add one directory under `images/` for a Wolfi image or `patched/` for an
 upstream-compatible image. Include `metadata.yaml`, `tests/test.sh`, and either
-`apko.yaml` plus its reviewed `apko.lock.json`, or `source.yaml`. The smoke test
-must run the built image and assert real behavior. Open a pull request; CI
-generates the affected matrix, builds the image, scans it, and runs the smoke test
-without publishing.
+`apko.yaml` plus its reviewed `apko.lock.json`, or `source.yaml`. A Wolfi image
+may instead include `melange.yaml` when it needs a locally built package; its
+source commit and dependency overrides must be pinned, and its ephemeral
+signed-package lock, provenance, and resolved dependency metadata are uploaded
+as build evidence. The smoke test must run the built image and assert real
+behavior. Open a pull request; CI generates the affected matrix, builds the
+image, scans it, and runs the smoke test without publishing.
 
 Metadata uses this schema:
 
@@ -20,6 +23,9 @@ versions: [1.0]
 owner: tektum
 enabled: true
 ```
+
+Optional `flavors` expand one source definition into tag variants; `plain` has
+no suffix and other flavors use `-<flavor>`. Optional `major` adds a major tag.
 
 Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile

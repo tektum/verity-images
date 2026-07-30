@@ -47,7 +47,9 @@ repository with apko. It publishes linux/amd64 and linux/arm64 images and fails
 on any fixable vulnerability.
 
 The starting Wolfi catalog includes static and wolfi-base images, Node.js
-20/22/24/26, Python 3.10/3.11/3.12/3.13/3.14, Go 1.25/1.26, and nginx.
+20/22/24/26, Python 3.10/3.11/3.12/3.13/3.14, Go 1.25/1.26, nginx, and Caddy.
+Caddy is compiled into local plain and FIPS APK flavors with Melange before
+APKO assembles the corresponding image tags.
 Each language stream is built from its versioned Wolfi package. Go 1.24 is
 defined but disabled because its last Wolfi package has fixable High and
 Critical vulnerabilities and no fixed 1.24 release exists.
@@ -60,7 +62,7 @@ Both tracks must have zero fixable Grype findings before publication.
 Patched images also use Copa's experimental patch-level library remediation for
 supported npm and pip findings before the final gate.
 
-The starting patched catalog is Debian 12 slim and Node.js 22 slim. Their source
+The patched catalog includes Debian 12 slim and Node.js 22 slim. Their source
 index digests and enabled platforms are declared in each `source.yaml`.
 
 Both tracks use the same `.github/actions/publish-image/action.yaml` tail for

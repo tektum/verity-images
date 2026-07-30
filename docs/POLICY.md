@@ -30,13 +30,17 @@ SBOM.
 
 ## Tags and platforms
 
-Each successful version publication moves two tags:
+Each successful version publication moves a version tag and either a dated tag
+or, when declared by the image metadata, a major-version tag:
 
 - `:<version>`
-- `:<version>-<YYYYMMDD>`
+- `:<version>-<YYYYMMDD>` or `:<major>`
 
 The highest enabled version for each image also moves `:latest`. Older streams
 never overwrite `:latest` when rebuilt.
+
+Non-default flavors suffix every tag, for example `:2-fips`, `:2.11-fips`, and
+`:latest-fips`.
 
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
@@ -75,13 +79,19 @@ SPDX JSON is the only SBOM format. Wolfi images use apko's native SPDX output.
 Patched images use Syft against the final patched image. SBOMs are attached to
 the corresponding image digest. Trivy is never an SBOM generator.
 
+Melange-backed Wolfi images also retain package-level provenance and a metadata
+subpackage containing the resolved `go.mod` and `go.sum` used by the build.
+
 Every pushed digest receives SLSA build provenance through
 `actions/attest-build-provenance` and GitHub artifact attestations.
 
-Wolfi builds use and upload the reviewed, checked-in apko lock. Patched builds
-use only the checked-in source digest and record it in immutable build metadata.
-Schedules, pushes, and pull requests all use reviewed inputs. Upstream and Wolfi
-package updates require a pull request that changes the pin or lock.
+Wolfi builds use and upload the reviewed, checked-in apko lock. Melange-backed
+builds are the exception: their ephemeral package signature produces a
+build-specific lock, so they upload that lock together with the recipe, package
+provenance, and resolved dependency metadata. Patched builds use only the
+checked-in source digest and record it in immutable build metadata. Schedules,
+pushes, and pull requests all use reviewed inputs. Upstream and Wolfi package
+updates require a pull request that changes the pin, recipe, or lock.
 
 ## Support
 

@@ -1,0 +1,52 @@
+package:
+  name: caddy
+  version: "2.11.4"
+  epoch: 5
+  description: Fast and extensible HTTP/1-2-3 web server with automatic HTTPS
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/caddyserver/caddy
+      tag: v${{package.version}}
+      expected-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
+      cherry-picks: |
+        master/b2693fb63a30e6d7be0972c3645e9a2c0a500e93: update CEL APIs for cel-go v0.29.2
+  - uses: go/bump
+    with:
+      deps: |-
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/metric@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        go.opentelemetry.io/otel/sdk/metric@v1.44.0
+        go.opentelemetry.io/otel/trace@v1.44.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+  - runs: |
+      install -m644 -D Caddyfile "${{targets.destdir}}/etc/caddy/Caddyfile"
+      install -m644 -D index.html "${{targets.destdir}}/usr/share/caddy/index.html"
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/caddy
+      output: caddy
+
+subpackages:
+  - name: caddy-build-metadata
+    description: Resolved Go module metadata for the Caddy build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/caddy-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/caddy-build/go.sum"
