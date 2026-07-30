@@ -3,7 +3,7 @@ set -eu
 
 version=0.17.5
 checksum=eb2d8fb34266ba3befc294d7d6f56e2cd4da2cacb7a0cf52db5b8092575544f8
-root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
+root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 bin_dir=${DEVBOX_BIN_DIR:-"$root/.devbox/bin"}
 bin="$bin_dir/devbox"
 
