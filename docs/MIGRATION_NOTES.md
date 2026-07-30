@@ -104,18 +104,20 @@ Trivy does not generate an SBOM.
   directs production consumers to digests.
 - Reports tied to image digests: makes vulnerability claims independently
   checkable.
+- Melange package builds: images that need dependency remediation or build
+  flavors use pinned source commits, explicit overrides, package provenance,
+  and preserved resolved dependency metadata.
 
 ## Concepts deliberately dropped
 
-- The 335-image catalog: breadth makes a new pipeline hard to audit; v1 is
-  limited to the requested six Wolfi families and three patched images.
-- Melange and custom packages: v1 consumes the public Wolfi repository and does
-  not operate a package repository.
+- The 335-image catalog: expansion remains review-driven so every image keeps a
+  clear owner, source pin, runtime test, and vulnerability gate.
 - The Wolfi and Copacetic forks: upstream public releases are sufficient and
   remove fork maintenance.
 - Helm chart generation and integration: charts are outside the image registry
   mission.
-- APK repository publication and signing: no custom APK packages are built.
+- APK repository publication: Melange may create ephemeral signed repositories
+  during a build, but no reusable package repository or signing key is published.
 - A reports branch and commit-back loop: source digests and resolved packages
   are recorded in immutable build artifacts, avoiding `contents: write` and
   scheduled self-commits.
@@ -123,13 +125,17 @@ Trivy does not generate an SBOM.
 - Per-image workflow families and sharding: one generated matrix and one shared
   publish action are enough for the v1 catalog.
 
-## Revisited decisions
+## Melange build model
 
-- Caddy requires one locally built package so its plain and Go FIPS flavors use
-  the same pinned source. Melange signs an ephemeral repository consumed only
-  by APKO during that build; no package repository or signing key is published.
-- Caddy publishes major, minor, and latest discovery tags for each flavor.
-  Production consumers remain directed to signed digests.
+Melange is a first-class source-build path, not a Caddy exception. Future images
+may use it for dependency remediation, custom packages, or build flavors. Every
+recipe must pin its upstream commit and dependency overrides, emit package
+provenance, preserve resolved dependency metadata, and feed its signed ephemeral
+repository into APKO. Final images remain subject to the same zero-fixable-CVE,
+SBOM, keyless-signature, and SLSA provenance controls as package-only images.
+
+Flavor tags are discovery aliases only. Production consumers remain directed to
+signed image digests.
 
 ## Rebuild decisions
 
@@ -137,9 +143,8 @@ Trivy does not generate an SBOM.
   to `source.yaml`. Each checked-in source remains pinned, and each daily run
   records the resolved digest it actually used. This avoids write permission
   and workflow loops while preserving reproducibility.
-- Starting Wolfi streams remain Python 3.12 and 3.13, Node.js 22, and Go 1.24.
-  All were present in the public Wolfi package index during recon. Package
-  revisions are resolved and recorded by each build.
+- Wolfi streams may use reviewed public packages or reviewed Melange recipes.
+  Package revisions and locally built package digests are recorded by each build.
 - Images publish to flat names such as `ghcr.io/tektum/nginx`. The v1 names do
   not collide with existing repository names, and flat references are easier
   to consume.

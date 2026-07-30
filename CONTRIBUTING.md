@@ -6,10 +6,11 @@ Add one directory under `images/` for a Wolfi image or `patched/` for an
 upstream-compatible image. Include `metadata.yaml`, `tests/test.sh`, and either
 `apko.yaml` plus its reviewed `apko.lock.json`, or `source.yaml`. A Wolfi image
 may instead include `melange.yaml` when it needs a locally built package; its
-ephemeral signed-package lock is generated and uploaded as build evidence. The
-smoke test must run the built image and assert real behavior. Open a pull request;
-CI generates the affected matrix, builds the image, scans it, and runs the smoke
-test without publishing.
+source commit and dependency overrides must be pinned, and its ephemeral
+signed-package lock, provenance, and resolved dependency metadata are uploaded
+as build evidence. The smoke test must run the built image and assert real
+behavior. Open a pull request; CI generates the affected matrix, builds the
+image, scans it, and runs the smoke test without publishing.
 
 Metadata uses this schema:
 
