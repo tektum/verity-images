@@ -116,10 +116,13 @@ def main() -> None:
     }
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
     assert (
-        "          BASE_SHA: ${{ github.event.pull_request.base.sha || "
-        "github.event.merge_group.base_sha }}\n"
+        "          BASE_SHA: >-\n"
+        "            ${{ github.event.pull_request.base.sha ||\n"
+        "            github.event.merge_group.base_sha || github.event.before }}\n"
         in workflow
     )
+    assert "          if [[ \"$EVENT\" == workflow_dispatch ]]; then\n" in workflow
+    assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
 
     verify_step = between(
         action,
