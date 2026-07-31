@@ -93,6 +93,7 @@ def main() -> None:
         encoding="utf-8"
     )
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
+    monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
     verify_step = between(
@@ -106,11 +107,37 @@ def main() -> None:
     assert action.count("\n        cosign verify") == 2
     assert shell_commands(verify_script) == VERIFY_STEP_COMMANDS
 
+    sign_step = between(
+        action,
+        "    - name: Sign digest and attach platform SPDX SBOMs\n",
+        "\n    - name: Verify published signature and SPDX SBOM\n",
+    )
+    assert (
+        'scripts/attest_sboms.sh "$TARGET" "$DIGEST" "$SBOM_DIRECTORY"\n'
+        in sign_step
+    )
+
     workflow_policy = between(workflow, "permissions: {}\n", "\nenv:\n")
     assert workflow_policy == (
         "\nconcurrency:\n"
         "  group: build-images-${{ github.ref }}\n"
         "  cancel-in-progress: false\n"
+    )
+    assert "\n  schedule:\n" not in workflow
+    assert '    - cron: "17 3 * * *"\n' in monitor
+    assert "  workflow_dispatch:\n" not in monitor
+    assert "      contents: read\n      issues: write\n" in monitor
+    assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
+    assert "gh run download" not in monitor
+    assert (
+        "run: curl -fsSL https://tektum.github.io/verity-images/catalog.json "
+        "-o catalog.json\n"
+        in monitor
+    )
+    assert "run: python3 scripts/gen_matrix.py --all > expected-images.json\n" in monitor
+    assert (
+        "run: scripts/monitor_sboms.sh catalog.json expected-images.json\n"
+        in monitor
     )
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")

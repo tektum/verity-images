@@ -1,8 +1,6 @@
 name: Build images
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
   push:
     branches: [main]
   pull_request:
@@ -51,7 +49,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == schedule || "$EVENT" == workflow_dispatch ]]; then
+          if [[ "$EVENT" == workflow_dispatch ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
           elif [[ "$EVENT" == pull_request ]]; then
             matrix=$(python3 scripts/gen_matrix.py --changed "origin/${BASE_REF}")
