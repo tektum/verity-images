@@ -27,6 +27,11 @@ GLOBAL_PATHS: Final = {
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
 
 type Track = Literal["wolfi", "patched"]
+GLOBAL_SAMPLES: Final[dict[tuple[Track, str], str]] = {
+    ("wolfi", "plain"): "images/static",
+    ("wolfi", "fips"): "images/go/1.26",
+    ("patched", "plain"): "patched/debian-12-slim",
+}
 
 
 class MatrixEntry(TypedDict):
@@ -171,8 +176,17 @@ def version_key(version: str) -> tuple[int, ...]:
 
 def generate(base_ref: str | None) -> Matrix:
     changed: set[str] = changed_paths(base_ref) if base_ref else set()
-    all_changed = bool(changed & GLOBAL_PATHS)
+    global_changed = bool(changed & GLOBAL_PATHS)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
+    flavors = {(metadata.track, flavor) for _, metadata in catalog for flavor in metadata.flavors}
+    samples = {
+        (metadata.track, flavor)
+        for directory, metadata in catalog
+        for flavor in metadata.flavors
+        if GLOBAL_SAMPLES.get((metadata.track, flavor)) == directory.relative_to(ROOT).as_posix()
+    }
+    if flavors != set(GLOBAL_SAMPLES) or samples != flavors:
+        raise MetadataError("GLOBAL_SAMPLES must select one image for every track/flavor")
     latest = {
         metadata.name: max(
             (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
@@ -183,8 +197,7 @@ def generate(base_ref: str | None) -> Matrix:
     entries: list[MatrixEntry] = []
     for directory, metadata in catalog:
         relative = directory.relative_to(ROOT).as_posix()
-        if base_ref and not all_changed and not any(path.startswith(f"{relative}/") for path in changed):
-            continue
+        directly_changed = any(path.startswith(f"{relative}/") for path in changed)
         required = directory / ("apko.yaml" if metadata.track == "wolfi" else "source.yaml")
         smoke_test = directory / "tests/test.sh"
         if not required.is_file() or not smoke_test.is_file():
@@ -204,6 +217,10 @@ def generate(base_ref: str | None) -> Matrix:
                 raise MetadataError(f"{relative}: metadata upstream must match source image")
             platforms = ",".join(source.platforms)
         for flavor in metadata.flavors:
+            if base_ref and not directly_changed and (
+                not global_changed or GLOBAL_SAMPLES[(metadata.track, flavor)] != relative
+            ):
+                continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
             entries.append(
                 {

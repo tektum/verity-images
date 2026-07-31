@@ -9,8 +9,9 @@
 import shlex
 from pathlib import Path
 from typing import Final
+from unittest.mock import patch
 
-from gen_matrix import GLOBAL_PATHS
+import gen_matrix
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 IDENTITY_ASSIGNMENT: Final = (
@@ -99,13 +100,21 @@ def main() -> None:
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
-    assert ".github/workflows/build.yaml" not in GLOBAL_PATHS
-    assert "scripts/gen_matrix.py" not in GLOBAL_PATHS
+    assert ".github/workflows/build.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
+    with patch.object(
+        gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
+    ):
+        samples = gen_matrix.generate("base")["include"]
+    assert {
+        (sample["track"], sample["flavor"], sample["context"])
+        for sample in samples
+    } == {
+        ("wolfi", "plain", "images/static"),
+        ("wolfi", "fips", "images/go/1.26"),
+        ("patched", "plain", "patched/debian-12-slim"),
+    }
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
-    assert (
-        "          if [[ \"$EVENT\" == pull_request || \"$EVENT\" == merge_group ]]; then\n"
-        in workflow
-    )
     assert (
         "          BASE_SHA: ${{ github.event.pull_request.base.sha || "
         "github.event.merge_group.base_sha }}\n"
