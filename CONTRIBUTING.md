@@ -64,7 +64,7 @@ their reviewed `apko.lock.json` remains the update boundary.
 ## Recommended branch protection
 
 Protect `main` in repository settings. Require pull requests, one approving
-review, resolved conversations, the `lint` and `build` checks, and branches to
-be current before merge. Block force pushes and branch deletion. Repository
-administrators must configure these settings because workflows cannot safely
-protect their own branch.
+review, resolved conversations, the `lint` and `build-gate` checks, and the
+merge queue. Block force pushes and branch deletion. Repository administrators
+must configure these settings because workflows cannot safely protect their own
+branch.
