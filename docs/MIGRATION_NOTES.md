@@ -88,7 +88,8 @@ Trivy does not generate an SBOM.
 
 ## Concepts carried forward
 
-- Daily rebuilds: shortens exposure to newly fixed package vulnerabilities.
+- Reviewed rebuilds: source pins and package locks change through `main`, while
+  nightly SBOM scans detect newly disclosed vulnerabilities without rebuilding.
 - Separate minimal and compatible tracks: serves distinct consumer needs
   without weakening either contract.
 - Digest-first signing and attestations: verification must identify immutable
@@ -98,8 +99,8 @@ Trivy does not generate an SBOM.
 - Trivy-to-Copa patch reports: Copa consumes scanner findings to produce a
   measurable upstream-to-patched CVE delta.
 - Keyless GitHub OIDC signing: avoids long-lived signing secrets.
-- Nightly off-peak scheduling: retains the proven operational cadence while a
-  single 03:17 UTC schedule avoids a round-hour traffic spike.
+- Nightly off-peak monitoring: a single 03:17 UTC SBOM scan avoids a round-hour
+  traffic spike and opens or updates remediation issues.
 - Human-friendly version and date tags: supports discovery while documentation
   directs production consumers to digests.
 - Reports tied to image digests: makes vulnerability claims independently
@@ -140,7 +141,7 @@ signed image digests.
 ## Rebuild decisions
 
 - Patched upstream digest updates are recorded in build metadata, not committed
-  to `source.yaml`. Each checked-in source remains pinned, and each daily run
+  to `source.yaml`. Each checked-in source remains pinned, and each publication run
   records the resolved digest it actually used. This avoids write permission
   and workflow loops while preserving reproducibility.
 - Wolfi streams may use reviewed public packages or reviewed Melange recipes.
