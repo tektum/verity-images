@@ -1,10 +1,17 @@
 # Publication policy
 
-## Rebuild cadence
+## Build and monitoring cadence
 
-The full enabled catalog rebuilds daily at 03:17 UTC. Pushes to `main` rebuild
-affected images. Pull requests build, scan, and smoke-test affected images but
-never authenticate to GHCR, publish, sign, attest, or move tags.
+Pushes to `main` rebuild published images. Pull requests build, scan, and
+smoke-test affected images but never authenticate to GHCR, publish, sign,
+attest, or move tags.
+
+At 03:17 UTC each day, the monitor requires the catalog to match the reviewed
+image inventory and each digest to match its published version tag. It then
+verifies every platform SPDX attestation and scans both platform SBOMs with the
+current Grype database. It opens or updates one issue per vulnerable image
+version and closes the issue after a clean scan. The monitor does not pull image
+layers or rebuild images.
 
 ## Vulnerability gates
 
@@ -76,8 +83,9 @@ It requires no PAT or stored signing secret.
 ## SBOM and provenance
 
 SPDX JSON is the only SBOM format. Wolfi images use apko's native SPDX output.
-Patched images use Syft against the final patched image. SBOMs are attached to
-the corresponding image digest. Trivy is never an SBOM generator.
+Patched images use Syft against the final patched image. One complete SBOM per
+platform is attached to the corresponding image digest. Trivy is never an SBOM
+generator.
 
 Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.
