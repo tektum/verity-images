@@ -183,17 +183,16 @@ runs:
       if: inputs.publish == 'true'
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
 
-    - name: Sign digest and attach SPDX SBOM
+    - name: Sign digest and attach platform SPDX SBOMs
       if: inputs.publish == 'true'
       shell: bash
       env:
         DIGEST: ${{ steps.push.outputs.digest }}
-        SBOM: ${{ inputs.sbom-directory }}/sbom-index.spdx.json
+        SBOM_DIRECTORY: ${{ inputs.sbom-directory }}
         TARGET: ${{ inputs.target-repository }}
       run: |
         set -euo pipefail
-        cosign sign --yes "${TARGET}@${DIGEST}"
-        cosign attest --yes --type spdxjson --predicate "$SBOM" "${TARGET}@${DIGEST}"
+        scripts/attest_sboms.sh "$TARGET" "$DIGEST" "$SBOM_DIRECTORY"
 
     - name: Verify published signature and SPDX SBOM
       if: inputs.publish == 'true'
