@@ -1,0 +1,54 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^patched/[^/]+/source\\.yaml$/"],
+      "matchStrings": [
+        "image:\\s*(?<depName>\\S+):(?<currentValue>\\S+)\\s*\\ndigest:\\s*(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "image:\\s*(?<depName>\\S+):(?<currentValue>[^:@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "matchStrings": [
+        "image:\\s*(?<depName>[^\\s@:]+(?:/[^\\s@:]+)*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "currentValueTemplate": "latest",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "loose"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/[^/]+/melange\\.yaml$/"],
+      "matchStrings": [
+        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/[^\\s]+)(?<commitPrefix>[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+      ],
+      "currentValueTemplate": "v{{{currentVersion}}}",
+      "datasourceTemplate": "git-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^v(?<version>.*)$",
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{replace 'v' '' newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchFileNames": ["patched/**/source.yaml"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}
