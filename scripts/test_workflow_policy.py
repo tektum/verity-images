@@ -96,10 +96,21 @@ def main() -> None:
     )
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
+    lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
     assert ".github/workflows/build.yaml" not in GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in GLOBAL_PATHS
+    assert "  merge_group:\n    types: [checks_requested]\n" in lint
+    assert (
+        "          if [[ \"$EVENT\" == pull_request || \"$EVENT\" == merge_group ]]; then\n"
+        in workflow
+    )
+    assert (
+        "          BASE_SHA: ${{ github.event.pull_request.base.sha || "
+        "github.event.merge_group.base_sha }}\n"
+        in workflow
+    )
 
     verify_step = between(
         action,

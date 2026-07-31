@@ -47,14 +47,11 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch ]]; then
-            matrix=$(python3 scripts/gen_matrix.py --all)
-          elif [[ "$EVENT" == pull_request ]]; then
-            matrix=$(python3 scripts/gen_matrix.py --changed "origin/${BASE_REF}")
+          if [[ "$EVENT" == pull_request || "$EVENT" == merge_group ]]; then
+            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")
           else
             matrix=$(python3 scripts/gen_matrix.py --all)
           fi
