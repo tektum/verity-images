@@ -1,0 +1,15 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - go-1.26
+
+entrypoint:
+  command: /usr/bin/go
+
+environment:
+  GOFIPS140: v1.0.0
+  PATH: /usr/bin:/bin

@@ -13,6 +13,11 @@ mkdir -p "${output}/sbom"
 
 if [[ "$track" == wolfi ]]; then
   config="${context}/apko.yaml"
+  lockfile="${context}/apko.lock.json"
+  if [[ "$flavor" != plain ]]; then
+    config="${context}/${flavor}.apko.yaml"
+    lockfile="${context}/${flavor}.apko.lock.json"
+  fi
   if [[ -f "${context}/melange.yaml" ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
@@ -36,7 +41,7 @@ if [[ "$track" == wolfi ]]; then
     apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"
   else
     apko show-config "$config" >/dev/null
-    cp "${context}/apko.lock.json" "${output}/apko.lock.json"
+    cp "$lockfile" "${output}/apko.lock.json"
   fi
   apko build "$config" "$candidate" "${output}/image.tar" \
     --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/sbom"
