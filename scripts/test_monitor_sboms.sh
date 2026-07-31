@@ -9,6 +9,7 @@ mkdir "$work/bin" "$work/bodies"
 new_digest=sha256:$(printf 'new-manifest' | sha256sum | cut -d' ' -f1)
 existing_digest=sha256:$(printf 'existing-manifest' | sha256sum | cut -d' ' -f1)
 clean_digest=sha256:$(printf 'clean-manifest' | sha256sum | cut -d' ' -f1)
+unfixed_digest=sha256:$(printf 'unfixed-manifest' | sha256sum | cut -d' ' -f1)
 cat > "$work/catalog.json" <<EOF
 {
   "schemaVersion": 2,
@@ -19,13 +20,14 @@ cat > "$work/catalog.json" <<EOF
   "images": [
     {"name":"new","version":"1","digest":"$new_digest","reference":"ghcr.io/tektum/new@$new_digest"},
     {"name":"existing","version":"1","digest":"$existing_digest","reference":"ghcr.io/tektum/existing@$existing_digest"},
-    {"name":"clean","version":"1","digest":"$clean_digest","reference":"ghcr.io/tektum/clean@$clean_digest"}
+    {"name":"clean","version":"1","digest":"$clean_digest","reference":"ghcr.io/tektum/clean@$clean_digest"},
+    {"name":"unfixed","version":"1","digest":"$unfixed_digest","reference":"ghcr.io/tektum/unfixed@$unfixed_digest"}
   ]
 }
 EOF
 
 cat > "$work/expected.json" <<'EOF'
-{"include":[{"name":"new","tag_version":"1"},{"name":"existing","tag_version":"1"},{"name":"clean","tag_version":"1"}]}
+{"include":[{"name":"new","tag_version":"1"},{"name":"existing","tag_version":"1"},{"name":"clean","tag_version":"1"},{"name":"unfixed","tag_version":"1"}]}
 EOF
 
 cat > "$work/bin/cosign" <<'EOF'
@@ -70,6 +72,8 @@ if [[ "${MALFORMED:-false}" == true && "$name" == existing-amd64 ]]; then
 fi
 if [[ "$name" == clean-* ]]; then
   printf '%s\n' '{"matches":[]}' > "$output"
+elif [[ "$name" == unfixed-* ]]; then
+  printf '%s\n' '{"matches":[{"artifact":{"name":"openssl","version":"1"},"vulnerability":{"id":"CVE-UNFIXED","severity":"High","fix":{"versions":[]}}}]}' > "$output"
 else
   cat > "$output" <<'JSON'
 {"matches":[{"artifact":{"name":"openssl","version":"1"},"vulnerability":{"id":"CVE-TEST","severity":"High","fix":{"versions":["2"]}}}]}
@@ -85,7 +89,7 @@ if [[ "$1" == api ]]; then
   if [[ "${DUPLICATE:-false}" == true ]]; then
     printf '%s\n' '[[{"number":8,"title":"[CVE] existing:1","state":"closed","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":10,"title":"[CVE] existing:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}}]]'
   else
-    printf '%s\n' '[[{"number":8,"title":"[CVE] existing:1","state":"closed","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":7,"title":"[CVE] clean:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":6,"title":"[CVE] clean:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"someone"}},{"number":9,"title":"[CVE] retired:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}}]]'
+    printf '%s\n' '[[{"number":8,"title":"[CVE] existing:1","state":"closed","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":7,"title":"[CVE] clean:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":6,"title":"[CVE] clean:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"someone"}},{"number":5,"title":"[CVE] unfixed:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}},{"number":9,"title":"[CVE] retired:1","state":"open","body":"<!-- sbom-cve-monitor -->","user":{"login":"github-actions[bot]"}}]]'
   fi
 elif [[ "$1 $2" == "issue create" || "$1 $2" == "issue edit" ]]; then
   for ((index=1; index <= $#; index++)); do
@@ -109,9 +113,15 @@ grep -Fq 'issue create --repo owner/repo --title \[CVE\]\ new:1' "$GH_LOG"
 grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue close 7 --repo owner/repo' "$GH_LOG"
+grep -Fq 'issue close 5 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue close 9 --repo owner/repo' "$GH_LOG"
 grep -Fq '| new:1 | 1 | {"high":1} |' "$GITHUB_STEP_SUMMARY"
+grep -Fq '| unfixed:1 | 0 | {} |' "$GITHUB_STEP_SUMMARY"
 grep -Fq 'CVE-TEST' "$work/bodies/issue-create---repo.md"
+if grep -Fq 'CVE-UNFIXED' "$GH_BODY_DIR"/*; then
+  printf 'unfixed vulnerability was reported\n' >&2
+  exit 1
+fi
 
 cp "$work/catalog.json" "$work/tampered.json"
 jq '.policy.certificateIdentity = "https://attacker.example/workflow"' \

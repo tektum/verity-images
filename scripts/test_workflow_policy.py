@@ -153,7 +153,7 @@ def main() -> None:
     )
     assert "\n  schedule:\n" not in workflow
     assert '    - cron: "17 3 * * *"\n' in monitor
-    assert "  workflow_dispatch:\n" not in monitor
+    assert "  workflow_dispatch:\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
     assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
     assert "gh run download" not in monitor

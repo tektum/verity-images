@@ -100,7 +100,8 @@ for index in "${!images[@]}"; do
     jq -e '.matches | type == "array"' "$platform_scan" >/dev/null
     scans+=("$platform_scan")
   done
-  jq -s '{matches: ([.[].matches[]] | unique_by(
+  jq -s '{matches: ([.[].matches[] |
+    select((.vulnerability.fix.versions // []) | length > 0)] | unique_by(
     .vulnerability.id, .artifact.name, .artifact.version
   ))}' "${scans[@]}" > "$scan"
 
