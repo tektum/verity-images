@@ -19,11 +19,9 @@ from typing import Final, Literal, TypedDict
 ROOT: Final = Path(__file__).resolve().parents[1]
 GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
-    ".github/workflows/build.yaml",
     "scripts/build_candidate.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
-    "scripts/gen_matrix.py",
     "scripts/install_image_tools.sh",
 }
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}

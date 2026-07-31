@@ -10,6 +10,8 @@ import shlex
 from pathlib import Path
 from typing import Final
 
+from gen_matrix import GLOBAL_PATHS
+
 ROOT: Final = Path(__file__).resolve().parents[1]
 IDENTITY_ASSIGNMENT: Final = (
     "identity=https://github.com/tektum/verity-images/.github/workflows/"
@@ -95,6 +97,9 @@ def main() -> None:
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+
+    assert ".github/workflows/build.yaml" not in GLOBAL_PATHS
+    assert "scripts/gen_matrix.py" not in GLOBAL_PATHS
 
     verify_step = between(
         action,
