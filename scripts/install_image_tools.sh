@@ -9,6 +9,10 @@ printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
 tar -xzf /tmp/grype.tar.gz -C /tmp
 sudo install /tmp/grype /usr/local/bin/grype
 
+if [[ "$track" == monitor ]]; then
+  exit
+fi
+
 if [[ "$track" == wolfi ]]; then
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
   curl -fsSL "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
@@ -23,6 +27,11 @@ if [[ "$track" == wolfi ]]; then
   sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
   sudo install "/tmp/melange_${MELANGE_VERSION}_linux_amd64/melange" /usr/local/bin/melange
   exit
+fi
+
+if [[ "$track" != patched ]]; then
+  printf 'unsupported track: %s\n' "$track" >&2
+  exit 2
 fi
 
 syft_url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
