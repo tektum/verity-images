@@ -9,6 +9,9 @@
 import shlex
 from pathlib import Path
 from typing import Final
+from unittest.mock import patch
+
+import gen_matrix
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 IDENTITY_ASSIGNMENT: Final = (
@@ -94,7 +97,32 @@ def main() -> None:
     )
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
+    lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+
+    assert ".github/workflows/build.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
+    with patch.object(
+        gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
+    ):
+        samples = gen_matrix.generate("base")["include"]
+    assert {
+        (sample["track"], sample["flavor"], sample["context"])
+        for sample in samples
+    } == {
+        ("wolfi", "plain", "images/static"),
+        ("wolfi", "fips", "images/go/1.26"),
+        ("patched", "plain", "patched/debian-12-slim"),
+    }
+    assert "  merge_group:\n    types: [checks_requested]\n" in lint
+    assert (
+        "          BASE_SHA: >-\n"
+        "            ${{ github.event.pull_request.base.sha ||\n"
+        "            github.event.merge_group.base_sha || github.event.before }}\n"
+        in workflow
+    )
+    assert "          if [[ \"$EVENT\" == workflow_dispatch ]]; then\n" in workflow
+    assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
 
     verify_step = between(
         action,

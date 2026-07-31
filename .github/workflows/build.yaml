@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 permissions: {}
@@ -45,16 +47,15 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          BEFORE: ${{ github.event.before }}
+          BASE_SHA: >-
+            ${{ github.event.pull_request.base.sha ||
+            github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
           if [[ "$EVENT" == workflow_dispatch ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
-          elif [[ "$EVENT" == pull_request ]]; then
-            matrix=$(python3 scripts/gen_matrix.py --changed "origin/${BASE_REF}")
           else
-            matrix=$(python3 scripts/gen_matrix.py --all)
+            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")
           fi
           printf 'images=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
