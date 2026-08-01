@@ -76,6 +76,8 @@ run_replacement() {
 }
 
 run_replacement amd64 /usr/sbin/gosu
+run_replacement amd64 /usr/local/bin/gosu
+run_replacement arm64 /usr/sbin/gosu
 run_replacement arm64 /usr/local/bin/gosu
 
 cat > "$work/source.yaml" <<EOF
@@ -102,15 +104,38 @@ cat > "$work/source.yaml" <<EOF
 gosu-version: 1.19
 gosu-amd64-sha256: $amd64_checksum
 gosu-arm64-sha256: $arm64_checksum
+EOF
+if "$root/scripts/replace_gosu.sh" "$work/source.yaml" amd64 base target; then
+  printf 'missing gosu path was accepted\n' >&2
+  exit 1
+fi
+
+cat > "$work/source.yaml" <<EOF
+gosu-version: 1.19
+gosu-amd64-sha256: 0000000000000000000000000000000000000000000000000000000000000000
+gosu-arm64-sha256: $arm64_checksum
 gosu-path: /usr/sbin/gosu
-gosu-extra: forbidden
+EOF
+: > "$work/curl.log"
+if CURL_LOG="$work/curl.log" PATH="$work/bin:$PATH" \
+  "$root/scripts/replace_gosu.sh" "$work/source.yaml" amd64 base target; then
+  printf 'incorrect gosu checksum was accepted\n' >&2
+  exit 1
+fi
+
+cat > "$work/source.yaml" <<EOF
+gosu-version: 1.19
+gosu-amd64-sha256: $amd64_checksum
+gosu-arm64-sha256: $arm64_checksum
+gosu-path: /usr/sbin/gosu
+  gosu-extra: forbidden
 EOF
 if "$root/scripts/replace_gosu.sh" "$work/source.yaml" amd64 base target; then
   printf 'unknown gosu metadata was accepted\n' >&2
   exit 1
 fi
 
-grep -Fq "if grep -q '^gosu-' \"\${context}/source.yaml\"; then" \
+grep -Fq "if grep -Eq '^[[:space:]]*gosu-' \"\${context}/source.yaml\"; then" \
   "$root/scripts/build_candidate.sh"
 replacement_line=$(grep -nF 'scripts/replace_gosu.sh' "$root/scripts/build_candidate.sh" | cut -d: -f1)
 sbom_line=$(grep -nF "syft \"docker:\${patched}\"" "$root/scripts/build_candidate.sh" | cut -d: -f1)

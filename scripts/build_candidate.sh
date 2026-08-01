@@ -94,7 +94,7 @@ RUN npm install --global "npm@${NPM_VERSION}" --ignore-scripts
 EOF
     docker tag "$npm_patched" "$patched"
   fi
-  if grep -q '^gosu-' "${context}/source.yaml"; then
+  if grep -Eq '^[[:space:]]*gosu-' "${context}/source.yaml"; then
     gosu_patched="${candidate}-gosu-${arch}"
     scripts/replace_gosu.sh "${context}/source.yaml" "$arch" "$patched" "$gosu_patched"
     docker tag "$gosu_patched" "$patched"

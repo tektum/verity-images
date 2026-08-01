@@ -11,12 +11,12 @@ fail() {
   exit 1
 }
 
-while IFS=: read -r key _; do
+while IFS= read -r key; do
   case "$key" in
     gosu-version | gosu-amd64-sha256 | gosu-arm64-sha256 | gosu-path) ;;
     gosu-*) fail "unknown key $key" ;;
   esac
-done < "$source"
+done < <(awk -F: '{ key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key); if (key ~ /^gosu-/) print key }' "$source")
 
 read_value() {
   local key=$1
