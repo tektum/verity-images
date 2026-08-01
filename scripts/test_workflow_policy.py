@@ -135,14 +135,19 @@ def main() -> None:
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
     ):
         samples = gen_matrix.generate("base")["include"]
-    assert {
-        (sample["track"], sample["flavor"], sample["context"])
+    sample_paths = {
+        (sample["track"], sample["flavor"]): sample["context"]
         for sample in samples
-    } == {
-        ("wolfi", "plain", "images/static"),
-        ("wolfi", "fips", "images/go/1.26"),
-        ("patched", "plain", "patched/debian-12-slim"),
     }
+    actual_pairs = {
+        (metadata.track, flavor)
+        for directory in gen_matrix.image_directories()
+        if (metadata := gen_matrix.parse_metadata(directory / "metadata.yaml")).enabled
+        for flavor in metadata.flavors
+    }
+    assert len(samples) == len(sample_paths)
+    assert sample_paths.keys() == actual_pairs
+    assert gen_matrix.GLOBAL_SAMPLES.items() <= sample_paths.items()
     parse_metadata = gen_matrix.parse_metadata
 
     def unknown_flavor_metadata(path: Path) -> gen_matrix.Metadata:
@@ -156,15 +161,11 @@ def main() -> None:
         patch.object(gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}),
     ):
         samples = gen_matrix.generate("base")["include"]
-    assert {
-        (sample["track"], sample["flavor"], sample["context"])
+    assert [
+        (sample["track"], sample["context"])
         for sample in samples
-    } == {
-        ("wolfi", "plain", "images/static"),
-        ("wolfi", "fips", "images/go/1.26"),
-        ("wolfi", "unknown", "images/go/1.26"),
-        ("patched", "plain", "patched/debian-12-slim"),
-    }
+        if sample["flavor"] == "unknown"
+    ] == [("wolfi", "images/go/1.26")]
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
     assert (
         "          BASE_SHA: >-\n"
