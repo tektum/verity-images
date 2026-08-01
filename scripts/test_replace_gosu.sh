@@ -129,6 +129,7 @@ run_replacement() {
   grep -Fq -- '--tag target-image' "$work/docker.log"
   grep -Fxq 755 "$work/mode.log"
   grep -Fq "go mod edit -require=\"golang.org/x/sys@\${GOSU_X_SYS_VERSION}\"" "$work/buildfile.log"
+  grep -Fq 'GOTOOLCHAIN=local' "$work/buildfile.log"
   grep -Fq 'go build -mod=readonly -trimpath -buildvcs=false' "$work/buildfile.log"
   grep -Fq "COPY --chown=0:0 --chmod=0755 gosu \${GOSU_PATH}" "$work/dockerfile.log"
 }
@@ -162,6 +163,26 @@ run_failure 'gosu-version must appear exactly once' "$work/source.yaml" amd64 ba
 write_source /usr/sbin/gosu
 remove_field gosu-source-sha256
 run_failure 'gosu-source-sha256 must appear exactly once' "$work/source.yaml" amd64 base target
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
+sed 's/^gosu-source:.*/gosu-source: mutable/' "$work/source.yaml" > "$work/source.tmp"
+mv "$work/source.tmp" "$work/source.yaml"
+run_failure 'invalid gosu-source' "$work/source.yaml" amd64 base target
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
+sed 's|^gosu-builder:.*|gosu-builder: docker.io/library/golang:latest|' \
+  "$work/source.yaml" > "$work/source.tmp"
+mv "$work/source.tmp" "$work/source.yaml"
+run_failure 'invalid gosu-builder' "$work/source.yaml" amd64 base target
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
+sed 's/^gosu-x-sys-version:.*/gosu-x-sys-version: latest/' \
+  "$work/source.yaml" > "$work/source.tmp"
+mv "$work/source.tmp" "$work/source.yaml"
+run_failure 'invalid gosu-x-sys-version' "$work/source.yaml" amd64 base target
 [ ! -s "$work/docker.log" ]
 
 write_source /usr/sbin/gosu
