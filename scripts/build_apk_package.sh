@@ -12,7 +12,10 @@ case "$architecture" in
     ;;
 esac
 
-[[ "$(uname -m)" == "$expected_machine" ]]
+if [[ "$(uname -m)" != "$expected_machine" ]]; then
+  printf 'runner architecture %s does not match requested %s\n' "$(uname -m)" "$expected_machine" >&2
+  exit 2
+fi
 melange build packages/openssl-fips-provider/melange.yaml --arch "$architecture" \
   --runner docker --out-dir out/packages --cache-dir out/cache
 mapfile -t packages < <(find out/packages -type f -name 'openssl-fips-provider-3.1.2-r2.apk' -print | sort)
