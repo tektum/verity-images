@@ -20,6 +20,7 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
     "scripts/build_candidate.sh",
+    "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
