@@ -52,7 +52,7 @@ def verify(archive: Path, keys: Path) -> None:
         f"{keys.resolve()}:/keys:ro",
         "-v",
         f"{archive.parent.resolve()}:/repository:ro",
-        "cgr.dev/chainguard/wolfi-base:latest",
+        "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e",
         "apk",
         "--keys-dir",
         "/keys",

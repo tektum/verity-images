@@ -11,6 +11,9 @@ from typing import Final
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 WORKFLOW: Final = ROOT / ".github/workflows/apk-repository.yaml"
+POLICY: Final = ROOT / "scripts/apk_repository_policy.py"
+RUNTIME_TEST: Final = ROOT / "scripts/test_fips_runtime.sh"
+RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
 
 
 def job(text: str, name: str, next_name: str) -> str:
@@ -23,6 +26,8 @@ def job(text: str, name: str, next_name: str) -> str:
 
 def main() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
+    policy = POLICY.read_text(encoding="utf-8")
+    runtime_test = RUNTIME_TEST.read_text(encoding="utf-8")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-signing")
     signing = workflow.split("  apk-signing:\n", maxsplit=1)[1]
@@ -59,6 +64,8 @@ def main() -> None:
     assert 'rm -f "$private_key"' in signing
     assert "PRIVATE KEY" in signing
     assert "APK_REPOSITORY_PRIVATE_KEY" not in x86_64 + aarch64
+    assert RUNTIME_IMAGE in policy + runtime_test
+    assert ":latest" not in policy + runtime_test
 
 
 if __name__ == "__main__":

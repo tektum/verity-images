@@ -17,7 +17,7 @@ esac
 docker run --rm --platform "$platform" \
   -v "$(realpath "$repository"):/repository:ro" \
   -v "$(realpath "$key"):$(realpath "$key"):ro" \
-  cgr.dev/chainguard/wolfi-base:latest \
+  cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e \
   sh -ec '
     keys=$(mktemp -d)
     cp "$1" "$keys/$(basename "$1")"
