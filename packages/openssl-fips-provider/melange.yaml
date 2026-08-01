@@ -43,7 +43,8 @@ pipeline:
         "${{targets.destdir}}/usr/bin/openssl-fips-activate"
       install -m644 -D openssl-fips.cnf.in \
         "${{targets.destdir}}/usr/share/openssl-fips/openssl-fips.cnf.in"
-      (cd "${{targets.destdir}}/usr/lib/ossl-modules" && sha256sum fips.so) \
+      sha256sum "${{targets.destdir}}/usr/lib/ossl-modules/fips.so" \
+        | sed "s|${{targets.destdir}}||" \
         >"${{targets.destdir}}/usr/share/openssl-fips/fips.so.sha256"
       config=$(mktemp)
       ./util/wrap.pl apps/openssl fipsinstall -module providers/fips.so -out "$config" -pedantic
