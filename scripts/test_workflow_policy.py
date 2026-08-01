@@ -139,33 +139,15 @@ def main() -> None:
         (sample["track"], sample["flavor"]): sample["context"]
         for sample in samples
     }
-    explicit_sample_paths = {
-        pair: path for pair, path in sample_paths.items() if pair in gen_matrix.GLOBAL_SAMPLES
-    }
-    fallback_sample_paths = {
-        pair: path for pair, path in sample_paths.items() if pair not in gen_matrix.GLOBAL_SAMPLES
-    }
     actual_pairs = {
         (metadata.track, flavor)
         for directory in gen_matrix.image_directories()
         if (metadata := gen_matrix.parse_metadata(directory / "metadata.yaml")).enabled
         for flavor in metadata.flavors
     }
-    actual_contexts = {
-        (metadata.track, flavor, directory.relative_to(ROOT).as_posix())
-        for directory in gen_matrix.image_directories()
-        if (metadata := gen_matrix.parse_metadata(directory / "metadata.yaml")).enabled
-        for flavor in metadata.flavors
-    }
-    expected_explicit_paths = {
-        pair: path for pair, path in gen_matrix.GLOBAL_SAMPLES.items() if pair in actual_pairs
-    }
     assert len(samples) == len(sample_paths)
-    assert explicit_sample_paths == expected_explicit_paths
-    assert fallback_sample_paths.keys() == actual_pairs - expected_explicit_paths.keys()
-    assert all(
-        (*pair, path) in actual_contexts for pair, path in fallback_sample_paths.items()
-    )
+    assert sample_paths.keys() == actual_pairs
+    assert gen_matrix.GLOBAL_SAMPLES.items() <= sample_paths.items()
     parse_metadata = gen_matrix.parse_metadata
 
     def unknown_flavor_metadata(path: Path) -> gen_matrix.Metadata:
