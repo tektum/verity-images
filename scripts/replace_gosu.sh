@@ -51,7 +51,9 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 curl -fsSL "https://github.com/tianon/gosu/releases/download/${version}/gosu-${arch}" \
   -o "$work/gosu"
-printf '%s  %s\n' "$checksum" "$work/gosu" | sha256sum -c - >/dev/null
+if ! printf '%s  %s\n' "$checksum" "$work/gosu" | sha256sum -c - >/dev/null 2>&1; then
+  fail "gosu-$arch checksum mismatch"
+fi
 chmod 0755 "$work/gosu"
 docker build --platform "linux/$arch" --build-arg "BASE=$base" \
   --build-arg "GOSU_PATH=$gosu_path" --tag "$target" --file - "$work" <<'EOF'
