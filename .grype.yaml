@@ -1,0 +1,6 @@
+ignore:
+  - vulnerability: GHSA-g857-hhfv-j68w
+    package:
+      name: zlib
+      version: 1.3.2-r3
+    reason: Advisory applies to RubyGems zlib, not Wolfi APK zlib.

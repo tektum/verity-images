@@ -57,6 +57,8 @@ EOF
 
 cat > "$work/bin/grype" <<'EOF'
 #!/bin/bash
+printf '%q ' "$@" >> "$GRYPE_LOG"
+printf '\n' >> "$GRYPE_LOG"
 sbom=${1#sbom:}
 name=$(jq -er '.packages[0].name' "$sbom")
 while [[ $# -gt 0 ]]; do
@@ -104,11 +106,16 @@ EOF
 chmod +x "$work/bin/cosign" "$work/bin/docker" "$work/bin/grype" "$work/bin/gh"
 export GH_BODY_DIR="$work/bodies"
 export GH_LOG="$work/gh.log"
+export GRYPE_LOG="$work/grype.log"
 export GITHUB_REPOSITORY=owner/repo
 export GITHUB_STEP_SUMMARY="$work/summary.md"
 export RUN_URL=https://example.test/run
 PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/catalog.json" "$work/expected.json"
 
+grep -Fq -- "--config $root/.grype.yaml" "$GRYPE_LOG"
+grep -Fq 'vulnerability: GHSA-g857-hhfv-j68w' "$root/.grype.yaml"
+grep -Fq 'name: zlib' "$root/.grype.yaml"
+grep -Fq 'version: 1.3.2-r3' "$root/.grype.yaml"
 grep -Fq 'issue create --repo owner/repo --title \[CVE\]\ new:1' "$GH_LOG"
 grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"

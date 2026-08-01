@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+root=$(cd "$(dirname "$0")/.." && pwd)
 catalog=${1:?usage: monitor_sboms.sh CATALOG EXPECTED}
 expected=${2:?usage: monitor_sboms.sh CATALOG EXPECTED}
 repository=${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}
@@ -96,7 +97,7 @@ for index in "${!images[@]}"; do
     sbom=$work/$key-$platform.spdx.json
     platform_scan=$work/$key-$platform.json
     printf '%s\n' "${predicates[$platform]}" > "$sbom"
-    grype "sbom:$sbom" --output json --file "$platform_scan"
+    grype "sbom:$sbom" --config "$root/.grype.yaml" --output json --file "$platform_scan"
     jq -e '.matches | type == "array"' "$platform_scan" >/dev/null
     scans+=("$platform_scan")
   done
