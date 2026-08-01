@@ -196,6 +196,16 @@ run_failure 'gosu-path must appear exactly once' "$work/source.yaml" amd64 base 
 [ ! -s "$work/docker.log" ]
 
 write_source /usr/sbin/gosu
+sed 's|^gosu-path:.*|gosu-path: /bin/gosu|' "$work/source.yaml" > "$work/source.tmp"
+mv "$work/source.tmp" "$work/source.yaml"
+run_failure 'unsupported gosu-path' "$work/source.yaml" amd64 base target
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
+run_failure 'unsupported architecture ppc64le' "$work/source.yaml" ppc64le base target
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
 sed 's/^gosu-version:.*/gosu-version: 1.18/' "$work/source.yaml" > "$work/source.tmp"
 mv "$work/source.tmp" "$work/source.yaml"
 run_failure 'gosu-version does not match source' "$work/source.yaml" amd64 base target
