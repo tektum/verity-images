@@ -109,6 +109,9 @@ export GITHUB_STEP_SUMMARY="$work/summary.md"
 export RUN_URL=https://example.test/run
 PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/catalog.json" "$work/expected.json"
 
+grep -Fq 'vulnerability: GHSA-g857-hhfv-j68w' "$root/.grype.yaml"
+grep -Fq 'name: zlib' "$root/.grype.yaml"
+grep -Fq 'version: 1.3.2-r3' "$root/.grype.yaml"
 grep -Fq 'issue create --repo owner/repo --title \[CVE\]\ new:1' "$GH_LOG"
 grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"
