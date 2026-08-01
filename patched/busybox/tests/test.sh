@@ -17,5 +17,5 @@ test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["sh"
 docker run --rm "$image" sh -c '
   busybox | grep -q "v1.38.0"
   command -v sh ash cat cp grep sed awk tar uname printf >/dev/null
-  printf "%s\\n" alpha beta | grep beta | sed "s/beta/gamma/" | awk "{print $1}" | grep -qx gamma
+  printf "%s\\n" "alpha beta" | grep beta | sed "s/beta/gamma/" | awk "{print \$2}" | grep -qx gamma
 '
