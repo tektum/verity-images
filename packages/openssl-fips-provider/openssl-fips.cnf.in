@@ -1,6 +1,6 @@
 config_diagnostics = 1
 openssl_conf = openssl_init
-.include /etc/ssl/fipsmodule.cnf
+.include @FIPSMODULE@
 
 [openssl_init]
 providers = provider_sect

@@ -1,13 +1,14 @@
 package:
   name: openssl-fips-provider
   version: "3.1.2"
-  epoch: 0
+  epoch: 1
   description: OpenSSL FIPS provider build from certificate 4985 source inputs
   target-architecture:
     - x86_64
     - aarch64
   dependencies:
     runtime:
+      - busybox
       - openssl
   copyright:
     - license: Apache-2.0
@@ -38,13 +39,15 @@ pipeline:
       make -j$(nproc)
       install -m755 -D providers/fips.so \
         "${{targets.destdir}}/usr/lib/ossl-modules/fips.so"
-      install -m644 -D openssl-fips.cnf \
-        "${{targets.destdir}}/etc/ssl/openssl-fips.cnf"
+      install -m755 -D openssl-fips-activate \
+        "${{targets.destdir}}/usr/bin/openssl-fips-activate"
+      install -m644 -D openssl-fips.cnf.in \
+        "${{targets.destdir}}/usr/share/openssl-fips/openssl-fips.cnf.in"
+      (cd "${{targets.destdir}}/usr/lib/ossl-modules" && sha256sum fips.so) \
+        >"${{targets.destdir}}/usr/share/openssl-fips/fips.so.sha256"
+      test_config=$(mktemp)
       ./util/wrap.pl apps/openssl fipsinstall \
-        -module "${{targets.destdir}}/usr/lib/ossl-modules/fips.so" \
-        -out "${{targets.destdir}}/etc/ssl/fipsmodule.cnf" \
-        -pedantic -self_test_onload
-      sed -i 's|^module = .*|module = /usr/lib/ossl-modules/fips.so|' \
-        "${{targets.destdir}}/etc/ssl/fipsmodule.cnf"
-      grep -q '^module-mac = .' "${{targets.destdir}}/etc/ssl/fipsmodule.cnf"
-      ! grep -Eq '^install-(status|mac) =' "${{targets.destdir}}/etc/ssl/fipsmodule.cnf"
+        -module providers/fips.so -out "$test_config" -pedantic
+      ./util/wrap.pl apps/openssl fipsinstall \
+        -module providers/fips.so -in "$test_config" -verify
+      rm -f "$test_config"

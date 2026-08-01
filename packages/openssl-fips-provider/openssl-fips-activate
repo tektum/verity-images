@@ -1,0 +1,52 @@
+#!/bin/sh
+set -eu
+
+runtime=${OPENSSL_FIPS_RUNTIME_DIR:?OPENSSL_FIPS_RUNTIME_DIR must name a writable runtime directory}
+case "$runtime" in
+  /*) ;;
+  *)
+    printf 'OPENSSL_FIPS_RUNTIME_DIR must be absolute\n' >&2
+    exit 64
+    ;;
+esac
+case "$runtime" in
+  *[!A-Za-z0-9_./-]*)
+    printf 'OPENSSL_FIPS_RUNTIME_DIR contains unsupported characters\n' >&2
+    exit 64
+    ;;
+esac
+[ "$#" -gt 0 ] || {
+  printf 'usage: openssl-fips-activate COMMAND [ARG...]\n' >&2
+  exit 64
+}
+
+mkdir -p "$runtime"
+[ -d "$runtime" ] && [ -w "$runtime" ] || {
+  printf 'OPENSSL_FIPS_RUNTIME_DIR is not writable: %s\n' "$runtime" >&2
+  exit 1
+}
+
+umask 077
+work=$(mktemp -d "$runtime/.instance.XXXXXX")
+final=${work%/*}/${work##*/.}
+cleanup() {
+  rm -rf "$work"
+}
+trap cleanup EXIT INT TERM
+
+module=/usr/lib/ossl-modules/fips.so
+share=/usr/share/openssl-fips
+(cd "${module%/*}" && sha256sum -c "$share/fips.so.sha256") >/dev/null
+openssl fipsinstall -module "$module" -out "$work/fipsmodule.cnf" -pedantic >/dev/null
+openssl fipsinstall -module "$module" -in "$work/fipsmodule.cnf" -verify >/dev/null
+sed "s|@FIPSMODULE@|$work/fipsmodule.cnf|" \
+  "$share/openssl-fips.cnf.in" >"$work/verify.cnf"
+OPENSSL_CONF="$work/verify.cnf" openssl list -provider fips -providers >/dev/null
+sed "s|@FIPSMODULE@|$final/fipsmodule.cnf|" \
+  "$share/openssl-fips.cnf.in" >"$work/openssl-fips.cnf"
+rm -f "$work/verify.cnf"
+
+mv "$work" "$final"
+trap - EXIT INT TERM
+export OPENSSL_CONF="$final/openssl-fips.cnf"
+exec "$@"
