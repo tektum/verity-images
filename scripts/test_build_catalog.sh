@@ -35,8 +35,8 @@ jq -e '
 
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
 jq '{images: [.include[] | {
-  name: .build_name,
-  version,
+  name,
+  version: .tag_version,
   track,
   description,
   digest: ("sha256:" + ("e" * 64)),
@@ -46,7 +46,7 @@ jq '{images: [.include[] | {
 while IFS=$'\t' read -r name version; do
   mkdir -p "$work/all-scans/scan-$name-$version"
   printf '%s\n' '{}' > "$work/all-scans/scan-$name-$version/scan-amd64.json"
-done < <(jq -r '.include[] | [.build_name, .version] | @tsv' "$work/expected-images.json")
+done < <(jq -r '.include[] | [.name, .tag_version] | @tsv' "$work/expected-images.json")
 
 python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/all-scans" "" \
   "$work/catalog.json" 3 https://github.com/tektum/verity-images/actions/runs/3 \
@@ -54,5 +54,5 @@ python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/all-scans" "
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/catalog.json"
 jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
-  (.[1].include | map([.build_name, .version]) | sort)
+  (.[1].include | map([.name, .tag_version]) | sort)
 ' "$work/catalog.json" "$work/expected-images.json" >/dev/null
