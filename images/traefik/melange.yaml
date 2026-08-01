@@ -1,0 +1,50 @@
+package:
+  name: traefik
+  version: "3.7.10"
+  epoch: 0
+  description: Cloud native application proxy
+  copyright:
+    - license: MIT
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - corepack
+      - go-1.26
+      - nodejs-24
+  environment:
+    CGO_ENABLED: "0"
+    VITE_APP_BASE_API_URL: /api
+    VITE_APP_BASE_URL: ""
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/traefik/traefik
+      tag: v${{package.version}}
+      expected-commit: 2a2349356c01b1b1f7ecddb0c17b30c97f5241e7
+  - runs: |
+      corepack enable
+      cd webui
+      yarn workspaces focus --all --production
+      yarn build:prod
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/traefik
+      output: traefik
+      strip: -s -w
+      ldflags: >-
+        -X github.com/traefik/traefik/v3/pkg/version.Version=v${{package.version}}
+        -X github.com/traefik/traefik/v3/pkg/version.Codename=cheddar
+
+subpackages:
+  - name: traefik-build-metadata
+    description: Resolved Go module metadata for the Traefik build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/traefik-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/traefik-build/go.sum"
