@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - ruby-3.4
+    - ruby3.4-bundler
+
+entrypoint:
+  command: /usr/bin/ruby
+
+environment:
+  GEM_HOME: /usr/local/bundle
+  BUNDLE_APP_CONFIG: /usr/local/bundle
+  BUNDLE_SILENCE_ROOT_WARNING: "1"
+  PATH: /usr/local/bundle/bin:/usr/bin:/bin
+
+paths:
+  - path: /usr/local/bundle
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
