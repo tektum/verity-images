@@ -23,11 +23,12 @@ REQUIRED_FILES: Final = frozenset(
     {
         "usr/lib/ossl-modules/fips.so",
         "usr/bin/openssl-fips-activate",
+        "usr/share/openssl-fips/fips.so.sha256",
         "usr/share/openssl-fips/openssl-fips.cnf.in",
     }
 )
 PACKAGE_NAME: Final = "openssl-fips-provider"
-PACKAGE_VERSION: Final = "3.1.2-r1"
+PACKAGE_VERSION: Final = "3.1.2-r2"
 
 
 def safe_name(name: str) -> bool:

@@ -25,6 +25,7 @@ def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ..
     return (
         entry("usr/lib/ossl-modules/fips.so", elf(architecture)),
         entry("usr/bin/openssl-fips-activate", b"#!/bin/sh\n"),
+        entry("usr/share/openssl-fips/fips.so.sha256", b"sha256  /usr/lib/ossl-modules/fips.so\n"),
         entry("usr/share/openssl-fips/openssl-fips.cnf.in", b"openssl_conf = default\n"),
     )
 
@@ -64,14 +65,14 @@ def repository(root: Path) -> tuple[Path, Path, str]:
     for architecture in sorted(apk_repository_policy.ARCHITECTURES):
         directory = root / architecture
         directory.mkdir()
-        package = directory / "openssl-fips-provider-3.1.2-r1.apk"
+        package = directory / "openssl-fips-provider-3.1.2-r2.apk"
         write_unsigned(package, architecture, payload(architecture))
         sign(package, key)
         subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), str(package)], check=True)
         packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
     manifest = root / "manifest.json"
     manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
-    return root / "x86_64" / "openssl-fips-provider-3.1.2-r1.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
+    return root / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
 
 
 def rejects_repository(root: Path, keys: Path, digest: str) -> None:
