@@ -178,15 +178,20 @@ def generate(base_ref: str | None) -> Matrix:
     changed: set[str] = changed_paths(base_ref) if base_ref else set()
     global_changed = bool(changed & GLOBAL_PATHS)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
-    flavors = {(metadata.track, flavor) for _, metadata in catalog for flavor in metadata.flavors}
     samples = {
-        (metadata.track, flavor)
-        for directory, metadata in catalog
+        (metadata.track, flavor): (
+            GLOBAL_SAMPLES[(metadata.track, flavor)]
+            if (metadata.track, flavor) in GLOBAL_SAMPLES
+            else min(
+                candidate_directory.relative_to(ROOT).as_posix()
+                for candidate_directory, candidate in catalog
+                if candidate.enabled and candidate.track == metadata.track and flavor in candidate.flavors
+            )
+        )
+        for _, metadata in catalog
+        if metadata.enabled
         for flavor in metadata.flavors
-        if GLOBAL_SAMPLES.get((metadata.track, flavor)) == directory.relative_to(ROOT).as_posix()
     }
-    if flavors != set(GLOBAL_SAMPLES) or samples != flavors:
-        raise MetadataError("GLOBAL_SAMPLES must select one image for every track/flavor")
     latest = {
         metadata.name: max(
             (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
@@ -218,7 +223,7 @@ def generate(base_ref: str | None) -> Matrix:
             platforms = ",".join(source.platforms)
         for flavor in metadata.flavors:
             if base_ref and not directly_changed and (
-                not global_changed or GLOBAL_SAMPLES[(metadata.track, flavor)] != relative
+                not global_changed or samples[(metadata.track, flavor)] != relative
             ):
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"

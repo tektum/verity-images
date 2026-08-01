@@ -7,6 +7,7 @@
 #   uv run scripts/test_workflow_policy.py
 
 import shlex
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 from unittest.mock import patch
@@ -140,6 +141,28 @@ def main() -> None:
     } == {
         ("wolfi", "plain", "images/static"),
         ("wolfi", "fips", "images/go/1.26"),
+        ("patched", "plain", "patched/debian-12-slim"),
+    }
+    parse_metadata = gen_matrix.parse_metadata
+
+    def unknown_flavor_metadata(path: Path) -> gen_matrix.Metadata:
+        metadata = parse_metadata(path)
+        if path.parent.relative_to(ROOT).as_posix() in {"images/static", "images/go/1.26"}:
+            return replace(metadata, flavors=(*metadata.flavors, "unknown"))
+        return metadata
+
+    with (
+        patch.object(gen_matrix, "parse_metadata", side_effect=unknown_flavor_metadata),
+        patch.object(gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}),
+    ):
+        samples = gen_matrix.generate("base")["include"]
+    assert {
+        (sample["track"], sample["flavor"], sample["context"])
+        for sample in samples
+    } == {
+        ("wolfi", "plain", "images/static"),
+        ("wolfi", "fips", "images/go/1.26"),
+        ("wolfi", "unknown", "images/go/1.26"),
         ("patched", "plain", "patched/debian-12-slim"),
     }
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
