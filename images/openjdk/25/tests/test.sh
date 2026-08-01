@@ -3,6 +3,7 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
+expected_runtime='25.0.4+-wolfi-r0'
 case "$flavor" in
   plain|jre) ;;
   *) exit 2 ;;
@@ -21,16 +22,18 @@ for value in \
 done
 
 properties=$(docker run --rm --network none "$image" java -XshowSettings:properties -version 2>&1)
-for value in \
-  'java.specification.version = 25' \
-  'file.encoding = UTF-8' \
-  'user.language = en' \
-  'user.country = US' \
-  'user.timezone = UTC'; do
-  printf '%s\n' "$properties" | grep -Fqx "    $value" >/dev/null
-done
+property() {
+  printf '%s\n' "$properties" | awk -F ' = ' -v key="$1" '
+    { name = $1; sub(/^[[:space:]]*/, "", name); if (name == key) print $2 }
+  '
+}
+[ "$(property java.runtime.version)" = "$expected_runtime" ]
+[ "$(property java.specification.version)" = 25 ]
+[ "$(property file.encoding)" = UTF-8 ]
+[ "$(property user.language)" = en ]
+[ "$(property user.country)" = US ]
 docker run --rm --network none "$image" keytool -list -cacerts -storepass changeit >/dev/null
-docker run --rm --network none "$image" fc-list | grep -q .
+docker run --rm --network none "$image" fc-list 2>/dev/null | grep -q .
 
 if [ "$flavor" = jre ]; then
   if docker run --rm --network none "$image" javac -version >/dev/null 2>&1; then
@@ -46,8 +49,10 @@ cat > "$work/Hello.java" <<'EOF'
 class Hello {
   public static void main(String[] args) {
     System.out.println("Hello World");
+    System.out.println(java.time.ZoneId.systemDefault());
   }
 }
 EOF
 docker run --rm --network none -v "$work:/app" -w /app "$image" javac Hello.java
-[ "$(docker run --rm --network none -v "$work:/app" -w /app "$image" java Hello)" = 'Hello World' ]
+[ "$(docker run --rm --network none -v "$work:/app:ro" -w /app "$image" java Hello)" = 'Hello World
+UTC' ]
