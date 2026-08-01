@@ -151,6 +151,12 @@ def main() -> None:
         "  group: build-images-${{ github.ref }}\n"
         "  cancel-in-progress: false\n"
     )
+    catalog_policy = between(catalog, "permissions: {}\n", "\njobs:\n")
+    assert catalog_policy == (
+        "\nconcurrency:\n"
+        "  group: catalog-pages\n"
+        "  cancel-in-progress: false\n"
+    )
     assert "\n  schedule:\n" not in workflow
     assert '    - cron: "17 3 * * *"\n' in monitor
     assert "  workflow_dispatch:\n" in monitor
@@ -181,6 +187,11 @@ def main() -> None:
         "      - name: Generate catalog\n",
         "\n      - name: Upload catalog data\n",
     )
+    assert "https://tektum.github.io/verity-images/catalog.json" in catalog
+    assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
+    assert '"$(test -f previous.json && printf previous.json)" catalog.json' in catalog_step
+    assert "scripts/gen_matrix.py --all > expected-images.json" in catalog_step
+    assert "catalog.json expected-images.json" in catalog_step
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
