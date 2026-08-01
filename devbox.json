@@ -8,7 +8,8 @@
     "python@3.13.14",
     "shellcheck@0.11.0",
     "uv@0.11.28",
-    "yamllint@1.37.1"
+    "yamllint@1.37.1",
+    "ruff@0.15.22"
   ],
   "shell": {
     "scripts": {
@@ -16,6 +17,7 @@
         "actionlint",
         "yamllint .",
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
+        "ruff check --isolated --no-cache scripts",
         "python3 scripts/gen_matrix.py --all >/dev/null",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",
