@@ -37,11 +37,27 @@ jobs:
           printf '%s' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key"
           unset APK_REPOSITORY_PRIVATE_KEY
           openssl dgst -sha256 -sign "$private_key" -out "$signature" "$message"
+          expected_fingerprint=764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698
+          actual_fingerprint=$(openssl pkey -pubin \
+            -in packages/keys/verity-apk-2026.rsa.pub -pubout -outform DER | sha256sum | awk '{print $1}')
+          if [ "$actual_fingerprint" != "$expected_fingerprint" ]; then
+            printf '::error title=Fingerprint mismatch::Public key fingerprint does not match the approved root.\n'
+            exit 1
+          fi
           openssl dgst -sha256 -verify packages/keys/verity-apk-2026.rsa.pub \
             -signature "$signature" "$message"
           rm -f "$private_key"
-          if rg -a -n --hidden --glob '!.git/**' -- \
-            '-----BEGIN [A-Z ]*PRIVATE KEY-----' . "$work_dir"; then
-            printf '::error title=Private key leak::Private key material found in safe outputs.\n'
-            exit 1
-          fi
+          scan_status=0
+          rg -a -l --hidden --glob '!.git/**' -- \
+            '-----BEGIN [A-Z ]*PRIVATE KEY-----' . "$work_dir" >/dev/null || scan_status=$?
+          case "$scan_status" in
+            0)
+              printf '::error title=Private key leak::Private key material found in safe outputs.\n'
+              exit 1
+              ;;
+            1) ;;
+            *)
+              printf '::error title=Private key scan failed::Unable to scan safe outputs.\n'
+              exit "$scan_status"
+              ;;
+          esac

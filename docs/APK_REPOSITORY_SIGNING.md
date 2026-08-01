@@ -9,9 +9,8 @@ The SHA-256 fingerprint of the DER-encoded SubjectPublicKeyInfo is:
 ```
 
 The private root is available only as the `APK_REPOSITORY_PRIVATE_KEY` secret in
-the protected `apk-signing` environment. Its encrypted recovery copy is
-`/home/omer/verity-apk-backups/verity-apk-2026.rsa.gpg`, mode `0600`, encrypted
-to OpenPGP recipient `35C9A26ADAAC05CD48AD8017F36402150EB30E84`.
+the protected `apk-signing` environment. Its encrypted recovery copy is held
+in the approved signing-backup vault and recorded in the signing inventory.
 
 ## Signing policy
 
@@ -31,6 +30,10 @@ before any publication uses it. Retain the old public key for verification of
 already-published packages.
 
 If a root is suspected compromised, immediately disable its environment secret,
-stop publication, announce the affected package versions, and publish a new
-root and package versions. Do not attempt to repair an already-published
-signature in place.
+stop publication, and publish a keyless-cosign-signed revocation record and
+replacement keyring with the repository trust metadata. Clients must fetch that
+metadata before accepting cached trust data; the revocation record takes
+precedence, and the compromised key becomes historical-only and cannot validate
+new artifacts. Announce affected package versions and publish the replacement
+root and new package versions. Do not repair an already-published signature in
+place.
