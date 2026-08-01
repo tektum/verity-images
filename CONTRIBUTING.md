@@ -37,17 +37,17 @@ Before creating parallel image branches:
 
 - Identify shared matrix, catalog, scanner, flavor, or build changes. Land those
   in one prerequisite pull request first.
-- Choose the track from the compatibility contract: Wolfi owns a new runtime;
-  patched preserves load-bearing upstream behavior; Melange rebuilds components
-  that package-manager patching cannot fix.
-- Resolve and scan both target architectures. Classify each fixable finding as a
-  distro package, embedded binary, or application dependency before writing the
-  image definition.
+- Choose `wolfi` for a new runtime and `patched` when the image must preserve
+  load-bearing upstream behavior. For a Wolfi image, use Melange to rebuild
+  components that package-manager patching cannot fix.
+- Resolve both target architectures and inspect current vulnerability evidence
+  before writing the image definition. CI performs the authoritative amd64 and
+  arm64 scans, and `build-gate` aggregates their results.
 - Use the registry family in `metadata.name`; keep versions and variants in
   `versions`, `flavors`, and the directory name.
 - Mark FIPS as required, not applicable, vendor-specific, or blocked before
-  implementation. Plain and FIPS flavors must use the same source version and
-  preserve the same user-facing runtime contract.
+  implementation. When both plain and FIPS flavors are supported, they must use
+  the same source version and preserve the same user-facing runtime contract.
 
 Do not publish or waive a fixable finding. The gate proves only that the pinned
 Grype run reported zero findings with an available fix for the candidate digest
@@ -64,7 +64,8 @@ OCI user, command, signal, paths, ports, volumes, and working directory.
 - Include negative cases for invalid metadata, unsupported paths, or unsupported
   architectures when the build has those boundaries.
 - Make failures identify the broken assertion; avoid silent `&&` chains.
-- Keep scripts executable and APKO configs, metadata, and lockfiles mode `100644`.
+- Keep scripts executable and APKO configs, metadata, `source.yaml`,
+  `melange.yaml`, and lockfiles mode `100644`.
 
 Run native-architecture runtime checks locally. Leave non-native builds and smoke
 tests to CI; do not use local emulation.
