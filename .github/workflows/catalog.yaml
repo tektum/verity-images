@@ -12,6 +12,10 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: catalog-pages
+  cancel-in-progress: false
+
 jobs:
   catalog:
     if: >-
@@ -66,6 +70,7 @@ jobs:
             printf 'run-id=%s\n' "$run_id"
             printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")"
             printf 'source-sha=%s\n' "$source_sha"
+            printf 'source-event=%s\n' "$(jq -r .event <<<"$metadata")"
             printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
           } >> "$GITHUB_OUTPUT"
 
@@ -126,18 +131,44 @@ jobs:
             )
           ' input/report/build-report.json >/dev/null
 
+      - name: Generate expected images
+        if: steps.artifacts.outputs.ready == 'true'
+        run: devbox run -- python3 scripts/gen_matrix.py --all > expected-images.json
+
+      - name: Download current catalog
+        if: steps.artifacts.outputs.ready == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          status=$(curl --silent --show-error --location --output previous.json \
+            --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
+          if [[ "$status" == 200 ]]; then
+            devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json
+          elif [[ "$status" == 404 ]]; then
+            devbox run -- jq -e --slurp \
+              '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
+              input/report/build-report.json expected-images.json >/dev/null
+            rm previous.json
+          else
+            printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"
+            exit 1
+          fi
+
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
-            "" catalog.json \
+            "$(test -f previous.json && printf previous.json)" catalog.json \
             '${{ steps.source.outputs.run-id }}' '${{ steps.source.outputs.run-url }}' \
             '${{ steps.source.outputs.source-sha }}' '${{ steps.source.outputs.published-at }}'
           devbox run -- jq -e \
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
+          devbox run -- jq -e --slurp \
+            '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
+            catalog.json expected-images.json >/dev/null
 
       - name: Upload catalog data
         if: steps.artifacts.outputs.ready == 'true'

@@ -66,6 +66,34 @@ CATALOG_JQ_COMMAND: Final = (
     "catalog.json",
     ">/dev/null",
 )
+INVENTORY_JQ_FILTER: Final = (
+    "(.[0].images | map([.name, .version]) | sort) == "
+    "(.[1].include | map([.name, .tag_version]) | sort)"
+)
+BOOTSTRAP_INVENTORY_COMMAND: Final = (
+    "devbox",
+    "run",
+    "--",
+    "jq",
+    "-e",
+    "--slurp",
+    INVENTORY_JQ_FILTER,
+    "input/report/build-report.json",
+    "expected-images.json",
+    ">/dev/null",
+)
+CATALOG_INVENTORY_COMMAND: Final = (
+    "devbox",
+    "run",
+    "--",
+    "jq",
+    "-e",
+    "--slurp",
+    INVENTORY_JQ_FILTER,
+    "catalog.json",
+    "expected-images.json",
+    ">/dev/null",
+)
 
 
 def between(text: str, start: str, end: str) -> str:
@@ -151,6 +179,12 @@ def main() -> None:
         "  group: build-images-${{ github.ref }}\n"
         "  cancel-in-progress: false\n"
     )
+    catalog_policy = between(catalog, "permissions: {}\n", "\njobs:\n")
+    assert catalog_policy == (
+        "\nconcurrency:\n"
+        "  group: catalog-pages\n"
+        "  cancel-in-progress: false\n"
+    )
     assert "\n  schedule:\n" not in workflow
     assert '    - cron: "17 3 * * *"\n' in monitor
     assert "  workflow_dispatch:\n" in monitor
@@ -181,9 +215,31 @@ def main() -> None:
         "      - name: Generate catalog\n",
         "\n      - name: Upload catalog data\n",
     )
+    download_catalog_step = between(
+        catalog,
+        "      - name: Download current catalog\n",
+        "\n      - name: Generate catalog\n",
+    )
+    assert "https://tektum.github.io/verity-images/catalog.json" in catalog
+    assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
+    assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
+        "      - name: Download current catalog\n"
+    )
+    assert (
+        '          if [[ "$status" == 200 ]]; then\n'
+        "            devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json\n"
+        in download_catalog_step
+    )
+    assert '          elif [[ "$status" == 404 ]]; then\n' in download_catalog_step
+    assert '"$SOURCE_EVENT" == workflow_dispatch' not in download_catalog_step
+    assert download_catalog_step.count("        run: |\n") == 1
+    download_catalog_script = download_catalog_step.split("        run: |\n", maxsplit=1)[1]
+    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(download_catalog_script)
+    assert '"$(test -f previous.json && printf previous.json)" catalog.json' in catalog_step
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
+    assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
 
 if __name__ == "__main__":
