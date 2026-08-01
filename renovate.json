@@ -49,6 +49,11 @@
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "matchFileNames": ["patched/busybox/source.yaml"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
     }
   ]
 }
