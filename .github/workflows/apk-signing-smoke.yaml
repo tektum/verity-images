@@ -1,0 +1,47 @@
+name: APK signing smoke
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  sign-and-verify:
+    runs-on: ubuntu-latest
+    environment: apk-signing
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Sign and verify a disposable message
+        shell: bash
+        env:
+          APK_REPOSITORY_PRIVATE_KEY: ${{ secrets.APK_REPOSITORY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          work_dir=$(mktemp -d)
+          private_key="$work_dir/private-key.pem"
+          message="$work_dir/message"
+          signature="$work_dir/message.sig"
+          cleanup() {
+            rm -rf "$work_dir"
+          }
+          trap cleanup EXIT HUP INT TERM
+
+          printf 'verity APK signing smoke\n' > "$message"
+          printf '%s' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key"
+          unset APK_REPOSITORY_PRIVATE_KEY
+          openssl dgst -sha256 -sign "$private_key" -out "$signature" "$message"
+          openssl dgst -sha256 -verify packages/keys/verity-apk-2026.rsa.pub \
+            -signature "$signature" "$message"
+          rm -f "$private_key"
+          if rg -a -n --hidden --glob '!.git/**' -- \
+            '-----BEGIN [A-Z ]*PRIVATE KEY-----' . "$work_dir"; then
+            printf '::error title=Private key leak::Private key material found in safe outputs.\n'
+            exit 1
+          fi
