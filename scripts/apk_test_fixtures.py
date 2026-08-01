@@ -8,6 +8,9 @@ import zlib
 from pathlib import Path
 
 
+MELANGE_RECIPE = b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 2\nvars:\n  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n  certificate: \"4985\"\n"
+
+
 def gzip_member(raw: bytes) -> bytes:
     compressor = zlib.compressobj(9, zlib.DEFLATED, -zlib.MAX_WBITS)
     body = compressor.compress(raw) + compressor.flush()
@@ -42,7 +45,7 @@ def elf(architecture: str) -> bytes:
 def unsigned_package(architecture: str, payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], *, name: str = "openssl-fips-provider", version: str = "3.1.2-r2", datahash: str | None = None, extra: str = "") -> bytes:
     data = gzip_member(pack_tar(payload, final=True))
     metadata = f"pkgname = {name}\npkgver = {version}\narch = {architecture}\ndatahash = {datahash or hashlib.sha256(data).hexdigest()}\n{extra}".encode()
-    control = gzip_member(pack_tar((entry(".PKGINFO", metadata),), final=False))
+    control = gzip_member(pack_tar((entry(".PKGINFO", metadata), entry(".melange.yaml", MELANGE_RECIPE)), final=False))
     return control + data
 
 

@@ -23,10 +23,21 @@ from apk_test_fixtures import elf, entry, gzip_member, pack_tar, signed_shape, u
 
 def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
     return (
+        entry("usr", typeflag=tarfile.DIRTYPE),
+        entry("usr/bin", typeflag=tarfile.DIRTYPE),
         entry("usr/lib/ossl-modules/fips.so", elf(architecture)),
         entry("usr/bin/openssl-fips-activate", b"#!/bin/sh\n"),
+        entry("usr/lib", typeflag=tarfile.DIRTYPE),
+        entry("usr/lib/ossl-modules", typeflag=tarfile.DIRTYPE),
+        entry("usr/share", typeflag=tarfile.DIRTYPE),
+        entry("usr/share/openssl-fips", typeflag=tarfile.DIRTYPE),
         entry("usr/share/openssl-fips/fips.so.sha256", b"sha256  /usr/lib/ossl-modules/fips.so\n"),
         entry("usr/share/openssl-fips/openssl-fips.cnf.in", b"openssl_conf = default\n"),
+        entry("var", typeflag=tarfile.DIRTYPE),
+        entry("var/lib", typeflag=tarfile.DIRTYPE),
+        entry("var/lib/db", typeflag=tarfile.DIRTYPE),
+        entry("var/lib/db/sbom", typeflag=tarfile.DIRTYPE),
+        entry(apk_archive.MELANGE_SPDX, b"{}"),
     )
 
 
@@ -83,6 +94,39 @@ def rejects_repository(root: Path, keys: Path, digest: str) -> None:
     raise AssertionError("invalid repository was accepted")
 
 
+def real_repository(root: Path) -> tuple[Path, Path, str]:
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir()
+    key = root / "fixture.rsa"
+    keys = root / "keys"
+    keys.mkdir()
+    subprocess.run(["melange", "keygen", str(key)], check=True)
+    shutil.copy2(key.with_suffix(".rsa.pub"), keys / "fixture.rsa.pub")
+
+    build = root / "build"
+    recipe = Path(__file__).resolve().parents[1] / "packages/openssl-fips-provider/melange.yaml"
+    subprocess.run(
+        ["melange", "build", str(recipe), "--arch", "x86_64", "--runner", "docker", "--out-dir", str(build / "packages"), "--cache-dir", str(build / "cache")],
+        check=True,
+    )
+    package = root / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk"
+    package.parent.mkdir()
+    shutil.copy2(next((build / "packages").rglob(package.name)), package)
+    sign(package, key)
+
+    other = root / "aarch64" / package.name
+    other.parent.mkdir()
+    write_unsigned(other, "aarch64", payload("aarch64"))
+    sign(other, key)
+    packages: list[dict[str, str]] = []
+    for architecture, archive in (("x86_64", package), ("aarch64", other)):
+        subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(archive.parent / "APKINDEX.tar.gz"), str(archive)], check=True)
+        packages.append({"architecture": architecture, "path": archive.relative_to(root).as_posix(), "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()})
+    manifest = root / "manifest.json"
+    manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
+    return package, keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
+
+
 def unit_tests() -> None:
     valid = signed_shape(unsigned_package("x86_64", payload("x86_64")))
     assert apk_archive.package_info(valid, "x86_64", apk_repository_policy.REQUIRED_FILES).name == "openssl-fips-provider"
@@ -92,6 +136,8 @@ def unit_tests() -> None:
     rejects_package(signed_shape(unsigned_package("aarch64", payload("aarch64"))))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64")[:-1])))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("etc/evil", b"bad"),))))
+    rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("var/lib/db/sbom/other.spdx.json", b"{}"),))))
+    rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("usr/share/openssl-fips/fipsmodule.cnf", b"generated"),))))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("usr/lib/ossl-modules/fips.so", elf("x86_64")),))))
     rejects_package(signed_shape(unsigned_package("x86_64", (entry("../escape", b"bad"),) + payload("x86_64")[1:])))
     rejects_package(signed_shape(unsigned_package("x86_64", (entry("usr/lib/ossl-modules/fips.so", typeflag=tarfile.SYMTYPE, linkname="/etc/passwd"),) + payload("x86_64")[1:])))
@@ -130,9 +176,19 @@ def crypto_tests() -> None:
         rejects_repository(root, keys, digest)
 
 
+def real_melange_tests() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        package, keys, digest = real_repository(root)
+        apk_repository_policy.verify(package, keys)
+        assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r2"
+        apk_repository_policy.validate(root, keys, digest)
+
+
 def main() -> None:
     unit_tests()
     crypto_tests()
+    real_melange_tests()
 
 
 if __name__ == "__main__":

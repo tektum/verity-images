@@ -13,12 +13,42 @@ MAX_ARCHIVE_SIZE: Final = 64 * 1024 * 1024
 MAX_MEMBER_SIZE: Final = 32 * 1024 * 1024
 MAX_ENTRIES: Final = 128
 MAX_ENTRY_SIZE: Final = 16 * 1024 * 1024
+MAX_MELANGE_RECIPE_SIZE: Final = 8 * 1024
+MAX_SPDX_SIZE: Final = 64 * 1024
+MELANGE_RECIPE: Final = ".melange.yaml"
+MELANGE_SPDX: Final = "var/lib/db/sbom/openssl-fips-provider-3.1.2-r2.spdx.json"
+MELANGE_RECIPE_FIELDS: Final = (
+    b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 2\n",
+    b"vars:\n",
+    b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
+    b'  certificate: "4985"\n',
+)
+PAYLOAD_DIRECTORIES: Final = frozenset(
+    {
+        "usr",
+        "usr/bin",
+        "usr/lib",
+        "usr/lib/ossl-modules",
+        "usr/share",
+        "usr/share/openssl-fips",
+        "var",
+        "var/lib",
+        "var/lib/db",
+        "var/lib/db/sbom",
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)
 class GzipMember:
     compressed: bytes
     plain: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class TarEntry:
+    name: str
+    contents: bytes | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,10 +94,10 @@ def safe_name(name: str) -> bool:
     return not path.is_absolute() and ".." not in path.parts and name not in {"", "."}
 
 
-def tar_files(raw: bytes) -> tuple[tuple[str, bytes], ...]:
+def tar_entries(raw: bytes) -> tuple[TarEntry, ...]:
     try:
         with tarfile.open(fileobj=io.BytesIO(raw), mode="r:") as archive:
-            entries: list[tuple[str, bytes]] = []
+            entries: list[TarEntry] = []
             for entry in archive:
                 if len(entries) >= MAX_ENTRIES or not safe_name(entry.name) or entry.issym() or entry.islnk() or entry.isdev():
                     raise ValueError("unsafe tar entry")
@@ -77,12 +107,18 @@ def tar_files(raw: bytes) -> tuple[tuple[str, bytes], ...]:
                     source = archive.extractfile(entry)
                     if source is None:
                         raise ValueError("unreadable tar entry")
-                    entries.append((entry.name, source.read()))
-                elif not entry.isdir():
+                    entries.append(TarEntry(entry.name, source.read()))
+                elif entry.isdir():
+                    entries.append(TarEntry(entry.name, None))
+                else:
                     raise ValueError("unsupported tar entry")
     except (tarfile.TarError, OSError) as error:
         raise ValueError("invalid tar archive") from error
     return tuple(entries)
+
+
+def tar_files(raw: bytes) -> tuple[tuple[str, bytes], ...]:
+    return tuple((entry.name, entry.contents) for entry in tar_entries(raw) if entry.contents is not None)
 
 
 def fields(raw: bytes) -> dict[str, str]:
@@ -95,17 +131,21 @@ def fields(raw: bytes) -> dict[str, str]:
 def package_info(data: bytes, architecture: str, required_files: frozenset[str]) -> PackageInfo:
     signature, control, payload = gzip_members(data, 3)
     del signature
-    control_files = tar_files(control.plain)
-    if not control_files or control_files[0][0] != ".PKGINFO" or len(control_files) != 1:
+    control_entries = tar_entries(control.plain)
+    control_files = {entry.name: entry.contents for entry in control_entries if entry.contents is not None}
+    recipe = control_files.get(MELANGE_RECIPE)
+    if set(control_files) != {".PKGINFO", MELANGE_RECIPE} or len(control_entries) != len(control_files) or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
         raise ValueError("invalid control archive")
-    metadata = fields(control_files[0][1])
+    metadata = fields(control_files[".PKGINFO"])
     if metadata.get("arch") != architecture or metadata.get("datahash") != hashlib.sha256(payload.compressed).hexdigest():
         raise ValueError("invalid package metadata")
-    payload_files = tar_files(payload.plain)
-    names = [name for name, _ in payload_files]
-    if len(names) != len(set(names)) or set(names) != required_files:
+    payload_entries = tar_entries(payload.plain)
+    payload_files = {entry.name: entry.contents for entry in payload_entries if entry.contents is not None}
+    payload_directories = {entry.name for entry in payload_entries if entry.contents is None}
+    spdx = payload_files.get(MELANGE_SPDX)
+    if len(payload_entries) != len(payload_files) + len(payload_directories) or set(payload_files) != required_files | {MELANGE_SPDX} or payload_directories != PAYLOAD_DIRECTORIES or spdx is None or not 0 < len(spdx) <= MAX_SPDX_SIZE:
         raise ValueError("invalid FIPS payload")
-    module = dict(payload_files).get("usr/lib/ossl-modules/fips.so", b"")
+    module = payload_files.get("usr/lib/ossl-modules/fips.so", b"")
     machines = {"x86_64": 62, "aarch64": 183}
     if len(module) < 20 or module[:5] != b"\x7fELF\x02" or module[5] != 1 or int.from_bytes(module[18:20], "little") != machines[architecture]:
         raise ValueError("invalid FIPS module ELF")
