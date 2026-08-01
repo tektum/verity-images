@@ -16,28 +16,31 @@ trap cleanup EXIT INT TERM
 
 docker run --rm --entrypoint httpd "$image" -t
 docker run --rm --entrypoint sh "$image" -c '
-  [ "$(id -u www-data)" = 33 ] &&
-  [ "$(id -g www-data)" = 33 ] &&
-  [ -d /usr/local/apache2/conf ] &&
-  [ -d /usr/local/apache2/modules ] &&
-  [ -d /usr/local/apache2/htdocs ] &&
-  [ -d /usr/local/apache2/cgi-bin ] &&
-  httpd -M | grep -q authz_core_module &&
-  httpd -M | grep -q mime_module &&
-  [ -f /etc/ssl/cert.pem ] &&
-  [ -x /usr/bin/ab ] &&
-  [ -x /usr/bin/htpasswd ] &&
-  [ -x /usr/bin/rotatelogs ]
+  set -eu
+  [ "$(id -u www-data)" = 33 ] || { echo "unexpected www-data uid" >&2; exit 1; }
+  [ "$(id -g www-data)" = 33 ] || { echo "unexpected www-data gid" >&2; exit 1; }
+  for dir in conf modules htdocs cgi-bin; do
+    [ -d "/usr/local/apache2/$dir" ] || { echo "missing directory: $dir" >&2; exit 1; }
+  done
+  modules=$(httpd -M)
+  for module in authz_core_module mime_module; do
+    printf "%s\n" "$modules" | grep -q "$module" || { echo "missing module: $module" >&2; exit 1; }
+  done
+  [ -f /etc/ssl/cert.pem ] || { echo "missing CA bundle" >&2; exit 1; }
+  for binary in ab htpasswd rotatelogs; do
+    [ -x "/usr/bin/$binary" ] || { echo "missing binary: $binary" >&2; exit 1; }
+  done
 '
 
 docker run --name "$container" -d -p 127.0.0.1::80 "$image" >/dev/null
 port=$(docker port "$container" 80/tcp | awk -F: 'NR == 1 { print $2 }')
 i=0
-until curl --fail --silent "http://127.0.0.1:$port/" >/dev/null; do
+until response=$(curl --fail --silent "http://127.0.0.1:$port/"); do
   i=$((i + 1))
   [ "$i" -lt 20 ] || exit 1
   sleep 1
 done
+printf '%s' "$response" | grep -q 'It works!'
 
 docker stop "$container" >/dev/null
 [ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0 ]
