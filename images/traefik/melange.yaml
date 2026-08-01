@@ -13,13 +13,9 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
-      - corepack
       - go-1.26
-      - nodejs-24
   environment:
     CGO_ENABLED: "0"
-    VITE_APP_BASE_API_URL: /api
-    VITE_APP_BASE_URL: ""
 
 pipeline:
   - uses: git-checkout
@@ -27,11 +23,15 @@ pipeline:
       repository: https://github.com/traefik/traefik
       tag: v${{package.version}}
       expected-commit: 2a2349356c01b1b1f7ecddb0c17b30c97f5241e7
+  - runs: mkdir release
+  - uses: fetch
+    with:
+      uri: >-
+        https://github.com/traefik/traefik/releases/download/v${{package.version}}/traefik-v${{package.version}}.src.tar.gz
+      expected-sha256: 31e0e2fbdccd3170b3bc5c3d233a08585bcbc5ede8f753d12a5999d69c21cdd6
+      directory: release
   - runs: |
-      corepack enable
-      cd webui
-      yarn workspaces focus --all --production
-      yarn build:prod
+      cp -R release/webui/static/. webui/static/
   - uses: go/build/v2
     with:
       packages: ./cmd/traefik
