@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+version=v3.7.10
 container="verity-traefik-test-$$"
 created=
 
@@ -16,12 +17,13 @@ case $(docker image inspect --format '{{json .Config.Cmd}}' "$image") in null|'[
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ]
 
 created=$(docker create "$image")
-docker export "$created" | tar -tf - | grep -qx 'usr/bin/traefik'
-docker export "$created" | tar -tf - | grep -q '^etc/traefik/'
+contents=$(docker export "$created" | tar -tf -)
+printf '%s\n' "$contents" | grep -qx 'usr/bin/traefik'
+printf '%s\n' "$contents" | grep -q '^etc/traefik/'
 docker rm "$created" >/dev/null
 created=
 
-docker run --rm --user 65532 "$image" version | grep -q 'Version:.*v3.7.10'
+docker run --rm --user 65532 "$image" version | grep -q "Version:.*$version"
 docker run --rm --user 65532 "$image" --help >/dev/null
 
 docker run --name "$container" -d --read-only --user 65532 \
@@ -36,5 +38,5 @@ until response=$(curl --fail --silent "http://127.0.0.1:$port/ping"); do
   sleep 1
 done
 printf '%s' "$response" | grep -qx 'OK'
-curl --fail --silent "http://127.0.0.1:$port/api/version" | grep -q '"Version":"v3.7.10"'
+curl --fail --silent "http://127.0.0.1:$port/api/version" | grep -q "\"Version\":\"$version\""
 curl --fail --silent "http://127.0.0.1:$port/dashboard/" | grep -q '<title>Traefik Proxy</title>'
