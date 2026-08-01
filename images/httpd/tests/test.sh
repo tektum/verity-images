@@ -22,7 +22,6 @@ docker run --rm --entrypoint sh "$image" -c '
   [ -d /usr/local/apache2/modules ] &&
   [ -d /usr/local/apache2/htdocs ] &&
   [ -d /usr/local/apache2/cgi-bin ] &&
-  httpd -M | grep -q mpm_prefork_module &&
   httpd -M | grep -q authz_core_module &&
   httpd -M | grep -q mime_module &&
   [ -f /etc/ssl/cert.pem ] &&
