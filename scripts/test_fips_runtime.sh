@@ -1,10 +1,20 @@
 #!/bin/bash
 set -euo pipefail
 
-repository=${1:?usage: test_fips_runtime.sh REPOSITORY KEY}
-key=${2:?usage: test_fips_runtime.sh REPOSITORY KEY}
+repository=${1:?usage: test_fips_runtime.sh REPOSITORY KEY ARCHITECTURE}
+key=${2:?usage: test_fips_runtime.sh REPOSITORY KEY ARCHITECTURE}
+architecture=${3:?usage: test_fips_runtime.sh REPOSITORY KEY ARCHITECTURE}
 
-docker run --rm --platform linux/amd64 \
+case "$architecture" in
+  x86_64) platform=linux/amd64 ;;
+  aarch64) platform=linux/arm64 ;;
+  *)
+    printf 'unsupported architecture: %s\n' "$architecture" >&2
+    exit 2
+    ;;
+esac
+
+docker run --rm --platform "$platform" \
   -v "$(realpath "$repository"):/repository:ro" \
   -v "$(realpath "$key"):$(realpath "$key"):ro" \
   cgr.dev/chainguard/wolfi-base:latest \
