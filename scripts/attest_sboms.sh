@@ -25,4 +25,7 @@ for arch in amd64 arm64; do
   jq --arg arch "$arch" '.name += "-verity-platform-" + $arch' \
     "${sboms[$arch]}" > "$predicate"
   cosign attest --yes --type spdxjson --predicate "$predicate" "${target}@${digest}"
+  jq --arg arch "$arch" '{bomFormat:"CycloneDX",specVersion:"1.5",name:(.name + "-verity-platform-" + $arch),components:[.packages[] | {name,version:(.versionInfo),purl:(.externalRefs[] | select(.referenceType == "purl") | .referenceLocator)}]}' \
+    "${sboms[$arch]}" > "$work/$arch.cyclonedx.json"
+  cosign attest --yes --type cyclonedx --predicate "$work/$arch.cyclonedx.json" "${target}@${digest}"
 done
