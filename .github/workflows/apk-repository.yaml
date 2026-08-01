@@ -185,6 +185,7 @@ jobs:
       - name: Verify build digests and provenance
         env:
           AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.source-sha }}
           X86_64_PACKAGE_DIGEST: ${{ needs.build-x86_64.outputs.package-digest }}
