@@ -1,5 +1,5 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 source=${1:?usage: replace_gosu.sh SOURCE ARCH BASE TARGET}
 arch=${2:?usage: replace_gosu.sh SOURCE ARCH BASE TARGET}
@@ -11,21 +11,18 @@ fail() {
   exit 1
 }
 
-while IFS= read -r key; do
-  case "$key" in
-    gosu-version | gosu-amd64-sha256 | gosu-arm64-sha256 | gosu-path) ;;
-    gosu-*) fail "unknown key $key" ;;
-  esac
-done < <(awk -F: '{ key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key); if (key ~ /^gosu-/) print key }' "$source")
+unknown_key=$(awk -F: '
+  { key = $1; gsub(/^[[:space:]]+|[[:space:]]+$/, "", key) }
+  key ~ /^gosu-/ && key !~ /^gosu-(version|amd64-sha256|arm64-sha256|path)$/ { print key; exit }
+' "$source")
+[ -z "$unknown_key" ] || fail "unknown key $unknown_key"
 
 read_value() {
-  local key=$1
-  local count
-  local value
-  count=$(awk -v key="$key:" '$1 == key { count++ } END { print count + 0 }' "$source")
-  [[ "$count" -eq 1 ]] || fail "$key must appear exactly once"
-  value=$(awk -v key="$key:" '$1 == key && NF == 2 { print $2 }' "$source")
-  [[ -n "$value" ]] || fail "$key must have one value"
+  key_name=$1
+  count=$(awk -v key="$key_name:" '$1 == key { count++ } END { print count + 0 }' "$source")
+  [ "$count" -eq 1 ] || fail "$key_name must appear exactly once"
+  value=$(awk -v key="$key_name:" '$1 == key && NF == 2 { print $2 }' "$source")
+  [ -n "$value" ] || fail "$key_name must have one value"
   printf '%s' "$value"
 }
 
@@ -34,9 +31,9 @@ amd64_checksum=$(read_value gosu-amd64-sha256)
 arm64_checksum=$(read_value gosu-arm64-sha256)
 gosu_path=$(read_value gosu-path)
 
-[[ "$version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || fail "invalid gosu-version"
-[[ "$amd64_checksum" =~ ^[0-9a-f]{64}$ ]] || fail "invalid gosu-amd64-sha256"
-[[ "$arm64_checksum" =~ ^[0-9a-f]{64}$ ]] || fail "invalid gosu-arm64-sha256"
+printf '%s\n' "$version" | grep -Eq '^[0-9]+\.[0-9]+(\.[0-9]+)?$' || fail "invalid gosu-version"
+printf '%s\n' "$amd64_checksum" | grep -Eq '^[0-9a-f]{64}$' || fail "invalid gosu-amd64-sha256"
+printf '%s\n' "$arm64_checksum" | grep -Eq '^[0-9a-f]{64}$' || fail "invalid gosu-arm64-sha256"
 case "$gosu_path" in
   /usr/local/bin/gosu | /usr/sbin/gosu) ;;
   *) fail "unsupported gosu-path" ;;

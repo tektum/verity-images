@@ -1,5 +1,5 @@
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
@@ -7,11 +7,11 @@ trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
 
 cat > "$work/bin/curl" <<'EOF'
-#!/bin/bash
-set -euo pipefail
+#!/bin/sh
+set -eu
 url=
 output=
-while [[ $# -gt 0 ]]; do
+while [ "$#" -gt 0 ]; do
   case "$1" in
     -o)
       output=$2
@@ -30,10 +30,15 @@ printf '%s\n' "$url" >> "$CURL_LOG"
 EOF
 
 cat > "$work/bin/docker" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-context=${!#}
-printf '%q ' "$@" >> "$DOCKER_LOG"
+#!/bin/sh
+set -eu
+context=
+for argument do
+  context=$argument
+done
+for argument do
+  printf '%s ' "$argument" >> "$DOCKER_LOG"
+done
 printf '\n' >> "$DOCKER_LOG"
 stat -c '%a' "$context/gosu" >> "$MODE_LOG"
 cat >> "$DOCKERFILE_LOG"
@@ -44,32 +49,32 @@ amd64_checksum=$(printf amd64 | sha256sum | cut -d' ' -f1)
 arm64_checksum=$(printf arm64 | sha256sum | cut -d' ' -f1)
 
 write_source() {
-  local path=$1
+  source_path=$1
   cat > "$work/source.yaml" <<EOF
 gosu-version: 1.19
 gosu-amd64-sha256: $amd64_checksum
 gosu-arm64-sha256: $arm64_checksum
-gosu-path: $path
+gosu-path: $source_path
 EOF
 }
 
 run_replacement() {
-  local arch=$1
-  local path=$2
+  replacement_arch=$1
+  replacement_path=$2
   : > "$work/curl.log"
   : > "$work/docker.log"
   : > "$work/dockerfile.log"
   : > "$work/mode.log"
-  write_source "$path"
+  write_source "$replacement_path"
   CURL_LOG="$work/curl.log" DOCKER_LOG="$work/docker.log" \
     DOCKERFILE_LOG="$work/dockerfile.log" MODE_LOG="$work/mode.log" \
     PATH="$work/bin:$PATH" "$root/scripts/replace_gosu.sh" \
-    "$work/source.yaml" "$arch" base-image target-image
-  grep -Fxq "https://github.com/tianon/gosu/releases/download/1.19/gosu-$arch" \
+    "$work/source.yaml" "$replacement_arch" base-image target-image
+  grep -Fxq "https://github.com/tianon/gosu/releases/download/1.19/gosu-$replacement_arch" \
     "$work/curl.log"
-  grep -Fq -- "--platform linux/$arch" "$work/docker.log"
+  grep -Fq -- "--platform linux/$replacement_arch" "$work/docker.log"
   grep -Fq -- "--build-arg BASE=base-image" "$work/docker.log"
-  grep -Fq -- "--build-arg GOSU_PATH=$path" "$work/docker.log"
+  grep -Fq -- "--build-arg GOSU_PATH=$replacement_path" "$work/docker.log"
   grep -Fq -- "--tag target-image" "$work/docker.log"
   grep -Fxq 755 "$work/mode.log"
   grep -Fq "COPY --chown=0:0 --chmod=0755 gosu \${GOSU_PATH}" "$work/dockerfile.log"
@@ -81,8 +86,7 @@ run_replacement arm64 /usr/sbin/gosu
 run_replacement arm64 /usr/local/bin/gosu
 
 expect_failure() {
-  local expected=$1
-  local output
+  expected=$1
   : > "$work/curl.log"
   : > "$work/docker.log"
   : > "$work/dockerfile.log"
@@ -94,8 +98,8 @@ expect_failure() {
     printf 'invalid gosu metadata was accepted\n' >&2
     exit 1
   fi
-  grep -Fq "$expected" <<< "$output"
-  [[ ! -s "$work/docker.log" ]]
+  printf '%s\n' "$output" | grep -Fq "$expected"
+  [ ! -s "$work/docker.log" ]
 }
 
 cat > "$work/source.yaml" <<EOF
@@ -144,4 +148,4 @@ grep -Fq "if grep -Eq '^[[:space:]]*gosu-' \"\${context}/source.yaml\"; then" \
   "$root/scripts/build_candidate.sh"
 replacement_line=$(grep -nF 'scripts/replace_gosu.sh' "$root/scripts/build_candidate.sh" | cut -d: -f1)
 sbom_line=$(grep -nF "syft \"docker:\${patched}\"" "$root/scripts/build_candidate.sh" | cut -d: -f1)
-[[ "$replacement_line" -lt "$sbom_line" ]]
+[ "$replacement_line" -lt "$sbom_line" ]
