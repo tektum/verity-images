@@ -209,8 +209,18 @@ def main() -> None:
         "  cancel-in-progress: false\n"
     )
     assert "\n  schedule:\n" not in workflow
+    assert (
+        "  GRYPE_VERSION: 0.116.1\n"
+        "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
+        in workflow
+    )
     assert '    - cron: "17 3 * * *"\n' in monitor
     assert "  workflow_dispatch:\n" in monitor
+    assert (
+        "  GRYPE_VERSION: 0.116.1\n"
+        "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
+        in monitor
+    )
     assert "      contents: read\n      issues: write\n" in monitor
     assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
     assert "gh run download" not in monitor
