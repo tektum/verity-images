@@ -3,25 +3,14 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 container="verity-memcached-test-$$"
-platform=
-
-case "$image" in
-  *-amd64) platform=linux/amd64 ;;
-  *-arm64) platform=linux/arm64 ;;
-esac
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
 
-if [ -n "$platform" ]; then
-  docker run --platform "$platform" --name "$container" --user 65532:65532 -d \
-    -p 127.0.0.1::11211 "$image" >/dev/null
-else
-  docker run --name "$container" --user 65532:65532 -d \
-    -p 127.0.0.1::11211 "$image" >/dev/null
-fi
+docker run --platform "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")" \
+  --name "$container" --user 65532:65532 -d -p 127.0.0.1::11211 "$image" >/dev/null
 port=$(docker port "$container" 11211/tcp | awk -F: 'NR == 1 { print $2 }')
 
 i=0
