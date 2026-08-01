@@ -1,0 +1,51 @@
+package:
+  name: openssl-fips-provider
+  version: "3.1.2"
+  epoch: 1
+  description: OpenSSL FIPS provider from certificate 4985 source inputs
+  target-architecture:
+    - x86_64
+    - aarch64
+  dependencies:
+    runtime:
+      - busybox
+      - openssl
+  copyright:
+    - license: Apache-2.0
+
+vars:
+  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d
+  certificate: "4985"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - perl
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://www.openssl.org/source/old/3.1/openssl-${{package.version}}.tar.gz
+      expected-sha256: a0ce69b8b97ea6a35b96875235aa453b966ba3cba8af2de23657d8b6767d6539
+  - runs: |
+      ./Configure enable-fips
+      make -j"$(nproc)"
+      install -m755 -D providers/fips.so \
+        "${{targets.destdir}}/usr/lib/ossl-modules/fips.so"
+      install -m755 -D openssl-fips-activate \
+        "${{targets.destdir}}/usr/bin/openssl-fips-activate"
+      install -m644 -D openssl-fips.cnf.in \
+        "${{targets.destdir}}/usr/share/openssl-fips/openssl-fips.cnf.in"
+      (cd "${{targets.destdir}}/usr/lib/ossl-modules" && sha256sum fips.so) \
+        >"${{targets.destdir}}/usr/share/openssl-fips/fips.so.sha256"
+      config=$(mktemp)
+      ./util/wrap.pl apps/openssl fipsinstall -module providers/fips.so -out "$config" -pedantic
+      ./util/wrap.pl apps/openssl fipsinstall -module providers/fips.so -in "$config" -verify
+      rm -f "$config"
