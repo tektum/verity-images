@@ -169,7 +169,8 @@ def crypto_tests() -> None:
         sign(package, root / "fixture.rsa")
         manifest = root / "manifest.json"
         values = json.loads(manifest.read_text(encoding="utf-8"))
-        values["packages"][0]["sha256"] = hashlib.sha256(package.read_bytes()).hexdigest()
+        target = next(entry for entry in values["packages"] if entry["architecture"] == "x86_64")
+        target["sha256"] = hashlib.sha256(package.read_bytes()).hexdigest()
         manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
         digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
         apk_repository_policy.verify(package, keys)

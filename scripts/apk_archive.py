@@ -76,7 +76,10 @@ def gzip_members(data: bytes, count: int) -> tuple[GzipMember, ...]:
     while remaining:
         inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
         try:
-            plain = inflater.decompress(remaining, MAX_MEMBER_SIZE + 1) + inflater.flush()
+            plain = inflater.decompress(remaining, MAX_MEMBER_SIZE + 1)
+            if inflater.unconsumed_tail:
+                raise ValueError("invalid gzip member")
+            plain += inflater.flush()
         except zlib.error as error:
             raise ValueError("invalid gzip member") from error
         consumed = len(remaining) - len(inflater.unused_data)
