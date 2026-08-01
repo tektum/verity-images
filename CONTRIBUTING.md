@@ -27,6 +27,16 @@ enabled: true
 Optional `flavors` expand one source definition into tag variants; `plain` has
 no suffix and other flavors use `-<flavor>`. Optional `major` adds a major tag.
 
+Plain and FIPS flavors must stay in one image directory, use one upstream
+version and source commit, and use one `melange.yaml`. A flavor env file may
+change only cryptographic build selection. FIPS APKO inputs may add provider or
+configuration packages and activation environment, but must preserve UID/GID,
+entrypoint, command, paths, ports, volumes, configuration schema, and persistent
+data format. Image tests must cover those image-specific contracts and use
+`scripts/test_fips.sh` for OpenSSL provider checks and inspect-level flavor
+compatibility. The `fips` flavor is not a certification claim for the image or
+application.
+
 Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.

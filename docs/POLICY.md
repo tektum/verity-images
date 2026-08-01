@@ -49,6 +49,13 @@ never overwrite `:latest` when rebuilt.
 Non-default flavors suffix every tag, for example `:2-fips`, `:2.11-fips`, and
 `:latest-fips`.
 
+The `fips` suffix means only that the flavor's declared cryptographic mechanism
+is enabled and its repository checks passed. It does not claim that an
+application or container is CMVP validated. The shared OpenSSL provider recipe
+uses the unmodified OpenSSL 3.1.2 inputs associated with certificate 4985, but
+that certificate does not list Wolfi or Linux arm64 as tested operational
+environments.
+
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
 
