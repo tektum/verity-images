@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+root=$(cd "$(dirname "$0")/.." && pwd)
 context=${1:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 build_name=${2:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 flavor=${3:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
@@ -18,25 +19,36 @@ if [[ "$track" == wolfi ]]; then
     config="${context}/${flavor}.apko.yaml"
     lockfile="${context}/${flavor}.apko.lock.json"
   fi
-  if [[ -f "${context}/melange.yaml" ]]; then
+  template=$config
+  provider=false
+  if grep -q 'openssl-fips-provider@local' "$template"; then
+    provider=true
+  fi
+  if [[ -f "${context}/melange.yaml" || "$provider" == true ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
     config=$(mktemp)
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
+    mkdir -p "${output}/packages"
     melange keygen "$key"
-    if [[ -f "${context}/${flavor}.env" ]]; then
-      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance \
-        --env-file "${context}/${flavor}.env"
-    else
-      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance
+    melange_args=(--arch "amd64,arm64" --runner docker --signing-key "$key" \
+      --out-dir "${output}/packages" --generate-provenance)
+    if [[ "$provider" == true ]]; then
+      melange build "$root/packages/openssl-fips-provider/melange.yaml" "${melange_args[@]}"
+    fi
+    if [[ -f "${context}/melange.yaml" ]]; then
+      if [[ -f "${context}/${flavor}.env" ]]; then
+        melange build "${context}/melange.yaml" "${melange_args[@]}" \
+          --env-file "${context}/${flavor}.env"
+      else
+        melange build "${context}/melange.yaml" "${melange_args[@]}"
+      fi
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
       -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
-      "${context}/apko.yaml" > "$config"
+      "$template" > "$config"
     apko show-config "$config" >/dev/null
     apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"
   else
