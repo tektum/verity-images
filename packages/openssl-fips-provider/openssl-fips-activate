@@ -18,8 +18,8 @@ openssl fipsinstall -module "$module" -out "$work/fipsmodule.cnf" -pedantic
 openssl fipsinstall -module "$module" -in "$work/fipsmodule.cnf" -verify
 sed "s|@FIPSMODULE@|$work/fipsmodule.cnf|" /usr/share/openssl-fips/openssl-fips.cnf.in >"$work/openssl.cnf"
 OPENSSL_CONF="$work/openssl.cnf" openssl list -provider fips -providers >/dev/null
-mv "$work/openssl.cnf" "$runtime/openssl.cnf"
 mv "$work/fipsmodule.cnf" "$runtime/fipsmodule.cnf"
+sed "s|@FIPSMODULE@|$runtime/fipsmodule.cnf|" /usr/share/openssl-fips/openssl-fips.cnf.in >"$runtime/openssl.cnf"
 trap - EXIT INT TERM
 rm -rf "$work"
 export OPENSSL_CONF="$runtime/openssl.cnf"
