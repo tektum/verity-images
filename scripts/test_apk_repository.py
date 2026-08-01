@@ -20,6 +20,9 @@ import apk_archive
 import apk_repository_policy
 from apk_test_fixtures import elf, entry, gzip_member, pack_tar, signed_shape, unsigned_package, write_unsigned
 
+ROOT = Path(__file__).resolve().parents[1]
+ASSEMBLE = ROOT / ".github/scripts/assemble-apk-repository.sh"
+
 
 def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
     return (
@@ -97,11 +100,11 @@ def rejects_repository(root: Path, keys: Path, digest: str) -> None:
 def real_repository(root: Path) -> tuple[Path, Path, str]:
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir()
-    key = root / "fixture.rsa"
+    key = root / "verity-apk-2026.rsa"
     keys = root / "keys"
     keys.mkdir()
     subprocess.run(["melange", "keygen", str(key)], check=True)
-    shutil.copy2(key.with_suffix(".rsa.pub"), keys / "fixture.rsa.pub")
+    shutil.copy2(key.with_suffix(".rsa.pub"), keys / "verity-apk-2026.rsa.pub")
 
     build = root / "build"
     recipe = Path(__file__).resolve().parents[1] / "packages/openssl-fips-provider/melange.yaml"
@@ -109,22 +112,26 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
         ["melange", "build", str(recipe), "--arch", "x86_64", "--runner", "docker", "--out-dir", str(build / "packages"), "--cache-dir", str(build / "cache")],
         check=True,
     )
-    package = root / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk"
-    package.parent.mkdir()
+    packages = root / "packages"
+    package = packages / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk"
+    package.parent.mkdir(parents=True)
     shutil.copy2(next((build / "packages").rglob(package.name)), package)
-    sign(package, key)
+    assert len(apk_archive.gzip_members(package.read_bytes(), 2)) == 2
 
-    other = root / "aarch64" / package.name
+    other = packages / "aarch64" / package.name
     other.parent.mkdir()
     write_unsigned(other, "aarch64", payload("aarch64"))
-    sign(other, key)
-    packages: list[dict[str, str]] = []
-    for architecture, archive in (("x86_64", package), ("aarch64", other)):
-        subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(archive.parent / "APKINDEX.tar.gz"), str(archive)], check=True)
-        packages.append({"architecture": architecture, "path": archive.relative_to(root).as_posix(), "sha256": hashlib.sha256(archive.read_bytes()).hexdigest()})
-    manifest = root / "manifest.json"
-    manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
-    return package, keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
+    for archive in (package, other):
+        assert len(apk_archive.gzip_members(archive.read_bytes(), 2)) == 2
+        sign(archive, key)
+        assert len(apk_archive.gzip_members(archive.read_bytes(), 3)) == 3
+    repository = root / "repository"
+    subprocess.run([str(ASSEMBLE), str(packages), str(repository), str(key), "fixture"], check=True)
+    package = repository / "x86_64" / package.name
+    index = repository / "x86_64" / "APKINDEX.tar.gz"
+    apk_repository_policy.verify(package, keys)
+    apk_repository_policy.verify(index, keys)
+    return package, keys, hashlib.sha256((repository / "manifest.json").read_bytes()).hexdigest()
 
 
 def unit_tests() -> None:
@@ -181,9 +188,10 @@ def real_melange_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         package, keys, digest = real_repository(root)
+        repository = root / "repository"
         apk_repository_policy.verify(package, keys)
         assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r2"
-        apk_repository_policy.validate(root, keys, digest)
+        apk_repository_policy.validate(repository, keys, digest)
 
 
 def main() -> None:

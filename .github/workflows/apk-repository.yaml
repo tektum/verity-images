@@ -121,6 +121,9 @@ jobs:
       attestations: write
       contents: write
       id-token: write
+    concurrency:
+      group: apk-signing-${{ inputs.release-tag }}
+      cancel-in-progress: false
     steps:
       - name: Check out immutable source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -224,6 +227,9 @@ jobs:
           actual_fingerprint=$(openssl pkey -pubin -in packages/keys/verity-apk-2026.rsa.pub \
             -pubout -outform DER | sha256sum | cut -d' ' -f1)
           [[ "$actual_fingerprint" == "$fingerprint" ]]
+          for package in input/*/*.apk; do
+            melange sign --signing-key "$private_key" "$package"
+          done
           for architecture in x86_64 aarch64; do
             mkdir -p "$work_dir/packages/$architecture"
             cp "input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r2.apk" "$work_dir/packages/$architecture/"

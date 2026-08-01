@@ -58,9 +58,26 @@ def main() -> None:
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
     assert "gh release view \"$RELEASE_TAG\"" in signing
+    assert 'git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"' in signing
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
     assert "--clobber" not in signing
+    assert (
+        "    concurrency:\n"
+        "      group: apk-signing-${{ inputs.release-tag }}\n"
+        "      cancel-in-progress: false\n"
+    ) in signing
     assert "verity-apk-repository.tar.zst" in signing
+    assert 'private_key="$work_dir/verity-apk-2026.rsa"' in signing
+    assert 'melange sign --signing-key "$private_key" "$package"' in signing
+    assert signing.index("gh release view \"$RELEASE_TAG\"") < signing.index(
+        "private_key=\"$work_dir/verity-apk-2026.rsa\""
+    )
+    assert signing.index('git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"') < signing.index(
+        'melange sign --signing-key "$private_key" "$package"'
+    )
+    assert signing.index('melange sign --signing-key "$private_key" "$package"') < signing.index(
+        ".github/scripts/assemble-apk-repository.sh"
+    )
     assert "unset APK_REPOSITORY_PRIVATE_KEY" in signing
     assert 'rm -f "$private_key"' in signing
     assert "PRIVATE KEY" in signing
