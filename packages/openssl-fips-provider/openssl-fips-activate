@@ -8,6 +8,7 @@ case "$runtime" in
 esac
 [ "$#" -gt 0 ] || { printf '%s\n' 'usage: openssl-fips-activate COMMAND [ARG...]' >&2; exit 64; }
 
+original_umask=$(umask)
 umask 077
 work=$(mktemp -d "$runtime/openssl-fips.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM
@@ -23,4 +24,5 @@ sed "s|@FIPSMODULE@|$runtime/fipsmodule.cnf|" /usr/share/openssl-fips/openssl-fi
 trap - EXIT INT TERM
 rm -rf "$work"
 export OPENSSL_CONF="$runtime/openssl.cnf"
+umask "$original_umask"
 exec "$@"

@@ -34,6 +34,7 @@ docker run --rm --platform "$platform" \
             openssl dgst -sha256 /dev/null >/dev/null
             ! openssl dgst -md5 /dev/null >/dev/null 2>&1
             test "$1" = argv-preserved
+            test "$(umask)" = 0022
           '\'' sh argv-preserved
       )
     done
