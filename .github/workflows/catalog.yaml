@@ -131,22 +131,26 @@ jobs:
             )
           ' input/report/build-report.json >/dev/null
 
+      - name: Generate expected images
+        if: steps.artifacts.outputs.ready == 'true'
+        run: devbox run -- python3 scripts/gen_matrix.py --all > expected-images.json
+
       - name: Download current catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
-        env:
-          SOURCE_EVENT: ${{ steps.source.outputs.source-event }}
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --location --output previous.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
           if [[ "$status" == 200 ]]; then
             devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json
-          elif [[ "$status" == 404 && "$SOURCE_EVENT" == workflow_dispatch ]]; then
+          elif [[ "$status" == 404 ]]; then
+            devbox run -- jq -e --slurp \
+              '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
+              input/report/build-report.json expected-images.json >/dev/null
             rm previous.json
           else
-            printf '::error title=Catalog unavailable::Current catalog returned HTTP %s for %s build.\n' \
-              "$status" "$SOURCE_EVENT"
+            printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"
             exit 1
           fi
 
@@ -162,9 +166,8 @@ jobs:
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
-          devbox run -- python3 scripts/gen_matrix.py --all > expected-images.json
           devbox run -- jq -e --slurp \
-            '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.build_name, .version]) | sort)' \
+            '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
             catalog.json expected-images.json >/dev/null
 
       - name: Upload catalog data
