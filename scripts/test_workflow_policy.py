@@ -45,12 +45,27 @@ ATTESTATION_COMMAND: Final = (
     "${TARGET}@${DIGEST}",
     ">/dev/null",
 )
+CYCLONEDX_ATTESTATION_COMMAND: Final = (
+    "cosign",
+    "verify-attestation",
+    "--type",
+    "cyclonedx",
+    "--certificate-identity",
+    "$identity",
+    "--certificate-oidc-issuer",
+    "$issuer",
+    "--certificate-github-workflow-sha",
+    "$GITHUB_SHA",
+    "${TARGET}@${DIGEST}",
+    ">/dev/null",
+)
 VERIFY_STEP_COMMANDS: Final = (
     ("set", "-euo", "pipefail"),
     (IDENTITY_ASSIGNMENT,),
     (ISSUER_ASSIGNMENT,),
     SIGNATURE_COMMAND,
     ATTESTATION_COMMAND,
+    CYCLONEDX_ATTESTATION_COMMAND,
 )
 CATALOG_JQ_FILTER: Final = (
     ".schemaVersion == 2 and (.images | length > 0) and "
@@ -126,19 +141,19 @@ def main() -> None:
 
     verify_step = between(
         action,
-        "    - name: Verify published signature and SPDX SBOM\n",
-        "\n    - name: Attach build provenance\n",
+        "    - name: Verify published signature and SBOMs\n",
+        "\n    - name: Submit verified platform predicates to Squawk\n",
     )
     assert verify_step.startswith("      if: inputs.publish == 'true'\n")
     assert verify_step.count("      run: |\n") == 1
     verify_script = verify_step.split("      run: |\n", maxsplit=1)[1]
-    assert action.count("\n        cosign verify") == 2
+    assert action.count("\n        cosign verify") == 3
     assert shell_commands(verify_script) == VERIFY_STEP_COMMANDS
 
     sign_step = between(
         action,
         "    - name: Sign digest and attach platform SPDX SBOMs\n",
-        "\n    - name: Verify published signature and SPDX SBOM\n",
+        "\n    - name: Verify published signature and SBOMs\n",
     )
     assert (
         'scripts/attest_sboms.sh "$TARGET" "$DIGEST" "$SBOM_DIRECTORY"\n'
@@ -152,21 +167,10 @@ def main() -> None:
         "  cancel-in-progress: false\n"
     )
     assert "\n  schedule:\n" not in workflow
-    assert '    - cron: "17 3 * * *"\n' in monitor
+    assert "  schedule:\n" not in monitor
     assert "  workflow_dispatch:\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
-    assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
-    assert "gh run download" not in monitor
-    assert (
-        "run: curl -fsSL https://tektum.github.io/verity-images/catalog.json "
-        "-o catalog.json\n"
-        in monitor
-    )
-    assert "run: python3 scripts/gen_matrix.py --all > expected-images.json\n" in monitor
-    assert (
-        "run: scripts/monitor_sboms.sh catalog.json expected-images.json\n"
-        in monitor
-    )
+    assert 'scripts/monitor_sboms.sh --squawk-payload squawk-payload.json\n' in monitor
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     assert "\n    timeout-minutes: 60\n" in publish_job
