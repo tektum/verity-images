@@ -54,6 +54,6 @@ class Hello {
   }
 }
 EOF
-docker run --network none --rm -v "$work:/work" -w /work "$image" javac Hello.java
-[ "$(docker run --network none --rm -v "$work:/work:ro" -w /work "$image" java Hello)" = 'Hello World
+docker run --network none --rm -v "$work:/app" -w /app "$image" javac Hello.java
+[ "$(docker run --network none --rm -v "$work:/app:ro" -w /app "$image" java Hello)" = 'Hello World
 UTC' ]

@@ -265,6 +265,10 @@ def main() -> None:
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
+    openjdk_17_test = (ROOT / "images/openjdk/17/tests/test.sh").read_text(encoding="utf-8")
+    assert '-v "$work:/app"' in openjdk_17_test
+    assert "-w /app" in openjdk_17_test
+
 
 if __name__ == "__main__":
     main()
