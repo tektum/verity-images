@@ -8,103 +8,130 @@
 
 from __future__ import annotations
 
-import gzip
 import hashlib
-import io
 import json
+import shutil
+import subprocess
 import tarfile
 import tempfile
 from pathlib import Path
 
+import apk_archive
 import apk_repository_policy
+from apk_test_fixtures import elf, entry, gzip_member, pack_tar, signed_shape, unsigned_package, write_unsigned
 
 
-def apk(path: Path, arch: str, entries: dict[str, bytes], name: str = "openssl-fips-provider") -> None:
-    payload = {".PKGINFO": f"pkgname = {name}\npkgver = 3.1.2-r1\narch = {arch}\n".encode()} | entries
-    stream = io.BytesIO()
-    with tarfile.open(fileobj=stream, mode="w") as archive:
-        for member_name, contents in payload.items():
-            member = tarfile.TarInfo(member_name)
-            member.size = len(contents)
-            archive.addfile(member, io.BytesIO(contents))
-    path.write_bytes(gzip.compress(stream.getvalue()))
-
-
-def repository(root: Path) -> tuple[Path, str]:
-    package = root / "x86_64" / "openssl-fips-provider-3.1.2-r1.apk"
-    package.parent.mkdir(parents=True, exist_ok=True)
-    apk(package, "x86_64", {entry: b"fixture" for entry in apk_repository_policy.REQUIRED_FILES})
-    for arch in apk_repository_policy.ARCHITECTURES:
-        directory = root / arch
-        directory.mkdir(exist_ok=True)
-        (directory / "APKINDEX.tar.gz").write_bytes(b"index")
-    digest = hashlib.sha256(package.read_bytes()).hexdigest()
-    fingerprint = "fixture-key"
-    (root / "manifest.json").write_text(
-        json.dumps(
-            {
-                "architectures": sorted(apk_repository_policy.ARCHITECTURES),
-                "fingerprint": fingerprint,
-                "packages": [{"architecture": "x86_64", "path": package.relative_to(root).as_posix(), "sha256": digest}],
-            }
-        ),
-        encoding="utf-8",
+def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
+    return (
+        entry("usr/lib/ossl-modules/fips.so", elf(architecture)),
+        entry("usr/bin/openssl-fips-activate", b"#!/bin/sh\n"),
+        entry("usr/share/openssl-fips/openssl-fips.cnf.in", b"openssl_conf = default\n"),
     )
-    return package, fingerprint
 
 
-def rejects(root: Path, fingerprint: str) -> None:
+def rejects_package(data: bytes, architecture: str = "x86_64") -> None:
     try:
-        apk_repository_policy.validate(root, fingerprint)
+        apk_archive.package_info(data, architecture, apk_repository_policy.REQUIRED_FILES)
+    except ValueError:
+        return
+    raise AssertionError("invalid package was accepted")
+
+
+def rejects_identity(data: bytes) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        package = Path(temporary) / "package.apk"
+        package.write_bytes(data)
+        try:
+            apk_repository_policy.checked_package(package, "x86_64")
+        except ValueError:
+            return
+    raise AssertionError("invalid package identity was accepted")
+
+
+def sign(path: Path, key: Path) -> None:
+    subprocess.run(["melange", "sign", "--signing-key", str(key), str(path)], check=True)
+
+
+def repository(root: Path) -> tuple[Path, Path, str]:
+    shutil.rmtree(root, ignore_errors=True)
+    root.mkdir()
+    key = root / "fixture.rsa"
+    keys = root / "keys"
+    keys.mkdir()
+    subprocess.run(["melange", "keygen", str(key)], check=True)
+    shutil.copy2(key.with_suffix(".rsa.pub"), keys / "fixture.rsa.pub")
+    packages: list[dict[str, str]] = []
+    for architecture in sorted(apk_repository_policy.ARCHITECTURES):
+        directory = root / architecture
+        directory.mkdir()
+        package = directory / "openssl-fips-provider-3.1.2-r1.apk"
+        write_unsigned(package, architecture, payload(architecture))
+        sign(package, key)
+        subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), str(package)], check=True)
+        packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
+    manifest = root / "manifest.json"
+    manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
+    return root / "x86_64" / "openssl-fips-provider-3.1.2-r1.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
+
+
+def rejects_repository(root: Path, keys: Path, digest: str) -> None:
+    try:
+        apk_repository_policy.validate(root, keys, digest)
     except ValueError:
         return
     raise AssertionError("invalid repository was accepted")
 
 
-def main() -> None:
+def unit_tests() -> None:
+    valid = signed_shape(unsigned_package("x86_64", payload("x86_64")))
+    assert apk_archive.package_info(valid, "x86_64", apk_repository_policy.REQUIRED_FILES).name == "openssl-fips-provider"
+    rejects_package(valid[:-1])
+    rejects_package(valid + b"suffix")
+    rejects_identity(signed_shape(unsigned_package("x86_64", payload("x86_64"), name="other")))
+    rejects_package(signed_shape(unsigned_package("aarch64", payload("aarch64"))))
+    rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64")[:-1])))
+    rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("etc/evil", b"bad"),))))
+    rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("usr/lib/ossl-modules/fips.so", elf("x86_64")),))))
+    rejects_package(signed_shape(unsigned_package("x86_64", (entry("../escape", b"bad"),) + payload("x86_64")[1:])))
+    rejects_package(signed_shape(unsigned_package("x86_64", (entry("usr/lib/ossl-modules/fips.so", typeflag=tarfile.SYMTYPE, linkname="/etc/passwd"),) + payload("x86_64")[1:])))
+    rejects_package(signed_shape(unsigned_package("x86_64", (entry("usr/lib/ossl-modules/fips.so", typeflag=tarfile.CHRTYPE),) + payload("x86_64")[1:])))
+    rejects_package(b"\x1f\x8b\x08\x00" + b"x" * (apk_archive.MAX_ARCHIVE_SIZE + 1))
+
+
+def crypto_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        package, fingerprint = repository(root)
-        apk_repository_policy.validate(root, fingerprint)
+        package, keys, digest = repository(root)
+        apk_repository_policy.validate(root, keys, digest)
+        rejects_repository(root, keys, "0" * 64)
+        signed = package.read_bytes()
+        package.write_bytes(signed[:20] + bytes([signed[20] ^ 1]) + signed[21:])
+        rejects_repository(root, keys, digest)
 
-        package.write_bytes(package.read_bytes()[:-1])
-        rejects(root, fingerprint)
-        package, fingerprint = repository(root)
-        package.write_bytes(package.read_bytes() + b"suffix")
-        rejects(root, fingerprint)
+        package, keys, digest = repository(root)
+        signature, control, data = apk_archive.gzip_members(package.read_bytes(), 3)
+        changed_payload = tuple(entry(name, contents + b"changed" if name.endswith("fips.so") else contents) for name, contents in apk_archive.tar_files(data.plain))
+        changed_data = gzip_member(pack_tar(changed_payload, final=True))
+        package.write_bytes(signature.compressed + control.compressed + changed_data)
+        rejects_repository(root, keys, digest)
 
-        package, fingerprint = repository(root)
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        manifest["fingerprint"] = "wrong-key"
-        (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        rejects(root, fingerprint)
+        package, keys, digest = repository(root)
+        _, _, data = apk_archive.gzip_members(package.read_bytes(), 3)
+        replacement = unsigned_package("x86_64", payload("x86_64"), datahash=hashlib.sha256(data.compressed).hexdigest(), extra="pkgdesc = changed\n")
+        package.write_bytes(replacement)
+        sign(package, root / "fixture.rsa")
+        manifest = root / "manifest.json"
+        values = json.loads(manifest.read_text(encoding="utf-8"))
+        values["packages"][0]["sha256"] = hashlib.sha256(package.read_bytes()).hexdigest()
+        manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
+        digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+        apk_repository_policy.verify(package, keys)
+        rejects_repository(root, keys, digest)
 
-        for path in ("/absolute.apk", "x86_64/../escape.apk"):
-            package, fingerprint = repository(root)
-            manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-            manifest["packages"][0]["path"] = path
-            (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-            rejects(root, fingerprint)
 
-        for missing in apk_repository_policy.REQUIRED_FILES | {"etc/ssl/fipsmodule.cnf"}:
-            package, fingerprint = repository(root)
-            entries = {entry: b"fixture" for entry in apk_repository_policy.REQUIRED_FILES if entry != missing}
-            if missing == "etc/ssl/fipsmodule.cnf":
-                entries[missing] = b"forbidden"
-            apk(package, "x86_64", entries)
-            rejects(root, fingerprint)
-
-        package, fingerprint = repository(root)
-        apk(package, "aarch64", {entry: b"fixture" for entry in apk_repository_policy.REQUIRED_FILES})
-        rejects(root, fingerprint)
-
-        package, fingerprint = repository(root)
-        duplicate = root / "x86_64" / "duplicate.apk"
-        duplicate.write_bytes(package.read_bytes())
-        manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
-        manifest["packages"].append({"architecture": "x86_64", "path": "x86_64/duplicate.apk", "sha256": hashlib.sha256(duplicate.read_bytes()).hexdigest()})
-        (root / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
-        rejects(root, fingerprint)
+def main() -> None:
+    unit_tests()
+    crypto_tests()
 
 
 if __name__ == "__main__":
