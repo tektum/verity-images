@@ -31,6 +31,48 @@ Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
+### Preflight
+
+Before creating parallel image branches:
+
+- Identify shared matrix, catalog, scanner, flavor, or build changes. Land those
+  in one prerequisite pull request first.
+- Choose the track from the compatibility contract: Wolfi owns a new runtime;
+  patched preserves load-bearing upstream behavior; Melange rebuilds components
+  that package-manager patching cannot fix.
+- Resolve and scan both target architectures. Classify each fixable finding as a
+  distro package, embedded binary, or application dependency before writing the
+  image definition.
+- Use the registry family in `metadata.name`; keep versions and variants in
+  `versions`, `flavors`, and the directory name.
+- Mark FIPS as required, not applicable, vendor-specific, or blocked before
+  implementation. Plain and FIPS flavors must use the same source version and
+  preserve the same user-facing runtime contract.
+
+Do not publish or waive a fixable finding. The gate proves only that the pinned
+Grype run reported zero findings with an available fix for the candidate digest
+and platforms; it is not a zero-CVE claim.
+
+### Runtime tests
+
+The smoke test must verify the behavior the image promises, including applicable
+OCI user, command, signal, paths, ports, volumes, and working directory.
+
+- Wait for real readiness and assert response or protocol content.
+- Exercise persistence and upgrades for stateful images.
+- Test native extensions or plugins when the image promises them.
+- Include negative cases for invalid metadata, unsupported paths, or unsupported
+  architectures when the build has those boundaries.
+- Make failures identify the broken assertion; avoid silent `&&` chains.
+- Keep scripts executable and APKO configs, metadata, and lockfiles mode `100644`.
+
+Run native-architecture runtime checks locally. Leave non-native builds and smoke
+tests to CI; do not use local emulation.
+
+An `enabled: false` definition is quarantined work, not supported catalog
+coverage. Record its blocker and unblock condition in the pull request and
+revalidate it before enabling.
+
 ### Renovate coverage
 
 Keep external sources in one of these layouts so Renovate can open update pull
@@ -60,6 +102,17 @@ their reviewed `apko.lock.json` remains the update boundary.
 - Use shell scripts compatible with POSIX `sh`.
 - Run `./check` before requesting review. It bootstraps the pinned Devbox
   toolchain and runs the same lint suite as CI.
+
+## Review and merge
+
+- Keep image pull requests image-local. A shared-file change needs a prerequisite
+  pull request with one owner.
+- Reply to every review thread before resolving it. Add a regression test for a
+  review-caught behavior bug.
+- After the final push, wait for automated reviews and perform a paginated scan
+  that confirms zero unresolved threads.
+- Require `lint`, every affected image validation, and `build-gate` to pass.
+- Merge prerequisite pull requests before dependent image pull requests.
 
 ## Recommended branch protection
 
