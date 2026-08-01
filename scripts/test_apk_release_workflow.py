@@ -40,6 +40,8 @@ def main() -> None:
     assert "github.repository == 'tektum/verity-images'" in signing
     assert "github.ref == 'refs/heads/main'" in signing
     assert "environment: apk-signing" in signing
+    assert "attestations: write" in signing
+    assert "id-token: write" in signing
     assert "SOURCE_SHA: ${{ inputs.source-sha }}" in signing
     assert '[[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]' in signing
     assert '.workflow_run.id == ($run_id | tonumber)' in signing
