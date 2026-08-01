@@ -182,6 +182,8 @@ runs:
     - name: Install cosign
       if: inputs.publish == 'true'
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
+      with:
+        cosign-release: v3.0.6
 
     - name: Sign digest and attach platform SPDX SBOMs
       if: inputs.publish == 'true'
@@ -194,11 +196,14 @@ runs:
         set -euo pipefail
         scripts/attest_sboms.sh "$TARGET" "$DIGEST" "$SBOM_DIRECTORY"
 
-    - name: Verify published signature and SPDX SBOM
+    - name: Verify published signature and SBOMs
       if: inputs.publish == 'true'
       shell: bash
       env:
+        DESCOPE_TOKEN_URL: ${{ vars.DESCOPE_TOKEN_URL }}
         DIGEST: ${{ steps.push.outputs.digest }}
+        SQUAWK_AUDIENCE: ${{ vars.SQUAWK_AUDIENCE }}
+        SQUAWK_URL: ${{ vars.SQUAWK_URL }}
         TARGET: ${{ inputs.target-repository }}
       run: |
         set -euo pipefail
@@ -209,6 +214,49 @@ runs:
         cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
           --certificate-oidc-issuer "$issuer" --certificate-github-workflow-sha "$GITHUB_SHA" \
           "${TARGET}@${DIGEST}" >/dev/null
+        cosign verify-attestation --type cyclonedx --certificate-identity "$identity" \
+          --certificate-oidc-issuer "$issuer" --certificate-github-workflow-sha "$GITHUB_SHA" \
+          "${TARGET}@${DIGEST}" >/dev/null
+
+    - name: Submit verified platform predicates to Squawk
+      if: inputs.publish == 'true'
+      shell: bash
+      env:
+        DIGEST: ${{ steps.push.outputs.digest }}
+        TARGET: ${{ inputs.target-repository }}
+      run: |
+        set -euo pipefail
+        : "${SQUAWK_URL:?SQUAWK_URL is required}"
+        : "${SQUAWK_AUDIENCE:?SQUAWK_AUDIENCE is required}"
+        : "${DESCOPE_TOKEN_URL:?DESCOPE_TOKEN_URL is required}"
+        work=$(mktemp -d)
+        trap 'rm -rf "$work"' EXIT
+        identity='https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main'
+        issuer='https://token.actions.githubusercontent.com'
+        for predicate_type in spdxjson cyclonedx; do
+          verified=$work/$predicate_type.jsonl
+          cosign verify-attestation --type "$predicate_type" --certificate-identity "$identity" \
+            --certificate-oidc-issuer "$issuer" --certificate-github-workflow-sha "$GITHUB_SHA" \
+            "${TARGET}@${DIGEST}" > "$verified"
+        done
+        docker buildx imagetools inspect "${TARGET}@${DIGEST}" --raw |
+          jq -e '[.manifests[] | {platform:(.platform.os + "/" + .platform.architecture), digest}] | if length == 2 then . else error("expected two platform digests") end' > "$work/platforms.json"
+        oidc=$(curl -fsS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+          "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${SQUAWK_AUDIENCE}" | jq -er .value)
+        token=$(curl -fsS --data-urlencode 'grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer' \
+          --data-urlencode "assertion=$oidc" "$DESCOPE_TOKEN_URL" | jq -er .access_token)
+        jq -ecs '[.[] | .payload | @base64d | fromjson | .predicate | select(.bomFormat == "CycloneDX") | select(.name | test("-verity-platform-(amd64|arm64)$"))] | if length == 2 then . else error("expected two signed CycloneDX platform predicates") end' \
+          "$work/cyclonedx.jsonl" > "$work/predicates.json"
+        for platform in linux/amd64 linux/arm64; do
+          arch=${platform#linux/}
+          predicate=$(jq -ec --arg arch "$arch" '.[] | select(.name | endswith("-verity-platform-" + $arch))' "$work/predicates.json")
+          platform_digest=$(jq -er --arg platform "$platform" '.[] | select(.platform == $platform) | .digest' "$work/platforms.json")
+          hash=$(printf '%s' "$predicate" | sha256sum | cut -d' ' -f1)
+          jq -nc --arg image_ref "${TARGET}@${platform_digest}" --arg logical_image_ref "${TARGET}@${DIGEST}" \
+            --arg platform "$platform" --arg idempotency_key "$hash" --argjson predicate "$predicate" \
+            '{image_ref:$image_ref,logical_image_ref:$logical_image_ref,platform:$platform,idempotency_key:$idempotency_key,predicate:$predicate}' |
+            curl -fsS -H "Authorization: Bearer $token" -H 'Content-Type: application/json' --data-binary @- "$SQUAWK_URL/v1/sboms"
+        done
 
     - name: Attach build provenance
       if: inputs.publish == 'true'
