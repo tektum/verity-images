@@ -47,6 +47,26 @@ never overwrite `:latest` when rebuilt.
 Non-default flavors suffix every tag, for example `:2-fips`, `:2.11-fips`, and
 `:latest-fips`.
 
+The `fips` suffix means only that the flavor's declared cryptographic mechanism
+is enabled and its repository checks passed. It does not claim that an
+application or container is CMVP validated. The shared OpenSSL provider recipe
+uses the unmodified OpenSSL 3.1.2 inputs associated with certificate 4985, but
+that certificate does not list Wolfi or Linux arm64 as tested operational
+environments.
+
+The provider APK contains `fips.so`, its package-time checksum, a static OpenSSL
+configuration template, and an activation wrapper. It does not contain a
+machine-generated `fipsmodule.cnf`. Each consuming container runs
+`openssl fipsinstall` in an explicitly writable runtime directory before the
+application starts, verifies the generated configuration and module, then
+executes the original application argv. The image root filesystem may remain
+read-only. APKO consumers use `https://tektum.github.io/verity-images/apk`, the
+committed `verity-apk-2026.rsa.pub` key, and the pinned
+`openssl-fips-provider=3.1.2-r3` package; they do not rebuild the provider.
+FIPS Go images add a local entrypoint package that invokes the generic helper
+before `/usr/bin/go`, so both `docker run IMAGE` and `docker run IMAGE version`
+activate FIPS before Go starts.
+
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
 

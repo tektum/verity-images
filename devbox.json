@@ -5,10 +5,12 @@
     "findutils@4.10.0",
     "gnugrep@3.12",
     "jq@1.8.2",
+    "melange",
     "python@3.13.14",
     "shellcheck@0.11.0",
     "uv@0.11.28",
-    "yamllint@1.37.1"
+    "yamllint@1.37.1",
+    "ruff@0.15.22"
   ],
   "shell": {
     "scripts": {
@@ -16,6 +18,7 @@
         "actionlint",
         "yamllint .",
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
+        "ruff check --isolated --no-cache scripts",
         "python3 scripts/gen_matrix.py --all >/dev/null",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",
@@ -25,6 +28,20 @@
         "scripts/test_monitor_sboms.sh",
         "scripts/test_notify_squawk.sh",
         "scripts/test_parse_push_digest.sh",
+        "scripts/test_replace_gosu.sh",
+        "scripts/test_apk_repository.sh",
+        "check-jsonschema --schemafile packages/repository-state.schema.json packages/repository-state.json",
+        "check-jsonschema --schemafile packages/repository-state.schema.json packages/repository-state.pin.json",
+        "python3 scripts/test_repository_state.py",
+        "python3 scripts/test_catalog_pages.py",
+        "bash scripts/test_prepare_apk_signing_key.sh",
+        "bash scripts/test_build_apk_package.sh",
+        "bash scripts/test_validate_artifact_digest.sh",
+        "bash scripts/test_build_report_filter.sh",
+        "python3 scripts/test_apk_release_workflow.py",
+        "bash scripts/test_build_candidate.sh",
+        "bash scripts/test_fips_foundation.sh",
+        "python3 scripts/test_fips_matrix.py",
         "python3 scripts/test_workflow_policy.py",
         "if LC_ALL=C grep -PRn '[^\\x00-\\x7F]' --exclude-dir=.codegraph --exclude-dir=.devbox --exclude-dir=.git --exclude-dir=.omo --exclude-dir=.venv --include='*.md' --include='*.yaml' --include='*.yml' --include='*.py' --include='*.sh' .; then exit 1; fi",
         "if grep -PRn 'uses:\\s+(?!\\./)[^[:space:]@]+@(?![0-9a-f]{40}(?:[[:space:]]|$))' --include='*.yaml' --include='*.yml' .github; then exit 1; fi"

@@ -7,6 +7,7 @@
 #   uv run scripts/test_workflow_policy.py
 
 import shlex
+from dataclasses import replace
 from pathlib import Path
 from typing import Final
 from unittest.mock import patch
@@ -81,6 +82,34 @@ CATALOG_JQ_COMMAND: Final = (
     "catalog.json",
     ">/dev/null",
 )
+INVENTORY_JQ_FILTER: Final = (
+    "(.[0].images | map([.name, .version]) | sort) == "
+    "(.[1].include | map([.name, .tag_version]) | sort)"
+)
+BOOTSTRAP_INVENTORY_COMMAND: Final = (
+    "devbox",
+    "run",
+    "--",
+    "jq",
+    "-e",
+    "--slurp",
+    INVENTORY_JQ_FILTER,
+    "input/report/build-report.json",
+    "expected-images.json",
+    ">/dev/null",
+)
+CATALOG_INVENTORY_COMMAND: Final = (
+    "devbox",
+    "run",
+    "--",
+    "jq",
+    "-e",
+    "--slurp",
+    INVENTORY_JQ_FILTER,
+    "catalog.json",
+    "expected-images.json",
+    ">/dev/null",
+)
 
 
 def between(text: str, start: str, end: str) -> str:
@@ -121,14 +150,37 @@ def main() -> None:
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
     ):
         samples = gen_matrix.generate("base")["include"]
-    assert {
-        (sample["track"], sample["flavor"], sample["context"])
+    sample_paths = {
+        (sample["track"], sample["flavor"]): sample["context"]
         for sample in samples
-    } == {
-        ("wolfi", "plain", "images/static"),
-        ("wolfi", "fips", "images/go/1.26"),
-        ("patched", "plain", "patched/debian-12-slim"),
     }
+    actual_pairs = {
+        (metadata.track, flavor)
+        for directory in gen_matrix.image_directories()
+        if (metadata := gen_matrix.parse_metadata(directory / "metadata.yaml")).enabled
+        for flavor in metadata.flavors
+    }
+    assert len(samples) == len(sample_paths)
+    assert sample_paths.keys() == actual_pairs
+    assert gen_matrix.GLOBAL_SAMPLES.items() <= sample_paths.items()
+    parse_metadata = gen_matrix.parse_metadata
+
+    def unknown_flavor_metadata(path: Path) -> gen_matrix.Metadata:
+        metadata = parse_metadata(path)
+        if path.parent.relative_to(ROOT).as_posix() in {"images/static", "images/go/1.26"}:
+            return replace(metadata, flavors=(*metadata.flavors, "unknown"))
+        return metadata
+
+    with (
+        patch.object(gen_matrix, "parse_metadata", side_effect=unknown_flavor_metadata),
+        patch.object(gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}),
+    ):
+        samples = gen_matrix.generate("base")["include"]
+    assert [
+        (sample["track"], sample["context"])
+        for sample in samples
+        if sample["flavor"] == "unknown"
+    ] == [("wolfi", "images/go/1.26")]
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
     assert (
         "          BASE_SHA: >-\n"
@@ -175,6 +227,12 @@ def main() -> None:
         "  group: build-images-${{ github.ref }}\n"
         "  cancel-in-progress: false\n"
     )
+    catalog_policy = between(catalog, "permissions: {}\n", "\njobs:\n")
+    assert catalog_policy == (
+        "\nconcurrency:\n"
+        "  group: catalog-pages\n"
+        "  cancel-in-progress: false\n"
+    )
     assert "\n  schedule:\n" not in workflow
     assert "  schedule:\n" not in monitor
     assert "  workflow_dispatch:\n" in monitor
@@ -202,9 +260,38 @@ def main() -> None:
         "      - name: Generate catalog\n",
         "\n      - name: Upload catalog data\n",
     )
+    download_catalog_step = between(
+        catalog,
+        "      - name: Download current catalog\n",
+        "\n      - name: Generate catalog\n",
+    )
+    assert "https://tektum.github.io/verity-images/catalog.json" in catalog
+    assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
+    assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
+        "      - name: Download current catalog\n"
+    )
+    assert "devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'" in catalog
+    assert "for report in reports/report-*.json; do" in workflow
+    assert "length == 1 and" in workflow
+    assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
+    assert '$event == "pull_request"' in workflow
+    assert ".[0].digest == \"local\"" in workflow
+    assert "reports/report-*.json > build-report.json" in workflow
+    assert (
+        '          if [[ "$status" == 200 ]]; then\n'
+        "            devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json\n"
+        in download_catalog_step
+    )
+    assert '          elif [[ "$status" == 404 ]]; then\n' in download_catalog_step
+    assert '"$SOURCE_EVENT" == workflow_dispatch' not in download_catalog_step
+    assert download_catalog_step.count("        run: |\n") == 1
+    download_catalog_script = download_catalog_step.split("        run: |\n", maxsplit=1)[1]
+    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(download_catalog_script)
+    assert '"$(test -f previous.json && printf previous.json)" catalog.json' in catalog_step
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
+    assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
 
 if __name__ == "__main__":

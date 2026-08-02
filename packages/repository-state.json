@@ -1,0 +1,59 @@
+{
+  "$schema": "./repository-state.schema.json",
+  "schemaVersion": 1,
+  "repository": "tektum/verity-images",
+  "release": {
+    "id": 363781736,
+    "tag": "apk-repo-v0002",
+    "targetCommit": "d5c04984b5ee70654c081b016a0d7818030a7f61",
+    "immutable": true
+  },
+  "asset": {
+    "id": 498881369,
+    "name": "verity-apk-repository.tar.zst",
+    "sha256": "sha256:7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a"
+  },
+  "archive": {
+    "root": "apk",
+    "sha256": "sha256:7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a",
+    "manifestSha256": "6604d9948d4c8acd95127eba2051721788eb1b9dd1490af6f4373f9c10cf1ea0",
+    "manifest": {
+      "architectures": ["x86_64", "aarch64"],
+      "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698",
+      "packages": [
+        {
+          "architecture": "aarch64",
+          "path": "aarch64/openssl-fips-provider-3.1.2-r3.apk",
+          "sha256": "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"
+        },
+        {
+          "architecture": "x86_64",
+          "path": "x86_64/openssl-fips-provider-3.1.2-r3.apk",
+          "sha256": "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"
+        }
+      ]
+    }
+  },
+  "key": {
+    "path": "packages/keys/verity-apk-2026.rsa.pub",
+    "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698"
+  },
+  "packages": [
+    {
+      "architecture": "aarch64",
+      "name": "openssl-fips-provider",
+      "version": "3.1.2-r3",
+      "epoch": 3,
+      "path": "aarch64/openssl-fips-provider-3.1.2-r3.apk",
+      "sha256": "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"
+    },
+    {
+      "architecture": "x86_64",
+      "name": "openssl-fips-provider",
+      "version": "3.1.2-r3",
+      "epoch": 3,
+      "path": "x86_64/openssl-fips-provider-3.1.2-r3.apk",
+      "sha256": "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"
+    }
+  ]
+}
