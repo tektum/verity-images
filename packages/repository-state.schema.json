@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://tektum.github.io/verity-images/repository-state.schema.json",
+  "title": "Immutable APK Repository State",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "repository", "release", "asset", "archive", "key", "packages"],
+  "$defs": {
+    "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+    "assetSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "architecture": {"enum": ["x86_64", "aarch64"]},
+    "manifestPackage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture", "path", "sha256"],
+      "properties": {
+        "architecture": {"$ref": "#/$defs/architecture"},
+        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "package": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture", "name", "version", "epoch", "path", "sha256"],
+      "properties": {
+        "architecture": {"$ref": "#/$defs/architecture"},
+        "name": {"type": "string", "pattern": "^[a-z0-9]+(?:[._+-][a-z0-9]+)*$"},
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:-[A-Za-z0-9.+_~-]+)?$"},
+        "epoch": {"type": "integer", "minimum": 0},
+        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    }
+  },
+  "properties": {
+    "$schema": {"type": "string"},
+    "schemaVersion": {"const": 1},
+    "repository": {"const": "tektum/verity-images"},
+    "release": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "tag", "targetCommit", "immutable"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "tag": {"type": "string", "pattern": "^apk-repo-v[0-9]{4}$"},
+        "targetCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "immutable": {"const": true}
+      }
+    },
+    "asset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "sha256"],
+      "properties": {
+        "id": {"type": "integer", "minimum": 1},
+        "name": {"const": "verity-apk-repository.tar.zst"},
+        "sha256": {"$ref": "#/$defs/assetSha256"}
+      }
+    },
+    "archive": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "sha256", "manifestSha256", "manifest"],
+      "properties": {
+        "root": {"const": "apk"},
+        "sha256": {"$ref": "#/$defs/assetSha256"},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "manifest": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["architectures", "fingerprint", "packages"],
+          "properties": {
+            "architectures": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"$ref": "#/$defs/architecture"}
+            },
+            "fingerprint": {"$ref": "#/$defs/sha256"},
+            "packages": {"type": "array", "items": {"$ref": "#/$defs/manifestPackage"}}
+          }
+        }
+      }
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "fingerprint"],
+      "properties": {
+        "path": {"const": "packages/keys/verity-apk-2026.rsa.pub"},
+        "fingerprint": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}}
+  }
+}
