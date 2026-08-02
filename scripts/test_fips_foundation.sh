@@ -11,6 +11,7 @@ for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf 
   grep -Fxq '    - packages/keys/verity-apk-2026.rsa.pub' "$config"
   grep -Fxq '    - openssl-fips-provider=3.1.2-r3' "$config"
   grep -Fxq '  command: /usr/bin/go-fips-entrypoint' "$root/images/go/$version/fips-wrapper.apko.yaml"
+  grep -Fxq 'exec openssl-fips-activate /usr/bin/go "$@"' "$root/images/go/$version/fips-entrypoint"
   grep -Fxq '  GOFIPS140: v1.0.0' "$config"
   grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$config"
   jq -e '
@@ -57,6 +58,10 @@ case "$*" in
   *'image inspect'*plain*|*'image inspect'*fips*)
     printf '%s\n' '65532|["serve"]|/data|{"80/tcp":{}}|{"/data":{}}'
     ;;
+  *'example:fips')
+    printf 'Go is a tool\n' >&2
+    exit 2
+    ;;
 esac
 EOF
 chmod +x "$fake/docker"
@@ -68,6 +73,7 @@ grep -q 'OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips' "$DOCKER_LOG"
 grep -q -- '--entrypoint /usr/bin/openssl-fips-activate' "$DOCKER_LOG"
 grep -q 'example:fips version' "$DOCKER_LOG"
 grep -q 'example:fips env GOFIPS140' "$DOCKER_LOG"
+grep -q -- '--entrypoint /usr/bin/go example:fips version' "$DOCKER_LOG"
 grep -q 'list -providers -verbose' "$DOCKER_LOG"
 grep -q 'dgst -sha256' "$DOCKER_LOG"
 grep -q 'dgst -md5' "$DOCKER_LOG"

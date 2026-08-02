@@ -22,8 +22,17 @@ case "$mode" in
         -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
         --entrypoint /usr/bin/openssl-fips-activate "$image" "$@"
     }
+    work=$(mktemp -d)
+    container=
+    trap '[ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT INT TERM
+    if run_go /run/openssl-fips-default >"$work/default.stdout" 2>"$work/default.stderr"; then
+      exit 1
+    fi
+    [ ! -s "$work/default.stdout" ]
+    grep -q 'Go is a tool' "$work/default.stderr"
     run_go /run/openssl-fips-default version | grep -q '^go version '
     [ "$(run_go /run/openssl-fips-arguments env GOFIPS140)" = v1.0.0 ]
+    docker run --rm --entrypoint /usr/bin/go "$image" version | grep -q '^go version '
     [ "$(run_provider /run/openssl-fips-first /usr/bin/printf '%s|%s' 'a b' c)" = 'a b|c' ]
     providers=$(run_provider /run/openssl-fips-second openssl list -providers -verbose)
     printf '%s\n' "$providers" | grep -q 'version: 3.1.2'
@@ -32,9 +41,7 @@ case "$mode" in
     if printf '' | run_provider /run/openssl-fips-second openssl dgst -md5 >/dev/null 2>&1; then
       exit 1
     fi
-    work=$(mktemp -d)
     container=$(docker create "$image")
-    trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT INT TERM
     docker cp "$container:/usr/lib/ossl-modules/fips.so" "$work/fips.so"
     docker rm "$container" >/dev/null
     printf 'tampered' >>"$work/fips.so"
@@ -42,9 +49,10 @@ case "$mode" in
       --tmpfs /run/openssl-fips-tampered:rw,noexec,nosuid,nodev,mode=1777 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-tampered \
       -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
-      "$image" version >/dev/null 2>&1; then
+      "$image" version >"$work/tampered.stdout" 2>/dev/null; then
       exit 1
     fi
+    [ ! -s "$work/tampered.stdout" ]
     docker run --rm --read-only --user 65532 \
       --tmpfs /run/openssl-fips-nonroot:rw,noexec,nosuid,nodev,mode=1777 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-nonroot \
@@ -52,9 +60,10 @@ case "$mode" in
     if docker run --rm --read-only --user 65532 \
       --tmpfs /run/openssl-fips-denied:rw,noexec,nosuid,nodev,mode=0500 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-denied \
-      "$image" version >/dev/null 2>&1; then
+      "$image" version >"$work/denied.stdout" 2>/dev/null; then
       exit 1
     fi
+    [ ! -s "$work/denied.stdout" ]
     trap - EXIT INT TERM
     rm -rf "$work"
     ;;
