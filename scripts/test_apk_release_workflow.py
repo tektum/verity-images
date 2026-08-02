@@ -102,6 +102,9 @@ def main() -> None:
     assert smoke_workflow.index("prepare-apk-signing-key.sh") < smoke_workflow.index(
         'openssl dgst -sha256 -sign "$private_key"'
     )
+    assert smoke_workflow.index('rm -f "$private_key"') < smoke_workflow.index(
+        "scan_status=0"
+    )
     assert RUNTIME_IMAGE in policy + runtime_test
     assert ":latest" not in policy + runtime_test
 

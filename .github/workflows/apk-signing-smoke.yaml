@@ -50,6 +50,7 @@ jobs:
           fi
           openssl dgst -sha256 -verify packages/keys/verity-apk-2026.rsa.pub \
             -signature "$signature" "$message"
+          rm -f "$private_key"
           scan_status=0
           grep -r -l --binary-files=text --exclude-dir=.git -- \
             '[-][-][-][-][-]BEGIN .*PRIVATE KEY[-][-][-][-][-]' . "$work_dir" >/dev/null || scan_status=$?
