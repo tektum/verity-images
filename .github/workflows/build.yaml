@@ -155,6 +155,7 @@ jobs:
       attestations: write
       contents: read
       deployments: write
+      id-token: write
       packages: write
     concurrency:
       group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}

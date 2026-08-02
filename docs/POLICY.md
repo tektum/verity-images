@@ -75,8 +75,9 @@ cosign verify \
   ghcr.io/tektum/IMAGE@sha256:DIGEST
 ```
 
-The workflow uses only `GITHUB_TOKEN`. It requires no PAT, stored signing secret,
-Squawk URL, Squawk credential, or Descope machine token.
+The notification uses only `GITHUB_TOKEN`. Keyless Cosign and GitHub attestations
+also require GitHub's ephemeral OIDC token. The workflow requires no PAT, stored
+signing secret, Squawk URL, Squawk credential, or Descope machine token.
 
 ## SBOM and provenance
 
