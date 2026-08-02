@@ -25,7 +25,8 @@ jobs:
           set -euo pipefail
           umask 077
           work_dir=$(mktemp -d)
-          private_key="$work_dir/private-key.pem"
+          private_key_source="$work_dir/verity-apk-2026.source.pem"
+          private_key="$work_dir/verity-apk-2026.rsa"
           message="$work_dir/message"
           signature="$work_dir/message.sig"
           cleanup() {
@@ -34,8 +35,11 @@ jobs:
           trap cleanup EXIT HUP INT TERM
 
           printf 'verity APK signing smoke\n' > "$message"
-          printf '%s' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key"
+          set +x
+          printf '%s' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key_source"
           unset APK_REPOSITORY_PRIVATE_KEY
+          .github/scripts/prepare-apk-signing-key.sh "$private_key_source" "$private_key" \
+            packages/keys/verity-apk-2026.rsa.pub
           openssl dgst -sha256 -sign "$private_key" -out "$signature" "$message"
           expected_fingerprint=764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698
           actual_fingerprint=$(openssl pkey -pubin \
