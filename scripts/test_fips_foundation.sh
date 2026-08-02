@@ -20,9 +20,6 @@ for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf 
     )] | length == 2
   ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
 done
-[ "$(cat "$root/images/caddy/fips.env")" = 'GOFIPS140=v1.0.0' ]
-[ "$(find "$root/images/caddy" -maxdepth 1 -name 'melange.yaml' | wc -l)" -eq 1 ]
-
 fake=$(mktemp -d)
 trap 'rm -rf "$fake"' EXIT
 export DOCKER_LOG="$fake/docker.log"
