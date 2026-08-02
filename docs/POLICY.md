@@ -75,9 +75,8 @@ cosign verify \
   ghcr.io/tektum/IMAGE@sha256:DIGEST
 ```
 
-The workflow uses only `GITHUB_TOKEN` plus GitHub's short-lived OIDC identity.
-It requires no PAT, stored signing secret, Squawk URL, Squawk credential, or
-Descope machine token.
+The workflow uses only `GITHUB_TOKEN`. It requires no PAT, stored signing secret,
+Squawk URL, Squawk credential, or Descope machine token.
 
 ## SBOM and provenance
 
@@ -86,13 +85,12 @@ the final image. The shared publish action derives CycloneDX from each platform
 SPDX document and creates one commit-pinned `actions/attest` v4 GitHub SBOM
 attestation against each platform digest. Trivy is never an SBOM generator.
 
-The producer then creates one GitHub deployment per platform. Its payload binds
-the platform and index digests, platform, DSSE statement SHA-256, and a GitHub
-OIDC JWT whose custom audience contains those same immutable values plus the
-repository ID and workflow SHA. Squawk fetches the repository attestation via a
-repository-scoped GitHub App token and checks the exact payload hash and in-toto
-CycloneDX schema. Squawk deliberately does not implement Sigstore verification;
-the GitHub-signed exact-hash OIDC binding is the trust proof.
+The producer then creates one GitHub deployment per platform after Cosign
+verification. Its payload contains the immutable platform and logical/index image
+references, platform, and attestation subject digest. Squawk fetches the
+repository attestation via a repository-scoped GitHub App token and checks the
+in-toto CycloneDX schema. Squawk deliberately does not implement Sigstore
+verification; independent verification is future hardening.
 
 Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.
