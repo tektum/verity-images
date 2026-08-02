@@ -100,6 +100,35 @@ def stages_only_expected_files(state: dict[str, object]) -> None:
         assert not (pages / "apk" / "unexpected").exists()
 
 
+def rejects_existing_staged_architecture(state: dict[str, object]) -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        archive_path = fixture(root, state)
+        pages = root / "pages"
+        validate_repository_state.stage_archive(state, archive_path, pages)
+        try:
+            validate_repository_state.stage_archive(state, archive_path, pages)
+        except validate_repository_state.StateError:
+            return
+    raise AssertionError("existing staged architecture was not rejected as StateError")
+
+
+def reports_live_lookup_timeout(state: dict[str, object]) -> None:
+    original_run = validate_repository_state.subprocess.run
+
+    def timeout(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        raise subprocess.TimeoutExpired(["gh", "api"], 1)
+
+    validate_repository_state.subprocess.run = timeout
+    try:
+        validate_repository_state.validate_live(state)
+    except validate_repository_state.StateError:
+        return
+    finally:
+        validate_repository_state.subprocess.run = original_run
+    raise AssertionError("live lookup timeout was not reported as StateError")
+
+
 def workflow_modes() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "  push:\n    branches: [main]\n    paths:\n" in workflow
@@ -129,6 +158,8 @@ def main() -> None:
     rejects_unsafe_archive(state)
     rejects_link_or_wrong_root(state)
     stages_only_expected_files(state)
+    rejects_existing_staged_architecture(state)
+    reports_live_lookup_timeout(state)
     workflow_modes()
 
 

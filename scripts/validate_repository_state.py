@@ -184,7 +184,10 @@ def stage_archive(state: dict[str, object], archive_path: Path, destination: Pat
             continue
         target = destination / root / relative
         if member.endswith(tuple(ARCHITECTURES)):
-            target.mkdir(parents=True, exist_ok=False)
+            try:
+                target.mkdir(parents=True, exist_ok=False)
+            except FileExistsError as error:
+                raise StateError(f"destination already contains staged content: {target}") from error
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(archive_file(archive_path, member))
@@ -219,12 +222,16 @@ def validate_archive(state: dict[str, object], archive_path: Path) -> None:
 def validate_live(state: dict[str, object]) -> None:
     release = mapping(field(state, "release"), "release")
     asset = mapping(field(state, "asset"), "asset")
-    result = subprocess.run(
-        ["gh", "api", f"repos/{field(state, 'repository')}/releases/{field(release, 'id')}"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    try:
+        result = subprocess.run(
+            ["gh", "api", f"repos/{field(state, 'repository')}/releases/{field(release, 'id')}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise StateError("release lookup timed out") from error
     if result.returncode:
         raise StateError("release lookup failed")
     live = json.loads(result.stdout)
