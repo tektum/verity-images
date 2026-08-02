@@ -64,7 +64,10 @@ application starts, verifies the generated configuration and module, then
 executes the original application argv. The image root filesystem may remain
 read-only. APKO consumers use `https://tektum.github.io/verity-images/apk`, the
 committed `verity-apk-2026.rsa.pub` key, and the pinned
-`openssl-fips-provider=3.1.2-r2` package; they do not rebuild the provider.
+`openssl-fips-provider=3.1.2-r3` package; they do not rebuild the provider.
+FIPS Go images add a local entrypoint package that invokes the generic helper
+before `/usr/bin/go`, so both `docker run IMAGE` and `docker run IMAGE version`
+activate FIPS before Go starts.
 
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.
