@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 # How to run:
-#   uv run scripts/validate_repository_state.py [STATE] [--live] [--archive ARCHIVE]
+#   uv run scripts/validate_repository_state.py [STATE] [--live] [--archive ARCHIVE] [--pages DIRECTORY]
 
 from __future__ import annotations
 
@@ -121,6 +121,78 @@ def validate(state: dict[str, object]) -> None:
         raise StateError("package manifest mismatch")
 
 
+def archive_paths(state: dict[str, object]) -> tuple[str, ...]:
+    archive = mapping(field(state, "archive"), "archive")
+    root = text(field(archive, "root"), "archive.root")
+    manifest = mapping(field(archive, "manifest"), "archive.manifest")
+    packages = entries(field(manifest, "packages"), "archive.manifest.packages")
+    paths = [root, f"{root}/manifest.json"]
+    for architecture in sorted(ARCHITECTURES):
+        paths.append(f"{root}/{architecture}")
+        paths.append(f"{root}/{architecture}/APKINDEX.tar.gz")
+    paths.extend(f"{root}/{text(field(package, 'path'), 'package.path')}" for package in packages)
+    return tuple(paths)
+
+
+def archive_file(archive_path: Path, member: str) -> bytes:
+    result = subprocess.run(
+        ["tar", "--zstd", "-xOf", str(archive_path), member],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode:
+        raise StateError(f"archive member is unavailable: {member}")
+    return result.stdout
+
+
+def validate_archive_members(state: dict[str, object], archive_path: Path) -> tuple[str, ...]:
+    result = subprocess.run(
+        ["tar", "--zstd", "--quoting-style=literal", "-tvf", str(archive_path)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode:
+        raise StateError("archive listing failed")
+    paths = archive_paths(state)
+    expected = set(paths)
+    actual: set[str] = set()
+    for line in result.stdout.splitlines():
+        if not line or line[0] not in {"-", "d"}:
+            raise StateError("archive contains unsafe entry")
+        member = line.rsplit(" ", maxsplit=1)[-1].rstrip("/")
+        if member not in expected:
+            raise StateError("archive contains unexpected member")
+        if member in actual:
+            raise StateError("archive contains duplicate member")
+        actual.add(member)
+        if member == paths[0] or member.endswith(tuple(ARCHITECTURES)):
+            if line[0] != "d":
+                raise StateError("archive directory is not a directory")
+        elif line[0] != "-":
+            raise StateError("archive member is not a regular file")
+    if actual != expected:
+        raise StateError("archive member set mismatch")
+    return paths
+
+
+def stage_archive(state: dict[str, object], archive_path: Path, destination: Path) -> None:
+    root = archive_paths(state)[0]
+    for member in validate_archive_members(state, archive_path):
+        relative = Path(member).relative_to(root)
+        if not relative.parts:
+            continue
+        target = destination / root / relative
+        if member.endswith(tuple(ARCHITECTURES)):
+            target.mkdir(parents=True, exist_ok=False)
+        else:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(archive_file(archive_path, member))
+    key = mapping(field(state, "key"), "key")
+    key_path = ROOT / text(field(key, "path"), "key.path")
+    (destination / root / key_path.name).write_bytes(key_path.read_bytes())
+
+
 def validate_archive(state: dict[str, object], archive_path: Path) -> None:
     pinned = read_state(PINNED_STATE)
     archive = mapping(field(pinned, "archive"), "archive")
@@ -129,26 +201,14 @@ def validate_archive(state: dict[str, object], archive_path: Path) -> None:
     asset = mapping(field(pinned, "asset"), "asset")
     if f"sha256:{digest}" != field(asset, "sha256"):
         raise StateError("archive digest mismatch")
-    result = subprocess.run(
-        ["tar", "--zstd", "-xOf", str(archive_path), manifest_path],
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode:
-        raise StateError("archive manifest is unavailable")
-    if hashlib.sha256(result.stdout).hexdigest() != field(archive, "manifestSha256"):
+    manifest_bytes = archive_file(archive_path, manifest_path)
+    if hashlib.sha256(manifest_bytes).hexdigest() != field(archive, "manifestSha256"):
         raise StateError("archive manifest digest mismatch")
-    manifest = json.loads(result.stdout)
+    manifest = json.loads(manifest_bytes)
     if manifest != field(archive, "manifest"):
         raise StateError("archive manifest mismatch")
     with tempfile.TemporaryDirectory() as temporary:
-        result = subprocess.run(
-            ["tar", "--zstd", "-xf", str(archive_path), "-C", temporary],
-            capture_output=True,
-            check=False,
-        )
-        if result.returncode:
-            raise StateError("archive extraction failed")
+        stage_archive(state, archive_path, Path(temporary))
         validate_repository(
             Path(temporary) / text(field(archive, "root"), "archive.root"),
             ROOT / "packages/keys",
@@ -188,15 +248,24 @@ def main() -> None:
         state_path = Path(arguments.pop(0))
     state = read_state(state_path)
     validate(state)
+    archive_path: Path | None = None
+    pages_path: Path | None = None
     while arguments:
         option = arguments.pop(0)
         match option:
             case "--live":
                 validate_live(state)
             case "--archive" if arguments:
-                validate_archive(state, Path(arguments.pop(0)))
+                archive_path = Path(arguments.pop(0))
+                validate_archive(state, archive_path)
+            case "--pages" if arguments:
+                pages_path = Path(arguments.pop(0))
             case _:
-                raise SystemExit("usage: validate_repository_state.py [STATE] [--live] [--archive ARCHIVE]")
+                raise SystemExit("usage: validate_repository_state.py [STATE] [--live] [--archive ARCHIVE] [--pages DIRECTORY]")
+    if pages_path is not None:
+        if archive_path is None:
+            raise SystemExit("--pages requires --archive")
+        stage_archive(state, archive_path, pages_path)
 
 
 if __name__ == "__main__":
