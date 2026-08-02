@@ -22,7 +22,12 @@ PATH="$work/bin:$PATH" "$root/scripts/notify_squawk.sh" \
   sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
 [[ $(grep -c . "$DEPLOYMENT_LOG") -eq 2 ]]
-jq -e -s 'length == 2 and all(.[]; .ref == "1111111111111111111111111111111111111111" and .task == "squawk-sbom" and .auto_merge == false and .required_contexts == [] and .payload.schema_version == 1 and (.payload | keys | sort == ["image_ref","logical_image_ref","platform","schema_version","subject_digest"])) and ([.[].payload.platform] | sort == ["linux/amd64","linux/arm64"])' "$DEPLOYMENT_LOG" >/dev/null
+jq -e -s '
+  length == 2 and
+  all(.[]; .ref == "1111111111111111111111111111111111111111" and .task == "squawk-sbom" and .environment == ("squawk-sbom-" + (.payload.platform | split("/")[1])) and .auto_merge == false and .required_contexts == [] and .payload.schema_version == 1 and (.payload | keys | sort == ["image_ref","logical_image_ref","platform","schema_version","subject_digest"]) and .payload.subject_digest == (.payload.image_ref | split("@")[1]) and .payload.logical_image_ref == "ghcr.io/owner/demo@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb") and
+  ([.[] | select(.payload.platform == "linux/amd64") | .payload.image_ref] == ["ghcr.io/owner/demo@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]) and
+  ([.[] | select(.payload.platform == "linux/arm64") | .payload.image_ref] == ["ghcr.io/owner/demo@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"])
+' "$DEPLOYMENT_LOG" >/dev/null
 if grep -Eq 'SQUAWK_URL|SQUAWK_AUDIENCE|DESCOPE|oidc' "$DEPLOYMENT_LOG"; then
   exit 1
 fi
