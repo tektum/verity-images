@@ -40,7 +40,7 @@ case "$*" in
   *'/usr/bin/printf'*)
     printf 'a b|c'
     ;;
-  *'fips.so:ro'*|*'mode=0500'*)
+  *'fips.so:ro'*|*'--user 65532'*'mode=0500'*)
     exit 1
     ;;
   *'example:fips version'*)
@@ -78,5 +78,6 @@ grep -q 'list -providers -verbose' "$DOCKER_LOG"
 grep -q 'dgst -sha256' "$DOCKER_LOG"
 grep -q 'dgst -md5' "$DOCKER_LOG"
 grep -q 'fips.so:ro' "$DOCKER_LOG"
+grep -q -- '--user 65532.*mode=0500' "$DOCKER_LOG"
 [ "$(grep -c -- '--entrypoint /usr/bin/openssl-fips-activate' "$DOCKER_LOG")" -ge 2 ]
 PATH="$fake:$PATH" "$helper" compatibility example:plain example:fips
