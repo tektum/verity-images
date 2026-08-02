@@ -96,6 +96,7 @@ def stages_only_expected_files(state: dict[str, object]) -> None:
 def workflow_modes() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     assert "  push:\n    branches: [main]\n    paths:\n" in workflow
+    assert "github.event_name == 'push'" in workflow
     assert "      - packages/repository-state.json\n" in workflow
     assert "      - packages/repository-state.pin.json\n" in workflow
     assert "        options: [images, packages, combined]\n" in workflow
