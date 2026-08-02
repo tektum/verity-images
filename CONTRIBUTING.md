@@ -27,10 +27,12 @@ enabled: true
 Optional `flavors` expand one source definition into tag variants; `plain` has
 no suffix and other flavors use `-<flavor>`. Optional `major` adds a major tag.
 
-Plain and FIPS flavors must stay in one image directory, use one upstream
-version and source commit, and use one `melange.yaml`. A flavor env file may
-change only cryptographic build selection. FIPS APKO inputs may add provider or
-configuration packages and activation environment, but must preserve UID/GID,
+Plain and FIPS flavors must stay in one image directory and use one upstream
+version and source commit. Application package builds use one `melange.yaml`;
+a FIPS-only image-local recipe may package only its activation entrypoint. A
+flavor env file may change only cryptographic build selection. FIPS APKO inputs
+may add provider or configuration packages and activation environment, but must
+preserve UID/GID,
 entrypoint, command, paths, ports, volumes, configuration schema, and persistent
 data format. Image tests must cover those image-specific contracts and use
 `scripts/test_fips.sh` for OpenSSL provider checks and inspect-level flavor
