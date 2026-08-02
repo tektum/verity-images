@@ -79,14 +79,14 @@ def repository(root: Path) -> tuple[Path, Path, str]:
     for architecture in sorted(apk_repository_policy.ARCHITECTURES):
         directory = root / architecture
         directory.mkdir()
-        package = directory / "openssl-fips-provider-3.1.2-r2.apk"
+        package = directory / "openssl-fips-provider-3.1.2-r3.apk"
         write_unsigned(package, architecture, payload(architecture))
         sign(package, key)
         subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), str(package)], check=True)
         packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
     manifest = root / "manifest.json"
     manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
-    return root / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
+    return root / "x86_64" / "openssl-fips-provider-3.1.2-r3.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
 
 
 def rejects_repository(root: Path, keys: Path, digest: str) -> None:
@@ -113,7 +113,7 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
         check=True,
     )
     packages = root / "packages"
-    package = packages / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk"
+    package = packages / "x86_64" / "openssl-fips-provider-3.1.2-r3.apk"
     package.parent.mkdir(parents=True)
     shutil.copy2(next((build / "packages").rglob(package.name)), package)
     assert len(apk_archive.gzip_members(package.read_bytes(), 2)) == 2
@@ -190,7 +190,7 @@ def real_melange_tests() -> None:
         package, keys, digest = real_repository(root)
         repository = root / "repository"
         apk_repository_policy.verify(package, keys)
-        assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r2"
+        assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r3"
         apk_repository_policy.validate(repository, keys, digest)
         command = [
             "bash",
