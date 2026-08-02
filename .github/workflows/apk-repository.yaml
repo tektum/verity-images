@@ -61,7 +61,7 @@ jobs:
       - name: Attest x86_64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r2.apk
+          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
 
   build-aarch64:
     runs-on: ubuntu-24.04-arm
@@ -106,7 +106,7 @@ jobs:
       - name: Attest aarch64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r2.apk
+          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
 
   apk-signing:
     if: >-
@@ -191,7 +191,7 @@ jobs:
         run: |
           set -euo pipefail
           for architecture in x86_64 aarch64; do
-            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r2.apk"
+            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
             [[ -f "$package" ]]
             case "$architecture" in
               x86_64) expected_digest=$X86_64_PACKAGE_DIGEST ;;
@@ -232,7 +232,7 @@ jobs:
           done
           for architecture in x86_64 aarch64; do
             mkdir -p "$work_dir/packages/$architecture"
-            cp "input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r2.apk" "$work_dir/packages/$architecture/"
+            cp "input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk" "$work_dir/packages/$architecture/"
           done
           .github/scripts/assemble-apk-repository.sh "$work_dir/packages" "$work_dir/apk" "$private_key" "$fingerprint"
           manifest_digest=$(sha256sum "$work_dir/apk/manifest.json" | cut -d' ' -f1)

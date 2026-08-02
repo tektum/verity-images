@@ -16,9 +16,9 @@ MAX_ENTRY_SIZE: Final = 16 * 1024 * 1024
 MAX_MELANGE_RECIPE_SIZE: Final = 8 * 1024
 MAX_SPDX_SIZE: Final = 64 * 1024
 MELANGE_RECIPE: Final = ".melange.yaml"
-MELANGE_SPDX: Final = "var/lib/db/sbom/openssl-fips-provider-3.1.2-r2.spdx.json"
+MELANGE_SPDX: Final = "var/lib/db/sbom/openssl-fips-provider-3.1.2-r3.spdx.json"
 MELANGE_RECIPE_FIELDS: Final = (
-    b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 2\n",
+    b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 3\n",
     b"vars:\n",
     b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
     b'  certificate: "4985"\n',

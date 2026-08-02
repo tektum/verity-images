@@ -28,7 +28,7 @@ REQUIRED_FILES: Final = frozenset(
     }
 )
 PACKAGE_NAME: Final = "openssl-fips-provider"
-PACKAGE_VERSION: Final = "3.1.2-r2"
+PACKAGE_VERSION: Final = "3.1.2-r3"
 
 
 def safe_name(name: str) -> bool:

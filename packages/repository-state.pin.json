@@ -3,33 +3,33 @@
   "schemaVersion": 1,
   "repository": "tektum/verity-images",
   "release": {
-    "id": 363733856,
-    "tag": "apk-repo-v0001",
-    "targetCommit": "ed3f06217e1452683a974f52794331ab298219c2",
+    "id": 363781736,
+    "tag": "apk-repo-v0002",
+    "targetCommit": "d5c04984b5ee70654c081b016a0d7818030a7f61",
     "immutable": true
   },
   "asset": {
-    "id": 498710090,
+    "id": 498881369,
     "name": "verity-apk-repository.tar.zst",
-    "sha256": "sha256:1d56b5710707b2aff9ee1e9cd0876466a6eb795fca5d0e58bb3f91c5c2922802"
+    "sha256": "sha256:7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a"
   },
   "archive": {
     "root": "apk",
-    "sha256": "sha256:1d56b5710707b2aff9ee1e9cd0876466a6eb795fca5d0e58bb3f91c5c2922802",
-    "manifestSha256": "1d0837a17f98a76d441eb9206f30eb5dc05498423d6cdb0dd8e2b24030875933",
+    "sha256": "sha256:7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a",
+    "manifestSha256": "6604d9948d4c8acd95127eba2051721788eb1b9dd1490af6f4373f9c10cf1ea0",
     "manifest": {
       "architectures": ["x86_64", "aarch64"],
       "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698",
       "packages": [
         {
           "architecture": "aarch64",
-          "path": "aarch64/openssl-fips-provider-3.1.2-r2.apk",
-          "sha256": "7746593a7c9d4c364de1f71f998d4f04add608c8f40aefbdaeddc1375436eb66"
+          "path": "aarch64/openssl-fips-provider-3.1.2-r3.apk",
+          "sha256": "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"
         },
         {
           "architecture": "x86_64",
-          "path": "x86_64/openssl-fips-provider-3.1.2-r2.apk",
-          "sha256": "018df589e3a6f74da43c48f065c06fec1c41691f0862b4f3abc384fad21a55fd"
+          "path": "x86_64/openssl-fips-provider-3.1.2-r3.apk",
+          "sha256": "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"
         }
       ]
     }
@@ -42,18 +42,18 @@
     {
       "architecture": "aarch64",
       "name": "openssl-fips-provider",
-      "version": "3.1.2-r2",
-      "epoch": 2,
-      "path": "aarch64/openssl-fips-provider-3.1.2-r2.apk",
-      "sha256": "7746593a7c9d4c364de1f71f998d4f04add608c8f40aefbdaeddc1375436eb66"
+      "version": "3.1.2-r3",
+      "epoch": 3,
+      "path": "aarch64/openssl-fips-provider-3.1.2-r3.apk",
+      "sha256": "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"
     },
     {
       "architecture": "x86_64",
       "name": "openssl-fips-provider",
-      "version": "3.1.2-r2",
-      "epoch": 2,
-      "path": "x86_64/openssl-fips-provider-3.1.2-r2.apk",
-      "sha256": "018df589e3a6f74da43c48f065c06fec1c41691f0862b4f3abc384fad21a55fd"
+      "version": "3.1.2-r3",
+      "epoch": 3,
+      "path": "x86_64/openssl-fips-provider-3.1.2-r3.apk",
+      "sha256": "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"
     }
   ]
 }
