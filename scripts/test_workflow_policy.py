@@ -253,6 +253,8 @@ def main() -> None:
     assert "for report in reports/report-*.json; do" in workflow
     assert "length == 1 and" in workflow
     assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
+    assert '$event == "pull_request"' in workflow
+    assert ".[0].digest == \"local\"" in workflow
     assert "reports/report-*.json > build-report.json" in workflow
     assert (
         '          if [[ "$status" == 200 ]]; then\n'

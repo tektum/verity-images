@@ -289,23 +289,28 @@ jobs:
       - name: Combine reports
         if: fromJSON(needs.matrix.outputs.images).include[0] != null
         shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
         run: |
           set -euo pipefail
           for report in reports/report-*.json; do
             expected=${report#reports/report-}
             expected=${expected%.json}
-            jq -e --slurp --arg expected "$expected" '
+            jq -e --slurp --arg expected "$expected" --arg event "$EVENT" '
               length == 1 and
               (.[0] | type == "object") and
-              (.[0] | keys | sort == ["description", "digest", "name", "scan", "tags", "track", "version"]) and
               (.[0].name | type == "string" and length > 0) and
               (.[0].version | type == "string" and length > 0) and
               (.[0].name + "-" + .[0].version == $expected) and
               (.[0].track == "wolfi" or .[0].track == "patched") and
               (.[0].description | type == "string" and length > 0) and
-              (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
-              (.[0].tags | type == "string" and length > 0) and
-              (.[0].scan | type == "object")
+              (.[0].scan | type == "object") and
+              ((.[0].keys | sort == ["description", "digest", "name", "scan", "tags", "track", "version"]) and
+                (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
+                (.[0].tags | type == "string" and length > 0) or
+               ($event == "pull_request" and
+                (.[0].keys | sort == ["description", "digest", "name", "scan", "track", "version"]) and
+                .[0].digest == "local"))
             ' "$report" >/dev/null
           done
           jq -s '{images: sort_by(.name, .version)}' reports/report-*.json > build-report.json
