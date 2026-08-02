@@ -36,6 +36,10 @@ grep -Fq 'sign --yes ghcr.io/tektum/demo@sha256:123' "$COSIGN_LOG"
 grep -Fq 'name=x86-verity-platform-amd64' "$COSIGN_LOG"
 grep -Fq 'name=arm-verity-platform-arm64' "$COSIGN_LOG"
 grep -Fq 'attest --yes --type cyclonedx' "$COSIGN_LOG"
+jq -e '.bomFormat == "CycloneDX" and .components[0].purl == "pkg:npm/demo@1"' \
+  "$work/sboms/sbom-amd64.cyclonedx.json" >/dev/null
+jq -e '.bomFormat == "CycloneDX" and .components[0].purl == "pkg:npm/demo@1"' \
+  "$work/sboms/sbom-arm64.cyclonedx.json" >/dev/null
 if grep -Fq 'sbom-index.spdx.json' "$COSIGN_LOG"; then
   printf 'index SBOM was attested\n' >&2
   exit 1

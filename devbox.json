@@ -23,6 +23,7 @@
         "scripts/test_evaluate_scan_gate.sh",
         "scripts/test_install_image_tools.sh",
         "scripts/test_monitor_sboms.sh",
+        "scripts/test_notify_squawk.sh",
         "scripts/test_parse_push_digest.sh",
         "python3 scripts/test_workflow_policy.py",
         "if LC_ALL=C grep -PRn '[^\\x00-\\x7F]' --exclude-dir=.codegraph --exclude-dir=.devbox --exclude-dir=.git --exclude-dir=.omo --exclude-dir=.venv --include='*.md' --include='*.yaml' --include='*.yml' --include='*.py' --include='*.sh' .; then exit 1; fi",

@@ -142,13 +142,21 @@ def main() -> None:
     verify_step = between(
         action,
         "    - name: Verify published signature and SBOMs\n",
-        "\n    - name: Submit verified platform predicates to Squawk\n",
+        "\n    - name: Resolve platform digests\n",
     )
     assert verify_step.startswith("      if: inputs.publish == 'true'\n")
     assert verify_step.count("      run: |\n") == 1
     verify_script = verify_step.split("      run: |\n", maxsplit=1)[1]
     assert action.count("\n        cosign verify") == 3
     assert shell_commands(verify_script) == VERIFY_STEP_COMMANDS
+    assert action.count(
+        "uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1"
+    ) == 2
+    assert "sbom-amd64.cyclonedx.json" in action
+    assert "sbom-arm64.cyclonedx.json" in action
+    assert "scripts/notify_squawk.sh" in action
+    for removed in ("SQUAWK_URL", "SQUAWK_AUDIENCE", "DESCOPE_TOKEN_URL", "/v1/sboms"):
+        assert removed not in action
 
     sign_step = between(
         action,
@@ -174,6 +182,14 @@ def main() -> None:
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     assert "\n    timeout-minutes: 60\n" in publish_job
+    assert (
+        "    permissions:\n"
+        "      attestations: write\n"
+        "      contents: read\n"
+        "      deployments: write\n"
+        "      id-token: write\n"
+        "      packages: write\n"
+    ) in publish_job
     assert (
         "\n    concurrency:\n"
         "      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}\n"
