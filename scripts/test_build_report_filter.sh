@@ -40,9 +40,14 @@ cat > "$temporary/log-pollution.json" <<'EOF'
 {"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
 unexpected log output
 EOF
+cat > "$temporary/multiple-documents.json" <<'EOF'
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
+EOF
 
 accepts "$temporary/published.json" nginx-1.0 push
 accepts "$temporary/pull-request.json" nginx-1.0 pull_request
 rejects "$temporary/unknown-key.json" nginx-1.0 pull_request
 rejects "$temporary/invalid-content.json" nginx-1.0 pull_request
 rejects "$temporary/log-pollution.json" nginx-1.0 pull_request
+rejects "$temporary/multiple-documents.json" nginx-1.0 pull_request
