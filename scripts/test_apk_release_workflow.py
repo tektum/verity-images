@@ -38,6 +38,10 @@ def main() -> None:
     assert "    branches: [main]\n" in workflow
     assert "runs-on: ubuntu-24.04\n" in x86_64
     assert "runs-on: ubuntu-24.04-arm\n" in aarch64
+    assert 'ARCHITECTURE: x86_64' in x86_64
+    assert 'ARCHITECTURE: aarch64' in aarch64
+    assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in x86_64
+    assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in aarch64
     assert "environment:" not in x86_64 + aarch64
     assert "secrets." not in x86_64 + aarch64
     assert "retention-days: 7\n" in x86_64 + aarch64
@@ -92,6 +96,8 @@ def main() -> None:
     )
     assert "PRIVATE KEY" in signing
     assert "APK_REPOSITORY_PRIVATE_KEY" not in x86_64 + aarch64
+    assert "scripts/test_fips_runtime.sh" not in signing
+    assert "--platform" not in signing
     assert 'umask 077' in smoke_workflow
     assert 'private_key_source="$work_dir/verity-apk-2026.source.pem"' in smoke_workflow
     assert 'private_key="$work_dir/verity-apk-2026.rsa"' in smoke_workflow
