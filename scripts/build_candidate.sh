@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+root=$(cd "$(dirname "$0")/.." && pwd)
 context=${1:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 build_name=${2:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 flavor=${3:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
@@ -17,9 +18,12 @@ if [[ "$track" == wolfi ]]; then
   if [[ "$flavor" != plain ]]; then
     config="${context}/${flavor}.apko.yaml"
     lockfile="${context}/${flavor}.apko.lock.json"
+    [[ -f "${context}/${flavor}-wrapper.apko.yaml" ]] && config="${context}/${flavor}-wrapper.apko.yaml"
   fi
   template=$config
-  if [[ -f "${context}/melange.yaml" ]]; then
+  recipe="${context}/melange.yaml"
+  [[ -f "${context}/${flavor}.melange.yaml" ]] && recipe="${context}/${flavor}.melange.yaml"
+  if [[ -f "$recipe" ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
     config=$(mktemp)
@@ -29,15 +33,16 @@ if [[ "$track" == wolfi ]]; then
     melange_args=(--arch "amd64,arm64" --runner docker --signing-key "$key" \
       --out-dir "${output}/packages" --generate-provenance)
     if [[ -f "${context}/${flavor}.env" ]]; then
-      melange build "${context}/melange.yaml" "${melange_args[@]}" \
+      melange build "$recipe" "${melange_args[@]}" \
         --env-file "${context}/${flavor}.env"
     else
-      melange build "${context}/melange.yaml" "${melange_args[@]}"
+      melange build "$recipe" "${melange_args[@]}"
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
       -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
+      -e "s|@REPOSITORY_KEY@|$root/packages/keys/verity-apk-2026.rsa.pub|" \
       "$template" > "$config"
     apko show-config "$config" >/dev/null
     apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"

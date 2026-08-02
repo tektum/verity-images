@@ -103,11 +103,24 @@ contents:
     - packages/keys/verity-apk-2026.rsa.pub
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
-    - openssl-fips-provider=3.1.2-r2
+    - openssl-fips-provider=3.1.2-r3
 EOF
 printf '{}\n' >"$work/go/fips.apko.lock.json"
+cat >"$work/go/fips-wrapper.apko.yaml" <<'EOF'
+variant: fips-wrapper
+contents:
+  repositories:
+    - "@LOCAL_REPOSITORY@"
+    - https://tektum.github.io/verity-images/apk
+  keyring:
+    - "@LOCAL_KEY@"
+    - "@REPOSITORY_KEY@"
+  packages:
+    - openssl-fips-provider=3.1.2-r3
+EOF
+: >"$work/go/fips.melange.yaml"
 run_candidate "$work/go" go-fips fips
-grep -q '^variant: fips$' "$APKO_LOG"
+grep -q '^variant: fips-wrapper$' "$APKO_LOG"
 grep -q 'https://tektum.github.io/verity-images/apk' "$APKO_LOG"
-grep -q 'openssl-fips-provider=3.1.2-r2' "$APKO_LOG"
-[ ! -s "$MELANGE_LOG" ]
+grep -q 'openssl-fips-provider=3.1.2-r3' "$APKO_LOG"
+grep -q "$work/go/fips.melange.yaml" "$MELANGE_LOG"
