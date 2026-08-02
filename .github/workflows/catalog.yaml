@@ -178,7 +178,7 @@ jobs:
 
       - name: Generate expected images
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
-        run: devbox --quiet run -- python3 scripts/gen_matrix.py --all > expected-images.json
+        run: devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'
 
       - name: Download current catalog
         if: steps.artifacts.outputs.ready == 'true'

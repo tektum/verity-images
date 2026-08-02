@@ -249,7 +249,7 @@ def main() -> None:
     assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
         "      - name: Download current catalog\n"
     )
-    assert "devbox --quiet run -- python3 scripts/gen_matrix.py --all > expected-images.json" in catalog
+    assert "devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'" in catalog
     assert "for report in reports/report-*.json; do" in workflow
     assert "length == 1 and" in workflow
     assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
