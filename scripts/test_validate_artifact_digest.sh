@@ -9,7 +9,7 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 digest=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 
 write_artifact() {
-  printf '{"expired":false,"workflow_run":{"id":%s},"digest":"%s"}\n' "${2:-42}" "$1" > "$work_dir/artifact.json"
+  printf '{"expired":%s,"workflow_run":{"id":%s},"digest":"%s"}\n' "${3:-false}" "${2:-42}" "$1" > "$work_dir/artifact.json"
 }
 
 expect_reject() {
@@ -30,7 +30,15 @@ write_artifact "sha256:${digest:1}"
 expect_reject "$digest"
 write_artifact "sha256:${digest}0"
 expect_reject "$digest"
+write_artifact "sha256:${digest%?}g"
+expect_reject "$digest"
 write_artifact "sha256:$digest"
 expect_reject "${digest%?}0"
 write_artifact "sha256:$digest" 43
 expect_reject "$digest"
+write_artifact "sha256:$digest" 42 true
+expect_reject "$digest"
+write_artifact "sha256:$digest"
+if bash "$validator" "$work_dir/artifact.json" "$digest" invalid; then
+  exit 1
+fi
