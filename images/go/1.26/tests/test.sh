@@ -3,6 +3,7 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
+root=$(cd "$(dirname "$0")/../../../.." && pwd)
 docker run --rm "$image" version | grep -q 'go1.26'
 
 work=$(mktemp -d)
@@ -28,3 +29,4 @@ if [ "$flavor" = fips ]; then
 fi
 [ "$(docker run --rm "$image" env GOFIPS140)" = "$expected_version" ]
 [ "$(docker run --rm -v "$work:/work:ro" -w /work "$image" run main.go)" = "$expected_enabled" ]
+[ "$flavor" != fips ] || "$root/scripts/test_fips.sh" provider "$image"

@@ -2,44 +2,23 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
-recipe="$root/packages/openssl-fips-provider/melange.yaml"
-config="$root/packages/openssl-fips-provider/openssl-fips.cnf.in"
-activate="$root/packages/openssl-fips-provider/openssl-fips-activate"
 helper="$root/scripts/test_fips.sh"
 
-grep -q 'version: "3.1.2"' "$recipe"
-grep -q 'source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d' "$recipe"
-grep -q 'certificate: "4985"' "$recipe"
-grep -q 'expected-sha256: a0ce69b8b97ea6a35b96875235aa453b966ba3cba8af2de23657d8b6767d6539' "$recipe"
-grep -q 'target-architecture:' "$recipe"
-grep -q '  - x86_64' "$recipe"
-grep -q '  - aarch64' "$recipe"
-grep -q '      - busybox' "$recipe"
-grep -q 'openssl-fips-activate' "$recipe"
-grep -q 'openssl-fips.cnf.in' "$recipe"
-if grep -q 'fipsmodule.cnf' "$recipe"; then
-  exit 1
-fi
-if grep -q 'uses: patch' "$recipe"; then
-  exit 1
-fi
-
-grep -q '^config_diagnostics = 1$' "$config"
-grep -q '^activate = 1$' "$config"
-grep -q '^default_properties = fips=yes$' "$config"
-grep -q '^\.include @FIPSMODULE@$' "$config"
-grep -q 'OPENSSL_FIPS_RUNTIME_DIR' "$activate"
-grep -q 'mktemp -d' "$activate"
-grep -q 'fipsinstall' "$activate"
-grep -q -- '-verify' "$activate"
-grep -q 'exec "$@"' "$activate"
-grep -q 'packages/openssl-fips-provider' "$root/.github/actions/publish-image/action.yaml"
-
-for version in 1.25 1.26; do
-  diff -u \
-    "$root/images/go/$version/apko.yaml" \
-    <(grep -v 'GOFIPS140:' "$root/images/go/$version/fips.apko.yaml")
-  grep -q 'GOFIPS140: v1.0.0' "$root/images/go/$version/fips.apko.yaml"
+for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V); do
+  config="$root/images/go/$version/fips.apko.yaml"
+  [ -f "$config" ] || continue
+  grep -Fxq '    - https://tektum.github.io/verity-images/apk' "$config"
+  grep -Fxq '    - packages/keys/verity-apk-2026.rsa.pub' "$config"
+  grep -Fxq '    - openssl-fips-provider=3.1.2-r2' "$config"
+  grep -Fxq '  GOFIPS140: v1.0.0' "$config"
+  grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$config"
+  jq -e '
+    [.contents.packages[] | select(
+      .name == "openssl-fips-provider" and
+      .version == "3.1.2-r2" and
+      (.url | startswith("https://tektum.github.io/verity-images/apk/"))
+    )] | length == 2
+  ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
 done
 [ "$(cat "$root/images/caddy/fips.env")" = 'GOFIPS140=v1.0.0' ]
 [ "$(find "$root/images/caddy" -maxdepth 1 -name 'melange.yaml' | wc -l)" -eq 1 ]
@@ -69,6 +48,9 @@ case "$*" in
     exit 1
     ;;
   *'fips.so:ro'*)
+    exit 1
+    ;;
+  *'mode=0500'*)
     exit 1
     ;;
   *'image inspect'*plain*|*'image inspect'*fips*)

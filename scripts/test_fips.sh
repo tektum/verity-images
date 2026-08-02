@@ -6,19 +6,20 @@ mode=${1:?usage: test_fips.sh provider IMAGE | compatibility PLAIN FIPS}
 case "$mode" in
   provider)
     image=${2:?usage: test_fips.sh provider IMAGE}
-    runtime=/run/openssl-fips
     run_provider() {
+      runtime=${1:?runtime directory is required}
+      shift
       docker run --rm --read-only \
         --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
         -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
         --entrypoint /usr/bin/openssl-fips-activate "$image" "$@"
     }
-    [ "$(run_provider /usr/bin/printf '%s|%s' 'a b' c)" = 'a b|c' ]
-    providers=$(run_provider openssl list -providers -verbose)
+    [ "$(run_provider /run/openssl-fips-first /usr/bin/printf '%s|%s' 'a b' c)" = 'a b|c' ]
+    providers=$(run_provider /run/openssl-fips-second openssl list -providers -verbose)
     printf '%s\n' "$providers" | grep -q 'version: 3.1.2'
     printf '%s\n' "$providers" | grep -q 'status: active'
-    printf '' | run_provider openssl dgst -sha256 >/dev/null
-    if printf '' | run_provider openssl dgst -md5 >/dev/null 2>&1; then
+    printf '' | run_provider /run/openssl-fips-first openssl dgst -sha256 >/dev/null
+    if printf '' | run_provider /run/openssl-fips-second openssl dgst -md5 >/dev/null 2>&1; then
       exit 1
     fi
     work=$(mktemp -d)
@@ -28,10 +29,20 @@ case "$mode" in
     docker rm "$container" >/dev/null
     printf 'tampered' >>"$work/fips.so"
     if docker run --rm --read-only \
-      --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
-      -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+      --tmpfs /run/openssl-fips-tampered:rw,noexec,nosuid,nodev,mode=1777 \
+      -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-tampered \
       -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
       --entrypoint /usr/bin/openssl-fips-activate "$image" openssl version >/dev/null 2>&1; then
+      exit 1
+    fi
+    docker run --rm --read-only --user 65532 \
+      --tmpfs /run/openssl-fips-nonroot:rw,noexec,nosuid,nodev,mode=1777 \
+      -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-nonroot \
+      --entrypoint /usr/bin/openssl-fips-activate "$image" /usr/bin/go version >/dev/null
+    if docker run --rm --read-only --user 65532 \
+      --tmpfs /run/openssl-fips-denied:rw,noexec,nosuid,nodev,mode=0500 \
+      -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-denied \
+      --entrypoint /usr/bin/openssl-fips-activate "$image" /usr/bin/go version >/dev/null 2>&1; then
       exit 1
     fi
     trap - EXIT INT TERM
