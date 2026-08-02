@@ -12,12 +12,16 @@ import hashlib
 import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 from typing import Final
+
+from apk_repository_policy import validate as validate_repository
 
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 DEFAULT_STATE: Final = ROOT / "packages/repository-state.json"
+PINNED_STATE: Final = ROOT / "packages/repository-state.pin.json"
 ARCHITECTURES: Final = frozenset({"x86_64", "aarch64"})
 
 
@@ -69,6 +73,8 @@ def text(value: object, name: str) -> str:
 
 
 def validate(state: dict[str, object]) -> None:
+    if state != read_state(PINNED_STATE):
+        raise StateError("repository state differs from reviewed pin contract")
     release = mapping(field(state, "release"), "release")
     asset = mapping(field(state, "asset"), "asset")
     archive = mapping(field(state, "archive"), "archive")
@@ -101,6 +107,14 @@ def validate(state: dict[str, object]) -> None:
         raise StateError("duplicate package entries")
     if len({(entry["name"], entry["version"], entry["epoch"]) for entry in package_entries}) != 1:
         raise StateError("duplicate or mismatched package identity")
+    for entry in (*package_entries, *manifest_entries):
+        if Path(text(entry["path"], "package.path")).parts[0] != entry["architecture"]:
+            raise StateError("package architecture and path mismatch")
+    for entries_to_check in (package_entries, manifest_entries):
+        if len({entry["path"] for entry in entries_to_check}) != len(entries_to_check):
+            raise StateError("duplicate package paths")
+        if len({entry["sha256"] for entry in entries_to_check}) != len(entries_to_check):
+            raise StateError("duplicate package digests")
     bindings = {(entry["architecture"], entry["path"], entry["sha256"]) for entry in package_entries}
     manifest_bindings = {(entry["architecture"], entry["path"], entry["sha256"]) for entry in manifest_entries}
     if bindings != manifest_bindings:
@@ -108,10 +122,11 @@ def validate(state: dict[str, object]) -> None:
 
 
 def validate_archive(state: dict[str, object], archive_path: Path) -> None:
-    archive = mapping(field(state, "archive"), "archive")
+    pinned = read_state(PINNED_STATE)
+    archive = mapping(field(pinned, "archive"), "archive")
     manifest_path = f"{text(field(archive, 'root'), 'archive.root')}/manifest.json"
     digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    asset = mapping(field(state, "asset"), "asset")
+    asset = mapping(field(pinned, "asset"), "asset")
     if f"sha256:{digest}" != field(asset, "sha256"):
         raise StateError("archive digest mismatch")
     result = subprocess.run(
@@ -126,6 +141,19 @@ def validate_archive(state: dict[str, object], archive_path: Path) -> None:
     manifest = json.loads(result.stdout)
     if manifest != field(archive, "manifest"):
         raise StateError("archive manifest mismatch")
+    with tempfile.TemporaryDirectory() as temporary:
+        result = subprocess.run(
+            ["tar", "--zstd", "-xf", str(archive_path), "-C", temporary],
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode:
+            raise StateError("archive extraction failed")
+        validate_repository(
+            Path(temporary) / text(field(archive, "root"), "archive.root"),
+            ROOT / "packages/keys",
+            text(field(archive, "manifestSha256"), "archive.manifestSha256"),
+        )
 
 
 def validate_live(state: dict[str, object]) -> None:

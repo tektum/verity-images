@@ -1,6 +1,10 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "automerge": false,
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "prCreation": "immediate",
   "enabledManagers": ["custom.regex"],
   "customManagers": [
     {
@@ -67,6 +71,13 @@
       "matchFileNames": ["packages/repository-state.json"],
       "automerge": false,
       "labels": ["apk-repository-state", "review-required"]
+    },
+    {
+      "matchPackageNames": ["*"],
+      "automerge": false,
+      "platformAutomerge": false,
+      "automergeType": "pr",
+      "prCreation": "immediate"
     }
   ]
 }
