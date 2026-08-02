@@ -1,7 +1,6 @@
 #!/bin/bash
 set -euo pipefail
 
-root=$(cd "$(dirname "$0")/.." && pwd)
 context=${1:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 build_name=${2:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 flavor=${3:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
@@ -20,11 +19,7 @@ if [[ "$track" == wolfi ]]; then
     lockfile="${context}/${flavor}.apko.lock.json"
   fi
   template=$config
-  provider=false
-  if grep -q 'openssl-fips-provider@local' "$template"; then
-    provider=true
-  fi
-  if [[ -f "${context}/melange.yaml" || "$provider" == true ]]; then
+  if [[ -f "${context}/melange.yaml" ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
     config=$(mktemp)
@@ -33,16 +28,11 @@ if [[ "$track" == wolfi ]]; then
     melange keygen "$key"
     melange_args=(--arch "amd64,arm64" --runner docker --signing-key "$key" \
       --out-dir "${output}/packages" --generate-provenance)
-    if [[ "$provider" == true ]]; then
-      melange build "$root/packages/openssl-fips-provider/melange.yaml" "${melange_args[@]}"
-    fi
-    if [[ -f "${context}/melange.yaml" ]]; then
-      if [[ -f "${context}/${flavor}.env" ]]; then
-        melange build "${context}/melange.yaml" "${melange_args[@]}" \
-          --env-file "${context}/${flavor}.env"
-      else
-        melange build "${context}/melange.yaml" "${melange_args[@]}"
-      fi
+    if [[ -f "${context}/${flavor}.env" ]]; then
+      melange build "${context}/melange.yaml" "${melange_args[@]}" \
+        --env-file "${context}/${flavor}.env"
+    else
+      melange build "${context}/melange.yaml" "${melange_args[@]}"
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on

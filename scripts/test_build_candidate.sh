@@ -93,23 +93,21 @@ grep -q "$work/caddy/melange.yaml.*--env-file $work/caddy/fips.env" "$MELANGE_LO
 mkdir -p "$work/go"
 printf 'variant: plain\n' >"$work/go/apko.yaml"
 printf '{}\n' >"$work/go/apko.lock.json"
-printf 'variant: fips\n' >"$work/go/fips.apko.yaml"
+cat >"$work/go/fips.apko.yaml" <<'EOF'
+variant: fips
+contents:
+  repositories:
+    - https://tektum.github.io/verity-images/apk
+    - https://packages.wolfi.dev/os
+  keyring:
+    - packages/keys/verity-apk-2026.rsa.pub
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - openssl-fips-provider=3.1.2-r2
+EOF
 printf '{}\n' >"$work/go/fips.apko.lock.json"
 run_candidate "$work/go" go-fips fips
 grep -q '^variant: fips$' "$APKO_LOG"
+grep -q 'https://tektum.github.io/verity-images/apk' "$APKO_LOG"
+grep -q 'openssl-fips-provider=3.1.2-r2' "$APKO_LOG"
 [ ! -s "$MELANGE_LOG" ]
-
-: >"$APKO_LOG"
-: >"$MELANGE_LOG"
-mkdir -p "$work/openssl"
-printf 'variant: plain\n' >"$work/openssl/apko.yaml"
-cat >"$work/openssl/fips.apko.yaml" <<'EOF'
-variant: openssl-fips
-contents:
-  repositories: ["@local @LOCAL_REPOSITORY@"]
-  keyring: ["@LOCAL_KEY@"]
-  packages: [openssl-fips-provider@local]
-EOF
-run_candidate "$work/openssl" openssl-fips fips
-grep -q '^variant: openssl-fips$' "$APKO_LOG"
-grep -q "$root/packages/openssl-fips-provider/melange.yaml" "$MELANGE_LOG"
