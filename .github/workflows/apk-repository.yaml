@@ -237,8 +237,7 @@ jobs:
           .github/scripts/assemble-apk-repository.sh "$work_dir/packages" "$work_dir/apk" "$private_key" "$fingerprint"
           manifest_digest=$(sha256sum "$work_dir/apk/manifest.json" | cut -d' ' -f1)
           python3 scripts/apk_repository_policy.py "$work_dir/apk" packages/keys "$manifest_digest"
-          scripts/test_fips_runtime.sh "$work_dir/apk/x86_64" packages/keys/verity-apk-2026.rsa.pub x86_64
-          scripts/test_fips_runtime.sh "$work_dir/apk/aarch64" packages/keys/verity-apk-2026.rsa.pub aarch64
+          bash scripts/verify_apk_repository.sh "$work_dir/apk" packages/keys/verity-apk-2026.rsa.pub
           mkdir release
           tar --zstd --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
             -C "$work_dir" -cf release/verity-apk-repository.tar.zst apk
