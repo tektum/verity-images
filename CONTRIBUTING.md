@@ -37,6 +37,12 @@ data format. Image tests must cover those image-specific contracts and use
 compatibility. The `fips` flavor is not a certification claim for the image or
 application.
 
+OpenSSL FIPS consumers use the signed Pages repository with the committed
+`verity-apk-2026.rsa.pub` key and must pin the provider version in both APKO
+configuration and lockfile. `/usr/bin/openssl-fips-activate` generates and
+verifies `fipsmodule.cnf` in `OPENSSL_FIPS_RUNTIME_DIR`, then uses `exec` to
+preserve the application's argv without writing to the image root filesystem.
+
 Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
