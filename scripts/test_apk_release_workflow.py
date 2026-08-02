@@ -14,6 +14,7 @@ WORKFLOW: Final = ROOT / ".github/workflows/apk-repository.yaml"
 SMOKE_WORKFLOW: Final = ROOT / ".github/workflows/apk-signing-smoke.yaml"
 POLICY: Final = ROOT / "scripts/apk_repository_policy.py"
 RUNTIME_TEST: Final = ROOT / "scripts/test_fips_runtime.sh"
+REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
 
 
@@ -30,6 +31,7 @@ def main() -> None:
     smoke_workflow = SMOKE_WORKFLOW.read_text(encoding="utf-8")
     policy = POLICY.read_text(encoding="utf-8")
     runtime_test = RUNTIME_TEST.read_text(encoding="utf-8")
+    repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-signing")
     signing = workflow.split("  apk-signing:\n", maxsplit=1)[1]
@@ -98,6 +100,11 @@ def main() -> None:
     assert "APK_REPOSITORY_PRIVATE_KEY" not in x86_64 + aarch64
     assert "scripts/test_fips_runtime.sh" not in signing
     assert "--platform" not in signing
+    assert 'bash scripts/verify_apk_repository.sh "$work_dir/apk" packages/keys/verity-apk-2026.rsa.pub' in signing
+    assert "apk --keys-dir" in repository_verify
+    assert "--platform" not in repository_verify
+    assert "/repository/x86_64/APKINDEX.tar.gz" in repository_verify
+    assert "/repository/aarch64/APKINDEX.tar.gz" in repository_verify
     assert 'umask 077' in smoke_workflow
     assert 'private_key_source="$work_dir/verity-apk-2026.source.pem"' in smoke_workflow
     assert 'private_key="$work_dir/verity-apk-2026.rsa"' in smoke_workflow
