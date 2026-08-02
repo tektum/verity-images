@@ -6,12 +6,10 @@ Pushes to `main` rebuild published images. Pull requests build, scan, and
 smoke-test affected images but never authenticate to GHCR, publish, sign,
 attest, or move tags.
 
-At 03:17 UTC each day, the monitor requires the catalog to match the reviewed
-image inventory and each digest to match its published version tag. It then
-verifies every platform SPDX attestation and scans both platform SBOMs with the
-current Grype database. It opens or updates one issue per vulnerable image
-version and closes the issue after a clean scan. The monitor does not pull image
-layers or rebuild images.
+After publication, Squawk stores each platform SBOM once and compares its
+components with incremental OSV updates. New findings dispatch the monitor
+workflow, which opens or updates one issue per vulnerable image version. The
+monitor does not pull image layers, rescan images, or rebuild images.
 
 ## Vulnerability gates
 
@@ -78,14 +76,23 @@ cosign verify \
 ```
 
 The workflow uses only `GITHUB_TOKEN` plus GitHub's short-lived OIDC identity.
-It requires no PAT or stored signing secret.
+It requires no PAT, stored signing secret, Squawk URL, Squawk credential, or
+Descope machine token.
 
 ## SBOM and provenance
 
-SPDX JSON is the only SBOM format. Wolfi images use apko's native SPDX output.
-Patched images use Syft against the final patched image. One complete SBOM per
-platform is attached to the corresponding image digest. Trivy is never an SBOM
-generator.
+Wolfi images use apko's native SPDX output and patched images use Syft against
+the final image. The shared publish action derives CycloneDX from each platform
+SPDX document and creates one commit-pinned `actions/attest` v4 GitHub SBOM
+attestation against each platform digest. Trivy is never an SBOM generator.
+
+The producer then creates one GitHub deployment per platform. Its payload binds
+the platform and index digests, platform, DSSE statement SHA-256, and a GitHub
+OIDC JWT whose custom audience contains those same immutable values plus the
+repository ID and workflow SHA. Squawk fetches the repository attestation via a
+repository-scoped GitHub App token and checks the exact payload hash and in-toto
+CycloneDX schema. Squawk deliberately does not implement Sigstore verification;
+the GitHub-signed exact-hash OIDC binding is the trust proof.
 
 Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.
