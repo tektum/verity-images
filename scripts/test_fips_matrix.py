@@ -37,7 +37,7 @@ def main() -> None:
             "  keyring:\n"
             "    - packages/keys/verity-apk-2026.rsa.pub\n"
             "    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub\n"
-            "  packages: [openssl-fips-provider=3.1.2-r2]\n",
+            "  packages: [openssl-fips-provider=3.1.2-r3]\n",
             encoding="utf-8",
         )
         (image / "melange.yaml").touch()

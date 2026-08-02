@@ -181,7 +181,7 @@ def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
     config = directory / ("apko.yaml" if flavor == "plain" else f"{flavor}.apko.yaml")
     if not config.is_file():
         config = directory / "apko.yaml"
-    return config.is_file() and "openssl-fips-provider=3.1.2-r2" in config.read_text(encoding="utf-8")
+    return config.is_file() and "openssl-fips-provider=3.1.2-r3" in config.read_text(encoding="utf-8")
 
 
 def version_key(version: str) -> tuple[int, ...]:
