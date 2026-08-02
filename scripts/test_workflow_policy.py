@@ -188,7 +188,6 @@ def main() -> None:
         "      attestations: write\n"
         "      contents: read\n"
         "      deployments: write\n"
-        "      id-token: write\n"
         "      packages: write\n"
     ) in publish_job
     assert (

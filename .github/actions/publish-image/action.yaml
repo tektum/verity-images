@@ -255,15 +255,12 @@ runs:
       if: inputs.publish == 'true'
       shell: bash
       env:
-        AMD64_BUNDLE: ${{ steps.attest-amd64.outputs.bundle-path }}
         AMD64_DIGEST: ${{ steps.platforms.outputs.amd64 }}
-        ARM64_BUNDLE: ${{ steps.attest-arm64.outputs.bundle-path }}
         ARM64_DIGEST: ${{ steps.platforms.outputs.arm64 }}
         INDEX_DIGEST: ${{ steps.push.outputs.digest }}
         TARGET: ${{ inputs.target-repository }}
       run: |
-        scripts/notify_squawk.sh "$TARGET" "$INDEX_DIGEST" \
-          "$AMD64_BUNDLE" "$AMD64_DIGEST" "$ARM64_BUNDLE" "$ARM64_DIGEST"
+        scripts/notify_squawk.sh "$TARGET" "$INDEX_DIGEST" "$AMD64_DIGEST" "$ARM64_DIGEST"
 
     - name: Attach build provenance
       if: inputs.publish == 'true'
