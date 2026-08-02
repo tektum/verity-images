@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -89,8 +90,21 @@ def main() -> None:
             raise SystemExit(f"invalid build report: {report}: images must contain objects")
         name = image.get("name")
         version = image.get("version")
-        if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
-            raise SystemExit(f"invalid build report: {report}: image name and version must be non-empty strings")
+        digest = image.get("digest")
+        tags = image.get("tags")
+        scan = image.get("scan")
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(version, str)
+            or not version
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+            or not isinstance(tags, str)
+            or not tags
+            or not isinstance(scan, dict)
+        ):
+            raise SystemExit(f"invalid build report: {report}: image fields are invalid")
         artifact = scans / f"scan-{name}-{version}"
         if not artifact.is_dir() or not tuple(artifact.glob("scan-*.json")):
             raise SystemExit(f"missing scan artifact: {artifact}")

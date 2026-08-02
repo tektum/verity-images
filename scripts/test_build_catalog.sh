@@ -34,6 +34,9 @@ rejects_report "$work/trailing-log-report.json" 'invalid JSON in build report'
 printf '{"images":' > "$work/malformed-report.json"
 rejects_report "$work/malformed-report.json" 'invalid JSON in build report'
 
+printf '%s\n' '{"images":[{"name":"image","version":"1"}]}' > "$work/invalid-fields-report.json"
+rejects_report "$work/invalid-fields-report.json" 'invalid build report'
+
 cat > "$work/report.json" <<'EOF'
 {"images":[{"name":"preserved","version":"1","track":"wolfi","description":"Preserved image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0}},{"name":"replaced","version":"1","track":"wolfi","description":"Old image.","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
 EOF
