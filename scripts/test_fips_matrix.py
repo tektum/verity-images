@@ -30,24 +30,50 @@ def main() -> None:
         )
         (image / "apko.yaml").write_text("contents: {}\n", encoding="utf-8")
         (image / "fips.apko.yaml").write_text(
-            "contents:\n  packages: [openssl-fips-provider@local]\n",
+            "contents:\n"
+            "  repositories:\n"
+            "    - https://tektum.github.io/verity-images/apk\n"
+            "    - https://packages.wolfi.dev/os\n"
+            "  keyring:\n"
+            "    - packages/keys/verity-apk-2026.rsa.pub\n"
+            "    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub\n"
+            "  packages: [openssl-fips-provider=3.1.2-r2]\n",
             encoding="utf-8",
         )
         (image / "melange.yaml").touch()
         (image / "tests" / "test.sh").touch()
-        with (
-            patch.object(gen_matrix, "ROOT", root),
-            patch.object(gen_matrix, "image_directories", return_value=[image]),
-            patch.object(
-                gen_matrix,
-                "changed_paths",
-                return_value={"packages/openssl-fips-provider/melange.yaml"},
-            ),
+        patched = root / "patched" / "fixture"
+        (patched / "tests").mkdir(parents=True)
+        (patched / "metadata.yaml").write_text(
+            "name: patched-fixture\n"
+            "track: patched\n"
+            "description: fixture\n"
+            "upstream: docker.io/library/busybox:1\n"
+            "versions: [1]\n"
+            "enabled: true\n",
+            encoding="utf-8",
+        )
+        (patched / "source.yaml").write_text(
+            "image: docker.io/library/busybox:1\n"
+            f"digest: sha256:{'0' * 64}\n"
+            "platforms: [linux/amd64, linux/arm64]\n",
+            encoding="utf-8",
+        )
+        (patched / "tests" / "test.sh").touch()
+        for changed_path in (
+            "packages/repository-state.json",
+            "packages/repository-state.schema.json",
+            "packages/keys/verity-apk-2026.rsa.pub",
         ):
-            entries = gen_matrix.generate("base")["include"]
-        assert [(entry["name"], entry["flavor"]) for entry in entries] == [
-            ("fixture", "fips")
-        ]
+            with (
+                patch.object(gen_matrix, "ROOT", root),
+                patch.object(gen_matrix, "image_directories", return_value=[image, patched]),
+                patch.object(gen_matrix, "changed_paths", return_value={changed_path}),
+            ):
+                entries = gen_matrix.generate("base")["include"]
+            assert [(entry["name"], entry["flavor"]) for entry in entries] == [
+                ("fixture", "fips")
+            ]
 
 
 if __name__ == "__main__":

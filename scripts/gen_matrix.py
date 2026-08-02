@@ -26,8 +26,10 @@ GLOBAL_PATHS: Final = {
     "scripts/install_image_tools.sh",
 }
 OPENSSL_FIPS_PATHS: Final = {
-    "packages/openssl-fips-provider/melange.yaml",
-    "packages/openssl-fips-provider/openssl-fips.cnf",
+    "packages/keys/verity-apk-2026.rsa.pub",
+    "packages/repository-state.json",
+    "packages/repository-state.pin.json",
+    "packages/repository-state.schema.json",
 }
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
 
@@ -179,7 +181,7 @@ def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
     config = directory / ("apko.yaml" if flavor == "plain" else f"{flavor}.apko.yaml")
     if not config.is_file():
         config = directory / "apko.yaml"
-    return "openssl-fips-provider@local" in config.read_text(encoding="utf-8")
+    return config.is_file() and "openssl-fips-provider=3.1.2-r2" in config.read_text(encoding="utf-8")
 
 
 def version_key(version: str) -> tuple[int, ...]:
@@ -235,7 +237,11 @@ def generate(base_ref: str | None) -> Matrix:
                 raise MetadataError(f"{relative}: metadata upstream must match source image")
             platforms = ",".join(source.platforms)
         for flavor in metadata.flavors:
-            provider_changed = openssl_fips_changed and uses_openssl_fips_provider(directory, flavor)
+            provider_changed = (
+                openssl_fips_changed
+                and metadata.track == "wolfi"
+                and uses_openssl_fips_provider(directory, flavor)
+            )
             if base_ref and not directly_changed and (
                 not provider_changed
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
