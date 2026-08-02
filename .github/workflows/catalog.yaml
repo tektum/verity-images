@@ -183,6 +183,8 @@ jobs:
       - name: Download current catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
+        env:
+          MODE: ${{ steps.mode.outputs.value }}
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --location --output previous.json \
@@ -190,7 +192,7 @@ jobs:
           if [[ "$status" == 200 ]]; then
             devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json
           elif [[ "$status" == 404 ]]; then
-            if [[ "${{ steps.mode.outputs.value }}" == packages ]]; then
+            if [[ "$MODE" == packages ]]; then
               printf '::error title=Catalog unavailable::Package-only publication requires the current catalog.\n'
               exit 1
             fi
@@ -250,7 +252,12 @@ jobs:
           archive_sha256=$(devbox run -- jq -r .archive.sha256 packages/repository-state.json)
           gh api "repos/${repository}/releases/assets/${asset_id}" \
             -H 'Accept: application/octet-stream' > repository.tar.zst
-          [[ "sha256:$(sha256sum repository.tar.zst | cut -d' ' -f1)" == "$archive_sha256" ]]
+          actual_sha256="sha256:$(sha256sum repository.tar.zst | cut -d' ' -f1)"
+          if [[ "$actual_sha256" != "$archive_sha256" ]]; then
+            printf '::error title=Archive digest mismatch::Expected %s but downloaded %s.\n' \
+              "$archive_sha256" "$actual_sha256"
+            exit 1
+          fi
           mkdir pages
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json

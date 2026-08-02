@@ -59,7 +59,14 @@ def rejects_link_or_wrong_root(state: dict[str, object]) -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         archive_path = fixture(root, state)
-        package = root / "apk" / "x86_64" / "openssl-fips-provider-3.1.2-r2.apk"
+        package_state = next(
+            package
+            for package in validate_repository_state.entries(state["packages"], "packages")
+            if package["architecture"] == "x86_64"
+        )
+        package = root / "apk" / validate_repository_state.text(
+            package_state["path"], "package.path"
+        )
         package.unlink()
         package.symlink_to("../../outside")
         archive(root, archive_path)
