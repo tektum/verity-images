@@ -6,6 +6,14 @@ mode=${1:?usage: test_fips.sh provider IMAGE | compatibility PLAIN FIPS}
 case "$mode" in
   provider)
     image=${2:?usage: test_fips.sh provider IMAGE}
+    run_go() {
+      runtime=${1:?runtime directory is required}
+      shift
+      docker run --rm --read-only \
+        --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+        -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+        "$image" "$@"
+    }
     run_provider() {
       runtime=${1:?runtime directory is required}
       shift
@@ -14,6 +22,8 @@ case "$mode" in
         -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
         --entrypoint /usr/bin/openssl-fips-activate "$image" "$@"
     }
+    run_go /run/openssl-fips-default version | grep -q '^go version '
+    [ "$(run_go /run/openssl-fips-arguments env GOFIPS140)" = v1.0.0 ]
     [ "$(run_provider /run/openssl-fips-first /usr/bin/printf '%s|%s' 'a b' c)" = 'a b|c' ]
     providers=$(run_provider /run/openssl-fips-second openssl list -providers -verbose)
     printf '%s\n' "$providers" | grep -q 'version: 3.1.2'
@@ -32,17 +42,17 @@ case "$mode" in
       --tmpfs /run/openssl-fips-tampered:rw,noexec,nosuid,nodev,mode=1777 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-tampered \
       -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
-      --entrypoint /usr/bin/openssl-fips-activate "$image" openssl version >/dev/null 2>&1; then
+      "$image" version >/dev/null 2>&1; then
       exit 1
     fi
     docker run --rm --read-only --user 65532 \
       --tmpfs /run/openssl-fips-nonroot:rw,noexec,nosuid,nodev,mode=1777 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-nonroot \
-      --entrypoint /usr/bin/openssl-fips-activate "$image" /usr/bin/go version >/dev/null
+      "$image" version >/dev/null
     if docker run --rm --read-only --user 65532 \
       --tmpfs /run/openssl-fips-denied:rw,noexec,nosuid,nodev,mode=0500 \
       -e OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips-denied \
-      --entrypoint /usr/bin/openssl-fips-activate "$image" /usr/bin/go version >/dev/null 2>&1; then
+      "$image" version >/dev/null 2>&1; then
       exit 1
     fi
     trap - EXIT INT TERM
@@ -51,7 +61,7 @@ case "$mode" in
   compatibility)
     plain=${2:?usage: test_fips.sh compatibility PLAIN FIPS}
     fips=${3:?usage: test_fips.sh compatibility PLAIN FIPS}
-    format='{{json .Config.User}}|{{json .Config.Entrypoint}}|{{json .Config.Cmd}}|{{json .Config.WorkingDir}}|{{json .Config.ExposedPorts}}|{{json .Config.Volumes}}'
+    format='{{json .Config.User}}|{{json .Config.Cmd}}|{{json .Config.WorkingDir}}|{{json .Config.ExposedPorts}}|{{json .Config.Volumes}}'
     [ "$(docker image inspect --format "$format" "$plain")" = \
       "$(docker image inspect --format "$format" "$fips")" ]
     ;;
