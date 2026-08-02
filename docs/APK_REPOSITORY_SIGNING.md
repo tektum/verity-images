@@ -21,6 +21,17 @@ published package version. Publish a new version for any correction.
 The `APK signing smoke` workflow is a protected, disposable sign-and-verify
 check. It creates no repository, signature, or key artifact.
 
+`Build APK repository` builds and runtime-tests the FIPS package once on each
+native GitHub-hosted architecture. The resulting unsigned packages are kept for
+seven days and receive GitHub artifact attestations. Only a manual dispatch from
+`tektum/verity-images` at `refs/heads/main` can enter `apk-signing`; before the
+key is read, it verifies the immutable source SHA, same-run artifact IDs and
+digests, and attestations bound to this workflow. The job creates an
+`apk-repo-vNNNN` draft release with the sole asset
+`verity-apk-repository.tar.zst`; its release notes carry the archive checksum
+and attestation provenance. Existing tags, releases, or asset paths are never
+overwritten.
+
 ## Rotation and revocation
 
 To rotate the root, generate a new key under a restrictive umask, commit its
