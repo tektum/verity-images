@@ -32,7 +32,7 @@ docker run --rm --platform "$platform" \
         stderr=$(mktemp)
         OPENSSL_FIPS_RUNTIME_DIR=/run/openssl-fips \
           openssl-fips-activate sh -ec '\''
-            openssl list -provider fips -providers | grep -F "version: 3.1.2"
+            openssl list -provider fips -providers | grep -F "version: 3.1.2" >/dev/null
             openssl dgst -sha256 /dev/null >/dev/null
             ! openssl dgst -md5 /dev/null >/dev/null 2>&1
             test "$1" = argv-preserved
@@ -40,7 +40,9 @@ docker run --rm --platform "$platform" \
             printf "a b|c\n"
           '\'' sh argv-preserved >"$stdout" 2>"$stderr"
         test "$(cat "$stdout")" = "a b|c"
-        grep -Fq "/usr/lib/ossl-modules/fips.so: OK" "$stderr"
+        grep -Fq "fips.so: OK" "$stderr"
+        grep -Fq "INSTALL PASSED" "$stderr"
+        grep -Fq "VERIFY PASSED" "$stderr"
         rm -f "$stdout" "$stderr"
       )
     done
