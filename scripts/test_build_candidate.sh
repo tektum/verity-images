@@ -86,7 +86,10 @@ grep -q '^variant: fips$' "$APKO_LOG"
 if grep -q '^variant: plain$' "$APKO_LOG"; then
   exit 1
 fi
-grep -q "$work/caddy/melange.yaml.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
+grep -q "$work/caddy/melange.yaml --arch amd64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
+grep -q "$work/caddy/melange.yaml --arch arm64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
+[[ $(grep -c "$work/caddy/melange.yaml" "$MELANGE_LOG") -eq 2 ]]
+[[ -d "$work/dist/caddy-fips/packages" ]]
 
 : >"$APKO_LOG"
 : >"$MELANGE_LOG"
@@ -123,7 +126,15 @@ run_candidate "$work/go" go-fips fips
 grep -q '^variant: fips-wrapper$' "$APKO_LOG"
 grep -q 'https://tektum.github.io/verity-images/apk' "$APKO_LOG"
 grep -q 'openssl-fips-provider=3.1.2-r3' "$APKO_LOG"
-grep -q "$work/go/fips.melange.yaml" "$MELANGE_LOG"
+grep -q "$work/go/fips.melange.yaml --arch amd64" "$MELANGE_LOG"
+grep -q "$work/go/fips.melange.yaml --arch arm64" "$MELANGE_LOG"
+[[ $(grep -c "$work/go/fips.melange.yaml" "$MELANGE_LOG") -eq 2 ]]
 if grep -q 'packages/openssl-fips-provider/melange.yaml' "$MELANGE_LOG"; then
   exit 1
 fi
+
+recipe="$root/images/caddy/melange.yaml"
+grep -Fq 'install -m644 -D Caddyfile ' "$recipe"
+grep -Fq 'install -m644 -D index.html ' "$recipe"
+[[ -f "$root/images/caddy/Caddyfile" ]]
+[[ -f "$root/images/caddy/index.html" ]]

@@ -30,14 +30,16 @@ if [[ "$track" == wolfi ]]; then
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
     mkdir -p "${output}/packages"
     melange keygen "$key"
-    melange_args=(--arch "amd64,arm64" --runner docker --signing-key "$key" \
+    melange_args=(--runner docker --signing-key "$key" \
       --out-dir "${output}/packages" --generate-provenance)
-    if [[ -f "${context}/${flavor}.env" ]]; then
-      melange build "$recipe" "${melange_args[@]}" \
-        --env-file "${context}/${flavor}.env"
-    else
-      melange build "$recipe" "${melange_args[@]}"
-    fi
+    for arch in amd64 arm64; do
+      if [[ -f "${context}/${flavor}.env" ]]; then
+        melange build "$recipe" --arch "$arch" "${melange_args[@]}" \
+          --env-file "${context}/${flavor}.env"
+      else
+        melange build "$recipe" --arch "$arch" "${melange_args[@]}"
+      fi
+    done
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=on
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
