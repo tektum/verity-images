@@ -36,9 +36,10 @@ docker run --rm --platform "$platform" \
             openssl dgst -sha256 /dev/null >/dev/null
             ! openssl dgst -md5 /dev/null >/dev/null 2>&1
             test "$1" = argv-preserved
+            test "$(pwd)" = "$2"
             test "$(umask)" = 0022
             printf "a b|c\n"
-          '\'' sh argv-preserved >"$stdout" 2>"$stderr"
+          '\'' sh argv-preserved "$cwd" >"$stdout" 2>"$stderr"
         test "$(cat "$stdout")" = "a b|c"
         grep -Fq "fips.so: OK" "$stderr"
         grep -Fq "INSTALL PASSED" "$stderr"
