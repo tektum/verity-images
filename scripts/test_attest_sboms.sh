@@ -52,6 +52,13 @@ if PATH="$work/bin:$PATH" \
   exit 1
 fi
 
+printf '%s\n' '{"name":"arm","packages":[{"name":"demo","versionInfo":"1","externalRefs":[]}]}' > "$work/sboms/sbom-aarch64.spdx.json"
+if PATH="$work/bin:$PATH" \
+  "$root/scripts/attest_sboms.sh" ghcr.io/tektum/demo sha256:123 "$work/sboms" >/dev/null 2>&1; then
+  printf 'package without purl was accepted\n' >&2
+  exit 1
+fi
+
 for format in spdx cyclonedx; do
   predicate=$work/$format.json
   bundle=$work/$format.bundle.json
