@@ -1,15 +1,25 @@
 contents:
   repositories:
+    - https://tektum.github.io/verity-images/apk
     - https://packages.wolfi.dev/os
   keyring:
+    - packages/keys/verity-apk-2026.rsa.pub
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
     - ca-certificates-bundle
     - go-1.25
+    - openssl
+    - openssl-fips-provider=3.1.2-r3
 
 entrypoint:
   command: /usr/bin/go
 
 environment:
   GOFIPS140: v1.0.0
+  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips
   PATH: /usr/bin:/bin
+
+paths:
+  - path: /run/openssl-fips
+    type: directory
+    permissions: 0o1777

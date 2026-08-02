@@ -27,6 +27,26 @@ enabled: true
 Optional `flavors` expand one source definition into tag variants; `plain` has
 no suffix and other flavors use `-<flavor>`. Optional `major` adds a major tag.
 
+Plain and FIPS flavors must stay in one image directory and use one upstream
+version and source commit. Application package builds use one `melange.yaml`;
+a FIPS-only image-local recipe may package only its activation entrypoint. A
+flavor env file may change only cryptographic build selection. FIPS APKO inputs
+may add provider or configuration packages and activation environment, but must
+preserve UID/GID,
+entrypoint, command, paths, ports, volumes, configuration schema, and persistent
+data format. Image tests must cover those image-specific contracts and use
+`scripts/test_fips.sh` for OpenSSL provider checks and inspect-level flavor
+compatibility. The `fips` flavor is not a certification claim for the image or
+application.
+
+OpenSSL FIPS consumers use the signed Pages repository with the committed
+`verity-apk-2026.rsa.pub` key and must pin the provider version in both APKO
+configuration and lockfile. FIPS Go images add a tiny image-local entrypoint
+which invokes `/usr/bin/openssl-fips-activate /usr/bin/go` and preserves both
+the default Go command and explicit Go arguments. The generic activation helper
+generates and verifies `fipsmodule.cnf` in `OPENSSL_FIPS_RUNTIME_DIR`, then
+uses `exec` without writing to the image root filesystem.
+
 Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
