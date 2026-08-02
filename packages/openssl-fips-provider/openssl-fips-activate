@@ -14,9 +14,9 @@ work=$(mktemp -d "$runtime/openssl-fips.XXXXXX")
 trap 'rm -rf "$work"' EXIT INT TERM
 module=/usr/lib/ossl-modules/fips.so
 expected=/usr/share/openssl-fips/fips.so.sha256
-sha256sum -c "$expected"
-openssl fipsinstall -module "$module" -out "$work/fipsmodule.cnf" -pedantic
-openssl fipsinstall -module "$module" -in "$work/fipsmodule.cnf" -verify
+sha256sum -c "$expected" >&2
+openssl fipsinstall -module "$module" -out "$work/fipsmodule.cnf" -pedantic >&2
+openssl fipsinstall -module "$module" -in "$work/fipsmodule.cnf" -verify >&2
 sed "s|@FIPSMODULE@|$work/fipsmodule.cnf|" /usr/share/openssl-fips/openssl-fips.cnf.in >"$work/openssl.cnf"
 OPENSSL_CONF="$work/openssl.cnf" openssl list -provider fips -providers >/dev/null
 mv "$work/fipsmodule.cnf" "$runtime/fipsmodule.cnf"
