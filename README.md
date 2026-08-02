@@ -68,8 +68,10 @@ The patched catalog includes Debian 12 slim and Node.js 22 slim. Their source
 index digests and enabled platforms are declared in each `source.yaml`.
 
 Both tracks use the same `.github/actions/publish-image/action.yaml` tail for
-the scan gate, smoke test, digest signing, SPDX attestation, provenance, and tag
-promotion.
+the scan gate, smoke test, digest signing, SPDX attestation, per-platform GitHub
+CycloneDX attestation, Squawk deployment notification, provenance, and tag
+promotion. The notification uses only `GITHUB_TOKEN` and short-lived GitHub OIDC;
+there is no Squawk URL, credential, or Descope machine exchange.
 
 ## Repository map
 
