@@ -8,6 +8,32 @@ for image in preserved-1 replaced-1 added-1; do
   mkdir -p "$work/scans/scan-$image"
   printf '%s\n' '{}' > "$work/scans/scan-$image/scan-amd64.json"
 done
+
+rejects_report() {
+  local report=$1
+  local expected=$2
+  if python3 "$root/scripts/build_catalog.py" "$report" "$work/scans" "" \
+    "$work/rejected.json" 4 https://github.com/tektum/verity-images/actions/runs/4 \
+    dddddddddddddddddddddddddddddddddddddddd 2026-08-02T00:00:00Z 2>"$work/error"; then
+    printf 'invalid report was accepted: %s\n' "$report" >&2
+    exit 1
+  fi
+  grep -Fq "$expected" "$work/error"
+}
+
+printf 'Info: Running script "python3"\n%s\n' \
+  '{"images":[]}' > "$work/devbox-stdout-report.json"
+rejects_report "$work/devbox-stdout-report.json" 'invalid JSON in build report'
+
+printf '%s\n%s\n' '{"images":[]}' '{"images":[]}' > "$work/multiple-documents-report.json"
+rejects_report "$work/multiple-documents-report.json" 'invalid JSON in build report'
+
+printf '%s\ntrailing log\n' '{"images":[]}' > "$work/trailing-log-report.json"
+rejects_report "$work/trailing-log-report.json" 'invalid JSON in build report'
+
+printf '{"images":' > "$work/malformed-report.json"
+rejects_report "$work/malformed-report.json" 'invalid JSON in build report'
+
 cat > "$work/report.json" <<'EOF'
 {"images":[{"name":"preserved","version":"1","track":"wolfi","description":"Preserved image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0}},{"name":"replaced","version":"1","track":"wolfi","description":"Old image.","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
 EOF
@@ -34,6 +60,8 @@ jq -e '
 ' "$work/catalog.json" >/dev/null
 
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
+"$root/scripts/devbox.sh" --quiet run -- python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images-devbox.json"
+jq -e '.include | type == "array"' "$work/expected-images-devbox.json" >/dev/null
 jq '{images: [.include[] | {
   name,
   version: .tag_version,
