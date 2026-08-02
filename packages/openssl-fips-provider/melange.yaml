@@ -1,8 +1,8 @@
 package:
   name: openssl-fips-provider
   version: "3.1.2"
-  epoch: 1
-  description: OpenSSL FIPS provider build from certificate 4985 source inputs
+  epoch: 2
+  description: OpenSSL FIPS provider from certificate 4985 source inputs
   target-architecture:
     - x86_64
     - aarch64
@@ -36,18 +36,17 @@ pipeline:
       expected-sha256: a0ce69b8b97ea6a35b96875235aa453b966ba3cba8af2de23657d8b6767d6539
   - runs: |
       ./Configure enable-fips
-      make -j$(nproc)
+      make -j"$(nproc)"
       install -m755 -D providers/fips.so \
         "${{targets.destdir}}/usr/lib/ossl-modules/fips.so"
       install -m755 -D openssl-fips-activate \
         "${{targets.destdir}}/usr/bin/openssl-fips-activate"
       install -m644 -D openssl-fips.cnf.in \
         "${{targets.destdir}}/usr/share/openssl-fips/openssl-fips.cnf.in"
-      (cd "${{targets.destdir}}/usr/lib/ossl-modules" && sha256sum fips.so) \
+      sha256sum "${{targets.destdir}}/usr/lib/ossl-modules/fips.so" \
+        | sed "s|${{targets.destdir}}||" \
         >"${{targets.destdir}}/usr/share/openssl-fips/fips.so.sha256"
-      test_config=$(mktemp)
-      ./util/wrap.pl apps/openssl fipsinstall \
-        -module providers/fips.so -out "$test_config" -pedantic
-      ./util/wrap.pl apps/openssl fipsinstall \
-        -module providers/fips.so -in "$test_config" -verify
-      rm -f "$test_config"
+      config=$(mktemp)
+      ./util/wrap.pl apps/openssl fipsinstall -module providers/fips.so -out "$config" -pedantic
+      ./util/wrap.pl apps/openssl fipsinstall -module providers/fips.so -in "$config" -verify
+      rm -f "$config"

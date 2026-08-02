@@ -4,11 +4,31 @@ on:
   workflow_run:
     workflows: [Build images]
     types: [completed]
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/catalog.yaml
+      - docs/catalog.schema.json
+      - packages/keys/verity-apk-2026.rsa.pub
+      - packages/repository-state.json
+      - packages/repository-state.pin.json
+      - packages/repository-state.schema.json
+      - scripts/apk_archive.py
+      - scripts/apk_repository_policy.py
+      - scripts/build_catalog.py
+      - scripts/gen_matrix.py
+      - scripts/validate_repository_state.py
   workflow_dispatch:
     inputs:
+      mode:
+        description: Publication mode.
+        required: true
+        default: combined
+        type: choice
+        options: [images, packages, combined]
       run-id:
         description: Successful Build images workflow run ID.
-        required: true
+        required: false
 
 permissions: {}
 
@@ -20,7 +40,8 @@ jobs:
   catalog:
     if: >-
       github.ref == 'refs/heads/main' &&
-      (github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' ||
+      github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
       )
     runs-on: ubuntu-latest
@@ -39,7 +60,26 @@ jobs:
       - name: Install locked catalog tools
         uses: ./.github/actions/setup-devbox
 
+      - name: Select publication mode
+        id: mode
+        shell: bash
+        env:
+          EVENT: ${{ github.event_name }}
+          MODE_INPUT: ${{ inputs.mode }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT" == workflow_run ]]; then
+            mode=images
+          elif [[ "$EVENT" == push ]]; then
+            mode=packages
+          else
+            mode=$MODE_INPUT
+          fi
+          [[ "$mode" == images || "$mode" == packages || "$mode" == combined ]]
+          printf 'value=%s\n' "$mode" >> "$GITHUB_OUTPUT"
+
       - name: Select source run
+        if: steps.mode.outputs.value != 'packages'
         id: source
         shell: bash
         env:
@@ -79,10 +119,15 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          MODE: ${{ steps.mode.outputs.value }}
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_ID: ${{ steps.source.outputs.run-id }}
         run: |
+          if [[ "$MODE" == packages ]]; then
+            printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           count=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
             --jq '[.artifacts[] | select(.name == "build-report")] | length')
           if [[ "$count" -eq 0 ]]; then
@@ -97,7 +142,7 @@ jobs:
           printf 'ready=true\n' >> "$GITHUB_OUTPUT"
 
       - name: Download build report
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           name: build-report
@@ -107,7 +152,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Download scan evidence
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: scan-*
@@ -117,7 +162,7 @@ jobs:
           github-token: ${{ github.token }}
 
       - name: Validate build report
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         run: |
           jq -e '
             (.images | length > 0) and
@@ -132,12 +177,14 @@ jobs:
           ' input/report/build-report.json >/dev/null
 
       - name: Generate expected images
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         run: devbox run -- python3 scripts/gen_matrix.py --all > expected-images.json
 
       - name: Download current catalog
         if: steps.artifacts.outputs.ready == 'true'
         shell: bash
+        env:
+          MODE: ${{ steps.mode.outputs.value }}
         run: |
           set -euo pipefail
           status=$(curl --silent --show-error --location --output previous.json \
@@ -145,6 +192,10 @@ jobs:
           if [[ "$status" == 200 ]]; then
             devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json
           elif [[ "$status" == 404 ]]; then
+            if [[ "$MODE" == packages ]]; then
+              printf '::error title=Catalog unavailable::Package-only publication requires the current catalog.\n'
+              exit 1
+            fi
             devbox run -- jq -e --slurp \
               '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
               input/report/build-report.json expected-images.json >/dev/null
@@ -155,7 +206,7 @@ jobs:
           fi
 
       - name: Generate catalog
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
@@ -169,6 +220,10 @@ jobs:
           devbox run -- jq -e --slurp \
             '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
             catalog.json expected-images.json >/dev/null
+
+      - name: Preserve current catalog
+        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
+        run: cp previous.json catalog.json
 
       - name: Upload catalog data
         if: steps.artifacts.outputs.ready == 'true'
@@ -186,10 +241,27 @@ jobs:
 
       - name: Prepare Pages files
         if: steps.artifacts.outputs.ready == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
+          devbox run -- python3 scripts/validate_repository_state.py --live
+          repository=$(devbox run -- jq -r .repository packages/repository-state.json)
+          asset_id=$(devbox run -- jq -r .asset.id packages/repository-state.json)
+          archive_sha256=$(devbox run -- jq -r .archive.sha256 packages/repository-state.json)
+          gh api "repos/${repository}/releases/assets/${asset_id}" \
+            -H 'Accept: application/octet-stream' > repository.tar.zst
+          actual_sha256="sha256:$(sha256sum repository.tar.zst | cut -d' ' -f1)"
+          if [[ "$actual_sha256" != "$archive_sha256" ]]; then
+            printf '::error title=Archive digest mismatch::Expected %s but downloaded %s.\n' \
+              "$archive_sha256" "$actual_sha256"
+            exit 1
+          fi
           mkdir pages
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json
+          devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
 
       - name: Upload Pages artifact
         if: steps.artifacts.outputs.ready == 'true'
