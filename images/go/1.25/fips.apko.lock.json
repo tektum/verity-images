@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/go/1.25/fips.apko.yaml",
-    "checksum": "sha256-Fry+NUCZk5ZJe3TLc6pBE1UIPpWi8EypLdnTdEksdvI="
+    "checksum": "sha256-HmPlTdO9OyhyLBm5NdSWjQTH8XEZCJQAFfncQKXpPVQ="
   },
   "contents": {
     "keyring": [
@@ -785,22 +785,22 @@
       },
       {
         "name": "openssl-fips-provider",
-        "url": "https://tektum.github.io/verity-images/apk/x86_64/openssl-fips-provider-3.1.2-r2.apk",
-        "version": "3.1.2-r2",
+        "url": "https://tektum.github.io/verity-images/apk/x86_64/openssl-fips-provider-3.1.2-r3.apk",
+        "version": "3.1.2-r3",
         "architecture": "x86_64",
         "signature": {
-          "range": "bytes=0-653",
-          "checksum": "sha1-SuS6322pCuwt5W896f8r0aTMD5w="
+          "range": "bytes=0-654",
+          "checksum": "sha1-fje8j260axNKqR0MH1Oib9pDyJY="
         },
         "control": {
-          "range": "bytes=654-2721",
-          "checksum": "sha1-cM7PenlDrOdnbXrz6X+3lx6JddA="
+          "range": "bytes=655-2718",
+          "checksum": "sha1-g2HxT1uNC8VmMZWMpo07K9hs5SI="
         },
         "data": {
-          "range": "bytes=2722-1032480",
-          "checksum": "sha256-mm5OHtm4AlQjlHFtuJXoszHDLd6EqthrxkIV2rtjnjI="
+          "range": "bytes=2719-1032489",
+          "checksum": "sha256-1ZB1XDmszw8pIss1heMs2tSX+TV19jFA+hj70lJfH/8="
         },
-        "checksum": "Q1cM7PenlDrOdnbXrz6X+3lx6JddA="
+        "checksum": "Q1g2HxT1uNC8VmMZWMpo07K9hs5SI="
       },
       {
         "name": "wolfi-baselayout",
@@ -1545,22 +1545,22 @@
       },
       {
         "name": "openssl-fips-provider",
-        "url": "https://tektum.github.io/verity-images/apk/aarch64/openssl-fips-provider-3.1.2-r2.apk",
-        "version": "3.1.2-r2",
+        "url": "https://tektum.github.io/verity-images/apk/aarch64/openssl-fips-provider-3.1.2-r3.apk",
+        "version": "3.1.2-r3",
         "architecture": "aarch64",
         "signature": {
-          "range": "bytes=0-654",
-          "checksum": "sha1-JEnpDIv0d2T5e97BRKSvQAcMCFE="
+          "range": "bytes=0-653",
+          "checksum": "sha1-HTlDSnO2TrAyMho6oNmZndWm+b0="
         },
         "control": {
-          "range": "bytes=655-2736",
-          "checksum": "sha1-MtIns1wD+HQscos3oj6uvD3OpqI="
+          "range": "bytes=654-2736",
+          "checksum": "sha1-rEeC1C/JeFost/cr9UtJmrtWh+o="
         },
         "data": {
-          "range": "bytes=2737-864440",
-          "checksum": "sha256-UbQzlbrrME9mWbWAUnS7xJk0MYTOTc0msArHPl49BwA="
+          "range": "bytes=2737-864446",
+          "checksum": "sha256-JPexSQ6IMbS5YxCv1sYugOsYI2IBXwnRuDSksPZJQFY="
         },
-        "checksum": "Q1MtIns1wD+HQscos3oj6uvD3OpqI="
+        "checksum": "Q1rEeC1C/JeFost/cr9UtJmrtWh+o="
       }
     ]
   }
