@@ -16,6 +16,8 @@ run_success() {
   local private_key="$work_dir/verity-apk-2026.rsa"
   "$helper" "$source_key" "$private_key" "$public_key"
   [[ ! -e "$source_key" ]]
+  [[ ! -e "$private_key.pub.der" ]]
+  [[ ! -e "$private_key.expected.pub.der" ]]
   [[ "$(basename "$private_key")" == verity-apk-2026.rsa ]]
   grep -q -- 'BEGIN RSA PRIVATE KEY' "$private_key"
   cmp <(openssl pkey -in "$private_key" -pubout -outform DER) \
@@ -39,6 +41,8 @@ run_failure() {
   fi
   [[ ! -e "$source_key" ]]
   [[ ! -e "$private_key" ]]
+  [[ ! -e "$private_key.pub.der" ]]
+  [[ ! -e "$private_key.expected.pub.der" ]]
 }
 
 malformed="$work_dir/malformed.pem"
@@ -60,6 +64,8 @@ if "$helper" "$mismatch" "$work_dir/verity-apk-2026.rsa" "$other_public"; then
 fi
 [[ ! -e "$mismatch" ]]
 [[ ! -e "$work_dir/verity-apk-2026.rsa" ]]
+[[ ! -e "$work_dir/verity-apk-2026.rsa.pub.der" ]]
+[[ ! -e "$work_dir/verity-apk-2026.rsa.expected.pub.der" ]]
 
 wrong_name="$work_dir/wrong-name.pem"
 cp "$key" "$wrong_name"
