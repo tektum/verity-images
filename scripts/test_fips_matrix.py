@@ -62,6 +62,7 @@ def main() -> None:
         (patched / "tests" / "test.sh").touch()
         for changed_path in (
             "packages/repository-state.json",
+            "packages/repository-state.pin.json",
             "packages/repository-state.schema.json",
             "packages/keys/verity-apk-2026.rsa.pub",
         ):
