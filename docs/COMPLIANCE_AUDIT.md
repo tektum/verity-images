@@ -36,6 +36,8 @@ retention, and operating-effectiveness records that are not present here.
 - Repository settings now require action SHA pins and enable secret scanning, push
   protection, and Dependabot security updates. Secret validity checks remain
   unavailable/disabled at the repository setting.
+- Each platform now receives a commit-pinned GitHub CycloneDX attestation and an
+  immutable deployment receipt consumed by Squawk without a producer credential.
 
 Remaining findings below describe the reviewed baseline. The items above are fixed
 in the current worktree but still require a successful protected-main run before
