@@ -234,6 +234,7 @@ runs:
       id: attest-amd64
       uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
       with:
+        create-storage-record: false
         subject-name: ${{ inputs.target-repository }}
         subject-digest: ${{ steps.platforms.outputs.amd64 }}
         sbom-path: ${{ inputs.sbom-directory }}/sbom-amd64.cyclonedx.json
@@ -244,6 +245,7 @@ runs:
       id: attest-arm64
       uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
       with:
+        create-storage-record: false
         subject-name: ${{ inputs.target-repository }}
         subject-digest: ${{ steps.platforms.outputs.arm64 }}
         sbom-path: ${{ inputs.sbom-directory }}/sbom-arm64.cyclonedx.json
@@ -267,6 +269,7 @@ runs:
       if: inputs.publish == 'true'
       uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
       with:
+        create-storage-record: false
         subject-name: ${{ inputs.target-repository }}
         subject-digest: ${{ steps.push.outputs.digest }}
         push-to-registry: true

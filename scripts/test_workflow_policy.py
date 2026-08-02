@@ -152,6 +152,7 @@ def main() -> None:
     assert action.count(
         "uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1"
     ) == 2
+    assert action.count("create-storage-record: false") == 3
     assert "sbom-amd64.cyclonedx.json" in action
     assert "sbom-arm64.cyclonedx.json" in action
     assert "scripts/notify_squawk.sh" in action
