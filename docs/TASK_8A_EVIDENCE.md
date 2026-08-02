@@ -6,4 +6,5 @@
 - Green regression: `scripts/test_build_catalog.sh` uses a fake cold-run `devbox` banner, verifies the banner is separate, and parses exactly 22 matrix entries from `expected-images.json`.
 - Commits: `3ea0dea` and `6bdb19e`.
 - Local gate: `./check` passed before the PR was opened.
-- PR and CI run links will be added after push.
+- PR: https://github.com/tektum/verity-images/pull/109
+- CI runs: https://github.com/tektum/verity-images/actions/runs/30756248742 (Lint), https://github.com/tektum/verity-images/actions/runs/30756248752 (Build images), https://github.com/tektum/verity-images/actions/runs/30756248783 (Build APK repository).
