@@ -63,8 +63,22 @@ jq -e '
 ' "$work/catalog.json" >/dev/null
 
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
-"$root/scripts/devbox.sh" --quiet run -- python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images-devbox.json"
-jq -e '.include | type == "array"' "$work/expected-images-devbox.json" >/dev/null
+cat > "$work/devbox" <<'EOF'
+#!/bin/sh
+printf 'Info: creating Python environment\n'
+[ "$1" = --quiet ] && shift
+[ "$1" = run ] && shift
+[ "$1" = -- ] && shift
+exec "$@"
+EOF
+chmod +x "$work/devbox"
+ln -s "$root/scripts" "$work/scripts"
+(
+  cd "$work"
+  PATH="$work:$PATH" devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json' > cold-banner.log
+)
+grep -Fx 'Info: creating Python environment' "$work/cold-banner.log"
+jq -e '.include | length == 22' "$work/expected-images.json" >/dev/null
 jq '{images: [.include[] | {
   name,
   version: .tag_version,
