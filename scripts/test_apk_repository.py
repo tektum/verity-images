@@ -192,10 +192,17 @@ def real_melange_tests() -> None:
         apk_repository_policy.verify(package, keys)
         assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r2"
         apk_repository_policy.validate(repository, keys, digest)
-        subprocess.run(
-            ["bash", str(ROOT / "scripts/verify_apk_repository.sh"), str(repository), str(keys / "verity-apk-2026.rsa.pub")],
-            check=True,
-        )
+        command = [
+            "bash",
+            str(ROOT / "scripts/verify_apk_repository.sh"),
+            str(repository),
+            str(keys / "verity-apk-2026.rsa.pub"),
+        ]
+        subprocess.run(command, check=True)
+        signed = package.read_bytes()
+        package.write_bytes(signed[:20] + bytes([signed[20] ^ 1]) + signed[21:])
+        result = subprocess.run(command, check=False)
+        assert result.returncode != 0
 
 
 def main() -> None:

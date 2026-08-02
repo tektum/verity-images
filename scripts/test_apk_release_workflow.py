@@ -104,7 +104,9 @@ def main() -> None:
     assert "apk --keys-dir" in repository_verify
     assert "--platform" not in repository_verify
     assert "/repository/x86_64/APKINDEX.tar.gz" in repository_verify
+    assert "/repository/x86_64/openssl-fips-provider-*.apk" in repository_verify
     assert "/repository/aarch64/APKINDEX.tar.gz" in repository_verify
+    assert "/repository/aarch64/openssl-fips-provider-*.apk" in repository_verify
     assert 'umask 077' in smoke_workflow
     assert 'private_key_source="$work_dir/verity-apk-2026.source.pem"' in smoke_workflow
     assert 'private_key="$work_dir/verity-apk-2026.rsa"' in smoke_workflow
