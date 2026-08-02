@@ -124,3 +124,6 @@ grep -q '^variant: fips-wrapper$' "$APKO_LOG"
 grep -q 'https://tektum.github.io/verity-images/apk' "$APKO_LOG"
 grep -q 'openssl-fips-provider=3.1.2-r3' "$APKO_LOG"
 grep -q "$work/go/fips.melange.yaml" "$MELANGE_LOG"
+if grep -q 'packages/openssl-fips-provider/melange.yaml' "$MELANGE_LOG"; then
+  exit 1
+fi
