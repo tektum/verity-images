@@ -50,13 +50,13 @@ def main() -> None:
     assert "GH_TOKEN: ${{ github.token }}" in signing
     assert "SOURCE_SHA: ${{ inputs.source-sha }}" in signing
     assert '[[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]' in signing
-    assert '.workflow_run.id == ($run_id | tonumber)' in signing
-    assert '.digest == $digest' in signing
+    assert 'bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"' in signing
     assert "gh attestation verify" in signing
     assert "--source-digest \"$SOURCE_SHA\"" in signing
     assert "artifact-ids:" in signing
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
+    assert signing.index("Validate source and artifacts") < signing.index("Download only current-run build artifacts")
     assert "gh release view \"$RELEASE_TAG\"" in signing
     assert 'git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"' in signing
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing

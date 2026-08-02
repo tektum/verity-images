@@ -163,11 +163,7 @@ jobs:
             artifact_id=${artifact_id_and_digest%%:*}
             artifact_digest=${artifact_id_and_digest#*:}
             gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
-            jq -e --arg digest "$artifact_digest" --arg run_id "$GITHUB_RUN_ID" '
-              .expired == false and
-              .workflow_run.id == ($run_id | tonumber) and
-              .digest == $digest
-            ' artifact.json >/dev/null
+            bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
           done
           if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
             printf '::error title=Duplicate release::Release %s already exists.\n' "$RELEASE_TAG"
