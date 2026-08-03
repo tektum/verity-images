@@ -105,6 +105,11 @@ def between(text: str, start: str, end: str) -> str:
     return text.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
 
 
+def runner(job: str) -> str:
+    line = next(line.strip() for line in job.splitlines() if line.startswith("    runs-on: "))
+    return line.removeprefix("runs-on: ").split("  #", maxsplit=1)[0]
+
+
 def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
     commands: list[str] = []
     command = ""
@@ -232,18 +237,21 @@ def main() -> None:
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
     validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
     build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
-    assert "runs-on: ubuntu-latest\n" in matrix_job + build_gate_job
-    assert (
-        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+    assert runner(matrix_job) == "ubuntu-latest"
+    assert runner(validate_job) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
         "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
         "extras=otel/spot=false"
-    ) in validate_job
-    assert (
-        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+    )
+    assert runner(publish_job) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
-    ) in publish_job
-    assert "runs-on: ubuntu-latest\n" in catalog + lint + monitor
+    )
+    assert runner(build_gate_job) == "ubuntu-latest"
+    assert runner(catalog) == "ubuntu-latest"
+    assert runner(lint) == "ubuntu-latest"
+    assert runner(monitor) == "ubuntu-latest"
     assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
         workflow, "\n  validate:\n", "\n  publish:\n"
     )

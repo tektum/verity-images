@@ -26,6 +26,11 @@ def job(text: str, name: str, next_name: str) -> str:
     return text.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
 
 
+def runner(job: str) -> str:
+    line = next(line.strip() for line in job.splitlines() if line.startswith("    runs-on: "))
+    return line.removeprefix("runs-on: ").split("  #", maxsplit=1)[0]
+
+
 def main() -> None:
     workflow = WORKFLOW.read_text(encoding="utf-8")
     smoke_workflow = SMOKE_WORKFLOW.read_text(encoding="utf-8")
@@ -38,16 +43,16 @@ def main() -> None:
 
     assert "  pull_request:\n" in workflow
     assert "    branches: [main]\n" in workflow
-    assert (
-        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+    assert runner(x86_64) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
-    ) in x86_64
-    assert (
-        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+    )
+    assert runner(aarch64) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
         "family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=200gb:gp3/"
         "extras=otel/spot=false"
-    ) in aarch64
+    )
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert '[[ "$(uname -m)" == x86_64 ]]' in x86_64
@@ -62,7 +67,8 @@ def main() -> None:
     assert "github.event_name == 'workflow_dispatch'" in signing
     assert "github.repository == 'tektum/verity-images'" in signing
     assert "github.ref == 'refs/heads/main'" in signing
-    assert "runs-on: ubuntu-24.04\n" in signing + smoke_workflow
+    assert runner(signing) == "ubuntu-24.04"
+    assert runner(smoke_workflow) == "ubuntu-latest"
     assert "environment: apk-signing" in signing
     assert "attestations: write" in signing
     assert "id-token: write" in signing
@@ -72,6 +78,7 @@ def main() -> None:
     assert 'bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"' in signing
     assert "gh attestation verify" in signing
     assert "--source-digest \"$SOURCE_SHA\"" in signing
+    assert "--deny-self-hosted-runners" in signing
     assert "artifact-ids:" in signing
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
