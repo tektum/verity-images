@@ -6,6 +6,8 @@
 # How to run:
 #   uv run scripts/test_apk_release_workflow.py
 
+import os
+import subprocess
 from pathlib import Path
 from typing import Final
 
@@ -38,10 +40,12 @@ def main() -> None:
     runtime_test = RUNTIME_TEST.read_text(encoding="utf-8")
     repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
-    aarch64 = job(workflow, "build-aarch64", "apk-signing")
+    aarch64 = job(workflow, "build-aarch64", "apk-gate")
+    gate = job(workflow, "apk-gate", "apk-signing")
     signing = workflow.split("  apk-signing:\n", maxsplit=1)[1]
 
     assert "  pull_request:\n" in workflow
+    assert "  merge_group:\n    types: [checks_requested]\n" in workflow
     assert "    branches: [main]\n" in workflow
     assert runner(x86_64) == "ubuntu-24.04"
     assert runner(aarch64) == "ubuntu-24.04-arm"
@@ -54,6 +58,45 @@ def main() -> None:
     assert "secrets." not in x86_64 + aarch64
     assert "retention-days: 7\n" in x86_64 + aarch64
     assert "actions/attest-build-provenance@" in x86_64 + aarch64
+
+    assert "if: always()" in gate
+    assert "needs: [build-x86_64, build-aarch64, apk-signing]" in gate
+    assert runner(gate) == "ubuntu-24.04"
+    assert "EVENT: ${{ github.event_name }}" in gate
+    assert "REF: ${{ github.ref }}" in gate
+    assert "REPOSITORY: ${{ github.repository }}" in gate
+    assert "X86_64_RESULT: ${{ needs.build-x86_64.result }}" in gate
+    assert "AARCH64_RESULT: ${{ needs.build-aarch64.result }}" in gate
+    assert "SIGNING_RESULT: ${{ needs.apk-signing.result }}" in gate
+    assert '[[ "$X86_64_RESULT" == success ]]' in gate
+    assert '[[ "$AARCH64_RESULT" == success ]]' in gate
+    assert '[[ "$SIGNING_RESULT" == success ]]' in gate
+    assert '[[ "$SIGNING_RESULT" == skipped ]]' in gate
+    assert "APK_REPOSITORY_PRIVATE_KEY" not in gate
+    gate_script = gate.split("        run: |\n", maxsplit=1)[1]
+    for event, ref, repository, signing_result, expected in (
+        ("pull_request", "refs/pull/1/merge", "fork/example", "skipped", 0),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "skipped", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "fork/example", "skipped", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "skipped", 1),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "failure", 1),
+    ):
+        result = subprocess.run(
+            ["bash", "-c", gate_script],
+            check=False,
+            capture_output=True,
+            env={
+                **os.environ,
+                "AARCH64_RESULT": "success",
+                "EVENT": event,
+                "REF": ref,
+                "REPOSITORY": repository,
+                "SIGNING_RESULT": signing_result,
+                "X86_64_RESULT": "success",
+            },
+        )
+        assert result.returncode == expected
 
     assert "github.event_name == 'workflow_dispatch'" in signing
     assert "github.repository == 'tektum/verity-images'" in signing

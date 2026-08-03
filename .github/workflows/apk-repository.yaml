@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       release-tag:
@@ -107,6 +109,33 @@ jobs:
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
           subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+
+  apk-gate:
+    if: always()
+    needs: [build-x86_64, build-aarch64, apk-signing]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require successful APK jobs
+        shell: bash
+        env:
+          AARCH64_RESULT: ${{ needs.build-aarch64.result }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          SIGNING_RESULT: ${{ needs.apk-signing.result }}
+          X86_64_RESULT: ${{ needs.build-x86_64.result }}
+        run: |
+          set -euo pipefail
+          [[ "$X86_64_RESULT" == success ]]
+          [[ "$AARCH64_RESULT" == success ]]
+          if [[ "$EVENT" == workflow_dispatch &&
+            "$REPOSITORY" == tektum/verity-images && "$REF" == refs/heads/main ]]; then
+            [[ "$SIGNING_RESULT" == success ]]
+          else
+            [[ "$SIGNING_RESULT" == skipped ]]
+          fi
 
   apk-signing:
     if: >-
