@@ -30,7 +30,9 @@ digests, and attestations bound to this workflow. The job creates an
 `apk-repo-vNNNN` draft release with the sole asset
 `verity-apk-repository.tar.zst`; its release notes carry the archive checksum
 and attestation provenance. Existing tags, releases, or asset paths are never
-overwritten.
+overwritten. A failed reservation remains as a draft and blocks retries; after
+reviewing that no asset was uploaded, an operator must explicitly remove it with
+`gh release delete apk-repo-vNNNN --yes --cleanup-tag` before retrying.
 
 ## Rotation and revocation
 
