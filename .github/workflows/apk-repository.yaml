@@ -232,6 +232,29 @@ jobs:
               --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done
 
+      - name: Reject previously published package identity
+        run: |
+          set -euo pipefail
+          for architecture in x86_64 aarch64; do
+            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
+            metadata=$(tar -xOf "$package" .PKGINFO)
+            recipe=$(tar -xOf "$package" .melange.yaml)
+            name=$(awk -F ' = ' '$1 == "pkgname" { print $2; exit }' <<<"$metadata")
+            version=$(awk -F ' = ' '$1 == "pkgver" { print $2; exit }' <<<"$metadata")
+            epoch=$(awk '/^  epoch: / { print $2; exit }' <<<"$recipe")
+            expected=$(jq -cer --arg architecture "$architecture" '
+              [.packages[] | select(.architecture == $architecture) | {
+                name, version, epoch, basename: (.path | split("/") | last)
+              }] | if length == 1 then .[0] else error("missing package identity") end
+            ' packages/repository-state.json)
+            actual=$(jq -cn --arg name "$name" --arg version "$version" --argjson epoch "$epoch" \
+              --arg basename "$(basename "${package}")" '{name:$name,version:$version,epoch:$epoch,basename:$basename}')
+            if [[ "$actual" == "$expected" ]]; then
+              printf '::error title=Package identity reuse::%s is already published.\n' "$actual"
+              exit 1
+            fi
+          done
+
       - name: Install repository tools
         env:
           MELANGE_VERSION: 0.56.4

@@ -142,6 +142,18 @@ def main() -> None:
     assert signing.index('git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"') < signing.index(
         'melange sign --signing-key "$private_key" "$package"'
     )
+    assert "Reject previously published package identity" in signing
+    assert "packages/repository-state.json" in signing
+    assert 'basename "${package}"' in signing
+    assert "pkgname" in signing
+    assert "pkgver" in signing
+    assert "epoch:" in signing
+    assert signing.index("Reject previously published package identity") < signing.index(
+        "APK_REPOSITORY_PRIVATE_KEY"
+    )
+    assert signing.index("Reject previously published package identity") < signing.index(
+        'printf \'%s\' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key_source"'
+    )
     assert signing.index('melange sign --signing-key "$private_key" "$package"') < signing.index(
         ".github/scripts/assemble-apk-repository.sh"
     )
