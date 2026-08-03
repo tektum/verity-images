@@ -17,6 +17,7 @@ SMOKE_WORKFLOW: Final = ROOT / ".github/workflows/apk-signing-smoke.yaml"
 POLICY: Final = ROOT / "scripts/apk_repository_policy.py"
 RUNTIME_TEST: Final = ROOT / "scripts/test_fips_runtime.sh"
 REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
+RESERVER: Final = ROOT / ".github/scripts/reserve-apk-release-identity.sh"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
 
 
@@ -39,6 +40,7 @@ def main() -> None:
     policy = POLICY.read_text(encoding="utf-8")
     runtime_test = RUNTIME_TEST.read_text(encoding="utf-8")
     repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
+    reserver = RESERVER.read_text(encoding="utf-8")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-gate")
     gate = job(workflow, "apk-gate", "apk-signing")
@@ -117,13 +119,19 @@ def main() -> None:
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
     assert signing.index("Validate source and artifacts") < signing.index("Download only current-run build artifacts")
-    assert "gh release view \"$RELEASE_TAG\"" in signing
-    assert 'git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"' in signing
+    assert "Reserve package identity" in signing
+    assert ".github/scripts/reserve-apk-release-identity.sh" in signing
+    assert "gh release create" in reserver
+    assert "gh api --paginate --slurp" in reserver
+    assert "gh release download" in reserver
+    assert "apk-release-identity" in reserver
+    assert 'git ls-remote --exit-code --tags origin "refs/tags/${release_tag}"' in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
+    assert "gh release edit \"$RELEASE_TAG\"" in signing
     assert "--clobber" not in signing
     assert (
         "    concurrency:\n"
-        "      group: apk-signing-${{ inputs.release-tag }}\n"
+        "      group: apk-signing\n"
         "      cancel-in-progress: false\n"
     ) in signing
     assert "verity-apk-repository.tar.zst" in signing
@@ -136,22 +144,11 @@ def main() -> None:
     assert ".github/scripts/prepare-apk-signing-key.sh" in signing
     assert 'packages/keys/verity-apk-2026.rsa.pub' in signing
     assert 'melange sign --signing-key "$private_key" "$package"' in signing
-    assert signing.index("gh release view \"$RELEASE_TAG\"") < signing.index(
+    assert signing.index("Verify build digests and provenance") < signing.index("Reserve package identity")
+    assert signing.index("Reserve package identity") < signing.index(
         "private_key=\"$work_dir/verity-apk-2026.rsa\""
     )
-    assert signing.index('git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}"') < signing.index(
-        'melange sign --signing-key "$private_key" "$package"'
-    )
-    assert "Reject previously published package identity" in signing
-    assert "packages/repository-state.json" in signing
-    assert 'basename "${package}"' in signing
-    assert "pkgname" in signing
-    assert "pkgver" in signing
-    assert "epoch:" in signing
-    assert signing.index("Reject previously published package identity") < signing.index(
-        "APK_REPOSITORY_PRIVATE_KEY"
-    )
-    assert signing.index("Reject previously published package identity") < signing.index(
+    assert signing.index("Reserve package identity") < signing.index(
         'printf \'%s\' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key_source"'
     )
     assert signing.index('melange sign --signing-key "$private_key" "$package"') < signing.index(

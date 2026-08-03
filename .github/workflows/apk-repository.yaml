@@ -151,7 +151,7 @@ jobs:
       contents: write
       id-token: write
     concurrency:
-      group: apk-signing-${{ inputs.release-tag }}
+      group: apk-signing
       cancel-in-progress: false
     steps:
       - name: Check out immutable source
@@ -194,15 +194,6 @@ jobs:
             gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
             bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
           done
-          if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
-            printf '::error title=Duplicate release::Release %s already exists.\n' "$RELEASE_TAG"
-            exit 1
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            printf '::error title=Duplicate tag::Tag %s already exists.\n' "$RELEASE_TAG"
-            exit 1
-          fi
-
       - name: Download only current-run build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -232,28 +223,18 @@ jobs:
               --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done
 
-      - name: Reject previously published package identity
+      - name: Reserve package identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           set -euo pipefail
-          for architecture in x86_64 aarch64; do
-            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
-            metadata=$(tar -xOf "$package" .PKGINFO)
-            recipe=$(tar -xOf "$package" .melange.yaml)
-            name=$(awk -F ' = ' '$1 == "pkgname" { print $2; exit }' <<<"$metadata")
-            version=$(awk -F ' = ' '$1 == "pkgver" { print $2; exit }' <<<"$metadata")
-            epoch=$(awk '/^  epoch: / { print $2; exit }' <<<"$recipe")
-            expected=$(jq -cer --arg architecture "$architecture" '
-              [.packages[] | select(.architecture == $architecture) | {
-                name, version, epoch, basename: (.path | split("/") | last)
-              }] | if length == 1 then .[0] else error("missing package identity") end
-            ' packages/repository-state.json)
-            actual=$(jq -cn --arg name "$name" --arg version "$version" --argjson epoch "$epoch" \
-              --arg basename "$(basename "${package}")" '{name:$name,version:$version,epoch:$epoch,basename:$basename}')
-            if [[ "$actual" == "$expected" ]]; then
-              printf '::error title=Package identity reuse::%s is already published.\n' "$actual"
-              exit 1
-            fi
-          done
+          mkdir release
+          .github/scripts/reserve-apk-release-identity.sh "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk > release/reservation.json
 
       - name: Install repository tools
         env:
@@ -305,20 +286,20 @@ jobs:
         with:
           subject-path: release/verity-apk-repository.tar.zst
 
-      - name: Create immutable-format draft release
+      - name: Update reserved draft release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
-          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           set -euo pipefail
           archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)
-          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" '
+          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" \
+            --slurpfile reservation release/reservation.json '
             "APK repository draft: \($release_tag)\n\nSHA-256: \($archive_sha256)\n\n" +
-            "Provenance: GitHub artifact attestation for this workflow run."
+            "Provenance: GitHub artifact attestation for this workflow run.\n\n" +
+            "<!-- apk-release-identity: \($reservation[0] | tojson) -->"
           ' release/provenance.json > release/notes.md
-          gh release create "$RELEASE_TAG" --draft --target "$SOURCE_SHA" \
-            --title "$RELEASE_TAG" --notes-file release/notes.md
+          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --notes-file release/notes.md
 
       - name: Upload fixed repository asset
         env:
