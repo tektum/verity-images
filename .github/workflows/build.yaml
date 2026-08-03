@@ -272,7 +272,7 @@ jobs:
           set -euo pipefail
           [[ "$MATRIX_RESULT" == success ]]
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
-          if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
+          if [[ "$EVENT" == pull_request || "$EVENT" == merge_group || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
           else
             [[ "$PUBLISH_RESULT" == success ]]

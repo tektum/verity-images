@@ -7,6 +7,8 @@
 #   uv run scripts/test_workflow_policy.py
 
 import shlex
+import os
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from typing import Final
@@ -256,6 +258,35 @@ def main() -> None:
     assert '$event == "pull_request"' in workflow
     assert ".[0].digest == \"local\"" in workflow
     assert "reports/report-*.json > build-report.json" in workflow
+
+    build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
+        "\n\n      - name:", maxsplit=1
+    )[0].split("        run: |\n", maxsplit=1)[1]
+    for event, ref, images, validate, publish, expected in (
+        ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "success", "failure", 0),
+        ("merge_group", "refs/heads/main", '{"include":[{}]}', "success", "skipped", 0),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
+        ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 1),
+        ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
+    ):
+        result = subprocess.run(
+            ["bash", "-c", build_gate_script],
+            check=False,
+            capture_output=True,
+            env={
+                **os.environ,
+                "EVENT": event,
+                "GITHUB_REF": ref,
+                "IMAGES": images,
+                "MATRIX_RESULT": "success",
+                "VALIDATE_RESULT": validate,
+                "PUBLISH_RESULT": publish,
+            },
+        )
+        assert result.returncode == expected
+
     assert (
         '          if [[ "$status" == 200 ]]; then\n'
         "            devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json\n"
