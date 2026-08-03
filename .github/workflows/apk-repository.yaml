@@ -40,7 +40,7 @@ jobs:
 
       - name: Install native APK build tool
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Build and stage x86_64 APK
@@ -85,7 +85,7 @@ jobs:
 
       - name: Install native APK build tool
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Build and stage aarch64 APK
@@ -257,7 +257,7 @@ jobs:
 
       - name: Install repository tools
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Sign APK repositories
