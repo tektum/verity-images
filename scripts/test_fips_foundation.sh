@@ -22,6 +22,14 @@ for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf 
     )] | length == 2
   ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
 done
+for version in 3.3 4.0; do
+  recipe="$root/images/ruby/$version/fips.melange.yaml"
+  grep -Fxq '  dependencies:' "$recipe"
+  grep -Fxq '    runtime:' "$recipe"
+  grep -Fxq '      - busybox' "$recipe"
+  grep -Fxq '      - openssl-fips-provider' "$recipe"
+  grep -Fxq "      - ruby-$version" "$recipe"
+done
 httpd="$root/images/httpd"
 grep -Fxq 'flavors: [plain, fips]' "$httpd/metadata.yaml"
 grep -Fxq '    - https://tektum.github.io/verity-images/apk' "$httpd/fips.apko.yaml"
