@@ -41,25 +41,28 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 archive="$work/verity-apk-repository.tar.zst"
 pages="$work/pages"
-digest=1d56b5710707b2aff9ee1e9cd0876466a6eb795fca5d0e58bb3f91c5c2922802
 : "${EVIDENCE_DIR:?set an approved external evidence directory}"
+evidence="$EVIDENCE_DIR/apk-repo-v0001"
+source_commit=4284b2880eec6fb03fcad18bd4f731d1f951f8ce^
 
 gh api repos/tektum/verity-images/releases/363733856 > "$work/release.json"
 gh release download apk-repo-v0001 --repo tektum/verity-images \
   --pattern verity-apk-repository.tar.zst --dir "$work"
-printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --status
 
 cp packages/repository-state.json "$work/current-state.json"
-git show '4284b2880eec6fb03fcad18bd4f731d1f951f8ce^:packages/repository-state.json' > "$work/state.json"
+git show "$source_commit:packages/repository-state.json" > "$work/state.json"
+git show "$source_commit:packages/repository-state.pin.json" > "$work/state.pin.json"
+git show "$source_commit:packages/repository-state.schema.json" > "$work/state.schema.json"
 tar --zstd -xOf "$archive" apk/manifest.json | jq -S . > "$work/manifest.json"
 jq -S .archive.manifest "$work/state.json" > "$work/expected-manifest.json"
 cmp "$work/manifest.json" "$work/expected-manifest.json"
 mkdir "$pages"
 PYTHONPATH=scripts python3 - "$archive" "$work/current-state.json" "$work/state.json" \
   "$work/release.json" "$pages" <<'PY'
-from pathlib import Path
+import hashlib
 import json
 import sys
+from pathlib import Path
 
 from apk_repository_policy import verify
 from validate_repository_state import archive_paths, stage_archive, validate_archive_members
@@ -68,16 +71,32 @@ archive, current_path, state_path, release_path, pages = map(Path, sys.argv[1:])
 current = json.loads(current_path.read_text(encoding="utf-8"))
 state = json.loads(state_path.read_text(encoding="utf-8"))
 release = json.loads(release_path.read_text(encoding="utf-8"))
-assert current["key"] == state["key"]
-assert release["id"] == state["release"]["id"]
-assert release["tag_name"] == state["release"]["tag"]
-assert release["target_commitish"] == state["release"]["targetCommit"]
-assert release["immutable"] and not release["draft"] and not release["prerelease"]
-assert len(release["assets"]) == 1
-assert release["assets"][0]["id"] == state["asset"]["id"]
-assert release["assets"][0]["name"] == state["asset"]["name"]
-assert release["assets"][0]["digest"] == state["asset"]["sha256"]
-assert validate_archive_members(state, archive) == archive_paths(state)
+if current["key"] != state["key"]:
+    raise SystemExit("recovery check failed: active key")
+if release["id"] != state["release"]["id"]:
+    raise SystemExit("recovery check failed: release id")
+if release["tag_name"] != state["release"]["tag"]:
+    raise SystemExit("recovery check failed: release tag")
+if release["target_commitish"] != state["release"]["targetCommit"]:
+    raise SystemExit("recovery check failed: release source commit")
+if not release["immutable"] or release["draft"] or release["prerelease"]:
+    raise SystemExit("recovery check failed: release is not immutable and published")
+assets = release["assets"]
+if len(assets) != 1:
+    raise SystemExit("recovery check failed: release asset count")
+asset = assets[0]
+if asset["id"] != state["asset"]["id"]:
+    raise SystemExit("recovery check failed: release asset id")
+if asset["name"] != state["asset"]["name"]:
+    raise SystemExit("recovery check failed: release asset name")
+if asset["digest"] != state["asset"]["sha256"]:
+    raise SystemExit("recovery check failed: release asset digest")
+if validate_archive_members(state, archive) != archive_paths(state):
+    raise SystemExit("recovery check failed: archive members")
+with archive.open("rb") as source:
+    archive_digest = f"sha256:{hashlib.file_digest(source, 'sha256').hexdigest()}"
+if archive_digest != state["asset"]["sha256"]:
+    raise SystemExit("recovery check failed: downloaded archive digest")
 stage_archive(state, archive, pages)
 for architecture in ("x86_64", "aarch64"):
     verify(pages / "apk" / architecture / "APKINDEX.tar.gz", Path("packages/keys"))
@@ -88,16 +107,30 @@ curl --fail --location --silent --show-error https://tektum.github.io/verity-ima
   -o "$pages/catalog.json"
 cp docs/catalog.schema.json "$pages/catalog.schema.json"
 scripts/devbox.sh run -- check-jsonschema --schemafile "$pages/catalog.schema.json" "$pages/catalog.json"
-test "$(du -sb "$pages" | cut -f1)" -lt 943718400
-mkdir -p "$EVIDENCE_DIR"
-sha256sum "$pages/catalog.json" "$pages/catalog.schema.json" "$pages/apk/manifest.json" \
-  > "$EVIDENCE_DIR/apk-repo-v0001-approval-digests.txt"
-find "$pages" -type f -printf '%P\n' | sort > "$EVIDENCE_DIR/apk-repo-v0001-pages-files.txt"
+pages_bytes=$(du -sb "$pages" | cut -f1)
+test "$pages_bytes" -lt 943718400
+mkdir -p "$evidence/pages/apk"
+cp "$work/release.json" "$evidence/release.json"
+cp "$work/state.json" "$evidence/repository-state.json"
+cp "$work/state.pin.json" "$evidence/repository-state.pin.json"
+cp "$work/state.schema.json" "$evidence/repository-state.schema.json"
+printf '%s\n' "$source_commit" > "$evidence/source-commit.txt"
+printf '%s\n' "$pages_bytes" > "$evidence/pages-size-bytes.txt"
+cp "$pages/catalog.json" "$evidence/pages/catalog.json"
+cp "$pages/catalog.schema.json" "$evidence/pages/catalog.schema.json"
+cp "$pages/apk/manifest.json" "$evidence/pages/apk/manifest.json"
+find "$pages" -type f -printf '%P\n' | LC_ALL=C sort > "$evidence/pages-files.txt"
+printf 'passed\n' > "$evidence/result.txt"
+(
+  cd "$evidence"
+  find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS
+)
 ```
 
-Retain those two evidence files with the release metadata and command result
-before the trap removes the staged tree. They are approval evidence for exactly
-the bytes validated in the rehearsal, not recovery material.
+Retain this external evidence directory before the trap removes the staged tree.
+Its sorted `SHA256SUMS` manifest uses only relative paths and binds the release,
+reviewed state contract, source commit, staged tree size, Pages inputs, and
+successful result to the rehearsal.
 
 Before a real rollback, an approver reviews the staged tree, confirms the
 release and Pages checks, and explicitly approves a deployment from `main`.
@@ -108,13 +141,13 @@ procedure; do not overwrite a release or edit a deployed Pages tree in place.
 
 ## Retention and Pages size policy
 
-Keep immutable release tags and their sole repository archive indefinitely;
-they are the rollback source. Retain unsigned native build artifacts for seven
-days, as configured by the release workflow. Retain catalog workflow artifacts
-for seven days or the account minimum, whichever is longer; they aid diagnosis
-but are not rollback sources. Pages deployment artifacts are transient delivery
-inputs, not backups: recovery always starts from an immutable release plus the
-current catalog and schema.
+Release tags and repository archives remain rollback sources until deliberately
+removed under the release-retention policy; do not claim indefinite retention.
+GitHub Actions artifacts use the repository default retention of 90 days unless
+the workflow sets a shorter value, and no workflow can exceed the account's
+configured maximum retention. Pages deployment artifacts expire after one day.
+They are transient delivery inputs, not backups: recovery always starts from an
+immutable release plus the current catalog and schema.
 
 The complete Pages tree (`catalog.json`, `catalog.schema.json`, and `apk/`) must
 remain below 900 MiB (943718400 bytes) before upload. Reject an oversized tree;
