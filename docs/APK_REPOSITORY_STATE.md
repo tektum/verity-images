@@ -7,7 +7,7 @@ identify one immutable release asset, the archive root and manifest, the active
 public key, and the package metadata for both supported architectures. A
 release update must deliberately update both files in the same reviewed PR.
 
-Validate the checked-in state with `check-jsonschema` and
+Validate the checked-in state with `scripts/devbox.sh run -- check-jsonschema` and
 `python3 scripts/validate_repository_state.py`. For a release update, run
 `python3 scripts/validate_repository_state.py --live`, download the candidate
 asset without modifying the release, and run the same command with
@@ -58,7 +58,7 @@ gh release download apk-repo-v0001 --repo tektum/verity-images \
 git show "$state_commit:packages/repository-state.json" > "$work/state.json"
 git show "$state_commit:packages/repository-state.pin.json" > "$work/state.pin.json"
 git show "$state_commit:packages/repository-state.schema.json" > "$work/state.schema.json"
-check-jsonschema --schemafile "$work/state.schema.json" "$work/state.json" "$work/state.pin.json"
+scripts/devbox.sh run -- check-jsonschema --schemafile "$work/state.schema.json" "$work/state.json" "$work/state.pin.json"
 cmp "$work/state.json" "$work/state.pin.json"
 tar --zstd -xOf "$archive" apk/manifest.json | jq -S . > "$work/manifest.json"
 jq -S .archive.manifest "$work/state.json" > "$work/expected-manifest.json"

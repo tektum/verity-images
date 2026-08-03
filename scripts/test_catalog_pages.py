@@ -20,6 +20,7 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 WORKFLOW: Final = ROOT / ".github/workflows/catalog.yaml"
 STATE: Final = ROOT / "packages/repository-state.json"
 RUNBOOK: Final = ROOT / "docs/APK_REPOSITORY_STATE.md"
+SIGNING_RUNBOOK: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
 SIZE_CHECKER: Final = ROOT / "scripts/check_pages_size.py"
 PAGES_LIMIT: Final = 900 * 1024 * 1024
 
@@ -198,6 +199,25 @@ def runbook_rejects_source_mismatch_under_optimization() -> None:
             raise AssertionError("optimized runbook did not fail closed on a source mismatch")
 
 
+def runbooks_keep_key_recovery_safe() -> None:
+    state_runbook = RUNBOOK.read_text(encoding="utf-8")
+    assert "scripts/devbox.sh run -- check-jsonschema --schemafile \"$work/state.schema.json\"" in state_runbook
+    signing_runbook = SIGNING_RUNBOOK.read_text(encoding="utf-8").split(
+        "## Rotation and revocation\n", maxsplit=1
+    )[1]
+    steps = (
+        "pause publication",
+        "verify a new encrypted backup",
+        "Publish and verify a new immutable release as applicable",
+        "Merge a reviewed PR",
+        "Only then replace the protected environment secret",
+        "run the protected smoke",
+        "resume publication",
+    )
+    positions = [signing_runbook.index(step) for step in steps]
+    assert positions == sorted(positions)
+
+
 def main() -> None:
     state = validate_repository_state.read_state(STATE)
     rejects_unsafe_archive(state)
@@ -208,6 +228,7 @@ def main() -> None:
     workflow_modes()
     rejects_oversized_pages_tree()
     runbook_rejects_source_mismatch_under_optimization()
+    runbooks_keep_key_recovery_safe()
 
 
 if __name__ == "__main__":
