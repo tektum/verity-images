@@ -32,6 +32,8 @@ grep -Fxq 'cmd: /usr/local/bin/httpd-foreground' "$httpd/fips.apko.yaml"
 grep -Fxq 'stop-signal: SIGWINCH' "$httpd/fips.apko.yaml"
 grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$httpd/fips.apko.yaml"
 grep -Fxq '    permissions: 0o1777' "$httpd/fips.apko.yaml"
+grep -Fq "docker logs \"\$container\" >&2 || true" "$httpd/tests/test.sh"
+grep -Fq "docker logs \"\$tls_container\" >&2 || true" "$httpd/tests/test.sh"
 jq -e '
   [.contents.packages[] | select(
     .name == "openssl-fips-provider" and
