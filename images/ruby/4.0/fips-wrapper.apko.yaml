@@ -1,11 +1,14 @@
 contents:
   repositories:
+    - "@LOCAL_REPOSITORY@"
     - https://tektum.github.io/verity-images/apk
     - https://packages.wolfi.dev/os
   keyring:
-    - packages/keys/verity-apk-2026.rsa.pub
+    - "@LOCAL_KEY@"
+    - "@REPOSITORY_KEY@"
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
+    - ruby-fips-entrypoint
     - ca-certificates-bundle
     - ruby-4.0
     - ruby4.0-bundler
@@ -13,7 +16,7 @@ contents:
     - openssl-fips-provider=3.1.2-r3
 
 entrypoint:
-  command: /usr/bin/ruby
+  command: /usr/bin/ruby-fips-entrypoint
 
 environment:
   GEM_HOME: /usr/local/bundle

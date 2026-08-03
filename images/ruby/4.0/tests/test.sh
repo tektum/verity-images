@@ -27,13 +27,10 @@ docker run --rm "$image" -e '
 
 if [ "$flavor" = fips ]; then
   runtime=/run/openssl-fips
-  run_fips() {
-    docker run --rm --read-only \
-      --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
-      -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
-      --entrypoint /usr/bin/openssl-fips-activate "$image" "$@"
-  }
-  run_fips ruby -ropenssl -e '
+  [ "$(docker image inspect --format '{{json .Config.Entrypoint}} {{json .Config.Cmd}}' "$image")" = '["/usr/bin/ruby-fips-entrypoint"] null' ]
+  docker run --rm --read-only \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" "$image" -ropenssl -e '
     abort unless OpenSSL::Digest::SHA256.digest("").bytesize == 32
     begin
       OpenSSL::Digest::MD5.digest("")
@@ -51,7 +48,7 @@ if [ "$flavor" = fips ]; then
     --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
     -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
     -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
-    --entrypoint /usr/bin/openssl-fips-activate "$image" ruby -e 'puts "ruby-ran"' \
+    "$image" -e 'puts "ruby-ran"' \
     >"$work/tampered.stdout" 2>/dev/null; then
     exit 1
   fi
@@ -59,7 +56,7 @@ if [ "$flavor" = fips ]; then
   if docker run --rm --read-only --user 65532 \
     --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=0500" \
     -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
-    --entrypoint /usr/bin/openssl-fips-activate "$image" ruby -e 'puts "ruby-ran"' \
+    "$image" -e 'puts "ruby-ran"' \
     >"$work/denied.stdout" 2>/dev/null; then
     exit 1
   fi
