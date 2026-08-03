@@ -38,10 +38,20 @@ def main() -> None:
 
     assert "  pull_request:\n" in workflow
     assert "    branches: [main]\n" in workflow
-    assert "runs-on: ubuntu-24.04\n" in x86_64
-    assert "runs-on: ubuntu-24.04-arm\n" in aarch64
+    assert (
+        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
+        "extras=otel/spot=false"
+    ) in x86_64
+    assert (
+        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=200gb:gp3/"
+        "extras=otel/spot=false"
+    ) in aarch64
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
+    assert '[[ "$(uname -m)" == x86_64 ]]' in x86_64
+    assert '[[ "$(uname -m)" == aarch64 ]]' in aarch64
     assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in x86_64
     assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in aarch64
     assert "environment:" not in x86_64 + aarch64
@@ -52,6 +62,7 @@ def main() -> None:
     assert "github.event_name == 'workflow_dispatch'" in signing
     assert "github.repository == 'tektum/verity-images'" in signing
     assert "github.ref == 'refs/heads/main'" in signing
+    assert "runs-on: ubuntu-24.04\n" in signing + smoke_workflow
     assert "environment: apk-signing" in signing
     assert "attestations: write" in signing
     assert "id-token: write" in signing
