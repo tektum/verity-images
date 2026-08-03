@@ -42,7 +42,7 @@ if [[ "$track" == wolfi ]]; then
       fi
     done
     godebug=fips140=off
-    [[ "$flavor" == fips ]] && godebug=fips140=on
+    [[ "$flavor" == fips ]] && godebug=fips140=only
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
       -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
       -e "s|@REPOSITORY_KEY@|$root/packages/keys/verity-apk-2026.rsa.pub|" \

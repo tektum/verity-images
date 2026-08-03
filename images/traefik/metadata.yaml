@@ -1,0 +1,9 @@
+name: traefik
+track: wolfi
+description: Traefik built from pinned source with plain and Go FIPS flavors.
+upstream: https://traefik.io/
+versions: [3.7.10]
+major: "3"
+flavors: [plain, fips]
+owner: tektum
+enabled: true
