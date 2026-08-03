@@ -308,7 +308,7 @@ jobs:
               (((.[0] | keys) | sort == ["description", "digest", "name", "scan", "tags", "track", "version"]) and
                 (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
                 (.[0].tags | type == "string" and length > 0) or
-               ($event == "pull_request" and
+               (($event == "pull_request" or $event == "merge_group") and
                 ((.[0] | keys) | sort == ["description", "digest", "name", "scan", "track", "version"]) and
                 .[0].digest == "local"))
             ' "$report" >/dev/null
