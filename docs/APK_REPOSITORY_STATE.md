@@ -42,27 +42,21 @@ trap 'rm -rf "$work"' EXIT
 archive="$work/verity-apk-repository.tar.zst"
 pages="$work/pages"
 digest=1d56b5710707b2aff9ee1e9cd0876466a6eb795fca5d0e58bb3f91c5c2922802
+: "${EVIDENCE_DIR:?set an approved external evidence directory}"
 
-gh release view apk-repo-v0001 --repo tektum/verity-images \
-  --json tagName,targetCommitish,isDraft,isPrerelease,isImmutable,assets > "$work/release.json"
-jq -e --arg digest "sha256:$digest" '
-  .tagName == "apk-repo-v0001" and
-  .targetCommitish == "ed3f06217e1452683a974f52794331ab298219c2" and
-  .isImmutable and (.isDraft | not) and (.isPrerelease | not) and
-  (.assets | length == 1) and
-  .assets[0].name == "verity-apk-repository.tar.zst" and
-  .assets[0].digest == $digest
-' "$work/release.json" >/dev/null
+gh api repos/tektum/verity-images/releases/363733856 > "$work/release.json"
 gh release download apk-repo-v0001 --repo tektum/verity-images \
   --pattern verity-apk-repository.tar.zst --dir "$work"
 printf '%s  %s\n' "$digest" "$archive" | sha256sum --check --status
 
+cp packages/repository-state.json "$work/current-state.json"
 git show '4284b2880eec6fb03fcad18bd4f731d1f951f8ce^:packages/repository-state.json' > "$work/state.json"
 tar --zstd -xOf "$archive" apk/manifest.json | jq -S . > "$work/manifest.json"
 jq -S .archive.manifest "$work/state.json" > "$work/expected-manifest.json"
 cmp "$work/manifest.json" "$work/expected-manifest.json"
 mkdir "$pages"
-PYTHONPATH=scripts python3 - "$archive" "$work/state.json" "$pages" <<'PY'
+PYTHONPATH=scripts python3 - "$archive" "$work/current-state.json" "$work/state.json" \
+  "$work/release.json" "$pages" <<'PY'
 from pathlib import Path
 import json
 import sys
@@ -70,8 +64,19 @@ import sys
 from apk_repository_policy import verify
 from validate_repository_state import archive_paths, stage_archive, validate_archive_members
 
-archive, state_path, pages = map(Path, sys.argv[1:])
+archive, current_path, state_path, release_path, pages = map(Path, sys.argv[1:])
+current = json.loads(current_path.read_text(encoding="utf-8"))
 state = json.loads(state_path.read_text(encoding="utf-8"))
+release = json.loads(release_path.read_text(encoding="utf-8"))
+assert current["key"] == state["key"]
+assert release["id"] == state["release"]["id"]
+assert release["tag_name"] == state["release"]["tag"]
+assert release["target_commitish"] == state["release"]["targetCommit"]
+assert release["immutable"] and not release["draft"] and not release["prerelease"]
+assert len(release["assets"]) == 1
+assert release["assets"][0]["id"] == state["asset"]["id"]
+assert release["assets"][0]["name"] == state["asset"]["name"]
+assert release["assets"][0]["digest"] == state["asset"]["sha256"]
 assert validate_archive_members(state, archive) == archive_paths(state)
 stage_archive(state, archive, pages)
 for architecture in ("x86_64", "aarch64"):
@@ -84,7 +89,15 @@ curl --fail --location --silent --show-error https://tektum.github.io/verity-ima
 cp docs/catalog.schema.json "$pages/catalog.schema.json"
 scripts/devbox.sh run -- check-jsonschema --schemafile "$pages/catalog.schema.json" "$pages/catalog.json"
 test "$(du -sb "$pages" | cut -f1)" -lt 943718400
+mkdir -p "$EVIDENCE_DIR"
+sha256sum "$pages/catalog.json" "$pages/catalog.schema.json" "$pages/apk/manifest.json" \
+  > "$EVIDENCE_DIR/apk-repo-v0001-approval-digests.txt"
+find "$pages" -type f -printf '%P\n' | sort > "$EVIDENCE_DIR/apk-repo-v0001-pages-files.txt"
 ```
+
+Retain those two evidence files with the release metadata and command result
+before the trap removes the staged tree. They are approval evidence for exactly
+the bytes validated in the rehearsal, not recovery material.
 
 Before a real rollback, an approver reviews the staged tree, confirms the
 release and Pages checks, and explicitly approves a deployment from `main`.

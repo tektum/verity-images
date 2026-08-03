@@ -78,7 +78,7 @@ promotion.
 - `.github/workflows/build.yaml` builds and publishes images.
 - `.github/workflows/lint.yaml` validates repository policy.
 - `devbox.json` locks local and CI lint tooling.
-- `docs/APK_REPOSITORY_SIGNING.md` and `docs/APK_REPOSITORY_STATE.md` document APK key recovery, retention, and rollback rehearsal.
+- [APK signing](docs/APK_REPOSITORY_SIGNING.md) and [repository state](docs/APK_REPOSITORY_STATE.md) document APK key recovery, retention, and rollback rehearsal.
 - `docs/POLICY.md` defines publication and support policy.
 - `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
 
