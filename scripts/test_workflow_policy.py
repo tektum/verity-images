@@ -229,6 +229,21 @@ def main() -> None:
     )
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
+    matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
+    validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
+    build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
+    assert "runs-on: ubuntu-latest\n" in matrix_job + build_gate_job
+    assert (
+        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
+        "extras=otel/spot=false"
+    ) in validate_job
+    assert (
+        "runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
+        "extras=otel/spot=false"
+    ) in publish_job
+    assert "runs-on: ubuntu-latest\n" in catalog + lint + monitor
     assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
         workflow, "\n  validate:\n", "\n  publish:\n"
     )
