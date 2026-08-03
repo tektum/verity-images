@@ -99,7 +99,7 @@ EOF
 cat > "$work/lib/tiny_native.rb" <<'EOF'
 require "tiny_native/tiny_native"
 EOF
-docker run --rm --network none -v "$work:/work" -w /work "$image" - <<'EOF'
+docker run --rm -i --network none -v "$work:/work" -w /work "$image" - <<'EOF'
 abort unless system("gem", "build", "tiny_native.gemspec")
 gem = Dir["tiny_native-*.gem"].fetch(0)
 abort unless system("gem", "install", "--local", "--no-document", gem)

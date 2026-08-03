@@ -13,7 +13,9 @@ contents:
     - openssl-fips-provider=3.1.2-r3
 
 entrypoint:
-  command: /usr/bin/ruby
+  command: /usr/bin/openssl-fips-activate
+
+cmd: /usr/bin/ruby
 
 environment:
   GEM_HOME: /usr/local/bundle
