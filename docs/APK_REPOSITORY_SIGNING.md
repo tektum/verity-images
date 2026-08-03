@@ -54,12 +54,8 @@ cmp "$work/repository.pub.der" "$work/committed.pub.der"
 ```
 
 Do not install a recovered key into production during this check. For rotation,
-pause publication; create a new restricted key and verify its new encrypted
-inventory record; publish and verify a new immutable release as applicable;
-merge the reviewed public-key, fingerprint, state-contract, and active-key
-reference changes; only then replace the protected environment secret; run the
-protected smoke workflow; and resume publication. Keep the old public key for
-historical verification unless compromise requires emergency revocation.
+follow the two-PR sequence below. Keep the old public key for historical
+verification unless compromise requires emergency revocation.
 
 ## Signing policy
 
@@ -85,16 +81,20 @@ reviewing that no asset was uploaded, an operator must explicitly remove it with
 
 ## Rotation and revocation
 
-To rotate the root, pause publication. Generate a new key under a restrictive
-umask and verify a new encrypted backup to the authorized recovery recipient.
-Publish and verify a new immutable release as applicable, including its release
-metadata, archive, and signatures. Merge a reviewed PR that updates the public
-key, fingerprint, both state-contract files, and every active-key reference.
-Only then replace the protected environment secret, run the protected smoke,
-and resume publication. Wait for the Pages deployment and downstream consumers
-to receive the new trust metadata before revoking the old key. Retain the old
-public key for verification of already-published packages unless an emergency
-compromise procedure applies.
+To rotate the root:
+
+1. Pause publication, generate a new key under a restrictive umask, and verify
+   its encrypted backup with the authorized recovery recipient.
+2. Merge PR 1 with the new public key, fingerprint, and active-key references,
+   excluding both state-contract files.
+3. Replace the protected environment secret and run the protected smoke.
+4. Publish and verify a new immutable release, including its release metadata,
+   archive, and signatures.
+5. Merge PR 2 that updates both state-contract files for that release.
+6. Wait for Pages and downstream consumers to receive the new trust metadata.
+7. Resume publication; revoke the old key later if appropriate. Retain its
+   public key for verification of already-published packages unless an
+   emergency compromise procedure applies.
 
 If a root is suspected compromised, immediately disable its environment secret,
 stop publication, and publish a keyless-cosign-signed revocation record and

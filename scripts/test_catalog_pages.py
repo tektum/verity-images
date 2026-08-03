@@ -206,13 +206,17 @@ def runbooks_keep_key_recovery_safe() -> None:
         "## Rotation and revocation\n", maxsplit=1
     )[1]
     steps = (
-        "pause publication",
-        "verify a new encrypted backup",
-        "Publish and verify a new immutable release as applicable",
-        "Merge a reviewed PR",
-        "Only then replace the protected environment secret",
+        "Pause publication",
+        "encrypted backup",
+        "Merge PR 1",
+        "excluding both state-contract files",
+        "Replace the protected environment secret",
         "run the protected smoke",
-        "resume publication",
+        "Publish and verify a new immutable release",
+        "Merge PR 2 that updates both state-contract files",
+        "Wait for Pages and downstream consumers",
+        "Resume publication",
+        "revoke the old key later",
     )
     positions = [signing_runbook.index(step) for step in steps]
     assert positions == sorted(positions)
