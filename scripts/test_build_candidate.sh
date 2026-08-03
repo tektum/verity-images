@@ -85,7 +85,7 @@ grep -q '^godebug: fips140=off$' "$APKO_LOG"
 : >"$MELANGE_LOG"
 run_candidate "$work/caddy" caddy-fips fips
 grep -q '^variant: caddy$' "$APKO_LOG"
-grep -q '^godebug: fips140=on$' "$APKO_LOG"
+grep -q '^godebug: fips140=only$' "$APKO_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch amd64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch arm64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 [[ $(grep -c "^start .*${work}/caddy/melange.yaml" "$MELANGE_LOG") -eq 2 ]]
@@ -140,3 +140,11 @@ grep -Fq 'install -m644 -D Caddyfile ' "$recipe"
 grep -Fq 'install -m644 -D index.html ' "$recipe"
 [[ -f "$root/images/caddy/Caddyfile" ]]
 [[ -f "$root/images/caddy/index.html" ]]
+
+traefik="$root/images/traefik"
+grep -Fxq 'flavors: [plain, fips]' "$traefik/metadata.yaml"
+grep -Fxq 'GOFIPS140=v1.0.0' "$traefik/fips.env"
+[[ $(find "$traefik" -name '*melange.yaml' | wc -l) -eq 1 ]]
+if grep -q 'openssl-fips-provider' "$traefik"/{apko.yaml,melange.yaml,metadata.yaml,fips.env}; then
+  exit 1
+fi
