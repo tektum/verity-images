@@ -290,6 +290,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)

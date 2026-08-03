@@ -18,6 +18,7 @@ POLICY: Final = ROOT / "scripts/apk_repository_policy.py"
 RUNTIME_TEST: Final = ROOT / "scripts/test_fips_runtime.sh"
 REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
 RESERVER: Final = ROOT / ".github/scripts/reserve-apk-release-identity.sh"
+SIGNING_DOC: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
 
 
@@ -41,6 +42,7 @@ def main() -> None:
     runtime_test = RUNTIME_TEST.read_text(encoding="utf-8")
     repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
     reserver = RESERVER.read_text(encoding="utf-8")
+    signing_doc = SIGNING_DOC.read_text(encoding="utf-8")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-gate")
     gate = job(workflow, "apk-gate", "apk-signing")
@@ -128,6 +130,10 @@ def main() -> None:
     assert 'git ls-remote --exit-code --tags origin "refs/tags/${release_tag}"' in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
     assert "gh release edit \"$RELEASE_TAG\"" in signing
+    update_draft = signing.split("      - name: Update reserved draft release\n", maxsplit=1)[1]
+    assert "REPOSITORY: ${{ github.repository }}" in update_draft.split("        run: |\n", maxsplit=1)[0]
+    assert 'gh release edit "$RELEASE_TAG" --repo "$REPOSITORY"' in update_draft
+    assert "gh release delete apk-repo-vNNNN --yes --cleanup-tag" in signing_doc
     assert "--clobber" not in signing
     assert (
         "    concurrency:\n"
