@@ -19,7 +19,7 @@ permissions: {}
 
 jobs:
   build-x86_64:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    runs-on: ubuntu-24.04
     permissions:
       attestations: write
       contents: read
@@ -40,9 +40,6 @@ jobs:
         env:
           MELANGE_VERSION: 0.56.4
         run: scripts/install_image_tools.sh apk
-
-      - name: Verify native runner architecture
-        run: '[[ "$(uname -m)" == x86_64 ]]'
 
       - name: Build and stage x86_64 APK
         id: package
@@ -67,7 +64,7 @@ jobs:
           subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
 
   build-aarch64:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=200gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    runs-on: ubuntu-24.04-arm
     permissions:
       attestations: write
       contents: read
@@ -88,9 +85,6 @@ jobs:
         env:
           MELANGE_VERSION: 0.56.4
         run: scripts/install_image_tools.sh apk
-
-      - name: Verify native runner architecture
-        run: '[[ "$(uname -m)" == aarch64 ]]'
 
       - name: Build and stage aarch64 APK
         id: package

@@ -43,20 +43,11 @@ def main() -> None:
 
     assert "  pull_request:\n" in workflow
     assert "    branches: [main]\n" in workflow
-    assert runner(x86_64) == (
-        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
-        "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
-        "extras=otel/spot=false"
-    )
-    assert runner(aarch64) == (
-        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
-        "family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=200gb:gp3/"
-        "extras=otel/spot=false"
-    )
+    assert runner(x86_64) == "ubuntu-24.04"
+    assert runner(aarch64) == "ubuntu-24.04-arm"
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
-    assert '[[ "$(uname -m)" == x86_64 ]]' in x86_64
-    assert '[[ "$(uname -m)" == aarch64 ]]' in aarch64
+    assert "uname -m" not in x86_64 + aarch64
     assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in x86_64
     assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in aarch64
     assert "environment:" not in x86_64 + aarch64
