@@ -5,6 +5,11 @@ package:
   description: FIPS activation entrypoint for Ruby images
   copyright:
     - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - openssl-fips-provider
+      - ruby-4.0
 
 environment:
   contents:
