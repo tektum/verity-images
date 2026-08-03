@@ -42,37 +42,45 @@ trap 'rm -rf "$work"' EXIT
 archive="$work/verity-apk-repository.tar.zst"
 pages="$work/pages"
 : "${EVIDENCE_DIR:?set an approved external evidence directory}"
-evidence="$EVIDENCE_DIR/apk-repo-v0001"
-source_commit=4284b2880eec6fb03fcad18bd4f731d1f951f8ce^
+evidence_root=$(realpath "$EVIDENCE_DIR")
+case "$evidence_root" in "$work"|"$work"/*) exit 1 ;; esac
+evidence="$evidence_root/apk-repo-v0001"
+test ! -e "$evidence"
+pending=$(mktemp -d "$evidence_root/.apk-repo-v0001.XXXXXX")
+state_commit=35ce4080d7385b1fa4e78a9c0f281a9fa0440899
+source_commit=ed3f06217e1452683a974f52794331ab298219c2
+test "$(git rev-parse apk-repo-v0001^{commit})" = "$source_commit"
 
 gh api repos/tektum/verity-images/releases/363733856 > "$work/release.json"
 gh release download apk-repo-v0001 --repo tektum/verity-images \
   --pattern verity-apk-repository.tar.zst --dir "$work"
 
-cp packages/repository-state.json "$work/current-state.json"
-git show "$source_commit:packages/repository-state.json" > "$work/state.json"
-git show "$source_commit:packages/repository-state.pin.json" > "$work/state.pin.json"
-git show "$source_commit:packages/repository-state.schema.json" > "$work/state.schema.json"
+git show "$state_commit:packages/repository-state.json" > "$work/state.json"
+git show "$state_commit:packages/repository-state.pin.json" > "$work/state.pin.json"
+git show "$state_commit:packages/repository-state.schema.json" > "$work/state.schema.json"
+check-jsonschema --schemafile "$work/state.schema.json" "$work/state.json" "$work/state.pin.json"
+cmp "$work/state.json" "$work/state.pin.json"
 tar --zstd -xOf "$archive" apk/manifest.json | jq -S . > "$work/manifest.json"
 jq -S .archive.manifest "$work/state.json" > "$work/expected-manifest.json"
 cmp "$work/manifest.json" "$work/expected-manifest.json"
 mkdir "$pages"
-PYTHONPATH=scripts python3 - "$archive" "$work/current-state.json" "$work/state.json" \
-  "$work/release.json" "$pages" <<'PY'
+PYTHONPATH=scripts python3 - "$archive" "$work/state.json" "$work/release.json" "$pages" \
+  "$source_commit" <<'PY'
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
 
 from apk_repository_policy import verify
 from validate_repository_state import archive_paths, stage_archive, validate_archive_members
 
-archive, current_path, state_path, release_path, pages = map(Path, sys.argv[1:])
-current = json.loads(current_path.read_text(encoding="utf-8"))
+archive, state_path, release_path, pages = map(Path, sys.argv[1:5])
+source_commit = sys.argv[5]
 state = json.loads(state_path.read_text(encoding="utf-8"))
 release = json.loads(release_path.read_text(encoding="utf-8"))
-if current["key"] != state["key"]:
-    raise SystemExit("recovery check failed: active key")
+if state["release"]["targetCommit"] != source_commit:
+    raise SystemExit("recovery check failed: source commit")
 if release["id"] != state["release"]["id"]:
     raise SystemExit("recovery check failed: release id")
 if release["tag_name"] != state["release"]["tag"]:
@@ -98,10 +106,16 @@ with archive.open("rb") as source:
 if archive_digest != state["asset"]["sha256"]:
     raise SystemExit("recovery check failed: downloaded archive digest")
 stage_archive(state, archive, pages)
+keys = pages.parent / "keys"
+keys.mkdir()
+key_path = Path(state["key"]["path"])
+(keys / key_path.name).write_bytes(
+    subprocess.check_output(["git", "show", f"{source_commit}:{key_path.as_posix()}"])
+)
 for architecture in ("x86_64", "aarch64"):
-    verify(pages / "apk" / architecture / "APKINDEX.tar.gz", Path("packages/keys"))
+    verify(pages / "apk" / architecture / "APKINDEX.tar.gz", keys)
 for package in state["packages"]:
-    verify(pages / "apk" / package["path"], Path("packages/keys"))
+    verify(pages / "apk" / package["path"], keys)
 PY
 curl --fail --location --silent --show-error https://tektum.github.io/verity-images/catalog.json \
   -o "$pages/catalog.json"
@@ -109,25 +123,27 @@ cp docs/catalog.schema.json "$pages/catalog.schema.json"
 scripts/devbox.sh run -- check-jsonschema --schemafile "$pages/catalog.schema.json" "$pages/catalog.json"
 pages_bytes=$(du -sb "$pages" | cut -f1)
 test "$pages_bytes" -lt 943718400
-mkdir -p "$evidence/pages/apk"
-cp "$work/release.json" "$evidence/release.json"
-cp "$work/state.json" "$evidence/repository-state.json"
-cp "$work/state.pin.json" "$evidence/repository-state.pin.json"
-cp "$work/state.schema.json" "$evidence/repository-state.schema.json"
-printf '%s\n' "$source_commit" > "$evidence/source-commit.txt"
-printf '%s\n' "$pages_bytes" > "$evidence/pages-size-bytes.txt"
-cp "$pages/catalog.json" "$evidence/pages/catalog.json"
-cp "$pages/catalog.schema.json" "$evidence/pages/catalog.schema.json"
-cp "$pages/apk/manifest.json" "$evidence/pages/apk/manifest.json"
-find "$pages" -type f -printf '%P\n' | LC_ALL=C sort > "$evidence/pages-files.txt"
-printf 'passed\n' > "$evidence/result.txt"
+mkdir -p "$pending/pages/apk"
+cp "$work/release.json" "$pending/release.json"
+cp "$work/state.json" "$pending/repository-state.json"
+cp "$work/state.pin.json" "$pending/repository-state.pin.json"
+cp "$work/state.schema.json" "$pending/repository-state.schema.json"
+printf '%s\n' "$source_commit" > "$pending/source-commit.txt"
+printf '%s\n' "$pages_bytes" > "$pending/pages-size-bytes.txt"
+cp "$pages/catalog.json" "$pending/pages/catalog.json"
+cp "$pages/catalog.schema.json" "$pending/pages/catalog.schema.json"
+cp "$pages/apk/manifest.json" "$pending/pages/apk/manifest.json"
+find "$pages" -type f -printf '%P\n' | LC_ALL=C sort > "$pending/pages-files.txt"
+printf 'passed\n' > "$pending/result.txt"
 (
-  cd "$evidence"
+  cd "$pending"
   find . -type f ! -name SHA256SUMS -printf '%P\n' | LC_ALL=C sort | xargs -r sha256sum > SHA256SUMS
 )
+mv "$pending" "$evidence"
 ```
 
-Retain this external evidence directory before the trap removes the staged tree.
+Only the completed `$EVIDENCE_DIR/apk-repo-v0001` directory is approval evidence;
+the trap then removes the staging tree.
 Its sorted `SHA256SUMS` manifest uses only relative paths and binds the release,
 reviewed state contract, source commit, staged tree size, Pages inputs, and
 successful result to the rehearsal.

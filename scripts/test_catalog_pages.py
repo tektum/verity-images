@@ -177,27 +177,25 @@ def rejects_oversized_pages_tree() -> None:
             raise AssertionError("Pages size checker accepted a tree larger than 900 MiB")
 
 
-def runbook_rejects_mismatch_under_optimization() -> None:
+def runbook_rejects_source_mismatch_under_optimization() -> None:
     snippet = RUNBOOK.read_text(encoding="utf-8").split("<<'PY'\n", maxsplit=1)[1].split(
         "\nPY\n", maxsplit=1
     )[0]
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        current = root / "current.json"
         state = root / "state.json"
         release = root / "release.json"
-        current.write_text('{"key":"old"}', encoding="utf-8")
-        state.write_text('{"key":"new"}', encoding="utf-8")
+        state.write_text('{"release":{"targetCommit":"old"}}', encoding="utf-8")
         release.write_text("{}", encoding="utf-8")
         result = subprocess.run(
-            ["python3", "-O", "-c", snippet, "archive", str(current), str(state), str(release), str(root / "pages")],
+            ["python3", "-O", "-c", snippet, "archive", str(state), str(release), str(root / "pages"), "new"],
             capture_output=True,
             text=True,
             check=False,
             env={"PYTHONPATH": str(ROOT / "scripts")},
         )
-        if result.returncode == 0 or "recovery check failed: active key" not in result.stderr:
-            raise AssertionError("optimized runbook did not fail closed on a key mismatch")
+        if result.returncode == 0 or "recovery check failed: source commit" not in result.stderr:
+            raise AssertionError("optimized runbook did not fail closed on a source mismatch")
 
 
 def main() -> None:
@@ -209,7 +207,7 @@ def main() -> None:
     reports_live_lookup_timeout(state)
     workflow_modes()
     rejects_oversized_pages_tree()
-    runbook_rejects_mismatch_under_optimization()
+    runbook_rejects_source_mismatch_under_optimization()
 
 
 if __name__ == "__main__":
