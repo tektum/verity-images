@@ -16,6 +16,7 @@ on:
       - scripts/apk_archive.py
       - scripts/apk_repository_policy.py
       - scripts/build_catalog.py
+      - scripts/check_pages_size.py
       - scripts/gen_matrix.py
       - scripts/validate_repository_state.py
   workflow_dispatch:
@@ -262,6 +263,10 @@ jobs:
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json
           devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
+
+      - name: Enforce Pages artifact size limit
+        if: steps.artifacts.outputs.ready == 'true'
+        run: python3 scripts/check_pages_size.py pages
 
       - name: Upload Pages artifact
         if: steps.artifacts.outputs.ready == 'true'
