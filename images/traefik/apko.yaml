@@ -17,6 +17,7 @@ entrypoint:
   command: /usr/bin/traefik
 
 environment:
+  GODEBUG: "@GODEBUG@"
   PATH: /usr/bin:/bin
 
 paths:
