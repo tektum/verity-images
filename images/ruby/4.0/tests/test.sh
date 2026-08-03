@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
 
 case "$flavor" in
-  plain|dev) ;;
+  plain|dev|fips) ;;
   *) printf 'unknown flavor: %s\n' "$flavor" >&2; exit 1 ;;
 esac
 
@@ -24,6 +24,48 @@ docker run --rm "$image" -e '
     abort tool unless present == expected
   end
 ' "$flavor"
+
+if [ "$flavor" = fips ]; then
+  runtime=/run/openssl-fips
+  run_fips() {
+    docker run --rm --read-only \
+      --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+      -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+      --entrypoint /usr/bin/openssl-fips-activate "$image" "$@"
+  }
+  run_fips ruby -ropenssl -e '
+    abort unless OpenSSL::Digest::SHA256.digest("").bytesize == 32
+    begin
+      OpenSSL::Digest::MD5.digest("")
+      abort
+    rescue OpenSSL::Digest::DigestError
+    end
+  '
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT INT TERM
+  container=$(docker create "$image")
+  docker cp "$container:/usr/lib/ossl-modules/fips.so" "$work/fips.so"
+  docker rm "$container" >/dev/null
+  printf tampered >>"$work/fips.so"
+  if docker run --rm --read-only \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+    -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
+    --entrypoint /usr/bin/openssl-fips-activate "$image" ruby -e 'puts "ruby-ran"' \
+    >"$work/tampered.stdout" 2>/dev/null; then
+    exit 1
+  fi
+  [ ! -s "$work/tampered.stdout" ]
+  if docker run --rm --read-only --user 65532 \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=0500" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+    --entrypoint /usr/bin/openssl-fips-activate "$image" ruby -e 'puts "ruby-ran"' \
+    >"$work/denied.stdout" 2>/dev/null; then
+    exit 1
+  fi
+  [ ! -s "$work/denied.stdout" ]
+  exit 0
+fi
 
 [ "$flavor" = dev ] || exit 0
 
