@@ -55,10 +55,11 @@ cmp "$work/repository.pub.der" "$work/committed.pub.der"
 
 Do not install a recovered key into production during this check. For rotation,
 create a new restricted key, commit its public key and fingerprint, replace the
-protected environment secret, create and verify a new encrypted inventory
-record, run the protected smoke workflow, then publish with the new key. Keep
-the old public key for historical verification and revoke it if compromise is
-suspected.
+protected environment secret, update both repository-state contract files and
+every active-key fingerprint or public-key reference, create and verify a new
+encrypted inventory record, run the protected smoke workflow, then publish with
+the new key. Keep the old public key for historical verification and revoke it
+if compromise is suspected.
 
 ## Signing policy
 
