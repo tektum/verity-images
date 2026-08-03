@@ -12,6 +12,51 @@ The private root is available only as the `APK_REPOSITORY_PRIVATE_KEY` secret in
 the protected `apk-signing` environment. Its encrypted recovery copy is held
 in the approved signing-backup vault and recorded in the signing inventory.
 
+## Recovery backup inventory
+
+The inventory identifier is `apk-signing-root-2026-recovery`. It records only
+safe metadata: the encrypted artifact SHA-256, creation date, restrictive
+`0600` permissions, OpenPGP recipient fingerprint, and recipient packet ID.
+The encrypted artifact, plaintext key, vault location, and decrypted output
+must never be committed or included in workflow logs.
+
+An authorized operator verifies a supplied `BACKUP_FILE` without displaying its
+contents:
+
+```sh
+set -euo pipefail
+
+test "$(stat -c '%a' "$BACKUP_FILE")" = 600
+sha256sum "$BACKUP_FILE"
+gpg --list-packets "$BACKUP_FILE" | grep -E 'pubkey enc packet|keyid|encrypted data packet'
+```
+
+Compare the output with the external inventory record before recovery. The
+recorded recipient fingerprint is `35C9...E84`; packet metadata may identify a
+recipient subkey rather than that primary fingerprint.
+
+For an approved recovery, decrypt only into a private temporary directory,
+derive the public key, and compare its DER SubjectPublicKeyInfo digest to the
+committed trust root:
+
+```sh
+set -euo pipefail
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT
+umask 077
+gpg --decrypt --output "$work/repository.key" "$BACKUP_FILE"
+actual=$(openssl pkey -in "$work/repository.key" -pubout -outform DER | sha256sum | awk '{print $1}')
+test "$actual" = 764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698
+openssl pkey -in "$work/repository.key" -pubout -outform DER > "$work/repository.pub.der"
+openssl pkey -pubin -in packages/keys/verity-apk-2026.rsa.pub -pubout -outform DER > "$work/committed.pub.der"
+cmp "$work/repository.pub.der" "$work/committed.pub.der"
+```
+
+Do not install a recovered key into production during this check. For rotation,
+follow the two-PR sequence below. Keep the old public key for historical
+verification unless compromise requires emergency revocation.
+
 ## Signing policy
 
 Only workflows running from `main` may use the protected environment. Every
@@ -36,11 +81,20 @@ reviewing that no asset was uploaded, an operator must explicitly remove it with
 
 ## Rotation and revocation
 
-To rotate the root, generate a new key under a restrictive umask, commit its
-public key and fingerprint, replace the protected environment secret, encrypt a
-new backup to the authorized recovery recipient, and run the protected smoke
-before any publication uses it. Retain the old public key for verification of
-already-published packages.
+To rotate the root:
+
+1. Pause publication, generate a new key under a restrictive umask, and verify
+   its encrypted backup with the authorized recovery recipient.
+2. Merge PR 1 with the new public key, fingerprint, and active-key references,
+   excluding both state-contract files.
+3. Replace the protected environment secret and run the protected smoke.
+4. Publish and verify a new immutable release, including its release metadata,
+   archive, and signatures.
+5. Merge PR 2 that updates both state-contract files for that release.
+6. Wait for Pages and downstream consumers to receive the new trust metadata.
+7. Resume publication; revoke the old key later if appropriate. Retain its
+   public key for verification of already-published packages unless an
+   emergency compromise procedure applies.
 
 If a root is suspected compromised, immediately disable its environment secret,
 stop publication, and publish a keyless-cosign-signed revocation record and
