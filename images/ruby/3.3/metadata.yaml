@@ -1,8 +1,8 @@
 name: ruby
 track: wolfi
-description: Ruby 3.3 runtime assembled from Wolfi packages with plain and development flavors.
+description: Ruby 3.3 runtime with plain, dev, and OpenSSL provider-backed FIPS flavors.
 upstream: https://www.ruby-lang.org/
 versions: [3.3]
-flavors: [plain, dev]
+flavors: [plain, dev, fips]
 owner: tektum
 enabled: true
