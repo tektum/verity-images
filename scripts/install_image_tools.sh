@@ -3,6 +3,30 @@ set -euo pipefail
 
 track=${1:?usage: install_image_tools.sh TRACK}
 
+if [[ "$track" == apk ]]; then
+  case "$(uname -m)" in
+    x86_64)
+      melange_arch=amd64
+      melange_sha256=ebb54361ef1d853002841f279776fa2ee3019ae2490c3184045bc1b9aeb3d7d8
+      ;;
+    aarch64)
+      melange_arch=arm64
+      melange_sha256=d77448bc73f1afdb905037c3347b7db4aacea39f5bcc899cf07f8fe5880e6ae0
+      ;;
+    *)
+      printf 'unsupported APK build architecture: %s\n' "$(uname -m)" >&2
+      exit 2
+      ;;
+  esac
+  melange_archive="melange_${MELANGE_VERSION}_linux_${melange_arch}.tar.gz"
+  curl -fsSL "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
+    -o "/tmp/${melange_archive}"
+  printf '%s  %s\n' "$melange_sha256" "/tmp/${melange_archive}" | sha256sum --check
+  tar -xzf "/tmp/${melange_archive}" -C /tmp
+  sudo install "/tmp/melange_${MELANGE_VERSION}_linux_${melange_arch}/melange" /usr/local/bin/melange
+  exit
+fi
+
 grype_url="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
 curl -fsSL "${grype_url}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o /tmp/grype.tar.gz
 printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
@@ -14,6 +38,7 @@ if [[ "$track" == monitor ]]; then
 fi
 
 if [[ "$track" == wolfi ]]; then
+  melange_sha256=${MELANGE_SHA256:?MELANGE_SHA256 is required for the Wolfi track}
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
   curl -fsSL "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
     -o "/tmp/${archive}"
@@ -22,7 +47,7 @@ if [[ "$track" == wolfi ]]; then
   melange_archive="melange_${MELANGE_VERSION}_linux_amd64.tar.gz"
   curl -fsSL "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
     -o "/tmp/${melange_archive}"
-  printf '%s  %s\n' "$MELANGE_SHA256" "/tmp/${melange_archive}" | sha256sum --check
+  printf '%s  %s\n' "$melange_sha256" "/tmp/${melange_archive}" | sha256sum --check
   tar -xzf "/tmp/${melange_archive}" -C /tmp
   sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
   sudo install "/tmp/melange_${MELANGE_VERSION}_linux_amd64/melange" /usr/local/bin/melange
