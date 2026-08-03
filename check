@@ -15,4 +15,12 @@ case "${1:-}" in
     ;;
 esac
 
-exec "$root/scripts/devbox.sh" run lint
+"$root/scripts/devbox.sh" run lint
+
+expected_fingerprint=764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698
+actual_fingerprint=$(openssl pkey -pubin -in "$root/packages/keys/verity-apk-2026.rsa.pub" \
+  -pubout -outform DER | sha256sum | awk '{print $1}')
+if [ "$actual_fingerprint" != "$expected_fingerprint" ]; then
+  printf 'error: APK repository root fingerprint mismatch\n' >&2
+  exit 1
+fi
