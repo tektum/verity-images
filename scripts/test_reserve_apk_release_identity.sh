@@ -109,6 +109,10 @@ make_package "$work_dir/aarch64.apk" aarch64 openssl-fips-provider 3.1.2-r3 3
 jq -n --arg body "<!-- apk-release-identity: $(identity) -->" \
   '[{tag_name:"apk-repo-v0002",draft:true,body:$body,assets:[]}]' > "$work_dir/releases.json"
 expect_failure apk-repo-v0003
+duplicate_identity=$(identity | jq '.packages[1].architecture = "x86_64"')
+jq -n --arg body "<!-- apk-release-identity: $duplicate_identity -->" \
+  '[{tag_name:"apk-repo-v0002",draft:true,body:$body,assets:[]}]' > "$work_dir/releases.json"
+expect_failure apk-repo-v0003
 
 printf '[{"tag_name":"apk-repo-v0002","draft":true,"body":"<!-- apk-release-identity: bad -->","assets":[]}]\n' > "$work_dir/releases.json"
 expect_failure apk-repo-v0003

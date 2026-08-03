@@ -51,7 +51,7 @@ while IFS= read -r release; do
     if ! historical=$(jq -ce '
       if .schemaVersion == 1 and
         (.packages | type == "array" and length == 2) and
-        all(.packages[]; .architecture == "x86_64" or .architecture == "aarch64")
+        ([.packages[].architecture] | sort) == ["aarch64", "x86_64"]
       then {schemaVersion:1,packages:(.packages | sort_by(.architecture) | map({architecture,name,version,epoch}))}
       else error("invalid identity reservation") end
     ' <<<"$historical" 2>/dev/null); then
