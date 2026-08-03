@@ -229,7 +229,9 @@ def main() -> None:
     )
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
-    assert "\n    timeout-minutes: 60\n" in publish_job
+    assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
+        workflow, "\n  validate:\n", "\n  publish:\n"
+    )
     assert (
         "\n    concurrency:\n"
         "      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}\n"
