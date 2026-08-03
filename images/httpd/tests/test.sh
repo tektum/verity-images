@@ -73,7 +73,7 @@ docker run --name "$container" -d -p 127.0.0.1::80 "$image" >/dev/null
 port=$(docker port "$container" 80/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
 i=0
-until response=$(curl --fail --silent "http://127.0.0.1:$port/"); do
+until response=$(curl --fail --silent --connect-timeout 1 --max-time 5 "http://127.0.0.1:$port/"); do
   i=$((i + 1))
   [ "$i" -lt 20 ] || { docker logs "$container" >&2 || true; exit 1; }
   sleep 1
@@ -118,12 +118,12 @@ EOF
   tls_port=$(docker port "$tls_container" 8443/tcp | awk -F: 'NR == 1 { print $2 }')
   [ -n "$tls_port" ] || { docker logs "$tls_container" >&2 || true; exit 1; }
   i=0
-  until curl --fail --silent --insecure --tlsv1.2 --tls-max 1.2 "https://127.0.0.1:$tls_port/" | grep -q 'It works!'; do
+  until curl --fail --silent --connect-timeout 1 --max-time 5 --insecure --tlsv1.2 --tls-max 1.2 "https://127.0.0.1:$tls_port/" | grep -q 'It works!'; do
     i=$((i + 1))
     [ "$i" -lt 20 ] || { docker logs "$tls_container" >&2 || true; exit 1; }
     sleep 1
   done
-  curl --fail --silent --insecure --tlsv1.3 --tls-max 1.3 "https://127.0.0.1:$tls_port/" | grep -q 'It works!'
+  curl --fail --silent --connect-timeout 1 --max-time 5 --insecure --tlsv1.3 --tls-max 1.3 "https://127.0.0.1:$tls_port/" | grep -q 'It works!'
   docker stop "$tls_container" >/dev/null
   [ "$(docker inspect --format '{{.State.ExitCode}}' "$tls_container")" = 0 ]
 fi

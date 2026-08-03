@@ -34,6 +34,7 @@ grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$httpd/fips.apko.yaml
 grep -Fxq '    permissions: 0o1777' "$httpd/fips.apko.yaml"
 grep -Fq "docker logs \"\$container\" >&2 || true" "$httpd/tests/test.sh"
 grep -Fq "docker logs \"\$tls_container\" >&2 || true" "$httpd/tests/test.sh"
+[ "$(grep -Fc 'curl --fail --silent --connect-timeout 1 --max-time 5' "$httpd/tests/test.sh")" = 3 ]
 jq -e '
   [.contents.packages[] | select(
     .name == "openssl-fips-provider" and
