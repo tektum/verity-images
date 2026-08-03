@@ -55,11 +55,12 @@ cmp "$work/repository.pub.der" "$work/committed.pub.der"
 
 Do not install a recovered key into production during this check. For rotation,
 create a new restricted key, commit its public key and fingerprint, replace the
-protected environment secret, update both repository-state contract files and
-every active-key fingerprint or public-key reference, create and verify a new
-encrypted inventory record, run the protected smoke workflow, then publish with
-the new key. Keep the old public key for historical verification and revoke it
-if compromise is suspected.
+protected environment secret, update active-key references, create and verify a
+new encrypted inventory record, and run the protected smoke workflow. Publish
+and verify a new immutable release with the new key before opening the reviewed
+state-contract PR; let Pages publish that merged state and allow consumers to
+receive the new key before revoking the old one. Keep the old public key for
+historical verification unless compromise requires emergency revocation.
 
 ## Signing policy
 
@@ -85,9 +86,12 @@ overwritten.
 
 To rotate the root, generate a new key under a restrictive umask, commit its
 public key and fingerprint, replace the protected environment secret, encrypt a
-new backup to the authorized recovery recipient, and run the protected smoke
-before any publication uses it. Retain the old public key for verification of
-already-published packages.
+new backup to the authorized recovery recipient, and run the protected smoke.
+Then publish a new immutable release, verify its release metadata, archive, and
+signatures, and merge a reviewed PR that updates both state-contract files.
+Wait for the Pages deployment and downstream consumers to receive the new trust
+metadata before revoking the old key. Retain the old public key for verification
+of already-published packages unless an emergency compromise procedure applies.
 
 If a root is suspected compromised, immediately disable its environment secret,
 stop publication, and publish a keyless-cosign-signed revocation record and
