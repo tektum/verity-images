@@ -1,0 +1,276 @@
+name: Build APK repository
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      release-tag:
+        description: New immutable APK repository release tag.
+        required: true
+        type: string
+      source-sha:
+        description: Immutable main commit being released.
+        required: true
+        type: string
+
+permissions: {}
+
+jobs:
+  build-x86_64:
+    runs-on: ubuntu-24.04
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      package-digest: ${{ steps.package.outputs.package-digest }}
+      source-sha: ${{ github.sha }}
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Install native APK build tool
+        env:
+          MELANGE_VERSION: 0.56.4
+        run: scripts/install_image_tools.sh apk
+
+      - name: Build and stage x86_64 APK
+        id: package
+        env:
+          ARCHITECTURE: x86_64
+        run: |
+          set -euo pipefail
+          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload x86_64 build artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: apk-build-x86_64
+          path: artifact
+          retention-days: 7
+
+      - name: Attest x86_64 build artifact
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+
+  build-aarch64:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      attestations: write
+      contents: read
+      id-token: write
+    outputs:
+      artifact-digest: ${{ steps.upload.outputs.artifact-digest }}
+      artifact-id: ${{ steps.upload.outputs.artifact-id }}
+      package-digest: ${{ steps.package.outputs.package-digest }}
+      source-sha: ${{ github.sha }}
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Install native APK build tool
+        env:
+          MELANGE_VERSION: 0.56.4
+        run: scripts/install_image_tools.sh apk
+
+      - name: Build and stage aarch64 APK
+        id: package
+        env:
+          ARCHITECTURE: aarch64
+        run: |
+          set -euo pipefail
+          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload aarch64 build artifact
+        id: upload
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: apk-build-aarch64
+          path: artifact
+          retention-days: 7
+
+      - name: Attest aarch64 build artifact
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+
+  apk-signing:
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.repository == 'tektum/verity-images' &&
+      github.ref == 'refs/heads/main'
+    needs: [build-x86_64, build-aarch64]
+    runs-on: ubuntu-24.04
+    environment: apk-signing
+    permissions:
+      actions: read
+      attestations: write
+      contents: write
+      id-token: write
+    concurrency:
+      group: apk-signing-${{ inputs.release-tag }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Validate source and artifacts
+        env:
+          AARCH64_ARTIFACT_DIGEST: ${{ needs.build-aarch64.outputs.artifact-digest }}
+          AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
+          AARCH64_SOURCE_SHA: ${{ needs.build-aarch64.outputs.source-sha }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          X86_64_ARTIFACT_DIGEST: ${{ needs.build-x86_64.outputs.artifact-digest }}
+          X86_64_ARTIFACT_ID: ${{ needs.build-x86_64.outputs.artifact-id }}
+          X86_64_SOURCE_SHA: ${{ needs.build-x86_64.outputs.source-sha }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
+          [[ "$X86_64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+          [[ "$AARCH64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+          [[ "$RELEASE_TAG" =~ ^apk-repo-v[0-9]{4}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
+          for artifact_id in "$X86_64_ARTIFACT_ID" "$AARCH64_ARTIFACT_ID"; do
+            [[ "$artifact_id" =~ ^[0-9]+$ ]]
+          done
+          artifact_pairs=(
+            "$X86_64_ARTIFACT_ID:$X86_64_ARTIFACT_DIGEST"
+            "$AARCH64_ARTIFACT_ID:$AARCH64_ARTIFACT_DIGEST"
+          )
+          for artifact_id_and_digest in "${artifact_pairs[@]}"; do
+            artifact_id=${artifact_id_and_digest%%:*}
+            artifact_digest=${artifact_id_and_digest#*:}
+            gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
+            bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
+          done
+          if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
+            printf '::error title=Duplicate release::Release %s already exists.\n' "$RELEASE_TAG"
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            printf '::error title=Duplicate tag::Tag %s already exists.\n' "$RELEASE_TAG"
+            exit 1
+          fi
+
+      - name: Download only current-run build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          artifact-ids: >-
+            ${{ needs.build-x86_64.outputs.artifact-id }},${{ needs.build-aarch64.outputs.artifact-id }}
+          path: input
+
+      - name: Verify build digests and provenance
+        env:
+          AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+          X86_64_PACKAGE_DIGEST: ${{ needs.build-x86_64.outputs.package-digest }}
+        run: |
+          set -euo pipefail
+          for architecture in x86_64 aarch64; do
+            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
+            [[ -f "$package" ]]
+            case "$architecture" in
+              x86_64) expected_digest=$X86_64_PACKAGE_DIGEST ;;
+              aarch64) expected_digest=$AARCH64_PACKAGE_DIGEST ;;
+            esac
+            [[ "$(sha256sum "$package" | cut -d' ' -f1)" == "$expected_digest" ]]
+            gh attestation verify "$package" --repo "$REPOSITORY" \
+              --signer-workflow "$REPOSITORY/.github/workflows/apk-repository.yaml" \
+              --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
+          done
+
+      - name: Install repository tools
+        env:
+          MELANGE_VERSION: 0.56.4
+        run: scripts/install_image_tools.sh apk
+
+      - name: Sign APK repositories
+        env:
+          APK_REPOSITORY_PRIVATE_KEY: ${{ secrets.APK_REPOSITORY_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          umask 077
+          work_dir=$(mktemp -d)
+          trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
+          private_key_source="$work_dir/verity-apk-2026.source.pem"
+          private_key="$work_dir/verity-apk-2026.rsa"
+          set +x
+          printf '%s' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key_source"
+          unset APK_REPOSITORY_PRIVATE_KEY
+          .github/scripts/prepare-apk-signing-key.sh "$private_key_source" "$private_key" \
+            packages/keys/verity-apk-2026.rsa.pub
+          fingerprint=764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698
+          actual_fingerprint=$(openssl pkey -pubin -in packages/keys/verity-apk-2026.rsa.pub \
+            -pubout -outform DER | sha256sum | cut -d' ' -f1)
+          [[ "$actual_fingerprint" == "$fingerprint" ]]
+          for package in input/*/*.apk; do
+            melange sign --signing-key "$private_key" "$package"
+          done
+          for architecture in x86_64 aarch64; do
+            mkdir -p "$work_dir/packages/$architecture"
+            cp "input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk" "$work_dir/packages/$architecture/"
+          done
+          .github/scripts/assemble-apk-repository.sh "$work_dir/packages" "$work_dir/apk" "$private_key" "$fingerprint"
+          manifest_digest=$(sha256sum "$work_dir/apk/manifest.json" | cut -d' ' -f1)
+          python3 scripts/apk_repository_policy.py "$work_dir/apk" packages/keys "$manifest_digest"
+          bash scripts/verify_apk_repository.sh "$work_dir/apk" packages/keys/verity-apk-2026.rsa.pub
+          mkdir release
+          tar --zstd --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+            -C "$work_dir" -cf release/verity-apk-repository.tar.zst apk
+          sha256sum release/verity-apk-repository.tar.zst > release/verity-apk-repository.tar.zst.sha256
+          jq -n --arg archive_sha256 "$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)" \
+            --arg source_sha "$GITHUB_SHA" --arg run_id "$GITHUB_RUN_ID" \
+            '{archiveSha256:$archive_sha256,sourceSha:$source_sha,runId:$run_id}' > release/provenance.json
+          grep -R -l --binary-files=text --exclude='verity-apk-repository.tar.zst' \
+            -- '-----BEGIN .*PRIVATE KEY-----' release >/dev/null && exit 1 || true
+
+      - name: Attest final repository archive
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
+        with:
+          subject-path: release/verity-apk-repository.tar.zst
+
+      - name: Create immutable-format draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          set -euo pipefail
+          archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)
+          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" '
+            "APK repository draft: \($release_tag)\n\nSHA-256: \($archive_sha256)\n\n" +
+            "Provenance: GitHub artifact attestation for this workflow run."
+          ' release/provenance.json > release/notes.md
+          gh release create "$RELEASE_TAG" --draft --target "$SOURCE_SHA" \
+            --title "$RELEASE_TAG" --notes-file release/notes.md
+
+      - name: Upload fixed repository asset
+        env:
+          ARCHIVE: release/verity-apk-repository.tar.zst
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+        run: gh release upload "$RELEASE_TAG" "$ARCHIVE"
