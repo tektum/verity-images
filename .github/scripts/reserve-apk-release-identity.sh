@@ -52,6 +52,12 @@ while IFS= read -r release; do
       if .schemaVersion == 1 and
         (.packages | type == "array" and length == 2) and
         ([.packages[].architecture] | sort) == ["aarch64", "x86_64"]
+        and all(.packages[];
+          type == "object" and
+          (.name | type == "string" and length > 0) and
+          (.version | type == "string" and length > 0) and
+          (.epoch | type == "number" and . >= 0 and floor == .)
+        )
       then {schemaVersion:1,packages:(.packages | sort_by(.architecture) | map({architecture,name,version,epoch}))}
       else error("invalid identity reservation") end
     ' <<<"$historical" 2>/dev/null); then

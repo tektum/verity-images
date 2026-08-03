@@ -114,6 +114,17 @@ jq -n --arg body "<!-- apk-release-identity: $duplicate_identity -->" \
   '[{tag_name:"apk-repo-v0002",draft:true,body:$body,assets:[]}]' > "$work_dir/releases.json"
 expect_failure apk-repo-v0003
 
+for mutation in \
+  'del(.packages[0].name)' '.packages[0].name = null' '.packages[0].name = 1' \
+  'del(.packages[0].version)' '.packages[0].version = null' '.packages[0].version = 1' \
+  'del(.packages[0].epoch)' '.packages[0].epoch = null' '.packages[0].epoch = "3"' \
+  '.packages[0].epoch = 0.5' '.packages[0].epoch = -1'; do
+  malformed_identity=$(identity | jq -c "$mutation")
+  jq -n --arg body "<!-- apk-release-identity: $malformed_identity -->" \
+    '[{tag_name:"apk-repo-v0002",draft:true,body:$body,assets:[]}]' > "$work_dir/releases.json"
+  expect_failure apk-repo-v0003
+done
+
 printf '[{"tag_name":"apk-repo-v0002","draft":true,"body":"<!-- apk-release-identity: bad -->","assets":[]}]\n' > "$work_dir/releases.json"
 expect_failure apk-repo-v0003
 printf '[{"tag_name":"apk-repo-v0002","draft":true,"body":"missing","assets":[]}]\n' > "$work_dir/releases.json"
