@@ -128,6 +128,9 @@ def main() -> None:
     assert "gh release download" in reserver
     assert "apk-release-identity" in reserver
     assert 'git ls-remote --exit-code --tags origin "refs/tags/${release_tag}"' in reserver
+    assert 'gh release create "$release_tag" --repo "$repository"' in reserver
+    assert "body=${body//$'\\r'/}" in reserver
+    assert 'map({architecture,name,version,epoch})' in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
     assert "gh release edit \"$RELEASE_TAG\"" in signing
     update_draft = signing.split("      - name: Update reserved draft release\n", maxsplit=1)[1]

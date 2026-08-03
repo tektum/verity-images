@@ -61,9 +61,20 @@ GH
   chmod +x "$work_dir/bin/gh"
 }
 
+write_git() {
+  cat > "$work_dir/bin/git" <<'GIT'
+#!/bin/bash
+set -euo pipefail
+printf '%s\n' "$*" >> "$GIT_LOG"
+[[ "$1" == ls-remote ]] && exit 2
+exit 64
+GIT
+  chmod +x "$work_dir/bin/git"
+}
+
 run() {
   local tag=$1
-  GH_ARCHIVES="$work_dir" GH_LOG="$work_dir/log" GH_RELEASES="$work_dir/releases.json" \
+  GH_ARCHIVES="$work_dir" GH_LOG="$work_dir/log" GH_RELEASES="$work_dir/releases.json" GIT_LOG="$work_dir/git-log" \
     PATH="$work_dir/bin:$PATH" "$reserver" tektum/verity-images "$tag" 0123456789012345678901234567890123456789 \
     "$work_dir/x86_64.apk" "$work_dir/aarch64.apk"
 }
@@ -80,6 +91,7 @@ mkdir "$work_dir/bin"
 make_package "$work_dir/x86_64.apk" x86_64 openssl-fips-provider 3.1.2-r3 3
 make_package "$work_dir/aarch64.apk" aarch64 openssl-fips-provider 3.1.2-r3 3
 write_gh
+write_git
 
 make_archive apk-repo-v0001 3.1.2-r3 3
 printf '[{"tag_name":"apk-repo-v0001","draft":false,"body":"legacy","assets":[{"name":"verity-apk-repository.tar.zst"}]}]\n' > "$work_dir/releases.json"
@@ -112,5 +124,7 @@ run apk-repo-v0004
 grep -Fq 'api --paginate --slurp repos/tektum/verity-images/releases?per_page=100' "$work_dir/log"
 grep -Fq 'release create apk-repo-v0003' "$work_dir/log"
 grep -Fq 'release create apk-repo-v0004' "$work_dir/log"
+grep -Fq 'release create apk-repo-v0003 --repo tektum/verity-images' "$work_dir/log"
+grep -Fq 'ls-remote --exit-code --tags origin refs/tags/apk-repo-v0003' "$work_dir/git-log"
 [[ $(grep -n -m1 -F 'api --paginate --slurp repos/tektum/verity-images/releases?per_page=100' "$work_dir/log" | cut -d: -f1) -lt \
   $(grep -n -m1 -F 'release create apk-repo-v0003' "$work_dir/log" | cut -d: -f1) ]]

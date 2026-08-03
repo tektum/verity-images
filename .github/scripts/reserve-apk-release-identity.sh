@@ -44,6 +44,7 @@ while IFS= read -r release; do
     exit 1
   fi
   body=$(jq -er '.body // ""' <<<"$release")
+  body=${body//$'\r'/}
   marker_count=$(grep -c '^<!-- apk-release-identity: .* -->$' <<<"$body" || true)
   if [[ "$marker_count" == 1 ]]; then
     historical=$(sed -n 's/^<!-- apk-release-identity: \(.*\) -->$/\1/p' <<<"$body")
@@ -51,7 +52,8 @@ while IFS= read -r release; do
       if .schemaVersion == 1 and
         (.packages | type == "array" and length == 2) and
         all(.packages[]; .architecture == "x86_64" or .architecture == "aarch64")
-      then . else error("invalid identity reservation") end
+      then {schemaVersion:1,packages:(.packages | sort_by(.architecture) | map({architecture,name,version,epoch}))}
+      else error("invalid identity reservation") end
     ' <<<"$historical" 2>/dev/null); then
       printf '::error title=Malformed identity reservation::Release %s has an invalid identity reservation.\n' "$tag" >&2
       exit 1
@@ -90,5 +92,5 @@ notes=$(jq -nr --arg release_tag "$release_tag" --argjson identity "$identity" '
   "APK repository identity reservation: \($release_tag)\n\n" +
   "<!-- apk-release-identity: \($identity | tojson) -->"
 ')
-gh release create "$release_tag" --draft --target "$source_sha" --title "$release_tag" --notes "$notes" >/dev/null
+gh release create "$release_tag" --repo "$repository" --draft --target "$source_sha" --title "$release_tag" --notes "$notes" >/dev/null
 printf '%s\n' "$identity"
