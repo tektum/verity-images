@@ -13,8 +13,18 @@ candidate="local/verity-${build_name}:${GITHUB_SHA}"
 ensure_image_history() {
   local image=$1 image_arch=$2
   if ! docker image history "$image" >/dev/null 2>&1; then
-    sudo ctr -a /var/run/docker/containerd/containerd.sock -n moby images unpack --snapshotter overlayfs \
-      --platform "linux/$image_arch" "docker.io/$image"
+    local archive
+    archive=$(mktemp)
+    if ! docker image save "$image" --output "$archive"; then
+      rm -f "$archive"
+      return 1
+    fi
+    if ! sudo ctr -a /var/run/docker/containerd/containerd.sock -n moby images import \
+      --platform "linux/$image_arch" --snapshotter overlayfs "$archive"; then
+      rm -f "$archive"
+      return 1
+    fi
+    rm -f "$archive"
     docker image history "$image" >/dev/null
   fi
 }
