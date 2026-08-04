@@ -9,8 +9,9 @@ and provenance pipeline. Published vulnerability reports are tied to image
 digests so every claim can be checked. Attached platform SBOMs are rescanned nightly;
 vulnerable image versions have automatically maintained GitHub issues.
 
-There are no accounts, private package feeds, or long-lived signing keys. A fork
-can run the same pipeline with only its GitHub workflow token.
+Container image publication is keyless: a fork can run it with only its GitHub
+workflow token. APK releases use a protected RSA signing secret; see [APK
+signing](docs/APK_REPOSITORY_SIGNING.md).
 
 ## Quickstart
 
@@ -78,6 +79,7 @@ promotion.
 - `.github/workflows/build.yaml` builds and publishes images.
 - `.github/workflows/lint.yaml` validates repository policy.
 - `devbox.json` locks local and CI lint tooling.
+- [APK signing](docs/APK_REPOSITORY_SIGNING.md) and [repository state](docs/APK_REPOSITORY_STATE.md) document APK key recovery, retention, and rollback rehearsal.
 - `docs/POLICY.md` defines publication and support policy.
 - `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
 
