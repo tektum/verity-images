@@ -77,13 +77,12 @@ if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json";
   exit 1
 fi
 
-for invalid in marker severity; do
-  if [[ $invalid == marker ]]; then
-    jq --arg marker $'openssl\n<!-- squawk-delivery:bad -->' '.package_name = $marker' \
-      "$work/payload.json" > "$work/invalid.json"
-  else
-    jq '.severity = "urgent"' "$work/payload.json" > "$work/invalid.json"
-  fi
+for invalid in marker severity severity-type; do
+  case $invalid in
+    marker) jq --arg marker $'openssl\n<!-- squawk-delivery:bad -->' '.package_name = $marker' "$work/payload.json" ;;
+    severity) jq '.severity = "urgent"' "$work/payload.json" ;;
+    severity-type) jq '.severity = false' "$work/payload.json" ;;
+  esac > "$work/invalid.json"
   : > "$GH_LOG"
   if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json"; then
     printf 'invalid %s payload was accepted\n' "$invalid" >&2

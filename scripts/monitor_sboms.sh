@@ -12,7 +12,7 @@ jq -e '
   (.ecosystem | type == "string" and test("^[A-Za-z0-9._-]{1,64}$")) and
   (.version | type == "string" and test("^[A-Za-z0-9._:+~-]{1,128}$")) and
   (.vuln_id | type == "string" and test("^[A-Za-z0-9._-]{1,64}$")) and
-  ((.severity // "unknown") as $severity | ["unknown", "negligible", "low", "medium", "high", "critical"] | index($severity) != null) and
+  ((if has("severity") then .severity else "unknown" end) as $severity | ($severity | type == "string") and (["unknown", "negligible", "low", "medium", "high", "critical"] | index($severity) != null)) and
   (.platforms | type == "array" and length > 0) and
   all(.platforms[]; (.platform | test("^linux/(amd64|arm64)$")) and (.image_ref | test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$")))
 ' "$payload" >/dev/null
