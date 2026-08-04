@@ -49,7 +49,7 @@ marker() {
 
 start
 ready
-docker exec "$container" id -u postgres | grep -qx 999
+docker top "$container" -eo pid,uid,comm | awk '$3 == "postgres" { found = 1; if ($2 != 999) exit 1 } END { exit !found }'
 docker exec "$container" sh -c \
   'test "$PGDATA" = /var/lib/postgresql/18/docker'
 docker exec "$container" sh -c \
