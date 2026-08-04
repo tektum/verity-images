@@ -100,7 +100,7 @@
         "unsignedSha256": {"$ref": "#/$defs/sha256"},
         "signingWorkflowId": {"type": "integer", "minimum": 1},
         "signingRunId": {"type": "integer", "minimum": 1},
-        "bundlePath": {"$ref": "#/$defs/relativePath"},
+        "bundlePath": {"type": "string", "pattern": "^bundles/[a-z0-9]+(?:[._+-][a-z0-9]+)*/(x86_64|aarch64)\\.json$"},
         "bundleSha256": {"$ref": "#/$defs/sha256"}
       }
     },

@@ -173,8 +173,8 @@ write_inputs() {
     jq -n --arg x "$repository/apk/x86_64/openssl-fips-provider-3.1.2-r3.apk" \
       --arg a "$repository/apk/aarch64/openssl-fips-provider-3.1.2-r3.apk" --argjson origin "$origin" '
       {mode:"replacement",identity:{name:"openssl-fips-provider",version:"3.1.2-r3",epoch:3},packages:[
-        {architecture:"x86_64",path:"x86_64/openssl-fips-provider-3.1.2-r3.apk",file:$x,origin:($origin + {bundlePath:"bundles/x86_64.json"})},
-        {architecture:"aarch64",path:"aarch64/openssl-fips-provider-3.1.2-r3.apk",file:$a,origin:($origin + {bundlePath:"bundles/aarch64.json"})}
+        {architecture:"x86_64",path:"x86_64/openssl-fips-provider-3.1.2-r3.apk",file:$x,origin:($origin + {bundlePath:"bundles/openssl-fips-provider/x86_64.json"})},
+        {architecture:"aarch64",path:"aarch64/openssl-fips-provider-3.1.2-r3.apk",file:$a,origin:($origin + {bundlePath:"bundles/openssl-fips-provider/aarch64.json"})}
       ]}
     ' > "$output"
   fi

@@ -118,8 +118,16 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
         assert len(apk_archive.gzip_members(archive.read_bytes(), 2)) == 2
         sign(archive, key)
         assert len(apk_archive.gzip_members(archive.read_bytes(), 3)) == 3
+    entries = []
+    for archive in (package, other):
+        architecture = archive.parent.name
+        entries.append({"architecture": architecture, "name": "openssl-fips-provider", "version": "3.1.2-r3", "epoch": 3, "path": archive.relative_to(packages).as_posix(), "sha256": hashlib.sha256(archive.read_bytes()).hexdigest(), "origin": {"type": "legacy-snapshot", "releaseId": 1, "releaseTag": "apk-repo-v0002", "targetCommit": "0" * 40, "assetId": 1, "assetSha256": "sha256:" + "0" * 64, "manifestSha256": "0" * 64, "sourcePath": archive.relative_to(packages).as_posix()}})
+    metadata = root / "metadata.json"
+    public = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout", "-outform", "DER"], check=True, capture_output=True).stdout
+    fingerprint = hashlib.sha256(public).hexdigest()
+    metadata.write_text(json.dumps({"schemaVersion": 2, "architectures": ["aarch64", "x86_64"], "fingerprint": fingerprint, "packages": entries}, sort_keys=True), encoding="utf-8")
     repository = root / "repository"
-    subprocess.run([str(ASSEMBLE), str(packages), str(repository), str(key), "fixture"], check=True)
+    subprocess.run([str(ASSEMBLE), str(packages), str(metadata), str(repository), str(root / "repository.tar.zst"), str(key), fingerprint], check=True)
     package = repository / "x86_64" / package.name
     index = repository / "x86_64" / "APKINDEX.tar.gz"
     apk_repository_policy.verify(package, keys)

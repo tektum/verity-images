@@ -115,7 +115,7 @@ normalize_marker() {
         (.sourceCommit | hex(40)) and
         ([.buildWorkflowId,.buildRunId,.buildArtifactId,.signingWorkflowId,.signingRunId] | all(type == "number" and floor == . and . > 0)) and
         (.buildArtifactSha256 | digest) and (.unsignedSha256 | bare_digest) and
-        (.bundlePath | type == "string" and test("^bundles/(aarch64|x86_64)\\.json$")) and
+        (.bundlePath | type == "string" and test("^bundles/[a-z0-9]+([._+-][a-z0-9]+)*/(aarch64|x86_64)\\.json$")) and
         (.bundleSha256 | bare_digest)
       elif .type == "build-input" then
         (keys | sort) == ["artifactId","artifactSha256","runId","sourceCommit","type","unsignedSha256","workflowRef"] and

@@ -80,13 +80,14 @@ def main() -> None:
     assert '[[ "$SIGNING_RESULT" == skipped ]]' in gate
     assert "APK_REPOSITORY_PRIVATE_KEY" not in gate
     gate_script = gate.split("        run: |\n", maxsplit=1)[1]
-    for event, ref, repository, signing_result, expected in (
-        ("pull_request", "refs/pull/1/merge", "fork/example", "skipped", 0),
-        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "skipped", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "success", 0),
-        ("workflow_dispatch", "refs/heads/main", "fork/example", "skipped", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "skipped", 1),
-        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "failure", 1),
+    for event, ref, repository, mode, build_result, signing_result, expected in (
+        ("pull_request", "refs/pull/1/merge", "fork/example", "replacement", "success", "skipped", 0),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "migration", "skipped", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "fork/example", "replacement", "success", "skipped", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "skipped", 1),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "failure", 1),
     ):
         result = subprocess.run(
             ["bash", "-c", gate_script],
@@ -94,12 +95,13 @@ def main() -> None:
             capture_output=True,
             env={
                 **os.environ,
-                "AARCH64_RESULT": "success",
+                "AARCH64_RESULT": build_result,
                 "EVENT": event,
+                "MODE": mode,
                 "REF": ref,
                 "REPOSITORY": repository,
                 "SIGNING_RESULT": signing_result,
-                "X86_64_RESULT": "success",
+                "X86_64_RESULT": build_result,
             },
         )
         assert result.returncode == expected
@@ -161,7 +163,10 @@ def main() -> None:
     assert 'unset APK_REPOSITORY_PRIVATE_KEY' in signing
     assert ".github/scripts/prepare-apk-signing-key.sh" in signing
     assert 'packages/keys/verity-apk-2026.rsa.pub' in signing
-    assert 'melange sign --signing-key "$private_key" "$package"' in signing
+    assert 'melange sign --signing-key "$private_key" "$signed"' in signing
+    assert "for package in input/*/*.apk" not in signing
+    assert "done < <(jq -c '.unsignedPackages[]' release/reservation.json)" in signing
+    assert "python3 scripts/compose_apk_inputs.py" in signing
     assert signing.index("Verify build digests and provenance") < signing.index("Reserve package identity")
     assert signing.index("Reserve package identity") < signing.index(
         "private_key=\"$work_dir/verity-apk-2026.rsa\""
@@ -169,11 +174,11 @@ def main() -> None:
     assert signing.index("Reserve package identity") < signing.index(
         'printf \'%s\' "$APK_REPOSITORY_PRIVATE_KEY" > "$private_key_source"'
     )
-    assert signing.index('melange sign --signing-key "$private_key" "$package"') < signing.index(
+    assert signing.index('melange sign --signing-key "$private_key" "$signed"') < signing.index(
         ".github/scripts/assemble-apk-repository.sh"
     )
     assert signing.index("prepare-apk-signing-key.sh") < signing.index(
-        'melange sign --signing-key "$private_key" "$package"'
+        'melange sign --signing-key "$private_key" "$signed"'
     )
     assert "PRIVATE KEY" in signing
     assert "APK_REPOSITORY_PRIVATE_KEY" not in x86_64 + aarch64

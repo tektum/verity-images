@@ -64,7 +64,7 @@ def v2_state() -> dict[str, object]:
             "unsignedSha256": "5" * 64,
             "signingWorkflowId": 201,
             "signingRunId": 202,
-            "bundlePath": f"bundles/{entry['architecture']}.json",
+            "bundlePath": f"bundles/{entry['name']}/{entry['architecture']}.json",
             "bundleSha256": "6" * 64,
         }
         packages.append(entry)

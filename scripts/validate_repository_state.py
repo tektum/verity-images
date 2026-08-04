@@ -55,6 +55,15 @@ def archive_paths(state: dict[str, object]) -> tuple[str, ...]:
         paths.append(f"{root}/{architecture}")
         paths.append(f"{root}/{architecture}/APKINDEX.tar.gz")
     paths.extend(f"{root}/{text(field(package, 'path'), 'package.path')}" for package in packages)
+    bundles = {
+        text(field(origin, "bundlePath"), "package.origin.bundlePath")
+        for package in packages
+        if "origin" in package
+        and field((origin := mapping(field(package, "origin"), "package.origin")), "type") == "attested-build"
+    }
+    directories = {str(path) for bundle in bundles for path in Path(root, bundle).parents if str(path) != "."}
+    paths.extend(sorted(directories - set(paths)))
+    paths.extend(f"{root}/{bundle}" for bundle in sorted(bundles))
     return tuple(paths)
 
 
@@ -80,6 +89,7 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
         raise StateError("archive listing failed")
     paths = archive_paths(state)
     expected = set(paths)
+    directories = {path for path in paths if any(candidate.startswith(f"{path}/") for candidate in paths)}
     actual: set[str] = set()
     for line in result.stdout.splitlines():
         if not line or line[0] not in {"-", "d"}:
@@ -90,7 +100,7 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
         if member in actual:
             raise StateError("archive contains duplicate member")
         actual.add(member)
-        if member == paths[0] or member.endswith(tuple(ARCHITECTURES)):
+        if member in directories:
             if line[0] != "d":
                 raise StateError("archive directory is not a directory")
         elif line[0] != "-":
@@ -102,12 +112,14 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
 
 def stage_archive(state: dict[str, object], archive_path: Path, destination: Path) -> None:
     root = archive_paths(state)[0]
-    for member in validate_archive_members(state, archive_path):
+    members = validate_archive_members(state, archive_path)
+    directories = {member for member in members if any(candidate.startswith(f"{member}/") for candidate in members)}
+    for member in members:
         relative = Path(member).relative_to(root)
         if not relative.parts:
             continue
         target = destination / root / relative
-        if member.endswith(tuple(ARCHITECTURES)):
+        if member in directories:
             try:
                 target.mkdir(parents=True, exist_ok=False)
             except FileExistsError as error:
