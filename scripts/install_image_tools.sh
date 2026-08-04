@@ -33,10 +33,6 @@ printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
 tar -xzf /tmp/grype.tar.gz -C /tmp
 sudo install /tmp/grype /usr/local/bin/grype
 
-if [[ "$track" == monitor ]]; then
-  exit
-fi
-
 if [[ "$track" == wolfi ]]; then
   melange_sha256=${MELANGE_SHA256:?MELANGE_SHA256 is required for the Wolfi track}
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
