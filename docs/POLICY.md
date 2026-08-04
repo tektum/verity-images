@@ -95,23 +95,15 @@ cosign verify \
   ghcr.io/tektum/IMAGE@sha256:DIGEST
 ```
 
-The notification uses only `GITHUB_TOKEN`. Keyless Cosign and GitHub attestations
-also require GitHub's ephemeral OIDC token. The workflow requires no PAT, stored
-signing secret, Squawk URL, Squawk credential, or Descope machine token.
+The workflow uses only `GITHUB_TOKEN` plus GitHub's short-lived OIDC identity.
+It requires no PAT or stored signing secret.
 
 ## SBOM and provenance
 
-Wolfi images use apko's native SPDX output and patched images use Syft against
-the final image. The shared publish action derives CycloneDX from each platform
-SPDX document and creates one commit-pinned `actions/attest` v4 GitHub SBOM
-attestation against each platform digest. Trivy is never an SBOM generator.
-
-The producer then creates one GitHub deployment per platform after Cosign
-verification. Its payload contains the immutable platform and logical/index image
-references, platform, and attestation subject digest. Squawk fetches the
-repository attestation via a repository-scoped GitHub App token and checks the
-in-toto CycloneDX schema. Squawk deliberately does not implement Sigstore
-verification; independent verification is future hardening.
+SPDX JSON is the only SBOM format. Wolfi images use apko's native SPDX output.
+Patched images use Syft against the final patched image. One complete SBOM per
+platform is attached to the corresponding image digest. Trivy is never an SBOM
+generator.
 
 Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.
