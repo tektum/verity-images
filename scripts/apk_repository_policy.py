@@ -17,7 +17,7 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from apk_archive import ARCHITECTURES, PackageInfo, index_records, package_info
+from apk_archive import ARCHITECTURES, IndexRecord, PackageInfo, index_records, package_info
 
 REQUIRED_FILES: Final = frozenset(
     {
@@ -27,8 +27,6 @@ REQUIRED_FILES: Final = frozenset(
         "usr/share/openssl-fips/openssl-fips.cnf.in",
     }
 )
-PACKAGE_NAME: Final = "openssl-fips-provider"
-PACKAGE_VERSION: Final = "3.1.2-r3"
 
 
 def safe_name(name: str) -> bool:
@@ -65,10 +63,7 @@ def verify(archive: Path, keys: Path) -> None:
 
 
 def checked_package(apk: Path, architecture: str) -> PackageInfo:
-    info = package_info(apk.read_bytes(), architecture, REQUIRED_FILES)
-    if info.name != PACKAGE_NAME or info.version != PACKAGE_VERSION:
-        raise ValueError(f"invalid package identity: {apk.name}")
-    return info
+    return package_info(apk.read_bytes(), architecture, REQUIRED_FILES)
 
 
 def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
@@ -76,13 +71,15 @@ def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
     if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != manifest_digest:
         raise ValueError("external manifest digest mismatch")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict) or set(manifest.get("architectures", ())) != ARCHITECTURES:
+    architectures = manifest.get("architectures") if isinstance(manifest, dict) else None
+    if not isinstance(architectures, list) or len(architectures) != len(ARCHITECTURES) or set(architectures) != ARCHITECTURES:
         raise ValueError("unexpected architecture set")
     packages = manifest.get("packages")
     if not isinstance(packages, list):
         raise ValueError("invalid manifest package list")
     listed: set[str] = set()
-    by_arch: dict[str, PackageInfo] = {}
+    by_identity: dict[tuple[str, str], PackageInfo] = {}
+    versions: dict[str, str] = {}
     for package in packages:
         if not isinstance(package, dict):
             raise ValueError("invalid manifest package")
@@ -97,22 +94,25 @@ def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
         if hashlib.sha256(apk.read_bytes()).hexdigest() != digest:
             raise ValueError(f"manifest digest mismatch: {relative}")
         verify(apk, keys)
-        if relative in listed or architecture in by_arch:
+        info = checked_package(apk, architecture)
+        identity = (info.name, architecture)
+        if relative in listed or identity in by_identity or versions.setdefault(info.name, info.version) != info.version:
             raise ValueError("duplicate package")
         listed.add(relative)
-        by_arch[architecture] = checked_package(apk, architecture)
+        by_identity[identity] = info
     actual = {path.relative_to(repository).as_posix() for path in repository.glob("*/*.apk")}
-    if actual != listed or set(by_arch) != ARCHITECTURES:
+    if not versions or actual != listed or any({architecture for (package_name, architecture) in by_identity if package_name == name} != ARCHITECTURES for name in versions):
         raise ValueError("manifest package set mismatch")
-    for architecture, info in by_arch.items():
+    for architecture in ARCHITECTURES:
         index = repository / architecture / "APKINDEX.tar.gz"
         verify(index, keys)
         records = index_records(index.read_bytes())
-        matches = [record for record in records if record.name == info.name and record.version == info.version]
-        if len(matches) != 1:
-            raise ValueError(f"index package missing: {architecture}")
-        record = matches[0]
-        if record.architecture != architecture or record.control != expected_control_digest(info.control) or record.size != info.size:
+        expected = {
+            IndexRecord(info.name, info.version, architecture, expected_control_digest(info.control), info.size)
+            for (package_name, package_architecture), info in by_identity.items()
+            if package_architecture == architecture
+        }
+        if len(records) != len(expected) or set(records) != expected:
             raise ValueError(f"index binding mismatch: {architecture}")
 
 

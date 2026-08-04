@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import tarfile
 import tempfile
+from unittest.mock import patch
 from pathlib import Path
 
 import apk_archive
@@ -24,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ASSEMBLE = ROOT / ".github/scripts/assemble-apk-repository.sh"
 
 
-def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
+def payload(architecture: str, name: str = "openssl-fips-provider") -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
     return (
         entry("usr", typeflag=tarfile.DIRTYPE),
         entry("usr/bin", typeflag=tarfile.DIRTYPE),
@@ -40,7 +41,7 @@ def payload(architecture: str) -> tuple[tuple[tarfile.TarInfo, bytes | None], ..
         entry("var/lib", typeflag=tarfile.DIRTYPE),
         entry("var/lib/db", typeflag=tarfile.DIRTYPE),
         entry("var/lib/db/sbom", typeflag=tarfile.DIRTYPE),
-        entry(apk_archive.MELANGE_SPDX, b"{}"),
+        entry(f"var/lib/db/sbom/{name}-3.1.2-r3.spdx.json", b"{}"),
     )
 
 
@@ -50,17 +51,6 @@ def rejects_package(data: bytes, architecture: str = "x86_64") -> None:
     except ValueError:
         return
     raise AssertionError("invalid package was accepted")
-
-
-def rejects_identity(data: bytes) -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        package = Path(temporary) / "package.apk"
-        package.write_bytes(data)
-        try:
-            apk_repository_policy.checked_package(package, "x86_64")
-        except ValueError:
-            return
-    raise AssertionError("invalid package identity was accepted")
 
 
 def sign(path: Path, key: Path) -> None:
@@ -79,11 +69,14 @@ def repository(root: Path) -> tuple[Path, Path, str]:
     for architecture in sorted(apk_repository_policy.ARCHITECTURES):
         directory = root / architecture
         directory.mkdir()
-        package = directory / "openssl-fips-provider-3.1.2-r3.apk"
-        write_unsigned(package, architecture, payload(architecture))
-        sign(package, key)
-        subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), str(package)], check=True)
-        packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
+        archives: list[Path] = []
+        for name in ("openssl-fips-provider", "openssl-fips-provider-extra"):
+            package = directory / f"{name}-3.1.2-r3.apk"
+            write_unsigned(package, architecture, payload(architecture, name), name=name)
+            sign(package, key)
+            archives.append(package)
+            packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
+        subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), *(str(package) for package in archives)], check=True)
     manifest = root / "manifest.json"
     manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
     return root / "x86_64" / "openssl-fips-provider-3.1.2-r3.apk", keys, hashlib.sha256(manifest.read_bytes()).hexdigest()
@@ -139,7 +132,7 @@ def unit_tests() -> None:
     assert apk_archive.package_info(valid, "x86_64", apk_repository_policy.REQUIRED_FILES).name == "openssl-fips-provider"
     rejects_package(valid[:-1])
     rejects_package(valid + b"suffix")
-    rejects_identity(signed_shape(unsigned_package("x86_64", payload("x86_64"), name="other")))
+    assert apk_archive.package_info(signed_shape(unsigned_package("x86_64", payload("x86_64", "other"), name="other")), "x86_64", apk_repository_policy.REQUIRED_FILES).name == "other"
     rejects_package(signed_shape(unsigned_package("aarch64", payload("aarch64"))))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64")[:-1])))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("etc/evil", b"bad"),))))
@@ -150,6 +143,24 @@ def unit_tests() -> None:
     rejects_package(signed_shape(unsigned_package("x86_64", (entry("usr/lib/ossl-modules/fips.so", typeflag=tarfile.SYMTYPE, linkname="/etc/passwd"),) + payload("x86_64")[1:])))
     rejects_package(signed_shape(unsigned_package("x86_64", (entry("usr/lib/ossl-modules/fips.so", typeflag=tarfile.CHRTYPE),) + payload("x86_64")[1:])))
     rejects_package(b"\x1f\x8b\x08\x00" + b"x" * (apk_archive.MAX_ARCHIVE_SIZE + 1))
+    extra_member = gzip_member(b"extra member")
+    with patch.object(apk_archive.zlib, "decompressobj", wraps=apk_archive.zlib.decompressobj) as decompressobj:
+        rejects_package(valid + extra_member)
+        assert decompressobj.call_count == 3
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        manifest = root / "manifest.json"
+        manifest.write_text(
+            json.dumps({"architectures": ["aarch64", "x86_64", "x86_64"], "packages": []}),
+            encoding="utf-8",
+        )
+        try:
+            apk_repository_policy.validate(root, root, hashlib.sha256(manifest.read_bytes()).hexdigest())
+        except ValueError as error:
+            assert str(error) == "unexpected architecture set"
+        else:
+            raise AssertionError("duplicate architecture rows were accepted")
 
 
 def crypto_tests() -> None:
@@ -183,6 +194,13 @@ def crypto_tests() -> None:
         apk_repository_policy.verify(package, keys)
         rejects_repository(root, keys, digest)
 
+        package, keys, digest = repository(root)
+        manifest = root / "manifest.json"
+        values = json.loads(manifest.read_text(encoding="utf-8"))
+        values["packages"].pop()
+        manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
+        rejects_repository(root, keys, hashlib.sha256(manifest.read_bytes()).hexdigest())
+
 
 def real_melange_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
@@ -192,6 +210,13 @@ def real_melange_tests() -> None:
         apk_repository_policy.verify(package, keys)
         assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r3"
         apk_repository_policy.validate(repository, keys, digest)
+        renamed = package.with_name("fixture.apk")
+        package.rename(renamed)
+        manifest = repository / "manifest.json"
+        values = json.loads(manifest.read_text(encoding="utf-8"))
+        next(entry for entry in values["packages"] if entry["path"] == package.relative_to(repository).as_posix())["path"] = renamed.relative_to(repository).as_posix()
+        manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
+        package = renamed
         command = [
             "bash",
             str(ROOT / "scripts/verify_apk_repository.sh"),

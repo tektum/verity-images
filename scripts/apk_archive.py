@@ -16,9 +16,7 @@ MAX_ENTRY_SIZE: Final = 16 * 1024 * 1024
 MAX_MELANGE_RECIPE_SIZE: Final = 8 * 1024
 MAX_SPDX_SIZE: Final = 64 * 1024
 MELANGE_RECIPE: Final = ".melange.yaml"
-MELANGE_SPDX: Final = "var/lib/db/sbom/openssl-fips-provider-3.1.2-r3.spdx.json"
 MELANGE_RECIPE_FIELDS: Final = (
-    b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 3\n",
     b"vars:\n",
     b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
     b'  certificate: "4985"\n',
@@ -74,6 +72,8 @@ def gzip_members(data: bytes, count: int) -> tuple[GzipMember, ...]:
     members: list[GzipMember] = []
     remaining = data
     while remaining:
+        if len(members) >= count:
+            raise ValueError("unexpected gzip member count")
         inflater = zlib.decompressobj(16 + zlib.MAX_WBITS)
         try:
             plain = inflater.decompress(remaining, MAX_MEMBER_SIZE + 1)
@@ -136,25 +136,26 @@ def package_info(data: bytes, architecture: str, required_files: frozenset[str])
     del signature
     control_entries = tar_entries(control.plain)
     control_files = {entry.name: entry.contents for entry in control_entries if entry.contents is not None}
-    recipe = control_files.get(MELANGE_RECIPE)
-    if set(control_files) != {".PKGINFO", MELANGE_RECIPE} or len(control_entries) != len(control_files) or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
-        raise ValueError("invalid control archive")
     metadata = fields(control_files[".PKGINFO"])
+    name, version = metadata.get("pkgname", ""), metadata.get("pkgver", "")
+    package_version, separator, epoch = version.rpartition("-r")
+    recipe = control_files.get(MELANGE_RECIPE)
+    recipe_identity = f"package:\n  name: {name}\n  version: {package_version}\n  epoch: {epoch}\n".encode()
+    if not name or not package_version or not separator or not epoch.isdecimal() or set(control_files) != {".PKGINFO", MELANGE_RECIPE} or len(control_entries) != len(control_files) or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or recipe_identity not in recipe or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
+        raise ValueError("invalid control archive")
     if metadata.get("arch") != architecture or metadata.get("datahash") != hashlib.sha256(payload.compressed).hexdigest():
         raise ValueError("invalid package metadata")
     payload_entries = tar_entries(payload.plain)
     payload_files = {entry.name: entry.contents for entry in payload_entries if entry.contents is not None}
     payload_directories = {entry.name for entry in payload_entries if entry.contents is None}
-    spdx = payload_files.get(MELANGE_SPDX)
-    if len(payload_entries) != len(payload_files) + len(payload_directories) or set(payload_files) != required_files | {MELANGE_SPDX} or payload_directories != PAYLOAD_DIRECTORIES or spdx is None or not 0 < len(spdx) <= MAX_SPDX_SIZE:
+    spdx = f"var/lib/db/sbom/{name}-{version}.spdx.json"
+    spdx_contents = payload_files.get(spdx)
+    if len(payload_entries) != len(payload_files) + len(payload_directories) or set(payload_files) != required_files | {spdx} or payload_directories != PAYLOAD_DIRECTORIES or spdx_contents is None or not 0 < len(spdx_contents) <= MAX_SPDX_SIZE:
         raise ValueError("invalid FIPS payload")
     module = payload_files.get("usr/lib/ossl-modules/fips.so", b"")
     machines = {"x86_64": 62, "aarch64": 183}
     if len(module) < 20 or module[:5] != b"\x7fELF\x02" or module[5] != 1 or int.from_bytes(module[18:20], "little") != machines[architecture]:
         raise ValueError("invalid FIPS module ELF")
-    name, version = metadata.get("pkgname", ""), metadata.get("pkgver", "")
-    if not name or not version:
-        raise ValueError("invalid package identity")
     return PackageInfo(name, version, control.compressed, len(data))
 
 

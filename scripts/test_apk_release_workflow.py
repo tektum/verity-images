@@ -6,8 +6,10 @@
 # How to run:
 #   uv run scripts/test_apk_release_workflow.py
 
+import json
 import os
 import subprocess
+import tempfile
 from pathlib import Path
 from typing import Final
 
@@ -174,9 +176,9 @@ def main() -> None:
     assert "apk --keys-dir" in repository_verify
     assert "--platform" not in repository_verify
     assert "/repository/x86_64/APKINDEX.tar.gz" in repository_verify
-    assert "/repository/x86_64/openssl-fips-provider-*.apk" in repository_verify
     assert "/repository/aarch64/APKINDEX.tar.gz" in repository_verify
-    assert "/repository/aarch64/openssl-fips-provider-*.apk" in repository_verify
+    assert 'python3 - "$repository/manifest.json"' in repository_verify
+    assert '"${packages[@]}"' in repository_verify
     assert 'umask 077' in smoke_workflow
     assert 'private_key_source="$work_dir/verity-apk-2026.source.pem"' in smoke_workflow
     assert 'private_key="$work_dir/verity-apk-2026.rsa"' in smoke_workflow
@@ -192,6 +194,35 @@ def main() -> None:
     )
     assert RUNTIME_IMAGE in policy + runtime_test
     assert ":latest" not in policy + runtime_test
+
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        repository = root / "repository"
+        repository.mkdir()
+        (repository / "manifest.json").write_text(
+            json.dumps(
+                {
+                    "packages": [
+                        {"path": "x86_64/valid.apk"},
+                        {"path": "../unsafe.apk"},
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        key = root / "key.pub"
+        key.write_text("key", encoding="utf-8")
+        binaries = root / "bin"
+        binaries.mkdir()
+        docker = binaries / "docker"
+        docker.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+        docker.chmod(0o755)
+        result = subprocess.run(
+            ["bash", str(REPOSITORY_VERIFY), str(repository), str(key)],
+            check=False,
+            env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"},
+        )
+        assert result.returncode == 1
 
 
 if __name__ == "__main__":
