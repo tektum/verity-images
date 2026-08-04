@@ -151,6 +151,7 @@ fi
 
 grep -Fq "docker image history \"\$image\"" "$script"
 grep -Fq "docker image save \"\$image\" --output \"\$archive\"" "$script"
+grep -Fq '/run/containerd/containerd.sock' "$script"
 grep -Fq 'images import' "$script"
 grep -Fq -- "--platform \"linux/\$image_arch\" --snapshotter overlayfs \"\$archive\"" "$script"
 unpack_line=$(grep -nF 'images import' "$script" | cut -d: -f1)
