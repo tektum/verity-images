@@ -25,8 +25,4 @@ for arch in amd64 arm64; do
   jq --arg arch "$arch" '.name += "-verity-platform-" + $arch' \
     "${sboms[$arch]}" > "$predicate"
   cosign attest --yes --type spdxjson --predicate "$predicate" "${target}@${digest}"
-  cyclonedx=$directory/sbom-$arch.cyclonedx.json
-  jq --arg arch "$arch" 'if all(.packages[]; any(.externalRefs[]?; .referenceType == "purl")) then {bomFormat:"CycloneDX",specVersion:"1.5",name:(.name + "-verity-platform-" + $arch),components:[.packages[] as $package | ($package.externalRefs | map(select(.referenceType == "purl")) | first) as $purl | {name:$package.name,version:$package.versionInfo,purl:$purl.referenceLocator}]} else error("every package requires a purl") end' \
-    "${sboms[$arch]}" > "$cyclonedx"
-  cosign attest --yes --type cyclonedx --predicate "$cyclonedx" "${target}@${digest}"
 done
