@@ -127,6 +127,7 @@ run_replacement() {
   grep -Fq -- '--build-arg BASE=base-image' "$work/docker.log"
   grep -Fq -- "--build-arg GOSU_PATH=$replacement_path" "$work/docker.log"
   grep -Fq -- '--provenance=false' "$work/docker.log"
+  grep -Fq -- '--output type=image,unpack=true' "$work/docker.log"
   grep -Fq -- '--tag target-image' "$work/docker.log"
   grep -Fxq 755 "$work/mode.log"
   grep -Fq "go mod edit -require=\"golang.org/x/sys@\${GOSU_X_SYS_VERSION}\"" "$work/buildfile.log"

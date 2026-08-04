@@ -92,7 +92,8 @@ fi
 mv "$work/output/gosu" "$work/install/gosu"
 chmod 0755 "$work/install/gosu"
 docker build --platform "linux/$arch" --provenance=false --build-arg "BASE=$base" \
-  --build-arg "GOSU_PATH=$gosu_path" --tag "$target" --file - "$work/install" <<'EOF'
+  --build-arg "GOSU_PATH=$gosu_path" --output type=image,unpack=true \
+  --tag "$target" --file - "$work/install" <<'EOF'
 ARG BASE=scratch
 FROM ${BASE}
 ARG GOSU_PATH
