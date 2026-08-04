@@ -2,41 +2,19 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://tektum.github.io/verity-images/repository-state.schema.json",
   "title": "Immutable APK Repository State",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["schemaVersion", "repository", "release", "asset", "archive", "key", "packages"],
+  "oneOf": [
+    {"$ref": "#/$defs/stateV1"},
+    {"$ref": "#/$defs/stateV2"}
+  ],
   "$defs": {
     "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
-    "assetSha256": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+    "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
     "architecture": {"enum": ["x86_64", "aarch64"]},
-    "manifestPackage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["architecture", "path", "sha256"],
-      "properties": {
-        "architecture": {"$ref": "#/$defs/architecture"},
-        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
-        "sha256": {"$ref": "#/$defs/sha256"}
-      }
+    "relativePath": {
+      "type": "string",
+      "pattern": "^(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._+/-]+$"
     },
-    "package": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["architecture", "name", "version", "epoch", "path", "sha256"],
-      "properties": {
-        "architecture": {"$ref": "#/$defs/architecture"},
-        "name": {"type": "string", "pattern": "^[a-z0-9]+(?:[._+-][a-z0-9]+)*$"},
-        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:-[A-Za-z0-9.+_~-]+)?$"},
-        "epoch": {"type": "integer", "minimum": 0},
-        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
-        "sha256": {"$ref": "#/$defs/sha256"}
-      }
-    }
-  },
-  "properties": {
-    "$schema": {"type": "string"},
-    "schemaVersion": {"const": 1},
-    "repository": {"const": "tektum/verity-images"},
     "release": {
       "type": "object",
       "additionalProperties": false,
@@ -44,7 +22,7 @@
       "properties": {
         "id": {"type": "integer", "minimum": 1},
         "tag": {"type": "string", "pattern": "^apk-repo-v[0-9]{4}$"},
-        "targetCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "targetCommit": {"$ref": "#/$defs/commit"},
         "immutable": {"const": true}
       }
     },
@@ -55,31 +33,7 @@
       "properties": {
         "id": {"type": "integer", "minimum": 1},
         "name": {"const": "verity-apk-repository.tar.zst"},
-        "sha256": {"$ref": "#/$defs/assetSha256"}
-      }
-    },
-    "archive": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["root", "sha256", "manifestSha256", "manifest"],
-      "properties": {
-        "root": {"const": "apk"},
-        "sha256": {"$ref": "#/$defs/assetSha256"},
-        "manifestSha256": {"$ref": "#/$defs/sha256"},
-        "manifest": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["architectures", "fingerprint", "packages"],
-          "properties": {
-            "architectures": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": {"$ref": "#/$defs/architecture"}
-            },
-            "fingerprint": {"$ref": "#/$defs/sha256"},
-            "packages": {"type": "array", "items": {"$ref": "#/$defs/manifestPackage"}}
-          }
-        }
+        "sha256": {"$ref": "#/$defs/digest"}
       }
     },
     "key": {
@@ -91,6 +45,161 @@
         "fingerprint": {"$ref": "#/$defs/sha256"}
       }
     },
-    "packages": {"type": "array", "items": {"$ref": "#/$defs/package"}}
+    "manifestPackageV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architecture", "path", "sha256"],
+      "properties": {
+        "architecture": {"$ref": "#/$defs/architecture"},
+        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "packageFields": {
+      "type": "object",
+      "required": ["architecture", "name", "version", "epoch", "path", "sha256"],
+      "properties": {
+        "architecture": {"$ref": "#/$defs/architecture"},
+        "name": {"type": "string", "pattern": "^[a-z0-9]+(?:[._+-][a-z0-9]+)*$"},
+        "version": {"type": "string", "pattern": "^[0-9]+(?:\\.[0-9]+)*(?:-[A-Za-z0-9.+_~-]+)?$"},
+        "epoch": {"type": "integer", "minimum": 0},
+        "path": {"type": "string", "pattern": "^(x86_64|aarch64)/[A-Za-z0-9._+-]+\\.apk$"},
+        "sha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "packageV1": {
+      "allOf": [{"$ref": "#/$defs/packageFields"}],
+      "unevaluatedProperties": false
+    },
+    "legacySnapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "releaseId", "releaseTag", "targetCommit", "assetId", "assetSha256", "manifestSha256", "sourcePath"],
+      "properties": {
+        "type": {"const": "legacy-snapshot"},
+        "releaseId": {"type": "integer", "minimum": 1},
+        "releaseTag": {"type": "string", "pattern": "^apk-repo-v[0-9]{4}$"},
+        "targetCommit": {"$ref": "#/$defs/commit"},
+        "assetId": {"type": "integer", "minimum": 1},
+        "assetSha256": {"$ref": "#/$defs/digest"},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "sourcePath": {"$ref": "#/$defs/relativePath"}
+      }
+    },
+    "attestedBuild": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sourceCommit", "buildWorkflowId", "buildRunId", "buildArtifactId", "buildArtifactSha256", "unsignedSha256", "signingWorkflowId", "signingRunId", "bundlePath", "bundleSha256"],
+      "properties": {
+        "type": {"const": "attested-build"},
+        "sourceCommit": {"$ref": "#/$defs/commit"},
+        "buildWorkflowId": {"type": "integer", "minimum": 1},
+        "buildRunId": {"type": "integer", "minimum": 1},
+        "buildArtifactId": {"type": "integer", "minimum": 1},
+        "buildArtifactSha256": {"$ref": "#/$defs/digest"},
+        "unsignedSha256": {"$ref": "#/$defs/sha256"},
+        "signingWorkflowId": {"type": "integer", "minimum": 1},
+        "signingRunId": {"type": "integer", "minimum": 1},
+        "bundlePath": {"$ref": "#/$defs/relativePath"},
+        "bundleSha256": {"$ref": "#/$defs/sha256"}
+      }
+    },
+    "origin": {
+      "oneOf": [
+        {"$ref": "#/$defs/legacySnapshot"},
+        {"$ref": "#/$defs/attestedBuild"}
+      ]
+    },
+    "packageV2": {
+      "allOf": [
+        {"$ref": "#/$defs/packageFields"},
+        {
+          "type": "object",
+          "required": ["origin"],
+          "properties": {"origin": {"$ref": "#/$defs/origin"}}
+        }
+      ],
+      "unevaluatedProperties": false
+    },
+    "architectures": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "uniqueItems": true,
+      "items": {"$ref": "#/$defs/architecture"}
+    },
+    "manifestV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["architectures", "fingerprint", "packages"],
+      "properties": {
+        "architectures": {"$ref": "#/$defs/architectures"},
+        "fingerprint": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "array", "items": {"$ref": "#/$defs/manifestPackageV1"}}
+      }
+    },
+    "manifestV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "architectures", "fingerprint", "packages"],
+      "properties": {
+        "schemaVersion": {"const": 2},
+        "architectures": {"$ref": "#/$defs/architectures"},
+        "fingerprint": {"$ref": "#/$defs/sha256"},
+        "packages": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/packageV2"}}
+      }
+    },
+    "archiveV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "sha256", "manifestSha256", "manifest"],
+      "properties": {
+        "root": {"const": "apk"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "manifest": {"$ref": "#/$defs/manifestV1"}
+      }
+    },
+    "archiveV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["root", "sha256", "manifestSha256", "manifest"],
+      "properties": {
+        "root": {"const": "apk"},
+        "sha256": {"$ref": "#/$defs/digest"},
+        "manifestSha256": {"$ref": "#/$defs/sha256"},
+        "manifest": {"$ref": "#/$defs/manifestV2"}
+      }
+    },
+    "stateV1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "release", "asset", "archive", "key", "packages"],
+      "properties": {
+        "$schema": {"type": "string"},
+        "schemaVersion": {"const": 1},
+        "repository": {"const": "tektum/verity-images"},
+        "release": {"$ref": "#/$defs/release"},
+        "asset": {"$ref": "#/$defs/asset"},
+        "archive": {"$ref": "#/$defs/archiveV1"},
+        "key": {"$ref": "#/$defs/key"},
+        "packages": {"type": "array", "items": {"$ref": "#/$defs/packageV1"}}
+      }
+    },
+    "stateV2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "repository", "release", "asset", "archive", "key", "packages"],
+      "properties": {
+        "$schema": {"type": "string"},
+        "schemaVersion": {"const": 2},
+        "repository": {"const": "tektum/verity-images"},
+        "release": {"$ref": "#/$defs/release"},
+        "asset": {"$ref": "#/$defs/asset"},
+        "archive": {"$ref": "#/$defs/archiveV2"},
+        "key": {"$ref": "#/$defs/key"},
+        "packages": {"type": "array", "minItems": 2, "items": {"$ref": "#/$defs/packageV2"}}
+      }
+    }
   }
 }
