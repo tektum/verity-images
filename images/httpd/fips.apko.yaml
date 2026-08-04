@@ -1,0 +1,38 @@
+contents:
+  repositories:
+    - https://tektum.github.io/verity-images/apk
+    - https://packages.wolfi.dev/os
+  keyring:
+    - packages/keys/verity-apk-2026.rsa.pub
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - apache2-compat
+    - apache2-utils
+    - ca-certificates-bundle
+    - openssl
+    - openssl-fips-provider=3.1.2-r3
+
+accounts:
+  groups:
+    - groupname: www-data
+      gid: 33
+  users:
+    - username: www-data
+      uid: 33
+      gid: 33
+
+entrypoint:
+  command: /usr/bin/openssl-fips-activate
+
+cmd: /usr/local/bin/httpd-foreground
+
+stop-signal: SIGWINCH
+
+environment:
+  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips
+  PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /run/openssl-fips
+    type: directory
+    permissions: 0o1777
