@@ -15,18 +15,18 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  APKO_VERSION: 1.2.29
-  APKO_SHA256: cfc96582d2643271bf94577c0747953718d7b9f0760d0685ba5225a9bd754626
-  MELANGE_VERSION: 0.56.4
-  MELANGE_SHA256: ebb54361ef1d853002841f279776fa2ee3019ae2490c3184045bc1b9aeb3d7d8
+  APKO_VERSION: 1.2.31
+  APKO_SHA256: abd57139139f4f5ce567f914bd168b7b2f4a3d39851711f0b1dd0c83c518f867
+  MELANGE_VERSION: 0.56.5
+  MELANGE_SHA256: 40e17d259c9fd7bce8e000a59239d7b9ebf13971117334ad117ae6eefd98f92b
   COPA_VERSION: 0.14.2
   COPA_SHA256: 756c6e0f287dc7839c0a72e91b4d4712b1d8cd86a7233c068c0208a28bcb9ede
   SYFT_VERSION: 1.50.0
   SYFT_SHA256: bf7b29ff57f06da30918266a0e1c2885a8f99784798d1bdb1628886aa015d788
-  GRYPE_VERSION: 0.115.0
-  GRYPE_SHA256: 3fad92940650e514c0aa2dad83526942a055e210cec09a8a59d9c024adc2b90e
-  TRIVY_VERSION: 0.72.0
-  TRIVY_SHA256: bbb64b9695866ce4a7a8f5c9592002c5961cab378577fa3f8a040df362b9b2ea
+  GRYPE_VERSION: 0.116.1
+  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458
+  TRIVY_VERSION: 0.73.0
+  TRIVY_SHA256: 2edd39da482bb4e9831962487b68f68e3928ec3137794757f54d00383d79547b
 
 jobs:
   matrix:
@@ -62,7 +62,7 @@ jobs:
   validate:
     if: github.ref != 'refs/heads/main' && fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
-    runs-on: ubuntu-latest
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
     permissions:
       contents: read
     strategy:
@@ -149,8 +149,8 @@ jobs:
       github.event_name != 'pull_request' &&
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    timeout-minutes: 120
     permissions:
       attestations: write
       contents: read
@@ -273,7 +273,7 @@ jobs:
           set -euo pipefail
           [[ "$MATRIX_RESULT" == success ]]
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
-          if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
+          if [[ "$EVENT" == pull_request || "$EVENT" == merge_group || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
           else
             [[ "$PUBLISH_RESULT" == success ]]
@@ -309,7 +309,7 @@ jobs:
               (((.[0] | keys) | sort == ["description", "digest", "name", "scan", "tags", "track", "version"]) and
                 (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
                 (.[0].tags | type == "string" and length > 0) or
-               ($event == "pull_request" and
+               (($event == "pull_request" or $event == "merge_group") and
                 ((.[0] | keys) | sort == ["description", "digest", "name", "scan", "track", "version"]) and
                 .[0].digest == "local"))
             ' "$report" >/dev/null

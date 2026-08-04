@@ -15,12 +15,13 @@ mkdir -p "${output}/sbom"
 if [[ "$track" == wolfi ]]; then
   config="${context}/apko.yaml"
   lockfile="${context}/apko.lock.json"
-  if [[ "$flavor" != plain ]]; then
+  if [[ "$flavor" != plain && -f "${context}/${flavor}.apko.yaml" ]]; then
     config="${context}/${flavor}.apko.yaml"
     lockfile="${context}/${flavor}.apko.lock.json"
     [[ -f "${context}/${flavor}-wrapper.apko.yaml" ]] && config="${context}/${flavor}-wrapper.apko.yaml"
   fi
   template=$config
+  [[ -f "$template" ]]
   recipe="${context}/melange.yaml"
   [[ -f "${context}/${flavor}.melange.yaml" ]] && recipe="${context}/${flavor}.melange.yaml"
   if [[ -f "$recipe" ]]; then
@@ -41,7 +42,7 @@ if [[ "$track" == wolfi ]]; then
       fi
     done
     godebug=fips140=off
-    [[ "$flavor" == fips ]] && godebug=fips140=on
+    [[ "$flavor" == fips ]] && godebug=fips140=only
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
       -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
       -e "s|@REPOSITORY_KEY@|$root/packages/keys/verity-apk-2026.rsa.pub|" \

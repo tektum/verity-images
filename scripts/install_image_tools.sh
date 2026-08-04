@@ -7,11 +7,11 @@ if [[ "$track" == apk ]]; then
   case "$(uname -m)" in
     x86_64)
       melange_arch=amd64
-      melange_sha256=ebb54361ef1d853002841f279776fa2ee3019ae2490c3184045bc1b9aeb3d7d8
+      melange_sha256=40e17d259c9fd7bce8e000a59239d7b9ebf13971117334ad117ae6eefd98f92b
       ;;
     aarch64)
       melange_arch=arm64
-      melange_sha256=d77448bc73f1afdb905037c3347b7db4aacea39f5bcc899cf07f8fe5880e6ae0
+      melange_sha256=3b8565a5d924df0a7a7e61895f62972017f5613bead2d45218e0e4d47f7601c1
       ;;
     *)
       printf 'unsupported APK build architecture: %s\n' "$(uname -m)" >&2

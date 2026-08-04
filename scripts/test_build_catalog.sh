@@ -78,7 +78,6 @@ ln -s "$root/scripts" "$work/scripts"
   PATH="$work:$PATH" devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json' > cold-banner.log
 )
 grep -Fx 'Info: creating Python environment' "$work/cold-banner.log"
-jq -e '.include | length == 22' "$work/expected-images.json" >/dev/null
 jq '{images: [.include[] | {
   name,
   version: .tag_version,

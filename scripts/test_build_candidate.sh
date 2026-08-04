@@ -70,24 +70,22 @@ run_candidate() {
 
 mkdir -p "$work/caddy"
 cat >"$work/caddy/apko.yaml" <<'EOF'
-variant: plain
-repository: @LOCAL_REPOSITORY@
-key: @LOCAL_KEY@
-godebug: @GODEBUG@
-EOF
-cat >"$work/caddy/fips.apko.yaml" <<'EOF'
-variant: fips
+variant: caddy
 repository: @LOCAL_REPOSITORY@
 key: @LOCAL_KEY@
 godebug: @GODEBUG@
 EOF
 : >"$work/caddy/melange.yaml"
 printf 'GOFIPS140=v1.0.0\n' >"$work/caddy/fips.env"
+run_candidate "$work/caddy" caddy plain
+grep -q '^variant: caddy$' "$APKO_LOG"
+grep -q '^godebug: fips140=off$' "$APKO_LOG"
+
+: >"$APKO_LOG"
+: >"$MELANGE_LOG"
 run_candidate "$work/caddy" caddy-fips fips
-grep -q '^variant: fips$' "$APKO_LOG"
-if grep -q '^variant: plain$' "$APKO_LOG"; then
-  exit 1
-fi
+grep -q '^variant: caddy$' "$APKO_LOG"
+grep -q '^godebug: fips140=only$' "$APKO_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch amd64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch arm64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 [[ $(grep -c "^start .*${work}/caddy/melange.yaml" "$MELANGE_LOG") -eq 2 ]]
@@ -142,3 +140,11 @@ grep -Fq 'install -m644 -D Caddyfile ' "$recipe"
 grep -Fq 'install -m644 -D index.html ' "$recipe"
 [[ -f "$root/images/caddy/Caddyfile" ]]
 [[ -f "$root/images/caddy/index.html" ]]
+
+traefik="$root/images/traefik"
+grep -Fxq 'flavors: [plain, fips]' "$traefik/metadata.yaml"
+grep -Fxq 'GOFIPS140=v1.0.0' "$traefik/fips.env"
+[[ $(find "$traefik" -name '*melange.yaml' | wc -l) -eq 1 ]]
+if grep -q 'openssl-fips-provider' "$traefik"/{apko.yaml,melange.yaml,metadata.yaml,fips.env}; then
+  exit 1
+fi

@@ -46,7 +46,11 @@ cat > "$temporary/multiple-documents.json" <<'EOF'
 EOF
 
 accepts "$temporary/published.json" nginx-1.0 push
+accepts "$temporary/published.json" nginx-1.0 workflow_dispatch
 accepts "$temporary/pull-request.json" nginx-1.0 pull_request
+accepts "$temporary/pull-request.json" nginx-1.0 merge_group
+rejects "$temporary/pull-request.json" nginx-1.0 push
+rejects "$temporary/pull-request.json" nginx-1.0 workflow_dispatch
 rejects "$temporary/unknown-key.json" nginx-1.0 pull_request
 rejects "$temporary/invalid-content.json" nginx-1.0 pull_request
 rejects "$temporary/log-pollution.json" nginx-1.0 pull_request

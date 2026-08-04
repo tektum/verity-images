@@ -19,6 +19,10 @@ import validate_repository_state
 ROOT: Final = Path(__file__).resolve().parents[1]
 WORKFLOW: Final = ROOT / ".github/workflows/catalog.yaml"
 STATE: Final = ROOT / "packages/repository-state.json"
+RUNBOOK: Final = ROOT / "docs/APK_REPOSITORY_STATE.md"
+SIGNING_RUNBOOK: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
+SIZE_CHECKER: Final = ROOT / "scripts/check_pages_size.py"
+PAGES_LIMIT: Final = 900 * 1024 * 1024
 
 
 def archive(root: Path, output: Path, name: str = "apk") -> None:
@@ -151,6 +155,71 @@ def workflow_modes() -> None:
     assert "releases/assets/${asset_id}" in workflow
     assert "validate_repository_state.py --live" in workflow
     assert "validate_repository_state.py --archive repository.tar.zst --pages pages" in workflow
+    assert "python3 scripts/check_pages_size.py pages" in workflow
+    assert workflow.index("python3 scripts/check_pages_size.py pages") < workflow.index(
+        "actions/upload-pages-artifact@"
+    )
+
+
+def rejects_oversized_pages_tree() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        pages = Path(temporary)
+        accepted = subprocess.run(
+            ["python3", str(SIZE_CHECKER), str(pages)], capture_output=True, check=False
+        )
+        if accepted.returncode:
+            raise AssertionError("Pages size checker rejected an empty tree")
+        with (pages / "oversized").open("wb") as oversized:
+            oversized.truncate(PAGES_LIMIT + 1)
+        rejected = subprocess.run(
+            ["python3", str(SIZE_CHECKER), str(pages)], capture_output=True, check=False
+        )
+        if not rejected.returncode:
+            raise AssertionError("Pages size checker accepted a tree larger than 900 MiB")
+
+
+def runbook_rejects_source_mismatch_under_optimization() -> None:
+    snippet = RUNBOOK.read_text(encoding="utf-8").split("<<'PY'\n", maxsplit=1)[1].split(
+        "\nPY\n", maxsplit=1
+    )[0]
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state = root / "state.json"
+        release = root / "release.json"
+        state.write_text('{"release":{"targetCommit":"old"}}', encoding="utf-8")
+        release.write_text("{}", encoding="utf-8")
+        result = subprocess.run(
+            ["python3", "-O", "-c", snippet, "archive", str(state), str(release), str(root / "pages"), "new"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env={"PYTHONPATH": str(ROOT / "scripts")},
+        )
+        if result.returncode == 0 or "recovery check failed: source commit" not in result.stderr:
+            raise AssertionError("optimized runbook did not fail closed on a source mismatch")
+
+
+def runbooks_keep_key_recovery_safe() -> None:
+    state_runbook = RUNBOOK.read_text(encoding="utf-8")
+    assert "scripts/devbox.sh run -- check-jsonschema --schemafile \"$work/state.schema.json\"" in state_runbook
+    signing_runbook = SIGNING_RUNBOOK.read_text(encoding="utf-8").split(
+        "## Rotation and revocation\n", maxsplit=1
+    )[1]
+    steps = (
+        "Pause publication",
+        "encrypted backup",
+        "Merge PR 1",
+        "excluding both state-contract files",
+        "Replace the protected environment secret",
+        "run the protected smoke",
+        "Publish and verify a new immutable release",
+        "Merge PR 2 that updates both state-contract files",
+        "Wait for Pages and downstream consumers",
+        "Resume publication",
+        "revoke the old key later",
+    )
+    positions = [signing_runbook.index(step) for step in steps]
+    assert positions == sorted(positions)
 
 
 def main() -> None:
@@ -161,6 +230,9 @@ def main() -> None:
     rejects_existing_staged_architecture(state)
     reports_live_lookup_timeout(state)
     workflow_modes()
+    rejects_oversized_pages_tree()
+    runbook_rejects_source_mismatch_under_optimization()
+    runbooks_keep_key_recovery_safe()
 
 
 if __name__ == "__main__":

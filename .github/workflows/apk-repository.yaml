@@ -4,6 +4,8 @@ on:
   push:
     branches: [main]
   pull_request:
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
     inputs:
       release-tag:
@@ -38,7 +40,7 @@ jobs:
 
       - name: Install native APK build tool
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Build and stage x86_64 APK
@@ -83,7 +85,7 @@ jobs:
 
       - name: Install native APK build tool
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Build and stage aarch64 APK
@@ -108,6 +110,33 @@ jobs:
         with:
           subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
 
+  apk-gate:
+    if: always()
+    needs: [build-x86_64, build-aarch64, apk-signing]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - name: Require successful APK jobs
+        shell: bash
+        env:
+          AARCH64_RESULT: ${{ needs.build-aarch64.result }}
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
+          SIGNING_RESULT: ${{ needs.apk-signing.result }}
+          X86_64_RESULT: ${{ needs.build-x86_64.result }}
+        run: |
+          set -euo pipefail
+          [[ "$X86_64_RESULT" == success ]]
+          [[ "$AARCH64_RESULT" == success ]]
+          if [[ "$EVENT" == workflow_dispatch &&
+            "$REPOSITORY" == tektum/verity-images && "$REF" == refs/heads/main ]]; then
+            [[ "$SIGNING_RESULT" == success ]]
+          else
+            [[ "$SIGNING_RESULT" == skipped ]]
+          fi
+
   apk-signing:
     if: >-
       github.event_name == 'workflow_dispatch' &&
@@ -122,7 +151,7 @@ jobs:
       contents: write
       id-token: write
     concurrency:
-      group: apk-signing-${{ inputs.release-tag }}
+      group: apk-signing
       cancel-in-progress: false
     steps:
       - name: Check out immutable source
@@ -165,15 +194,6 @@ jobs:
             gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
             bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
           done
-          if gh release view "$RELEASE_TAG" --repo "$REPOSITORY" >/dev/null 2>&1; then
-            printf '::error title=Duplicate release::Release %s already exists.\n' "$RELEASE_TAG"
-            exit 1
-          fi
-          if git ls-remote --exit-code --tags origin "refs/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
-            printf '::error title=Duplicate tag::Tag %s already exists.\n' "$RELEASE_TAG"
-            exit 1
-          fi
-
       - name: Download only current-run build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
@@ -203,9 +223,22 @@ jobs:
               --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done
 
+      - name: Reserve package identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
+        run: |
+          set -euo pipefail
+          mkdir release
+          .github/scripts/reserve-apk-release-identity.sh "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk > release/reservation.json
+
       - name: Install repository tools
         env:
-          MELANGE_VERSION: 0.56.4
+          MELANGE_VERSION: 0.56.5
         run: scripts/install_image_tools.sh apk
 
       - name: Sign APK repositories
@@ -253,20 +286,21 @@ jobs:
         with:
           subject-path: release/verity-apk-repository.tar.zst
 
-      - name: Create immutable-format draft release
+      - name: Update reserved draft release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
-          SOURCE_SHA: ${{ inputs.source-sha }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)
-          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" '
+          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" \
+            --slurpfile reservation release/reservation.json '
             "APK repository draft: \($release_tag)\n\nSHA-256: \($archive_sha256)\n\n" +
-            "Provenance: GitHub artifact attestation for this workflow run."
+            "Provenance: GitHub artifact attestation for this workflow run.\n\n" +
+            "<!-- apk-release-identity: \($reservation[0] | tojson) -->"
           ' release/provenance.json > release/notes.md
-          gh release create "$RELEASE_TAG" --draft --target "$SOURCE_SHA" \
-            --title "$RELEASE_TAG" --notes-file release/notes.md
+          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --notes-file release/notes.md
 
       - name: Upload fixed repository asset
         env:

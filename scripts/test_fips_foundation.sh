@@ -22,6 +22,34 @@ for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf 
     )] | length == 2
   ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
 done
+for version in 3.3 4.0; do
+  recipe="$root/images/ruby/$version/fips.melange.yaml"
+  grep -Fxq '  dependencies:' "$recipe"
+  grep -Fxq '    runtime:' "$recipe"
+  grep -Fxq '      - busybox' "$recipe"
+  grep -Fxq '      - openssl-fips-provider' "$recipe"
+  grep -Fxq "      - ruby-$version" "$recipe"
+done
+httpd="$root/images/httpd"
+grep -Fxq 'flavors: [plain, fips]' "$httpd/metadata.yaml"
+grep -Fxq '    - https://tektum.github.io/verity-images/apk' "$httpd/fips.apko.yaml"
+grep -Fxq '    - packages/keys/verity-apk-2026.rsa.pub' "$httpd/fips.apko.yaml"
+grep -Fxq '    - openssl-fips-provider=3.1.2-r3' "$httpd/fips.apko.yaml"
+grep -Fxq '  command: /usr/bin/openssl-fips-activate' "$httpd/fips.apko.yaml"
+grep -Fxq 'cmd: /usr/local/bin/httpd-foreground' "$httpd/fips.apko.yaml"
+grep -Fxq 'stop-signal: SIGWINCH' "$httpd/fips.apko.yaml"
+grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$httpd/fips.apko.yaml"
+grep -Fxq '    permissions: 0o1777' "$httpd/fips.apko.yaml"
+grep -Fq "docker logs \"\$container\" >&2 || true" "$httpd/tests/test.sh"
+grep -Fq "docker logs \"\$tls_container\" >&2 || true" "$httpd/tests/test.sh"
+[ "$(grep -Fc 'curl --fail --silent --connect-timeout 1 --max-time 5' "$httpd/tests/test.sh")" = 3 ]
+jq -e '
+  [.contents.packages[] | select(
+    .name == "openssl-fips-provider" and
+    .version == "3.1.2-r3" and
+    (.url | startswith("https://tektum.github.io/verity-images/apk/")))
+  ] | length == 2
+' "$httpd/fips.apko.lock.json" >/dev/null
 fake=$(mktemp -d)
 trap 'rm -rf "$fake"' EXIT
 export DOCKER_LOG="$fake/docker.log"
