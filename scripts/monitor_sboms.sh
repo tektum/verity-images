@@ -7,17 +7,18 @@ run_url=${RUN_URL:?RUN_URL is required}
 jq -e '
   .schema_version == 1 and
   (.delivery_id | type == "string" and test("^[a-f0-9]{64}$")) and
-  (.logical_image_ref | type == "string" and test("@sha256:[a-f0-9]{64}$")) and
-  (.package_name | type == "string" and length > 0) and
-  (.ecosystem | type == "string" and length > 0) and
-  (.version | type == "string" and length > 0) and
-  (.vuln_id | type == "string" and length > 0) and
+  (.logical_image_ref | type == "string" and test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$")) and
+  (.package_name | type == "string" and test("^[A-Za-z0-9._/@+-]{1,128}$")) and
+  (.ecosystem | type == "string" and test("^[A-Za-z0-9._-]{1,64}$")) and
+  (.version | type == "string" and test("^[A-Za-z0-9._:+~-]{1,128}$")) and
+  (.vuln_id | type == "string" and test("^[A-Za-z0-9._-]{1,64}$")) and
+  ((.severity // "unknown") as $severity | ["unknown", "negligible", "low", "medium", "high", "critical"] | index($severity) != null) and
   (.platforms | type == "array" and length > 0) and
-  all(.platforms[]; (.platform | test("^linux/(amd64|arm64)$")) and (.image_ref | test("@sha256:[a-f0-9]{64}$")))
+  all(.platforms[]; (.platform | test("^linux/(amd64|arm64)$")) and (.image_ref | test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$")))
 ' "$payload" >/dev/null
 delivery=$(jq -er .delivery_id "$payload")
 title=$(jq -r '"[CVE] \(.package_name)@\(.version) \(.vuln_id)"' "$payload")
-issues=$(gh api --paginate --slurp "repos/${repository}/issues?state=all&per_page=100")
+issues=$(gh api --paginate --slurp "repos/${repository}/issues?state=all&labels=squawk&per_page=100")
 issue=$(jq -c --arg delivery "$delivery" '[.[][] | select(has("pull_request") | not) | select((.body // "") | contains("<!-- squawk-delivery:" + $delivery + " -->"))] | if length > 1 then error("duplicate Squawk delivery issues") else .[0] // null end' <<<"$issues")
 body=$(mktemp)
 trap 'rm -f "$body"' EXIT
@@ -26,7 +27,8 @@ jq -r --arg run "$run_url" '
 ' "$payload" > "$body"
 number=$(jq -r '.number // empty' <<<"$issue")
 if [[ -z "$number" ]]; then
-  gh issue create --repo "$repository" --title "$title" --body-file "$body"
+  gh label create squawk --repo "$repository" --color 5319E7 --description "Squawk vulnerability alert" --force
+  gh issue create --repo "$repository" --title "$title" --body-file "$body" --label squawk
 else
   [[ $(jq -r .state <<<"$issue") != closed ]] || gh issue reopen "$number" --repo "$repository"
   gh issue edit "$number" --repo "$repository" --body-file "$body"

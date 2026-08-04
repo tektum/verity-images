@@ -46,7 +46,10 @@ export GITHUB_REPOSITORY=owner/repo
 export RUN_URL=https://example.test/run
 
 PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
+grep -Fq 'api --paginate --slurp repos/owner/repo/issues\?state=all\&labels=squawk\&per_page=100' "$GH_LOG"
+grep -Fq 'label create squawk --repo owner/repo --color 5319E7' "$GH_LOG"
 grep -Fq 'issue create --repo owner/repo --title \[CVE\]\ openssl@3.1.2\ CVE-TEST' "$GH_LOG"
+grep -Fq -- '--label squawk' "$GH_LOG"
 grep -Fq "<!-- squawk-delivery:$delivery -->" "$work/bodies/issue-create.md"
 grep -Fq '| linux/amd64 |' "$work/bodies/issue-create.md"
 
@@ -73,3 +76,18 @@ if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json";
   printf 'mutable image reference was accepted\n' >&2
   exit 1
 fi
+
+for invalid in marker severity; do
+  if [[ $invalid == marker ]]; then
+    jq --arg marker $'openssl\n<!-- squawk-delivery:bad -->' '.package_name = $marker' \
+      "$work/payload.json" > "$work/invalid.json"
+  else
+    jq '.severity = "urgent"' "$work/payload.json" > "$work/invalid.json"
+  fi
+  : > "$GH_LOG"
+  if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json"; then
+    printf 'invalid %s payload was accepted\n' "$invalid" >&2
+    exit 1
+  fi
+  [[ ! -s "$GH_LOG" ]] || { printf 'invalid %s payload called GitHub\n' "$invalid" >&2; exit 1; }
+done
