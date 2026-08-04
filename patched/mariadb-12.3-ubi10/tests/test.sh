@@ -115,6 +115,7 @@ docker run -d --platform "$platform" --name "$legacy" \
   -e MARIADB_ROOT_PASSWORD=legacy-password \
   "$fixture" >/dev/null
 wait_ready "$legacy"
+[ "$(docker exec -e MYSQL_PWD=legacy-password "$legacy" mariadb -uroot -Nse 'SELECT VERSION() NOT LIKE "12.3.%"')" = 1 ]
 docker exec -e MYSQL_PWD=legacy-password "$legacy" mariadb -uroot -e 'CREATE DATABASE upgrade_test; CREATE TABLE upgrade_test.records (value INT); INSERT INTO upgrade_test.records VALUES (123);'
 docker stop "$legacy" >/dev/null
 
