@@ -222,26 +222,12 @@ def main() -> None:
         "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
         in workflow
     )
-    assert '    - cron: "17 3 * * *"\n' in monitor
+    assert "  schedule:\n" not in monitor
     assert "  workflow_dispatch:\n" in monitor
-    assert (
-        "  GRYPE_VERSION: 0.116.1\n"
-        "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
-        in monitor
-    )
+    assert "      payload:\n" in monitor
+    assert "        required: true\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
-    assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
-    assert "gh run download" not in monitor
-    assert (
-        "run: curl -fsSL https://tektum.github.io/verity-images/catalog.json "
-        "-o catalog.json\n"
-        in monitor
-    )
-    assert "run: python3 scripts/gen_matrix.py --all > expected-images.json\n" in monitor
-    assert (
-        "run: scripts/monitor_sboms.sh catalog.json expected-images.json\n"
-        in monitor
-    )
+    assert "scripts/monitor_sboms.sh squawk-payload.json\n" in monitor
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
