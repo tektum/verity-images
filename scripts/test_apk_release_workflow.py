@@ -124,20 +124,27 @@ def main() -> None:
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
     assert signing.index("Validate source and artifacts") < signing.index("Download only current-run build artifacts")
     assert "Reserve package identity" in signing
-    assert ".github/scripts/reserve-apk-release-identity.sh" in signing
-    assert "gh release create" in reserver
-    assert "gh api --paginate --slurp" in reserver
-    assert "gh release download" in reserver
-    assert "apk-release-identity" in reserver
+    assert ".github/scripts/reserve-apk-release-identity.sh reserve" in signing
+    assert "packages/repository-state.json release/inputs.json" in signing
+    assert 'type:"build-input"' in signing
+    assert "gh_call release create" in reserver
+    assert "gh_call api --paginate --slurp" in reserver
+    assert "releases/assets/" in reserver
+    assert "apk-release-reserved" in reserver
+    assert "apk-release-complete" in reserver
+    assert 'immutable == true' in reserver
+    assert 'timeout "${GH_TIMEOUT_SECONDS:-30}" gh' in reserver
     assert 'git ls-remote --exit-code --tags origin "refs/tags/${release_tag}"' in reserver
-    assert 'gh release create "$release_tag" --repo "$repository"' in reserver
+    assert 'gh_call release create "$release_tag" --repo "$repository"' in reserver
     assert "body=${body//$'\\r'/}" in reserver
-    assert 'map({architecture,name,version,epoch})' in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
-    assert "gh release edit \"$RELEASE_TAG\"" in signing
+    assert ".github/scripts/reserve-apk-release-identity.sh complete" in signing
+    assert "release/reservation.json release/verity-apk-repository.tar.zst" in signing
     update_draft = signing.split("      - name: Update reserved draft release\n", maxsplit=1)[1]
     assert "REPOSITORY: ${{ github.repository }}" in update_draft.split("        run: |\n", maxsplit=1)[0]
-    assert 'gh release edit "$RELEASE_TAG" --repo "$REPOSITORY"' in update_draft
+    assert 'SOURCE_SHA: ${{ inputs.source-sha }}' in update_draft.split("        run: |\n", maxsplit=1)[0]
+    assert signing.index("reserve-apk-release-identity.sh complete") < signing.index("gh release upload")
+    assert "--draft=false" not in signing
     assert "gh release delete apk-repo-vNNNN --yes --cleanup-tag" in signing_doc
     assert "--clobber" not in signing
     assert (

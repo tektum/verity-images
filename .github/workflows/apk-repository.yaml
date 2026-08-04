@@ -225,16 +225,42 @@ jobs:
 
       - name: Reserve package identity
         env:
+          AARCH64_ARTIFACT_DIGEST: ${{ needs.build-aarch64.outputs.artifact-digest }}
+          AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
+          AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.source-sha }}
+          X86_64_ARTIFACT_DIGEST: ${{ needs.build-x86_64.outputs.artifact-digest }}
+          X86_64_ARTIFACT_ID: ${{ needs.build-x86_64.outputs.artifact-id }}
+          X86_64_PACKAGE_DIGEST: ${{ needs.build-x86_64.outputs.package-digest }}
         run: |
           set -euo pipefail
           mkdir release
-          .github/scripts/reserve-apk-release-identity.sh "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
-            input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
-            input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk > release/reservation.json
+          jq -n \
+            --arg source "$SOURCE_SHA" --arg workflow_ref "$GITHUB_WORKFLOW_REF" --argjson run_id "$GITHUB_RUN_ID" \
+            --arg x86_file input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson x86_id "$X86_64_ARTIFACT_ID" --arg x86_artifact "$X86_64_ARTIFACT_DIGEST" \
+            --arg x86_unsigned "$X86_64_PACKAGE_DIGEST" \
+            --arg arm_file input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson arm_id "$AARCH64_ARTIFACT_ID" --arg arm_artifact "$AARCH64_ARTIFACT_DIGEST" \
+            --arg arm_unsigned "$AARCH64_PACKAGE_DIGEST" '
+            def origin($artifact_id;$artifact_sha256;$unsigned_sha256): {
+              type:"build-input",sourceCommit:$source,workflowRef:$workflow_ref,runId:$run_id,
+              artifactId:$artifact_id,artifactSha256:$artifact_sha256,unsignedSha256:$unsigned_sha256
+            };
+            {
+              mode:"replacement",
+              identity:{name:"openssl-fips-provider",version:"3.1.2-r3",epoch:3},
+              packages:[
+                {architecture:"x86_64",path:"x86_64/openssl-fips-provider-3.1.2-r3.apk",file:$x86_file,origin:origin($x86_id;$x86_artifact;$x86_unsigned)},
+                {architecture:"aarch64",path:"aarch64/openssl-fips-provider-3.1.2-r3.apk",file:$arm_file,origin:origin($arm_id;$arm_artifact;$arm_unsigned)}
+              ]
+            }
+          ' > release/inputs.json
+          .github/scripts/reserve-apk-release-identity.sh reserve "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            packages/repository-state.json release/inputs.json > release/reservation.json
 
       - name: Install repository tools
         env:
@@ -291,16 +317,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           set -euo pipefail
-          archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)
-          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" \
-            --slurpfile reservation release/reservation.json '
-            "APK repository draft: \($release_tag)\n\nSHA-256: \($archive_sha256)\n\n" +
-            "Provenance: GitHub artifact attestation for this workflow run.\n\n" +
-            "<!-- apk-release-identity: \($reservation[0] | tojson) -->"
-          ' release/provenance.json > release/notes.md
-          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --notes-file release/notes.md
+          .github/scripts/reserve-apk-release-identity.sh complete "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            release/reservation.json release/verity-apk-repository.tar.zst > release/complete.json
 
       - name: Upload fixed repository asset
         env:
