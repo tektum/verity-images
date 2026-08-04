@@ -49,7 +49,7 @@ jobs:
           ARCHITECTURE: x86_64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload x86_64 build artifact
@@ -94,7 +94,7 @@ jobs:
           ARCHITECTURE: aarch64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload aarch64 build artifact

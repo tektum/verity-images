@@ -58,8 +58,8 @@ def main() -> None:
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
-    assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in x86_64
-    assert 'bash scripts/build_apk_package.sh "$ARCHITECTURE"' in aarch64
+    assert 'bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"' in x86_64
+    assert 'bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"' in aarch64
     assert "environment:" not in x86_64 + aarch64
     assert "secrets." not in x86_64 + aarch64
     assert "retention-days: 7\n" in x86_64 + aarch64
