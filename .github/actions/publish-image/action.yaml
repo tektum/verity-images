@@ -182,8 +182,6 @@ runs:
     - name: Install cosign
       if: inputs.publish == 'true'
       uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6  # v4.1.2
-      with:
-        cosign-release: v3.0.6
 
     - name: Sign digest and attach platform SPDX SBOMs
       if: inputs.publish == 'true'
@@ -196,7 +194,7 @@ runs:
         set -euo pipefail
         scripts/attest_sboms.sh "$TARGET" "$DIGEST" "$SBOM_DIRECTORY"
 
-    - name: Verify published signature and SBOMs
+    - name: Verify published signature and SPDX SBOM
       if: inputs.publish == 'true'
       shell: bash
       env:
@@ -211,62 +209,11 @@ runs:
         cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
           --certificate-oidc-issuer "$issuer" --certificate-github-workflow-sha "$GITHUB_SHA" \
           "${TARGET}@${DIGEST}" >/dev/null
-        cosign verify-attestation --type cyclonedx --certificate-identity "$identity" \
-          --certificate-oidc-issuer "$issuer" --certificate-github-workflow-sha "$GITHUB_SHA" \
-          "${TARGET}@${DIGEST}" >/dev/null
-
-    - name: Resolve platform digests
-      if: inputs.publish == 'true'
-      id: platforms
-      shell: bash
-      env:
-        DIGEST: ${{ steps.push.outputs.digest }}
-        TARGET: ${{ inputs.target-repository }}
-      run: |
-        set -euo pipefail
-        docker buildx imagetools inspect "${TARGET}@${DIGEST}" --raw |
-          jq -er \
-            '.manifests[] | select(.platform.os == "linux") | "\(.platform.architecture)=\(.digest)"' \
-            >> "$GITHUB_OUTPUT"
-
-    - name: Attach amd64 CycloneDX SBOM
-      if: inputs.publish == 'true'
-      id: attest-amd64
-      uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
-      with:
-        create-storage-record: false
-        subject-name: ${{ inputs.target-repository }}
-        subject-digest: ${{ steps.platforms.outputs.amd64 }}
-        sbom-path: ${{ inputs.sbom-directory }}/sbom-amd64.cyclonedx.json
-        push-to-registry: true
-
-    - name: Attach arm64 CycloneDX SBOM
-      if: inputs.publish == 'true'
-      id: attest-arm64
-      uses: actions/attest@508db95dd578ae2727ebd6217d5ba78e4fbda05d  # v4.2.1
-      with:
-        create-storage-record: false
-        subject-name: ${{ inputs.target-repository }}
-        subject-digest: ${{ steps.platforms.outputs.arm64 }}
-        sbom-path: ${{ inputs.sbom-directory }}/sbom-arm64.cyclonedx.json
-        push-to-registry: true
-
-    - name: Notify Squawk with deployments
-      if: inputs.publish == 'true'
-      shell: bash
-      env:
-        AMD64_DIGEST: ${{ steps.platforms.outputs.amd64 }}
-        ARM64_DIGEST: ${{ steps.platforms.outputs.arm64 }}
-        INDEX_DIGEST: ${{ steps.push.outputs.digest }}
-        TARGET: ${{ inputs.target-repository }}
-      run: |
-        scripts/notify_squawk.sh "$TARGET" "$INDEX_DIGEST" "$AMD64_DIGEST" "$ARM64_DIGEST"
 
     - name: Attach build provenance
       if: inputs.publish == 'true'
       uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
       with:
-        create-storage-record: false
         subject-name: ${{ inputs.target-repository }}
         subject-digest: ${{ steps.push.outputs.digest }}
         push-to-registry: true
