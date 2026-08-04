@@ -34,4 +34,4 @@ jobs:
           SQUAWK_PAYLOAD: ${{ inputs.payload }}
         run: |
           printf '%s' "$SQUAWK_PAYLOAD" > squawk-payload.json
-          scripts/monitor_sboms.sh --squawk-payload squawk-payload.json
+          scripts/monitor_sboms.sh squawk-payload.json
