@@ -93,6 +93,12 @@ for arch in amd64 arm64; do
     source_repository=${upstream%:*}
     docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
   fi
+  if [[ -f "${context}/post-patch.Dockerfile" ]]; then
+    post_patched="${candidate}-post-${arch}"
+    docker build --platform "linux/$arch" --provenance=false --build-arg "BASE=$patched" \
+      --tag "$post_patched" --file "${context}/post-patch.Dockerfile" "$context"
+    docker tag "$post_patched" "$patched"
+  fi
   if [[ -n "$npm_version" ]]; then
     npm_patched="${candidate}-npm-${arch}"
     docker build --build-arg BASE="$patched" --build-arg NPM_VERSION="$npm_version" \
