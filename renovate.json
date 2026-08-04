@@ -1,6 +1,10 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
+  "automerge": false,
+  "platformAutomerge": false,
+  "automergeType": "pr",
+  "prCreation": "immediate",
   "enabledManagers": ["custom.regex"],
   "customManagers": [
     {
@@ -42,6 +46,14 @@
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)$",
       "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{replace 'v' '' newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^packages/repository-state\\.json$/"],
+      "matchStrings": ["\\\"tag\\\": \\\"(?<currentValue>apk-repo-v[0-9]{4})\\\""],
+      "depNameTemplate": "tektum/verity-images",
+      "datasourceTemplate": "github-releases",
+      "versioningTemplate": "regex:^apk-repo-v(?<major>[0-9]{4})$"
     }
   ],
   "packageRules": [
@@ -49,6 +61,23 @@
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false
+    },
+    {
+      "matchFileNames": ["patched/busybox/source.yaml"],
+      "matchUpdateTypes": ["major", "minor", "patch"],
+      "enabled": false
+    },
+    {
+      "matchFileNames": ["packages/repository-state.json"],
+      "automerge": false,
+      "labels": ["apk-repository-state", "review-required"]
+    },
+    {
+      "matchPackageNames": ["*"],
+      "automerge": false,
+      "platformAutomerge": false,
+      "automergeType": "pr",
+      "prCreation": "immediate"
     }
   ]
 }

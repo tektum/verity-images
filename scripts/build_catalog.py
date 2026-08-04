@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -16,7 +18,7 @@ from typing import Final
 IDENTITY: Final = "https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main"
 ISSUER: Final = "https://token.actions.githubusercontent.com"
 FILTER: Final = r"""
-.images |= map(
+.report.images |= map(
   .tags = (.tags | split(",")) |
   .registry = ("ghcr.io/tektum/" + .name) |
   .reference = (.registry + "@" + .digest) |
@@ -30,12 +32,12 @@ FILTER: Final = r"""
   }
 ) |
 if $previous != "" then
-  . as $updates | input as $current |
-  .images = (reduce ($current.images + $updates.images)[] as $image ({};
+  .report as $updates | .previous as $current |
+  .report.images = (reduce ($current.images + $updates.images)[] as $image ({};
     .[$image.name + "@" + $image.version] = $image
   ) | [.[]] | sort_by(.name, .version))
 else
-  .images |= sort_by(.name, .version)
+  .report.images |= sort_by(.name, .version)
 end |
 {
   schemaVersion: 2,
@@ -48,13 +50,28 @@ end |
     certificateIdentity: $identity,
     certificateIssuer: $issuer
   },
-  images: .images
+  images: .report.images
 }
 """
 
 
-def run(command: list[str]) -> str:
-    return subprocess.run(command, check=True, capture_output=True, text=True).stdout
+def run(command: list[str], input_text: str = "") -> str:
+    return subprocess.run(command, check=True, capture_output=True, input=input_text, text=True).stdout
+
+
+def document(path: Path, label: str) -> dict[str, object]:
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as error:
+        raise SystemExit(
+            f"invalid JSON in {label}: {path}: line {error.lineno}, column {error.colno}: {error.msg}"
+        ) from error
+    if not isinstance(value, dict):
+        raise SystemExit(f"invalid {label}: {path}: expected an object")
+    images = value.get("images")
+    if not isinstance(images, list) or not images:
+        raise SystemExit(f"invalid {label}: {path}: expected a non-empty images array")
+    return value
 
 
 def main() -> None:
@@ -66,8 +83,28 @@ def main() -> None:
     previous = Path(sys.argv[3]) if sys.argv[3] else None
     output = Path(sys.argv[4])
     run_id, run_url, source_sha, published_at = sys.argv[5:]
-    for line in run(["jq", "-r", ".images[] | [.name,.version] | @tsv", str(report)]).splitlines():
-        name, version = line.split("\t", maxsplit=1)
+    report_document = document(report, "build report")
+    previous_document = document(previous, "previous catalog") if previous else None
+    for image in report_document["images"]:
+        if not isinstance(image, dict):
+            raise SystemExit(f"invalid build report: {report}: images must contain objects")
+        name = image.get("name")
+        version = image.get("version")
+        digest = image.get("digest")
+        tags = image.get("tags")
+        scan = image.get("scan")
+        if (
+            not isinstance(name, str)
+            or not name
+            or not isinstance(version, str)
+            or not version
+            or not isinstance(digest, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+            or not isinstance(tags, str)
+            or not tags
+            or not isinstance(scan, dict)
+        ):
+            raise SystemExit(f"invalid build report: {report}: image fields are invalid")
         artifact = scans / f"scan-{name}-{version}"
         if not artifact.is_dir() or not tuple(artifact.glob("scan-*.json")):
             raise SystemExit(f"missing scan artifact: {artifact}")
@@ -95,11 +132,10 @@ def main() -> None:
             ISSUER,
             "--arg",
             "previous",
-            str(previous or ""),
+            "present" if previous_document else "",
             FILTER,
-            str(report),
-            *([str(previous)] if previous else []),
-        ]
+        ],
+        json.dumps({"report": report_document, "previous": previous_document}),
     )
     _ = output.write_text(catalog, encoding="utf-8")
 

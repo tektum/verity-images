@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/go/1.25/fips.apko.yaml",
-    "checksum": "sha256-09aZ770mNryb3qDoa6KF5yrxNheNBhaox09X+WZTHvo="
+    "checksum": "sha256-HmPlTdO9OyhyLBm5NdSWjQTH8XEZCJQAFfncQKXpPVQ="
   },
   "contents": {
     "keyring": [
@@ -10,15 +10,30 @@
         "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
         "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub",
         "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5qQUHmzqX9oa/RS3OSgL\nYTYB1mzvVmnWC0JXsAafdgRkavJ9xRhsXMKXWPKMghZw6UnkxuxQCZlB9UhaFqed\nX7SWfQ8qRgECFmdGUjoeV7P3VUkg17RU0mUKsXZZF/2mU+jCGyk5eweKcLWrk6bn\nlNNF1vBJ9EXbHdfvbQsA5GfLku5tJhqRJ4FVQAGCw+1JoSKu+o3q+6xP7z6kMfR9\ncp54FSj48rTJUibbAv+cPtZ3AnbpjdyarV7SYMfxp14Q/KR0CJYDihG3CFoU+TaM\ndr7LUrgXaYw7m7g8hA2PY1jF8aqDqVFjVu/csPKnKVQSqNHfm4C4gljwT6TDVhPe\n6xKSGKfAUNvHx2RIqSsZJCh68Af+VnfuimbHMYzGhzV4/efihpJlYsDnOXJj/PeY\nSbEIYG2yoI3AYvDFyFX2OAOtQ9d4TPs4zS4aDg4R3UseXLib46FX3ZTfIi1/W0IO\neC3AFU5mK+02jq+7swcGbgzem30dFA/B3n8NQExJjF2WlGNJxFw2WnJQqKIkIh0s\nkm5jaxJ28xYgik+bEgxy1LsilKTowdkbEPRKv36JGdap4dOEGR+LwZsM+ontF1AO\nwY6tvwtZKJWhgj7ES3BdtiC1GA2htFnP90lA7KnKbSMOxwWtSCH8spitdPdzgI8G\nSxrOb0SZs6ZFAxYYe3GlvS0CAwEAAQ==\n-----END PUBLIC KEY-----\n"
+      },
+      {
+        "name": "packages/keys/verity-apk-2026.rsa.pub",
+        "url": "packages/keys/verity-apk-2026.rsa.pub",
+        "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAvL4i5UQLnKIpMHRwDPuO\nfnUZzEd4PArtUOfi5f1cpK/PkYGTdnzZcsyKdD3/6PJ+KxrGcRrI83loQmlKBjCD\nSdO84dVcJCwTGcut/7gbdDPw/OP0wJfabV3kc3UsadKPTKcNyuYC3SeYOcGzoKOw\niysyYbEyx7M79dGjqV4EkfMprY4KQrOU0SqOogQ1Lajbxq0LJ+cR/TOmhUkvCnbP\nSezStBqUm+aNXVEhAaZYbAYVo1LoILoQSnO/sBjwiZ6XCwJLE/XwglJtRtrB+8N9\n2XSQp5JxjoUmwnRWr97xTss5MvyVMTeTNLexN/FEyfs+KKD9N31VOPYhX7bT1zih\nof3ikGJeJIeysilR4bGAA2p+CyaLVOOI8AdyfmwOQPafI/yMqhtK7uVshe4MVDuB\nm3MfdVhpeQLG8+pFq04BlfclOm6O+fqhqfxUBtu4jShba/KdG0Rilmapvlkgio7Z\nfsWA8lR+Y3C6BgWRcK3ng5kEDi6vNHE78bHmXc6Q+1qZT8ICFr3l2SticcX4pr17\naaEYfOATMulzLHUznGnodd8vzfRN5iHGhIY9+N+igy7IFEZaLc493LAbmRcZJeaq\nBXsPFoOiqxak4/Aq6/LBa6D81TrBarKDShY+eFAPDabNHZ1L2eqFnCDgD+EJwrNz\nJgjLB2mP0byixf+2D+N3Yc8CAwEAAQ==\n-----END PUBLIC KEY-----\n"
       }
     ],
     "build_repositories": [],
     "runtime_repositories": [],
     "repositories": [
       {
+        "name": "tektum.github.io/verity-images/apk/x86_64",
+        "url": "https://tektum.github.io/verity-images/apk/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
         "name": "packages.wolfi.dev/os/x86_64",
         "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
         "architecture": "x86_64"
+      },
+      {
+        "name": "tektum.github.io/verity-images/apk/aarch64",
+        "url": "https://tektum.github.io/verity-images/apk/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
       },
       {
         "name": "packages.wolfi.dev/os/aarch64",
@@ -352,22 +367,22 @@
       },
       {
         "name": "pkgconf",
-        "url": "https://packages.wolfi.dev/os/x86_64/pkgconf-3.0.4-r0.apk",
-        "version": "3.0.4-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/pkgconf-3.0.5-r0.apk",
+        "version": "3.0.5-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-7682",
-          "checksum": "sha1-Ew/jAv9ai3ILAqlqvSDRVg18xeg="
+          "range": "bytes=0-7675",
+          "checksum": "sha1-60p29Z5EoILz6grQv8S1kEqz4W4="
         },
         "data": {
-          "range": "bytes=7683-147619",
-          "checksum": "sha256-14ZWJp9vWddr1eJK9Mg/ZA2FvmBZYu/L8fmWBlZQiNE="
+          "range": "bytes=7676-151627",
+          "checksum": "sha256-K1fPv2eI8VNjQ0vgbBeKNQBiqkHqWOsl2nwLcYOwmS8="
         },
-        "checksum": "Q1Ew/jAv9ai3ILAqlqvSDRVg18xeg="
+        "checksum": "Q160p29Z5EoILz6grQv8S1kEqz4W4="
       },
       {
         "name": "gmp",
@@ -599,41 +614,41 @@
       },
       {
         "name": "ncurses-terminfo-base",
-        "url": "https://packages.wolfi.dev/os/x86_64/ncurses-terminfo-base-6.6.20260725-r0.apk",
-        "version": "6.6.20260725-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/ncurses-terminfo-base-6.6.20260801-r0.apk",
+        "version": "6.6.20260801-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10344",
-          "checksum": "sha1-U7SYCoOewVJdXDLzjgZgxgQmuHI="
+          "range": "bytes=0-10357",
+          "checksum": "sha1-Q2y1FrqxKOTGq5Kr+ARlCbdvWWc="
         },
         "data": {
-          "range": "bytes=10345-118111",
-          "checksum": "sha256-qLblR/bssHvcCvyuRhQFCaXoLC4uc3EbapeN48qdoN0="
+          "range": "bytes=10358-118211",
+          "checksum": "sha256-98Mg7JUyFfcZsqujsgdRC3OfdIWMhFqlcEtpMP95Yg0="
         },
-        "checksum": "Q1U7SYCoOewVJdXDLzjgZgxgQmuHI="
+        "checksum": "Q1Q2y1FrqxKOTGq5Kr+ARlCbdvWWc="
       },
       {
         "name": "ncurses",
-        "url": "https://packages.wolfi.dev/os/x86_64/ncurses-6.6.20260725-r0.apk",
-        "version": "6.6.20260725-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/ncurses-6.6.20260801-r0.apk",
+        "version": "6.6.20260801-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10491",
-          "checksum": "sha1-yu52cGNrMGFOHpxzuLK24b3Vm3A="
+          "range": "bytes=0-10495",
+          "checksum": "sha1-dnCE9at1/jYUzMRa5cKMKK5jdrg="
         },
         "data": {
-          "range": "bytes=10492-621204",
-          "checksum": "sha256-T9fDHmJfavPIFwxyC4S9c91COoXA+akWn/aWwI/z3b0="
+          "range": "bytes=10496-621296",
+          "checksum": "sha256-vJJqtPackyXYTkU8eirC0/aXW3DSuJPsc861GeVEGSk="
         },
-        "checksum": "Q1yu52cGNrMGFOHpxzuLK24b3Vm3A="
+        "checksum": "Q1dnCE9at1/jYUzMRa5cKMKK5jdrg="
       },
       {
         "name": "bash",
@@ -672,6 +687,120 @@
           "checksum": "sha256-ZxIz0balv0amJatqoMYTxaq0cQHGlEmiYU6weeZfE5U="
         },
         "checksum": "Q1E+f0Bx7yWhEXyRfmpUjS1ggbfvk="
+      },
+      {
+        "name": "libcrypto3",
+        "url": "https://packages.wolfi.dev/os/x86_64/libcrypto3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-10990",
+          "checksum": "sha1-8czJwPp28PlmrUy6evlca3lfXlk="
+        },
+        "data": {
+          "range": "bytes=10991-2439998",
+          "checksum": "sha256-Gtu+CyjMO2oH9qFjvJKo2t0zE0aDLG2dwtmDVnll8/4="
+        },
+        "checksum": "Q18czJwPp28PlmrUy6evlca3lfXlk="
+      },
+      {
+        "name": "libssl3",
+        "url": "https://packages.wolfi.dev/os/x86_64/libssl3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11000",
+          "checksum": "sha1-cfdB5BXNoGxB998AA6UNEUQzmG4="
+        },
+        "data": {
+          "range": "bytes=11001-524305",
+          "checksum": "sha256-VtGnoMNcs4UcJxBfFv47/vmpWT2kz+LXfzmLFrDzndQ="
+        },
+        "checksum": "Q1cfdB5BXNoGxB998AA6UNEUQzmG4="
+      },
+      {
+        "name": "openssl",
+        "url": "https://packages.wolfi.dev/os/x86_64/openssl-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11017",
+          "checksum": "sha1-rAEt2KMHK14YGRJzXaJKjBmZ5gA="
+        },
+        "data": {
+          "range": "bytes=11018-475409",
+          "checksum": "sha256-14/3l0mAf41IrRKDMsguunKZnYSZiQyM5je/VtEHmRk="
+        },
+        "checksum": "Q1rAEt2KMHK14YGRJzXaJKjBmZ5gA="
+      },
+      {
+        "name": "libcrypt1",
+        "url": "https://packages.wolfi.dev/os/x86_64/libcrypt1-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13067",
+          "checksum": "sha1-/MS3Zb1Y/+sboqr3bltHEFCEkqE="
+        },
+        "data": {
+          "range": "bytes=13068-14685",
+          "checksum": "sha256-ePacrwddp1Us3l5Rg2i8ieOZi17FUQjiVMtw2syPQBE="
+        },
+        "checksum": "Q1/MS3Zb1Y/+sboqr3bltHEFCEkqE="
+      },
+      {
+        "name": "busybox",
+        "url": "https://packages.wolfi.dev/os/x86_64/busybox-1.37.0-r61.apk",
+        "version": "1.37.0-r61",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-10913",
+          "checksum": "sha1-Dc1coU0swhMsnFh4BnVin4Y/z6U="
+        },
+        "data": {
+          "range": "bytes=10914-430452",
+          "checksum": "sha256-Lp5skr4+yaxDhdl+G39Z7VC8YLLcwNh+fGvRe0T6bj0="
+        },
+        "checksum": "Q1Dc1coU0swhMsnFh4BnVin4Y/z6U="
+      },
+      {
+        "name": "openssl-fips-provider",
+        "url": "https://tektum.github.io/verity-images/apk/x86_64/openssl-fips-provider-3.1.2-r3.apk",
+        "version": "3.1.2-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "bytes=0-654",
+          "checksum": "sha1-fje8j260axNKqR0MH1Oib9pDyJY="
+        },
+        "control": {
+          "range": "bytes=655-2718",
+          "checksum": "sha1-g2HxT1uNC8VmMZWMpo07K9hs5SI="
+        },
+        "data": {
+          "range": "bytes=2719-1032489",
+          "checksum": "sha256-1ZB1XDmszw8pIss1heMs2tSX+TV19jFA+hj70lJfH/8="
+        },
+        "checksum": "Q1g2HxT1uNC8VmMZWMpo07K9hs5SI="
       },
       {
         "name": "wolfi-baselayout",
@@ -998,22 +1127,22 @@
       },
       {
         "name": "pkgconf",
-        "url": "https://packages.wolfi.dev/os/aarch64/pkgconf-3.0.4-r0.apk",
-        "version": "3.0.4-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/pkgconf-3.0.5-r0.apk",
+        "version": "3.0.5-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-7716",
-          "checksum": "sha1-+p7BDQ2cv4x6ZGBF73HiiEUHkvU="
+          "range": "bytes=0-7710",
+          "checksum": "sha1-tbe9mgvOrq/G3W248CJCiOU3XV8="
         },
         "data": {
-          "range": "bytes=7717-144022",
-          "checksum": "sha256-CyfTyLW4DyspzKIEjaEPJ0ZIk74VAqaR3No8Kicbnmo="
+          "range": "bytes=7711-147316",
+          "checksum": "sha256-xB2fBqgXDnri2zeeErUQ+rO/EznLjgRT70U8ygcIh14="
         },
-        "checksum": "Q1+p7BDQ2cv4x6ZGBF73HiiEUHkvU="
+        "checksum": "Q1tbe9mgvOrq/G3W248CJCiOU3XV8="
       },
       {
         "name": "gmp",
@@ -1245,41 +1374,41 @@
       },
       {
         "name": "ncurses-terminfo-base",
-        "url": "https://packages.wolfi.dev/os/aarch64/ncurses-terminfo-base-6.6.20260725-r0.apk",
-        "version": "6.6.20260725-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/ncurses-terminfo-base-6.6.20260801-r0.apk",
+        "version": "6.6.20260801-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10384",
-          "checksum": "sha1-IMcQsedM9n6WtUl+0P2LFqkZZko="
+          "range": "bytes=0-10395",
+          "checksum": "sha1-7O80crEv+g0TasIM1jMCzR3tHrI="
         },
         "data": {
-          "range": "bytes=10385-118138",
-          "checksum": "sha256-NjxR9BYKEZE0sRXI7cdreM4IJJL+L3KipxMeSr9s0x4="
+          "range": "bytes=10396-118235",
+          "checksum": "sha256-qNN7ifSLaaw93jE8mlCV6QvIf2Ba5ITZaqHYMOOAdLI="
         },
-        "checksum": "Q1IMcQsedM9n6WtUl+0P2LFqkZZko="
+        "checksum": "Q17O80crEv+g0TasIM1jMCzR3tHrI="
       },
       {
         "name": "ncurses",
-        "url": "https://packages.wolfi.dev/os/aarch64/ncurses-6.6.20260725-r0.apk",
-        "version": "6.6.20260725-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/ncurses-6.6.20260801-r0.apk",
+        "version": "6.6.20260801-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10529",
-          "checksum": "sha1-wy4/fDiPvQxyGyzxL4QWt4un/l0="
+          "range": "bytes=0-10531",
+          "checksum": "sha1-UEVV2RxyYutqHTD3pJlTkgzKixw="
         },
         "data": {
-          "range": "bytes=10530-612755",
-          "checksum": "sha256-5pU7v/n4DfH8JR5lSGkQ0lXPCdHmA1sFR3ZiXlRz/t0="
+          "range": "bytes=10532-612740",
+          "checksum": "sha256-EY+E1iJGAEYpXj0sJRph5F4DhK4XwYeJsBsvdVwNa3o="
         },
-        "checksum": "Q1wy4/fDiPvQxyGyzxL4QWt4un/l0="
+        "checksum": "Q1UEVV2RxyYutqHTD3pJlTkgzKixw="
       },
       {
         "name": "bash",
@@ -1318,6 +1447,120 @@
           "checksum": "sha256-GCMGKU8KZ5kECwysPvE26zddKXjk7XCd/wi9rtKjtuE="
         },
         "checksum": "Q1ZEr7xrnrOSDQor1aNydIF13uqPU="
+      },
+      {
+        "name": "libcrypto3",
+        "url": "https://packages.wolfi.dev/os/aarch64/libcrypto3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11026",
+          "checksum": "sha1-IhlZQ3XyVyqnes8zsNjtdfcdEO0="
+        },
+        "data": {
+          "range": "bytes=11027-2210037",
+          "checksum": "sha256-Z8qrYFVxk9L0+ZpEpIV/yFNFZwBgRHR+W4OPv/UJY1k="
+        },
+        "checksum": "Q1IhlZQ3XyVyqnes8zsNjtdfcdEO0="
+      },
+      {
+        "name": "libssl3",
+        "url": "https://packages.wolfi.dev/os/aarch64/libssl3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11031",
+          "checksum": "sha1-b1pa5Bgcwm18pYPDH0t+0fM/OXw="
+        },
+        "data": {
+          "range": "bytes=11032-489215",
+          "checksum": "sha256-Ba2zY8Skdb0ILJ0vTo3C4nxRvw/Y5SOoYAvILmBcOhE="
+        },
+        "checksum": "Q1b1pa5Bgcwm18pYPDH0t+0fM/OXw="
+      },
+      {
+        "name": "openssl",
+        "url": "https://packages.wolfi.dev/os/aarch64/openssl-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11037",
+          "checksum": "sha1-DU6UGpE50Sk7jKoEzugVNB2RNIA="
+        },
+        "data": {
+          "range": "bytes=11038-439001",
+          "checksum": "sha256-r5LwOIzRkS8guI855PoWfgsI+VYmeB7aJnLY4Pghfxw="
+        },
+        "checksum": "Q1DU6UGpE50Sk7jKoEzugVNB2RNIA="
+      },
+      {
+        "name": "libcrypt1",
+        "url": "https://packages.wolfi.dev/os/aarch64/libcrypt1-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13111",
+          "checksum": "sha1-Lc5RMEoBlR4TAJtUNiw9hlafq2g="
+        },
+        "data": {
+          "range": "bytes=13112-14724",
+          "checksum": "sha256-miwdByMJn6F2TDvzLLhMazBsP7eTM9okMUmceXVUaxM="
+        },
+        "checksum": "Q1Lc5RMEoBlR4TAJtUNiw9hlafq2g="
+      },
+      {
+        "name": "busybox",
+        "url": "https://packages.wolfi.dev/os/aarch64/busybox-1.37.0-r61.apk",
+        "version": "1.37.0-r61",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-10947",
+          "checksum": "sha1-EeHjQ8oI9CX5Am00/gUwayfeglc="
+        },
+        "data": {
+          "range": "bytes=10948-429972",
+          "checksum": "sha256-TdoIXtUKXr9KtXVi4OBLcI3jzrea4+YQha1GxArzayI="
+        },
+        "checksum": "Q1EeHjQ8oI9CX5Am00/gUwayfeglc="
+      },
+      {
+        "name": "openssl-fips-provider",
+        "url": "https://tektum.github.io/verity-images/apk/aarch64/openssl-fips-provider-3.1.2-r3.apk",
+        "version": "3.1.2-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "bytes=0-653",
+          "checksum": "sha1-HTlDSnO2TrAyMho6oNmZndWm+b0="
+        },
+        "control": {
+          "range": "bytes=654-2736",
+          "checksum": "sha1-rEeC1C/JeFost/cr9UtJmrtWh+o="
+        },
+        "data": {
+          "range": "bytes=2737-864446",
+          "checksum": "sha256-JPexSQ6IMbS5YxCv1sYugOsYI2IBXwnRuDSksPZJQFY="
+        },
+        "checksum": "Q1rEeC1C/JeFost/cr9UtJmrtWh+o="
       }
     ]
   }

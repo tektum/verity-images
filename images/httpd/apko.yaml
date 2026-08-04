@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - apache2-compat
+    - apache2-utils
+    - ca-certificates-bundle
+
+accounts:
+  groups:
+    - groupname: www-data
+      gid: 33
+  users:
+    - username: www-data
+      uid: 33
+      gid: 33
+
+cmd: /usr/local/bin/httpd-foreground
+
+stop-signal: SIGWINCH
+
+environment:
+  PATH: /usr/local/bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin
