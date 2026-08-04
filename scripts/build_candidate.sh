@@ -19,7 +19,7 @@ ensure_image_history() {
       rm -f "$archive"
       return 1
     fi
-    if ! sudo ctr -a /var/run/docker/containerd/containerd.sock -n moby images import \
+    if ! sudo ctr -a /run/containerd/containerd.sock -n moby images import \
       --platform "linux/$image_arch" --snapshotter overlayfs "$archive"; then
       rm -f "$archive"
       return 1
