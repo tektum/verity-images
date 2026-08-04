@@ -6,12 +6,10 @@ Pushes to `main` rebuild published images. Pull requests build, scan, and
 smoke-test affected images but never authenticate to GHCR, publish, sign,
 attest, or move tags.
 
-At 03:17 UTC each day, the monitor requires the catalog to match the reviewed
-image inventory and each digest to match its published version tag. It then
-verifies every platform SPDX attestation and scans both platform SBOMs with the
-current Grype database. It opens or updates one issue per vulnerable image
-version and closes the issue after a clean scan. The monitor does not pull image
-layers or rebuild images.
+After publication, Squawk stores each platform SBOM once and compares its
+components with incremental OSV updates. New findings dispatch the monitor
+workflow, which opens or updates one issue per vulnerable image version. The
+monitor does not pull image layers, rescan images, or rebuild images.
 
 ## Vulnerability gates
 
