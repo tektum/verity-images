@@ -12,6 +12,11 @@ on:
         description: New immutable APK repository release tag.
         required: true
         type: string
+      mode:
+        description: Migrate v0002 unchanged or replace openssl-fips-provider.
+        options: [migration, replacement]
+        required: true
+        type: choice
       source-sha:
         description: Immutable main commit being released.
         required: true
@@ -20,8 +25,63 @@ on:
 permissions: {}
 
 jobs:
-  build-x86_64:
+  apk-matrix:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      aarch64: ${{ steps.matrix.outputs.aarch64 }}
+      x86_64: ${{ steps.matrix.outputs.x86_64 }}
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Generate APK package matrix
+        id: matrix
+        env:
+          MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MODE: ${{ inputs.mode }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$MODE" == migration ]]; then
+              matrix='{"include":[]}'
+            else
+              matrix=$(
+                python3 scripts/gen_apk_matrix.py --all |
+                  jq -c '{include:[.include[] | select(.package == "openssl-fips-provider")]}'
+              )
+            fi
+          else
+            BASE_SHA=${PR_BASE_SHA:-${MERGE_BASE_SHA:-$PUSH_BASE_SHA}}
+            HEAD_SHA=${PR_HEAD_SHA:-${MERGE_HEAD_SHA:-$GITHUB_SHA}}
+            matrix=$(python3 scripts/gen_apk_matrix.py --changed "$BASE_SHA" "$HEAD_SHA")
+          fi
+          for architecture in aarch64 x86_64; do
+            value=$(
+              jq -c --arg architecture "$architecture" \
+                '{include:[.include[] | select(.architecture == $architecture)]}' <<<"$matrix"
+            )
+            printf '%s=%s\n' "$architecture" "$value" >> "$GITHUB_OUTPUT"
+          done
+
+  build-x86_64:
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
+      fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
+    needs: [apk-matrix]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.apk-matrix.outputs.x86_64) }}
     permissions:
       attestations: write
       contents: read
@@ -49,24 +109,31 @@ jobs:
           ARCHITECTURE: x86_64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload x86_64 build artifact
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: apk-build-x86_64
+          name: apk-build-${{ matrix.package }}-x86_64
           path: artifact
           retention-days: 7
 
       - name: Attest x86_64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+          subject-path: artifact/*.apk
 
   build-aarch64:
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
+      fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
+    needs: [apk-matrix]
     runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.apk-matrix.outputs.aarch64) }}
     permissions:
       attestations: write
       contents: read
@@ -94,21 +161,21 @@ jobs:
           ARCHITECTURE: aarch64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload aarch64 build artifact
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: apk-build-aarch64
+          name: apk-build-${{ matrix.package }}-aarch64
           path: artifact
           retention-days: 7
 
       - name: Attest aarch64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+          subject-path: artifact/*.apk
 
   apk-gate:
     if: always()
@@ -122,26 +189,40 @@ jobs:
         env:
           AARCH64_RESULT: ${{ needs.build-aarch64.result }}
           EVENT: ${{ github.event_name }}
+          MODE: ${{ inputs.mode }}
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
           SIGNING_RESULT: ${{ needs.apk-signing.result }}
           X86_64_RESULT: ${{ needs.build-x86_64.result }}
         run: |
           set -euo pipefail
-          [[ "$X86_64_RESULT" == success ]]
-          [[ "$AARCH64_RESULT" == success ]]
           if [[ "$EVENT" == workflow_dispatch &&
             "$REPOSITORY" == tektum/verity-images && "$REF" == refs/heads/main ]]; then
+            if [[ "$MODE" == migration ]]; then
+              [[ "$X86_64_RESULT" == skipped ]]
+              [[ "$AARCH64_RESULT" == skipped ]]
+            else
+              [[ "$X86_64_RESULT" == success ]]
+              [[ "$AARCH64_RESULT" == success ]]
+            fi
             [[ "$SIGNING_RESULT" == success ]]
           else
+            if [[ "$X86_64_RESULT" == skipped && "$AARCH64_RESULT" == skipped ]]; then
+              :
+            else
+              [[ "$X86_64_RESULT" == success ]]
+              [[ "$AARCH64_RESULT" == success ]]
+            fi
             [[ "$SIGNING_RESULT" == skipped ]]
           fi
 
   apk-signing:
     if: >-
-      github.event_name == 'workflow_dispatch' &&
+      always() && github.event_name == 'workflow_dispatch' &&
       github.repository == 'tektum/verity-images' &&
-      github.ref == 'refs/heads/main'
+      github.ref == 'refs/heads/main' &&
+      (inputs.mode == 'migration' ||
+      (needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success'))
     needs: [build-x86_64, build-aarch64]
     runs-on: ubuntu-24.04
     environment: apk-signing
@@ -167,6 +248,7 @@ jobs:
           AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
           AARCH64_SOURCE_SHA: ${{ needs.build-aarch64.outputs.source-sha }}
           GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           SOURCE_SHA: ${{ inputs.source-sha }}
@@ -177,24 +259,27 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
-          [[ "$X86_64_SOURCE_SHA" == "$SOURCE_SHA" ]]
-          [[ "$AARCH64_SOURCE_SHA" == "$SOURCE_SHA" ]]
           [[ "$RELEASE_TAG" =~ ^apk-repo-v[0-9]{4}$ ]]
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          for artifact_id in "$X86_64_ARTIFACT_ID" "$AARCH64_ARTIFACT_ID"; do
-            [[ "$artifact_id" =~ ^[0-9]+$ ]]
-          done
-          artifact_pairs=(
-            "$X86_64_ARTIFACT_ID:$X86_64_ARTIFACT_DIGEST"
-            "$AARCH64_ARTIFACT_ID:$AARCH64_ARTIFACT_DIGEST"
-          )
-          for artifact_id_and_digest in "${artifact_pairs[@]}"; do
-            artifact_id=${artifact_id_and_digest%%:*}
-            artifact_digest=${artifact_id_and_digest#*:}
-            gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
-            bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
-          done
+          if [[ "$MODE" == replacement ]]; then
+            [[ "$X86_64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+            [[ "$AARCH64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+            for artifact_id in "$X86_64_ARTIFACT_ID" "$AARCH64_ARTIFACT_ID"; do
+              [[ "$artifact_id" =~ ^[0-9]+$ ]]
+            done
+            artifact_pairs=(
+              "$X86_64_ARTIFACT_ID:$X86_64_ARTIFACT_DIGEST"
+              "$AARCH64_ARTIFACT_ID:$AARCH64_ARTIFACT_DIGEST"
+            )
+            for artifact_id_and_digest in "${artifact_pairs[@]}"; do
+              artifact_id=${artifact_id_and_digest%%:*}
+              artifact_digest=${artifact_id_and_digest#*:}
+              gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
+              bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
+            done
+          fi
       - name: Download only current-run build artifacts
+        if: inputs.mode == 'replacement'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           artifact-ids: >-
@@ -202,6 +287,7 @@ jobs:
           path: input
 
       - name: Verify build digests and provenance
+        if: inputs.mode == 'replacement'
         env:
           AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
@@ -211,7 +297,7 @@ jobs:
         run: |
           set -euo pipefail
           for architecture in x86_64 aarch64; do
-            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
+            package="input/apk-build-openssl-fips-provider-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
             [[ -f "$package" ]]
             case "$architecture" in
               x86_64) expected_digest=$X86_64_PACKAGE_DIGEST ;;
@@ -223,18 +309,66 @@ jobs:
               --source-digest "$SOURCE_SHA" --deny-self-hosted-runners
           done
 
+      - name: Stage validated base snapshot
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          base_tag=$(jq -er '.release.tag' packages/repository-state.json)
+          mkdir base-download base-stage
+          gh release download "$base_tag" --repo "$GITHUB_REPOSITORY" \
+            --pattern verity-apk-repository.tar.zst --dir base-download
+          base_archive=base-download/verity-apk-repository.tar.zst
+          [[ "sha256:$(sha256sum "$base_archive" | cut -d' ' -f1)" == \
+            "$(jq -er '.asset.sha256' packages/repository-state.json)" ]]
+          python3 scripts/validate_repository_state.py packages/repository-state.json \
+            --archive "$base_archive" --pages base-stage
+
       - name: Reserve package identity
         env:
+          AARCH64_ARTIFACT_DIGEST: ${{ needs.build-aarch64.outputs.artifact-digest }}
+          AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
+          AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.source-sha }}
+          MODE: ${{ inputs.mode }}
+          X86_64_ARTIFACT_DIGEST: ${{ needs.build-x86_64.outputs.artifact-digest }}
+          X86_64_ARTIFACT_ID: ${{ needs.build-x86_64.outputs.artifact-id }}
+          X86_64_PACKAGE_DIGEST: ${{ needs.build-x86_64.outputs.package-digest }}
         run: |
           set -euo pipefail
           mkdir release
-          .github/scripts/reserve-apk-release-identity.sh "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
-            input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
-            input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk > release/reservation.json
+          if [[ "$MODE" == migration ]]; then
+            jq -n --slurpfile state packages/repository-state.json '
+              {mode:"migration",packages:[$state[0].packages[] | {architecture,path,file:("base-stage/apk/" + .path)}]}
+            ' > release/inputs.json
+          else
+            jq -n \
+            --arg source "$SOURCE_SHA" --arg workflow_ref "$GITHUB_WORKFLOW_REF" --argjson run_id "$GITHUB_RUN_ID" \
+            --arg x86_file input/apk-build-openssl-fips-provider-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson x86_id "$X86_64_ARTIFACT_ID" --arg x86_artifact "sha256:$X86_64_ARTIFACT_DIGEST" \
+            --arg x86_unsigned "$X86_64_PACKAGE_DIGEST" \
+            --arg arm_file input/apk-build-openssl-fips-provider-aarch64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson arm_id "$AARCH64_ARTIFACT_ID" --arg arm_artifact "sha256:$AARCH64_ARTIFACT_DIGEST" \
+            --arg arm_unsigned "$AARCH64_PACKAGE_DIGEST" '
+            def origin($artifact_id;$artifact_sha256;$unsigned_sha256): {
+              type:"build-input",sourceCommit:$source,workflowRef:$workflow_ref,runId:$run_id,
+              artifactId:$artifact_id,artifactSha256:$artifact_sha256,unsignedSha256:$unsigned_sha256
+            };
+            {
+              mode:"replacement",
+              identity:{name:"openssl-fips-provider",version:"3.1.2-r3",epoch:3},
+              packages:[
+                {architecture:"x86_64",path:"x86_64/openssl-fips-provider-3.1.2-r3.apk",file:$x86_file,origin:origin($x86_id;$x86_artifact;$x86_unsigned)},
+                {architecture:"aarch64",path:"aarch64/openssl-fips-provider-3.1.2-r3.apk",file:$arm_file,origin:origin($arm_id;$arm_artifact;$arm_unsigned)}
+              ]
+            }
+            ' > release/inputs.json
+          fi
+          .github/scripts/reserve-apk-release-identity.sh reserve "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            packages/repository-state.json release/inputs.json > release/reservation.json
 
       - name: Install repository tools
         env:
@@ -244,6 +378,9 @@ jobs:
       - name: Sign APK repositories
         env:
           APK_REPOSITORY_PRIVATE_KEY: ${{ secrets.APK_REPOSITORY_PRIVATE_KEY }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
           umask 077
@@ -260,20 +397,54 @@ jobs:
           actual_fingerprint=$(openssl pkey -pubin -in packages/keys/verity-apk-2026.rsa.pub \
             -pubout -outform DER | sha256sum | cut -d' ' -f1)
           [[ "$actual_fingerprint" == "$fingerprint" ]]
-          for package in input/*/*.apk; do
-            melange sign --signing-key "$private_key" "$package"
-          done
-          for architecture in x86_64 aarch64; do
-            mkdir -p "$work_dir/packages/$architecture"
-            cp "input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk" "$work_dir/packages/$architecture/"
-          done
-          .github/scripts/assemble-apk-repository.sh "$work_dir/packages" "$work_dir/apk" "$private_key" "$fingerprint"
+          if [[ "$MODE" == migration ]]; then
+            jq -n --arg tag "$RELEASE_TAG" \
+              '{schemaVersion:1,releaseTag:$tag,replacement:null}' > "$work_dir/composition.json"
+          else
+            workflow_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/apk-repository.yaml" --jq .id)
+            packages='[]'
+            while IFS= read -r reserved; do
+              architecture=$(jq -er '.architecture' <<<"$reserved")
+              path=$(jq -er '.path' <<<"$reserved")
+              name=$(jq -er '.name' <<<"$reserved")
+              source="input/apk-build-${name}-${architecture}/$(basename "$path")"
+              [[ "$(sha256sum "$source" | cut -d' ' -f1)" == "$(jq -er '.sha256' <<<"$reserved")" ]]
+              signed="$work_dir/signed/$path"
+              bundle="$work_dir/signed/bundles/$name/$architecture.json"
+              mkdir -p "$(dirname "$signed")" "$(dirname "$bundle")"
+              cp "$source" "$signed"
+              melange sign --signing-key "$private_key" "$signed"
+              signed_sha=$(sha256sum "$signed" | cut -d' ' -f1)
+              jq -nS --arg path "$path" --arg sha256 "$signed_sha" --arg source "$GITHUB_SHA" \
+                --argjson run_id "$GITHUB_RUN_ID" \
+                '{path:$path,sha256:$sha256,sourceCommit:$source,signingRunId:$run_id}' > "$bundle"
+              bundle_path="bundles/$name/$architecture.json"
+              bundle_sha=$(sha256sum "$bundle" | cut -d' ' -f1)
+              entry=$(jq -cn --argjson package "$reserved" --arg file "$signed" --arg sha256 "$signed_sha" \
+                --arg bundle_file "$bundle" --arg bundle_path "$bundle_path" --arg bundle_sha "$bundle_sha" \
+                --argjson workflow_id "$workflow_id" --argjson signing_run "$GITHUB_RUN_ID" '
+                $package.origin as $build |
+                $package + {sha256:$sha256,sourceFile:$file,bundleFile:$bundle_file,origin:{
+                  type:"attested-build",sourceCommit:$build.sourceCommit,
+                  buildWorkflowId:$workflow_id,buildRunId:$build.runId,buildArtifactId:$build.artifactId,
+                  buildArtifactSha256:$build.artifactSha256,unsignedSha256:$build.unsignedSha256,
+                  signingWorkflowId:$workflow_id,signingRunId:$signing_run,
+                  bundlePath:$bundle_path,bundleSha256:$bundle_sha}}
+              ')
+              packages=$(jq -cn --argjson packages "$packages" --argjson entry "$entry" '$packages + [$entry]')
+            done < <(jq -c '.unsignedPackages[]' release/reservation.json)
+            jq -nS --arg tag "$RELEASE_TAG" --argjson packages "$packages" '
+              {schemaVersion:1,releaseTag:$tag,replacement:{name:"openssl-fips-provider",packages:$packages}}
+            ' > "$work_dir/composition.json"
+          fi
+          python3 scripts/compose_apk_inputs.py packages/repository-state.json base-stage/apk \
+            "$work_dir/composition.json" "$work_dir/composed"
+          .github/scripts/assemble-apk-repository.sh "$work_dir/composed" "$work_dir/composed/metadata.json" \
+            "$work_dir/apk" release/verity-apk-repository.tar.zst "$private_key" "$fingerprint"
           manifest_digest=$(sha256sum "$work_dir/apk/manifest.json" | cut -d' ' -f1)
           python3 scripts/apk_repository_policy.py "$work_dir/apk" packages/keys "$manifest_digest"
           bash scripts/verify_apk_repository.sh "$work_dir/apk" packages/keys/verity-apk-2026.rsa.pub
-          mkdir release
-          tar --zstd --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
-            -C "$work_dir" -cf release/verity-apk-repository.tar.zst apk
+          cp "$work_dir/composed/reuse-comparisons.json" release/reuse-comparisons.json
           sha256sum release/verity-apk-repository.tar.zst > release/verity-apk-repository.tar.zst.sha256
           jq -n --arg archive_sha256 "$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)" \
             --arg source_sha "$GITHUB_SHA" --arg run_id "$GITHUB_RUN_ID" \
@@ -291,16 +462,11 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ inputs.source-sha }}
         run: |
           set -euo pipefail
-          archive_sha256=$(cut -d' ' -f1 release/verity-apk-repository.tar.zst.sha256)
-          jq -r --arg archive_sha256 "$archive_sha256" --arg release_tag "$RELEASE_TAG" \
-            --slurpfile reservation release/reservation.json '
-            "APK repository draft: \($release_tag)\n\nSHA-256: \($archive_sha256)\n\n" +
-            "Provenance: GitHub artifact attestation for this workflow run.\n\n" +
-            "<!-- apk-release-identity: \($reservation[0] | tojson) -->"
-          ' release/provenance.json > release/notes.md
-          gh release edit "$RELEASE_TAG" --repo "$REPOSITORY" --notes-file release/notes.md
+          .github/scripts/reserve-apk-release-identity.sh complete "$REPOSITORY" "$RELEASE_TAG" "$SOURCE_SHA" \
+            release/reservation.json release/verity-apk-repository.tar.zst > release/complete.json
 
       - name: Upload fixed repository asset
         env:
@@ -308,3 +474,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
         run: gh release upload "$RELEASE_TAG" "$ARCHIVE"
+
+      - name: Publish immutable repository release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: .github/scripts/reserve-apk-release-identity.sh publish "$REPOSITORY" "$RELEASE_TAG"

@@ -73,11 +73,34 @@ seven days and receive GitHub artifact attestations. Only a manual dispatch from
 key is read, it verifies the immutable source SHA, same-run artifact IDs and
 digests, and attestations bound to this workflow. The job creates an
 `apk-repo-vNNNN` draft release with the sole asset
-`verity-apk-repository.tar.zst`; its release notes carry the archive checksum
-and attestation provenance. Existing tags, releases, or asset paths are never
-overwritten. A failed reservation remains as a draft and blocks retries; after
-reviewing that no asset was uploaded, an operator must explicitly remove it with
-`gh release delete apk-repo-vNNNN --yes --cleanup-tag` before retrying.
+`verity-apk-repository.tar.zst`. Before key access, its release notes receive a
+canonical schema-v2 `apk-release-reserved` marker binding the reviewed base-state
+digest, strictly-next tag and target, replacement or migration mode, and unsigned
+build inputs. After final verification, that marker is replaced by an
+`apk-release-complete` marker binding the sorted package ledger, exact APK bytes,
+origins, and archive digest. Every release scan is paginated. Published complete
+markers are authoritative, and any other draft reservation blocks publication.
+
+Unmarked `apk-repo-v0001` and `apk-repo-v0002` are the only legacy exceptions.
+They are accepted only after their fixed release, asset, API digest, archive,
+manifest, package, index, and signature bindings verify. Reusing a package
+identity requires identical architecture digests, paths, and origins; corrections
+must otherwise use a new package identity.
+
+Existing tags, releases, or asset paths are never overwritten. A failed
+reservation remains as a draft and blocks retries unless the reserver can prove it
+is the exact empty draft it just created; only that safe draft is removed
+automatically. After any other failure, an operator must review the draft before
+explicitly removing it with
+`gh release delete apk-repo-vNNNN --yes --cleanup-tag`.
+
+Publication is a separate fail-closed operation after the fixed asset upload. It
+rescans every release and refuses a missing, malformed, reserved, or asset-mismatched
+marker:
+
+```sh
+.github/scripts/reserve-apk-release-identity.sh publish tektum/verity-images apk-repo-vNNNN
+```
 
 ## Rotation and revocation
 

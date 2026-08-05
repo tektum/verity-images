@@ -8,7 +8,12 @@ import zlib
 from pathlib import Path
 
 
-MELANGE_RECIPE = b"package:\n  name: openssl-fips-provider\n  version: 3.1.2\n  epoch: 3\nvars:\n  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n  certificate: \"4985\"\n"
+def recipe(name: str, version: str) -> bytes:
+    package_version, epoch = version.rsplit("-r", maxsplit=1)
+    identity = f"package:\n  name: {name}\n  version: {package_version}\n  epoch: {epoch}\n"
+    if name != "openssl-fips-provider":
+        return identity.encode()
+    return (identity + "vars:\n  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n  certificate: \"4985\"\n").encode()
 
 
 def gzip_member(raw: bytes) -> bytes:
@@ -42,10 +47,10 @@ def elf(architecture: str) -> bytes:
     return b"\x7fELF\x02\x01\x01" + b"\0" * 11 + machine.to_bytes(2, "little")
 
 
-def unsigned_package(architecture: str, payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], *, name: str = "openssl-fips-provider", version: str = "3.1.2-r3", datahash: str | None = None, extra: str = "") -> bytes:
+def unsigned_package(architecture: str, payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], *, name: str = "openssl-fips-provider", version: str = "3.1.2-r3", datahash: str | None = None, extra: str = "", recipe_name: str | None = None, recipe_version: str | None = None) -> bytes:
     data = gzip_member(pack_tar(payload, final=True))
     metadata = f"pkgname = {name}\npkgver = {version}\narch = {architecture}\ndatahash = {datahash or hashlib.sha256(data).hexdigest()}\n{extra}".encode()
-    control = gzip_member(pack_tar((entry(".PKGINFO", metadata), entry(".melange.yaml", MELANGE_RECIPE)), final=False))
+    control = gzip_member(pack_tar((entry(".PKGINFO", metadata), entry(".melange.yaml", recipe(recipe_name or name, recipe_version or version))), final=False))
     return control + data
 
 

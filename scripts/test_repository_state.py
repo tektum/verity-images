@@ -15,6 +15,9 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
+import test_repository_state_v2 as v2_tests
+import validate_repository_state as validator
+
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 SCHEMA: Final = ROOT / "packages/repository-state.schema.json"
@@ -70,6 +73,10 @@ def valid_state() -> None:
         ("x86_64", "openssl-fips-provider", "3.1.2-r3", 3, "x86_64/openssl-fips-provider-3.1.2-r3.apk", "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"),
         ("aarch64", "openssl-fips-provider", "3.1.2-r3", 3, "aarch64/openssl-fips-provider-3.1.2-r3.apk", "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"),
     }
+
+
+def v1_rollback_state_remains_valid() -> None:
+    validator.validate_v1(state())
 
 
 def rejects_invalid_owner() -> None:
@@ -238,6 +245,8 @@ def updater_requires_review() -> None:
 
 def main() -> None:
     valid_state()
+    v1_rollback_state_remains_valid()
+    v2_tests.main()
     rejects_invalid_owner()
     rejects_noncanonical_tag()
     rejects_substituted_release_identity()

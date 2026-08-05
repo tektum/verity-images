@@ -16,28 +16,14 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
+from apk_archive import read_archive
 from apk_repository_policy import validate as validate_repository
+from repository_state_validation import ARCHITECTURES, StateError, entries, field, mapping, text, validate_v1, validate_v2
 
 
 ROOT: Final = Path(__file__).resolve().parents[1]
 DEFAULT_STATE: Final = ROOT / "packages/repository-state.json"
 PINNED_STATE: Final = ROOT / "packages/repository-state.pin.json"
-ARCHITECTURES: Final = frozenset({"x86_64", "aarch64"})
-
-
-class StateError(ValueError):
-    pass
-
-
-def key_fingerprint(path: Path) -> str:
-    result = subprocess.run(
-        ["openssl", "pkey", "-pubin", "-in", str(path), "-pubout", "-outform", "DER"],
-        capture_output=True,
-        check=False,
-    )
-    if result.returncode:
-        raise StateError("unable to read repository key")
-    return hashlib.sha256(result.stdout).hexdigest()
 
 
 def read_state(path: Path) -> dict[str, object]:
@@ -47,78 +33,17 @@ def read_state(path: Path) -> dict[str, object]:
     return value
 
 
-def field(value: dict[str, object], name: str) -> object:
-    try:
-        return value[name]
-    except KeyError as error:
-        raise StateError(f"missing state field: {name}") from error
-
-
-def mapping(value: object, name: str) -> dict[str, object]:
-    if not isinstance(value, dict):
-        raise StateError(f"invalid object: {name}")
-    return value
-
-
-def entries(value: object, name: str) -> list[dict[str, object]]:
-    if not isinstance(value, list) or not all(isinstance(entry, dict) for entry in value):
-        raise StateError(f"invalid entries: {name}")
-    return value
-
-
-def text(value: object, name: str) -> str:
-    if not isinstance(value, str):
-        raise StateError(f"invalid text: {name}")
-    return value
-
-
 def validate(state: dict[str, object]) -> None:
+    version = field(state, "schemaVersion")
+    match version:
+        case 1:
+            validate_v1(state)
+        case 2:
+            validate_v2(state)
+        case _:
+            raise StateError(f"unsupported repository state schema version: {version}")
     if state != read_state(PINNED_STATE):
         raise StateError("repository state differs from reviewed pin contract")
-    release = mapping(field(state, "release"), "release")
-    asset = mapping(field(state, "asset"), "asset")
-    archive = mapping(field(state, "archive"), "archive")
-    manifest = mapping(field(archive, "manifest"), "archive.manifest")
-    key = mapping(field(state, "key"), "key")
-    package_entries = entries(field(state, "packages"), "packages")
-    manifest_entries = entries(field(manifest, "packages"), "archive.manifest.packages")
-    manifest_architectures = field(manifest, "architectures")
-    if field(state, "repository") != "tektum/verity-images":
-        raise StateError("unexpected repository")
-    if not text(field(release, "tag"), "release.tag").startswith("apk-repo-v"):
-        raise StateError("noncanonical release tag")
-    if text(field(asset, "name"), "asset.name") != "verity-apk-repository.tar.zst":
-        raise StateError("unexpected asset name")
-    if field(archive, "root") != "apk":
-        raise StateError("unexpected archive root")
-    if field(asset, "sha256") != field(archive, "sha256"):
-        raise StateError("release asset and archive digest mismatch")
-    if "sha256" in manifest:
-        raise StateError("archive manifest must not hash itself")
-    if field(manifest, "fingerprint") != field(key, "fingerprint"):
-        raise StateError("manifest and key fingerprint mismatch")
-    if text(field(key, "fingerprint"), "key.fingerprint") != key_fingerprint(ROOT / text(field(key, "path"), "key.path")):
-        raise StateError("active key fingerprint mismatch")
-    if not isinstance(manifest_architectures, list) or set(manifest_architectures) != ARCHITECTURES:
-        raise StateError("unexpected manifest architectures")
-    if {entry["architecture"] for entry in package_entries} != ARCHITECTURES:
-        raise StateError("unexpected package architectures")
-    if len(package_entries) != len(ARCHITECTURES) or len(manifest_entries) != len(ARCHITECTURES):
-        raise StateError("duplicate package entries")
-    if len({(entry["name"], entry["version"], entry["epoch"]) for entry in package_entries}) != 1:
-        raise StateError("duplicate or mismatched package identity")
-    for entry in (*package_entries, *manifest_entries):
-        if Path(text(entry["path"], "package.path")).parts[0] != entry["architecture"]:
-            raise StateError("package architecture and path mismatch")
-    for entries_to_check in (package_entries, manifest_entries):
-        if len({entry["path"] for entry in entries_to_check}) != len(entries_to_check):
-            raise StateError("duplicate package paths")
-        if len({entry["sha256"] for entry in entries_to_check}) != len(entries_to_check):
-            raise StateError("duplicate package digests")
-    bindings = {(entry["architecture"], entry["path"], entry["sha256"]) for entry in package_entries}
-    manifest_bindings = {(entry["architecture"], entry["path"], entry["sha256"]) for entry in manifest_entries}
-    if bindings != manifest_bindings:
-        raise StateError("package manifest mismatch")
 
 
 def archive_paths(state: dict[str, object]) -> tuple[str, ...]:
@@ -131,6 +56,15 @@ def archive_paths(state: dict[str, object]) -> tuple[str, ...]:
         paths.append(f"{root}/{architecture}")
         paths.append(f"{root}/{architecture}/APKINDEX.tar.gz")
     paths.extend(f"{root}/{text(field(package, 'path'), 'package.path')}" for package in packages)
+    bundles = {
+        text(field(origin, "bundlePath"), "package.origin.bundlePath")
+        for package in packages
+        if "origin" in package
+        and field((origin := mapping(field(package, "origin"), "package.origin")), "type") == "attested-build"
+    }
+    directories = {str(path) for bundle in bundles for path in Path(root, bundle).parents if str(path) != "."}
+    paths.extend(sorted(directories - set(paths)))
+    paths.extend(f"{root}/{bundle}" for bundle in sorted(bundles))
     return tuple(paths)
 
 
@@ -156,6 +90,7 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
         raise StateError("archive listing failed")
     paths = archive_paths(state)
     expected = set(paths)
+    directories = {path for path in paths if any(candidate.startswith(f"{path}/") for candidate in paths)}
     actual: set[str] = set()
     for line in result.stdout.splitlines():
         if not line or line[0] not in {"-", "d"}:
@@ -166,7 +101,7 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
         if member in actual:
             raise StateError("archive contains duplicate member")
         actual.add(member)
-        if member == paths[0] or member.endswith(tuple(ARCHITECTURES)):
+        if member in directories:
             if line[0] != "d":
                 raise StateError("archive directory is not a directory")
         elif line[0] != "-":
@@ -178,12 +113,14 @@ def validate_archive_members(state: dict[str, object], archive_path: Path) -> tu
 
 def stage_archive(state: dict[str, object], archive_path: Path, destination: Path) -> None:
     root = archive_paths(state)[0]
-    for member in validate_archive_members(state, archive_path):
+    members = validate_archive_members(state, archive_path)
+    directories = {member for member in members if any(candidate.startswith(f"{member}/") for candidate in members)}
+    for member in members:
         relative = Path(member).relative_to(root)
         if not relative.parts:
             continue
         target = destination / root / relative
-        if member.endswith(tuple(ARCHITECTURES)):
+        if member in directories:
             try:
                 target.mkdir(parents=True, exist_ok=False)
             except FileExistsError as error:
@@ -197,11 +134,10 @@ def stage_archive(state: dict[str, object], archive_path: Path, destination: Pat
 
 
 def validate_archive(state: dict[str, object], archive_path: Path) -> None:
-    pinned = read_state(PINNED_STATE)
-    archive = mapping(field(pinned, "archive"), "archive")
+    archive = mapping(field(state, "archive"), "archive")
     manifest_path = f"{text(field(archive, 'root'), 'archive.root')}/manifest.json"
-    digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
-    asset = mapping(field(pinned, "asset"), "asset")
+    digest = hashlib.sha256(read_archive(archive_path)).hexdigest()
+    asset = mapping(field(state, "asset"), "asset")
     if f"sha256:{digest}" != field(asset, "sha256"):
         raise StateError("archive digest mismatch")
     manifest_bytes = archive_file(archive_path, manifest_path)

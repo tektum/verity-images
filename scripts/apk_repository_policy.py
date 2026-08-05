@@ -17,8 +17,15 @@ import sys
 from pathlib import Path
 from typing import Final
 
-from apk_archive import ARCHITECTURES, PackageInfo, index_records, package_info
+from apk_archive import ARCHITECTURES, IndexRecord, PackageInfo, index_records, package_info, read_archive
 
+OPENSSL_FIPS_PACKAGE: Final = "openssl-fips-provider"
+MAX_SPDX_SIZE: Final = 64 * 1024
+MELANGE_RECIPE_FIELDS: Final = (
+    b"vars:\n",
+    b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
+    b'  certificate: "4985"\n',
+)
 REQUIRED_FILES: Final = frozenset(
     {
         "usr/lib/ossl-modules/fips.so",
@@ -27,8 +34,20 @@ REQUIRED_FILES: Final = frozenset(
         "usr/share/openssl-fips/openssl-fips.cnf.in",
     }
 )
-PACKAGE_NAME: Final = "openssl-fips-provider"
-PACKAGE_VERSION: Final = "3.1.2-r3"
+PAYLOAD_DIRECTORIES: Final = frozenset(
+    {
+        "usr",
+        "usr/bin",
+        "usr/lib",
+        "usr/lib/ossl-modules",
+        "usr/share",
+        "usr/share/openssl-fips",
+        "var",
+        "var/lib",
+        "var/lib/db",
+        "var/lib/db/sbom",
+    }
+)
 
 
 def safe_name(name: str) -> bool:
@@ -64,11 +83,26 @@ def verify(archive: Path, keys: Path) -> None:
         raise ValueError(f"signature verification failed: {archive.name}")
 
 
-def checked_package(apk: Path, architecture: str) -> PackageInfo:
-    info = package_info(apk.read_bytes(), architecture, REQUIRED_FILES)
-    if info.name != PACKAGE_NAME or info.version != PACKAGE_VERSION:
-        raise ValueError(f"invalid package identity: {apk.name}")
+def validate_package(info: PackageInfo) -> PackageInfo:
+    if info.name != OPENSSL_FIPS_PACKAGE:
+        return info
+    if not all(field in info.recipe.contents for field in MELANGE_RECIPE_FIELDS):
+        raise ValueError("invalid OpenSSL FIPS recipe")
+    payload_files = {entry.name: entry.contents for entry in info.payload if entry.contents is not None}
+    payload_directories = {entry.name for entry in info.payload if entry.contents is None}
+    spdx = f"var/lib/db/sbom/{info.name}-{info.version}.spdx.json"
+    spdx_contents = payload_files.get(spdx)
+    if len(info.payload) != len(payload_files) + len(payload_directories) or set(payload_files) != REQUIRED_FILES | {spdx} or payload_directories != PAYLOAD_DIRECTORIES or spdx_contents is None or not 0 < len(spdx_contents) <= MAX_SPDX_SIZE:
+        raise ValueError("invalid FIPS payload")
+    module = payload_files.get("usr/lib/ossl-modules/fips.so", b"")
+    machines = {"x86_64": 62, "aarch64": 183}
+    if len(module) < 20 or module[:5] != b"\x7fELF\x02" or module[5] != 1 or int.from_bytes(module[18:20], "little") != machines[info.architecture]:
+        raise ValueError("invalid FIPS module ELF")
     return info
+
+
+def checked_package(apk: Path, architecture: str) -> PackageInfo:
+    return validate_package(package_info(read_archive(apk), architecture))
 
 
 def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
@@ -76,43 +110,54 @@ def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
     if hashlib.sha256(manifest_path.read_bytes()).hexdigest() != manifest_digest:
         raise ValueError("external manifest digest mismatch")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    if not isinstance(manifest, dict) or set(manifest.get("architectures", ())) != ARCHITECTURES:
+    architectures = manifest.get("architectures") if isinstance(manifest, dict) else None
+    if not isinstance(architectures, list) or len(architectures) != len(ARCHITECTURES) or set(architectures) != ARCHITECTURES:
         raise ValueError("unexpected architecture set")
     packages = manifest.get("packages")
     if not isinstance(packages, list):
         raise ValueError("invalid manifest package list")
     listed: set[str] = set()
-    by_arch: dict[str, PackageInfo] = {}
+    by_identity: dict[tuple[str, str], PackageInfo] = {}
+    versions: dict[str, str] = {}
     for package in packages:
         if not isinstance(package, dict):
             raise ValueError("invalid manifest package")
         architecture = package.get("architecture")
+        name = package.get("name")
+        version = package.get("version")
+        epoch = package.get("epoch")
         relative = package.get("path")
         digest = package.get("sha256")
-        if architecture not in ARCHITECTURES or not isinstance(relative, str) or not isinstance(digest, str):
+        if architecture not in ARCHITECTURES or not isinstance(name, str) or not isinstance(version, str) or type(epoch) is not int or not isinstance(relative, str) or not isinstance(digest, str):
             raise ValueError("invalid manifest fields")
         if not safe_name(relative) or Path(relative).parts[0] != architecture:
             raise ValueError("unsafe manifest path")
         apk = repository / relative
-        if hashlib.sha256(apk.read_bytes()).hexdigest() != digest:
+        data = read_archive(apk)
+        if hashlib.sha256(data).hexdigest() != digest:
             raise ValueError(f"manifest digest mismatch: {relative}")
         verify(apk, keys)
-        if relative in listed or architecture in by_arch:
+        info = validate_package(package_info(data, architecture))
+        if (name, version, epoch) != (info.name, info.version, info.epoch):
+            raise ValueError("manifest package identity mismatch")
+        identity = (info.name, architecture)
+        if relative in listed or identity in by_identity or versions.setdefault(info.name, info.version) != info.version:
             raise ValueError("duplicate package")
         listed.add(relative)
-        by_arch[architecture] = checked_package(apk, architecture)
+        by_identity[identity] = info
     actual = {path.relative_to(repository).as_posix() for path in repository.glob("*/*.apk")}
-    if actual != listed or set(by_arch) != ARCHITECTURES:
+    if not versions or actual != listed or any({architecture for (package_name, architecture) in by_identity if package_name == name} != ARCHITECTURES for name in versions):
         raise ValueError("manifest package set mismatch")
-    for architecture, info in by_arch.items():
+    for architecture in ARCHITECTURES:
         index = repository / architecture / "APKINDEX.tar.gz"
         verify(index, keys)
-        records = index_records(index.read_bytes())
-        matches = [record for record in records if record.name == info.name and record.version == info.version]
-        if len(matches) != 1:
-            raise ValueError(f"index package missing: {architecture}")
-        record = matches[0]
-        if record.architecture != architecture or record.control != expected_control_digest(info.control) or record.size != info.size:
+        records = index_records(read_archive(index))
+        expected = {
+            IndexRecord(info.name, info.version, architecture, expected_control_digest(info.control), info.size)
+            for (package_name, package_architecture), info in by_identity.items()
+            if package_architecture == architecture
+        }
+        if len(records) != len(expected) or set(records) != expected:
             raise ValueError(f"index binding mismatch: {architecture}")
 
 
