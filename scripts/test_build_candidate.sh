@@ -148,3 +148,12 @@ grep -Fxq 'GOFIPS140=v1.0.0' "$traefik/fips.env"
 if grep -q 'openssl-fips-provider' "$traefik"/{apko.yaml,melange.yaml,metadata.yaml,fips.env}; then
   exit 1
 fi
+
+grep -Fq "docker image history \"\$image\"" "$script"
+grep -Fq "docker image save \"\$image\" --output \"\$archive\"" "$script"
+grep -Fq '/run/containerd/containerd.sock' "$script"
+grep -Fq 'images import' "$script"
+grep -Fq -- "--platform \"linux/\$image_arch\" --snapshotter overlayfs \"\$archive\"" "$script"
+unpack_line=$(grep -nF 'images import' "$script" | cut -d: -f1)
+scan_line=$(grep -nF 'trivy image --image-src docker --scanners vuln --pkg-types library' "$script" | cut -d: -f1)
+[[ "$unpack_line" -lt "$scan_line" ]]

@@ -91,7 +91,7 @@ if ! printf '%s  %s\n' "$checksum" "$work/output/gosu" \
 fi
 mv "$work/output/gosu" "$work/install/gosu"
 chmod 0755 "$work/install/gosu"
-docker build --platform "linux/$arch" --build-arg "BASE=$base" \
+docker build --platform "linux/$arch" --provenance=false --build-arg "BASE=$base" \
   --build-arg "GOSU_PATH=$gosu_path" --tag "$target" --file - "$work/install" <<'EOF'
 ARG BASE=scratch
 FROM ${BASE}
