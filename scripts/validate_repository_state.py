@@ -16,6 +16,7 @@ import tempfile
 from pathlib import Path
 from typing import Final
 
+from apk_archive import read_archive
 from apk_repository_policy import validate as validate_repository
 from repository_state_validation import ARCHITECTURES, StateError, entries, field, mapping, text, validate_v1, validate_v2
 
@@ -135,7 +136,7 @@ def stage_archive(state: dict[str, object], archive_path: Path, destination: Pat
 def validate_archive(state: dict[str, object], archive_path: Path) -> None:
     archive = mapping(field(state, "archive"), "archive")
     manifest_path = f"{text(field(archive, 'root'), 'archive.root')}/manifest.json"
-    digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    digest = hashlib.sha256(read_archive(archive_path)).hexdigest()
     asset = mapping(field(state, "asset"), "asset")
     if f"sha256:{digest}" != field(asset, "sha256"):
         raise StateError("archive digest mismatch")

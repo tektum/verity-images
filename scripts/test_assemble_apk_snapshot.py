@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 
 import apk_archive
-from test_compose_apk_inputs import A, ARCHITECTURES, ASSEMBLE, B, compose
+from test_compose_apk_inputs import A, ARCHITECTURES, ASSEMBLE, B, VERSIONS, compose
 
 
 def fingerprint(key: Path) -> str:
@@ -104,7 +104,7 @@ def deterministic_repository() -> None:
         for architecture in ARCHITECTURES:
             records = apk_archive.index_records((first / architecture / "APKINDEX.tar.gz").read_bytes())
             assert {record.name for record in records} == {A, B}
-            reused = f"{architecture}/{B}-3.1.2-r3.apk"
+            reused = f"{architecture}/{B}-{VERSIONS[B]}.apk"
             assert (base / reused).read_bytes() == (first / reused).read_bytes()
             bundle = f"bundles/{B}/{architecture}.json"
             assert (base / bundle).read_bytes() == (first / bundle).read_bytes()

@@ -21,7 +21,8 @@ ASSEMBLE = ROOT / ".github/scripts/assemble-apk-repository.sh"
 FINGERPRINT = "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698"
 ARCHITECTURES = ("aarch64", "x86_64")
 A = "openssl-fips-provider"
-B = "openssl-fips-provider-extra"
+B = "example-package"
+VERSIONS = {A: "3.1.2-r3", B: "1.0.0-r1"}
 
 
 def digest(path: Path) -> str:
@@ -49,16 +50,17 @@ def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.
     repository(base, key_name)
     if schema_version == 1:
         for architecture in ARCHITECTURES:
-            (base / architecture / f"{B}-3.1.2-r3.apk").unlink()
+            (base / architecture / f"{B}-{VERSIONS[B]}.apk").unlink()
     packages: list[dict[str, str | int | dict[str, str | int]]] = []
     for architecture in ARCHITECTURES:
         for name in ((A, B) if schema_version == 2 else (A,)):
-            package = base / architecture / f"{name}-3.1.2-r3.apk"
+            version = VERSIONS[name]
+            package = base / architecture / f"{name}-{version}.apk"
             entry: dict[str, str | int | dict[str, str | int]] = {
                 "architecture": architecture,
                 "name": name,
-                "version": "3.1.2-r3",
-                "epoch": 3,
+                "version": version,
+                "epoch": int(version.rsplit("-r", maxsplit=1)[1]),
                 "path": package.relative_to(base).as_posix(),
                 "sha256": digest(package),
             }
@@ -154,7 +156,7 @@ def happy_paths() -> None:
             (name, architecture) for name in (A, B) for architecture in ARCHITECTURES
         }
         for architecture in ARCHITECTURES:
-            reused = f"{architecture}/{B}-3.1.2-r3.apk"
+            reused = f"{architecture}/{B}-{VERSIONS[B]}.apk"
             assert (base / reused).read_bytes() == (output / reused).read_bytes()
             bundle = f"bundles/{B}/{architecture}.json"
             assert (base / bundle).read_bytes() == (output / bundle).read_bytes()
@@ -265,7 +267,7 @@ def mutation_after_copy_fails() -> None:
         def mutating_copy(source: str | os.PathLike[str], target: str | os.PathLike[str]) -> str | os.PathLike[str]:
             result = original(source, target)
             source_path = Path(source)
-            if source_path.name == f"{B}-3.1.2-r3.apk" and source_path.parent.name == "x86_64":
+            if source_path.name == f"{B}-{VERSIONS[B]}.apk" and source_path.parent.name == "x86_64":
                 source_path.write_bytes(source_path.read_bytes() + b"changed")
             return result
 

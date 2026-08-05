@@ -45,9 +45,17 @@ def payload(architecture: str, name: str = "openssl-fips-provider") -> tuple[tup
     )
 
 
+def generic_payload() -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
+    return (
+        entry("usr", typeflag=tarfile.DIRTYPE),
+        entry("usr/bin", typeflag=tarfile.DIRTYPE),
+        entry("usr/bin/example-package", b"#!/bin/sh\n"),
+    )
+
+
 def rejects_package(data: bytes, architecture: str = "x86_64") -> None:
     try:
-        apk_archive.package_info(data, architecture, apk_repository_policy.REQUIRED_FILES)
+        apk_repository_policy.validate_package(apk_archive.package_info(data, architecture))
     except ValueError:
         return
     raise AssertionError("invalid package was accepted")
@@ -70,12 +78,12 @@ def repository(root: Path, key_name: str = "fixture.rsa") -> tuple[Path, Path, s
         directory = root / architecture
         directory.mkdir()
         archives: list[Path] = []
-        for name in ("openssl-fips-provider", "openssl-fips-provider-extra"):
-            package = directory / f"{name}-3.1.2-r3.apk"
-            write_unsigned(package, architecture, payload(architecture, name), name=name)
+        for name, version in (("example-package", "1.0.0-r1"), ("openssl-fips-provider", "3.1.2-r3")):
+            package = directory / f"{name}-{version}.apk"
+            write_unsigned(package, architecture, generic_payload() if name == "example-package" else payload(architecture), name=name, version=version)
             sign(package, key)
             archives.append(package)
-            packages.append({"architecture": architecture, "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
+            packages.append({"architecture": architecture, "name": name, "version": version, "epoch": int(version.rsplit("-r", maxsplit=1)[1]), "path": package.relative_to(root).as_posix(), "sha256": hashlib.sha256(package.read_bytes()).hexdigest()})
         subprocess.run(["melange", "index", "--arch", architecture, "--signing-key", str(key), "--output", str(directory / "APKINDEX.tar.gz"), *(str(package) for package in archives)], check=True)
     manifest = root / "manifest.json"
     manifest.write_text(json.dumps({"architectures": sorted(apk_repository_policy.ARCHITECTURES), "packages": packages}, sort_keys=True), encoding="utf-8")
@@ -137,13 +145,23 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
 
 def unit_tests() -> None:
     valid = signed_shape(unsigned_package("x86_64", payload("x86_64")))
-    assert apk_archive.package_info(valid, "x86_64", apk_repository_policy.REQUIRED_FILES).name == "openssl-fips-provider"
+    assert apk_repository_policy.validate_package(apk_archive.package_info(valid, "x86_64")).name == "openssl-fips-provider"
+    generic = signed_shape(unsigned_package("x86_64", generic_payload(), name="example-package", version="1.0.0-r1"))
+    info = apk_repository_policy.validate_package(apk_archive.package_info(generic, "x86_64"))
+    assert (info.name, info.version, info.epoch, info.architecture) == ("example-package", "1.0.0-r1", 1, "x86_64")
+    disagreement = signed_shape(unsigned_package("x86_64", generic_payload(), name="example-package", version="1.0.0-r1", recipe_name="forged-package"))
+    try:
+        apk_archive.package_info(disagreement, "x86_64")
+    except ValueError as error:
+        assert str(error) == "package recipe identity mismatch"
+    else:
+        raise AssertionError("package recipe disagreement was accepted")
     signature, _, data = apk_archive.gzip_members(valid, 3)
     missing_pkginfo = signature.compressed + gzip_member(pack_tar((entry(".melange.yaml", b"recipe"),), final=False)) + data.compressed
     rejects_package(missing_pkginfo)
     rejects_package(valid[:-1])
     rejects_package(valid + b"suffix")
-    assert apk_archive.package_info(signed_shape(unsigned_package("x86_64", payload("x86_64", "other"), name="other")), "x86_64", apk_repository_policy.REQUIRED_FILES).name == "other"
+    assert apk_archive.package_info(signed_shape(unsigned_package("x86_64", payload("x86_64", "other"), name="other")), "x86_64").name == "other"
     rejects_package(signed_shape(unsigned_package("aarch64", payload("aarch64"))))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64")[:-1])))
     rejects_package(signed_shape(unsigned_package("x86_64", payload("x86_64") + (entry("etc/evil", b"bad"),))))
@@ -213,13 +231,25 @@ def crypto_tests() -> None:
         rejects_repository(root, keys, hashlib.sha256(manifest.read_bytes()).hexdigest())
 
 
+def manifest_identity_tests() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for field, forged in (("name", "forged-package"), ("version", "9.9.9-r9"), ("epoch", 9)):
+            _, keys, _ = repository(root)
+            manifest = root / "manifest.json"
+            values = json.loads(manifest.read_text(encoding="utf-8"))
+            values["packages"][0][field] = forged
+            manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
+            rejects_repository(root, keys, hashlib.sha256(manifest.read_bytes()).hexdigest())
+
+
 def real_melange_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         package, keys, digest = real_repository(root)
         repository = root / "repository"
         apk_repository_policy.verify(package, keys)
-        assert apk_archive.package_info(package.read_bytes(), "x86_64", apk_repository_policy.REQUIRED_FILES).version == "3.1.2-r3"
+        assert apk_archive.package_info(package.read_bytes(), "x86_64").version == "3.1.2-r3"
         apk_repository_policy.validate(repository, keys, digest)
         renamed = package.with_name("fixture.apk")
         package.rename(renamed)
@@ -242,6 +272,7 @@ def real_melange_tests() -> None:
 
 
 def main() -> None:
+    manifest_identity_tests()
     unit_tests()
     crypto_tests()
     real_melange_tests()

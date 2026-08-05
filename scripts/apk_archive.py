@@ -14,27 +14,7 @@ MAX_MEMBER_SIZE: Final = 32 * 1024 * 1024
 MAX_ENTRIES: Final = 128
 MAX_ENTRY_SIZE: Final = 16 * 1024 * 1024
 MAX_MELANGE_RECIPE_SIZE: Final = 8 * 1024
-MAX_SPDX_SIZE: Final = 64 * 1024
 MELANGE_RECIPE: Final = ".melange.yaml"
-MELANGE_RECIPE_FIELDS: Final = (
-    b"vars:\n",
-    b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
-    b'  certificate: "4985"\n',
-)
-PAYLOAD_DIRECTORIES: Final = frozenset(
-    {
-        "usr",
-        "usr/bin",
-        "usr/lib",
-        "usr/lib/ossl-modules",
-        "usr/share",
-        "usr/share/openssl-fips",
-        "var",
-        "var/lib",
-        "var/lib/db",
-        "var/lib/db/sbom",
-    }
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,9 +30,21 @@ class TarEntry:
 
 
 @dataclass(frozen=True, slots=True)
+class RecipeInfo:
+    name: str
+    version: str
+    epoch: int
+    contents: bytes
+
+
+@dataclass(frozen=True, slots=True)
 class PackageInfo:
     name: str
     version: str
+    epoch: int
+    architecture: str
+    recipe: RecipeInfo
+    payload: tuple[TarEntry, ...]
     control: bytes
     size: int
 
@@ -64,6 +56,12 @@ class IndexRecord:
     architecture: str
     control: str
     size: int
+
+
+def read_archive(path: Path) -> bytes:
+    if path.stat().st_size > MAX_ARCHIVE_SIZE:
+        raise ValueError("invalid compressed archive size")
+    return path.read_bytes()
 
 
 def gzip_members(data: bytes, count: int) -> tuple[GzipMember, ...]:
@@ -131,7 +129,33 @@ def fields(raw: bytes) -> dict[str, str]:
         raise ValueError("invalid package metadata") from error
 
 
-def package_info(data: bytes, architecture: str, required_files: frozenset[str]) -> PackageInfo:
+def recipe_info(raw: bytes) -> RecipeInfo:
+    if not 0 < len(raw) <= MAX_MELANGE_RECIPE_SIZE:
+        raise ValueError("invalid package recipe")
+    try:
+        lines = raw.decode("utf-8").splitlines()
+    except UnicodeDecodeError as error:
+        raise ValueError("invalid package recipe") from error
+    values: dict[str, str] = {}
+    in_package = False
+    for line in lines:
+        if line == "package:":
+            in_package = True
+        elif in_package and not line.startswith("  "):
+            break
+        elif in_package and ": " in line:
+            key, value = line.strip().split(": ", maxsplit=1)
+            if key in {"name", "version", "epoch"}:
+                if key in values:
+                    raise ValueError("invalid package recipe")
+                values[key] = value.strip('"')
+    epoch = values.get("epoch", "")
+    if not values.get("name") or not values.get("version") or not epoch.isdecimal():
+        raise ValueError("invalid package recipe")
+    return RecipeInfo(values["name"], values["version"], int(epoch), raw)
+
+
+def package_info(data: bytes, architecture: str) -> PackageInfo:
     signature, control, payload = gzip_members(data, 3)
     del signature
     control_entries = tar_entries(control.plain)
@@ -141,24 +165,17 @@ def package_info(data: bytes, architecture: str, required_files: frozenset[str])
     metadata = fields(control_files[".PKGINFO"])
     name, version = metadata.get("pkgname", ""), metadata.get("pkgver", "")
     package_version, separator, epoch = version.rpartition("-r")
-    recipe = control_files.get(MELANGE_RECIPE)
-    recipe_identity = f"package:\n  name: {name}\n  version: {package_version}\n  epoch: {epoch}\n".encode()
-    if not name or not package_version or not separator or not epoch.isdecimal() or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or recipe_identity not in recipe or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
+    recipe_contents = control_files.get(MELANGE_RECIPE)
+    if not name or not package_version or not separator or not epoch.isdecimal() or recipe_contents is None:
         raise ValueError("invalid control archive")
+    recipe = recipe_info(recipe_contents)
+    release = int(epoch)
+    if (recipe.name, recipe.version, recipe.epoch) != (name, package_version, release):
+        raise ValueError("package recipe identity mismatch")
     if metadata.get("arch") != architecture or metadata.get("datahash") != hashlib.sha256(payload.compressed).hexdigest():
         raise ValueError("invalid package metadata")
     payload_entries = tar_entries(payload.plain)
-    payload_files = {entry.name: entry.contents for entry in payload_entries if entry.contents is not None}
-    payload_directories = {entry.name for entry in payload_entries if entry.contents is None}
-    spdx = f"var/lib/db/sbom/{name}-{version}.spdx.json"
-    spdx_contents = payload_files.get(spdx)
-    if len(payload_entries) != len(payload_files) + len(payload_directories) or set(payload_files) != required_files | {spdx} or payload_directories != PAYLOAD_DIRECTORIES or spdx_contents is None or not 0 < len(spdx_contents) <= MAX_SPDX_SIZE:
-        raise ValueError("invalid FIPS payload")
-    module = payload_files.get("usr/lib/ossl-modules/fips.so", b"")
-    machines = {"x86_64": 62, "aarch64": 183}
-    if len(module) < 20 or module[:5] != b"\x7fELF\x02" or module[5] != 1 or int.from_bytes(module[18:20], "little") != machines[architecture]:
-        raise ValueError("invalid FIPS module ELF")
-    return PackageInfo(name, version, control.compressed, len(data))
+    return PackageInfo(name, version, release, architecture, recipe, payload_entries, control.compressed, len(data))
 
 
 def index_records(data: bytes) -> tuple[IndexRecord, ...]:
