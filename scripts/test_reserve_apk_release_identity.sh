@@ -10,13 +10,17 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 source_sha=0123456789012345678901234567890123456789
 
 make_package() {
-  local path=$1 architecture=$2 payload=${3:-same} package_dir
-  package_dir=$(mktemp -d "$work_dir/package.XXXXXX")
-  printf 'pkgname = openssl-fips-provider\npkgver = 3.1.2-r3\narch = %s\n' "$architecture" > "$package_dir/.PKGINFO"
-  printf 'package:\n  epoch: 3\n' > "$package_dir/.melange.yaml"
-  printf '%s\n' "$payload" > "$package_dir/payload"
-  tar -C "$package_dir" -cf "$path" .PKGINFO .melange.yaml payload
-  rm -rf "$package_dir"
+  local path=$1 architecture=$2 payload=${3:-same}
+  PYTHONPATH="$root/scripts" python3 - "$path" "$architecture" "$payload" <<'PY'
+import sys
+from pathlib import Path
+
+from apk_test_fixtures import entry, signed_shape, unsigned_package
+
+Path(sys.argv[1]).write_bytes(
+    signed_shape(unsigned_package(sys.argv[2], (entry("payload", sys.argv[3].encode()),)))
+)
+PY
 }
 
 make_repository() {
@@ -271,7 +275,9 @@ reset_releases
 make_repository "$work_dir/collision" changed
 write_inputs "$work_dir/collision.json" migration "$work_dir/collision"
 expect_failure reserve apk-repo-v0003 "$work_dir/collision.json"
-jq '.packages[0].path="aarch64/renamed.apk"' "$work_dir/migration.json" > "$work_dir/path-collision.json"
+origin=$(jq -cn --arg source "$source_sha" '{type:"attested-build",sourceCommit:$source,buildWorkflowId:1,buildRunId:2,buildArtifactId:3,buildArtifactSha256:("sha256:"+("4"*64)),unsignedSha256:("5"*64),signingWorkflowId:6,signingRunId:7,bundleSha256:("8"*64)}')
+write_inputs "$work_dir/path-collision.base.json" replacement "$work_dir/legacy" "$origin"
+jq '.packages[0].path="x86_64/renamed.apk"' "$work_dir/path-collision.base.json" > "$work_dir/path-collision.json"
 expect_failure reserve apk-repo-v0003 "$work_dir/path-collision.json"
 
 # Given a future complete marker, when origins change, then its authoritative ledger blocks reservation.
@@ -279,7 +285,6 @@ reset_releases
 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
 run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
   "$work_dir/legacy/repository.tar.zst" > /dev/null
-origin=$(jq -cn --arg source "$source_sha" '{type:"attested-build",sourceCommit:$source,buildWorkflowId:1,buildRunId:2,buildArtifactId:3,buildArtifactSha256:("sha256:"+("4"*64)),unsignedSha256:("5"*64),signingWorkflowId:6,signingRunId:7,bundleSha256:("8"*64)}')
 write_inputs "$work_dir/replacement.json" replacement "$work_dir/legacy" "$origin"
 expect_failure reserve apk-repo-v0004 "$work_dir/replacement.json"
 

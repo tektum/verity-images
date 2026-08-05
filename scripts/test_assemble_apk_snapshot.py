@@ -174,6 +174,7 @@ def repeated_interruptions_leave_no_output() -> None:
         for attempt in range(3):
             output = root / f"interrupted-{attempt}"
             archive = root / f"interrupted-{attempt}.tar.zst"
+            previous = len(log.read_text().splitlines()) if log.exists() else 0
             process = subprocess.Popen(
                 [str(ASSEMBLE), str(staged), str(staged / "metadata.json"), str(output), str(archive), str(key), fingerprint(key)],
                 env={
@@ -184,7 +185,6 @@ def repeated_interruptions_leave_no_output() -> None:
                 },
             )
             deadline = time.monotonic() + 5
-            previous = len(log.read_text().splitlines()) if log.exists() else 0
             while time.monotonic() < deadline:
                 current = len(log.read_text().splitlines()) if log.exists() else 0
                 if current > previous:
