@@ -4,6 +4,7 @@ trap 'printf "test failure at line %s\n" "$LINENO" >&2' ERR
 
 root=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 reserver="$root/.github/scripts/reserve-apk-release-identity.sh"
+real_timeout=$(command -v timeout)
 work_dir=$(mktemp -d)
 trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 source_sha=0123456789012345678901234567890123456789
@@ -127,7 +128,7 @@ case "$1:$2" in
         "$GH_RELEASES" > "$GH_RELEASES.next"
       mv "$GH_RELEASES.next" "$GH_RELEASES"
     fi
-    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "$PPID"; fi
+    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "${INTERRUPT_TARGET:?}"; fi
     ;;
   release:edit)
     tag=$3
@@ -148,7 +149,19 @@ case "$1:$2" in
   *) exit 64 ;;
 esac
 GH
-  chmod +x "$work_dir/bin/sha256sum" "$work_dir/bin/python3" "$work_dir/bin/git" "$work_dir/bin/gh"
+  cat > "$work_dir/bin/timeout" <<'TIMEOUT'
+#!/bin/bash
+set -euo pipefail
+duration=$1
+shift
+if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then
+  trap '' TERM
+  INTERRUPT_TARGET=$PPID "$@"
+else
+  exec "$REAL_TIMEOUT" "$duration" "$@"
+fi
+TIMEOUT
+  chmod +x "$work_dir/bin/sha256sum" "$work_dir/bin/python3" "$work_dir/bin/git" "$work_dir/bin/gh" "$work_dir/bin/timeout"
 }
 
 reset_releases() {
@@ -182,7 +195,7 @@ write_inputs() {
 
 run_script() {
   COMMAND_LOG="$work_dir/commands.log" GH_ARCHIVES="$work_dir/assets" GH_RELEASES="$work_dir/releases.json" \
-    SOURCE_SHA="$source_sha" PATH="$work_dir/bin:$PATH" GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-1}" \
+    SOURCE_SHA="$source_sha" REAL_TIMEOUT="$real_timeout" PATH="$work_dir/bin:$PATH" GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-1}" \
     DIRTY_STATE="${DIRTY_STATE:-0}" GH_BAD_JSON="${GH_BAD_JSON:-0}" GH_HANG="${GH_HANG:-0}" \
     GH_RACE="${GH_RACE:-0}" GH_INTERRUPT="${GH_INTERRUPT:-0}" "$reserver" "$@"
 }
@@ -319,7 +332,12 @@ GH_RACE=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migratio
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
 jq -e '.[] | select(.tag_name == "apk-repo-v0003")' "$work_dir/releases.json" >/dev/null && exit 1
 reset_releases
-GH_INTERRUPT=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
+if GH_INTERRUPT=1 reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null 2>&1; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 130 ]]
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
 
 # Given a reserved draft, when publication is requested, then the incomplete marker prevents publication.
