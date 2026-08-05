@@ -128,7 +128,8 @@ def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
         epoch = package.get("epoch")
         relative = package.get("path")
         digest = package.get("sha256")
-        if architecture not in ARCHITECTURES or not isinstance(name, str) or not isinstance(version, str) or type(epoch) is not int or not isinstance(relative, str) or not isinstance(digest, str):
+        legacy_identity = all(field not in package for field in ("name", "version", "epoch"))
+        if architecture not in ARCHITECTURES or not isinstance(relative, str) or not isinstance(digest, str) or (not legacy_identity and (not isinstance(name, str) or not isinstance(version, str) or type(epoch) is not int)):
             raise ValueError("invalid manifest fields")
         if not safe_name(relative) or Path(relative).parts[0] != architecture:
             raise ValueError("unsafe manifest path")
@@ -138,7 +139,7 @@ def validate(repository: Path, keys: Path, manifest_digest: str) -> None:
             raise ValueError(f"manifest digest mismatch: {relative}")
         verify(apk, keys)
         info = validate_package(package_info(data, architecture))
-        if (name, version, epoch) != (info.name, info.version, info.epoch):
+        if not legacy_identity and (name, version, epoch) != (info.name, info.version, info.epoch):
             raise ValueError("manifest package identity mismatch")
         identity = (info.name, architecture)
         if relative in listed or identity in by_identity or versions.setdefault(info.name, info.version) != info.version:
