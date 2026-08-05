@@ -217,6 +217,11 @@ def main() -> None:
         "  cancel-in-progress: false\n"
     )
     assert "\n  schedule:\n" not in workflow
+    assert (
+        "  GRYPE_VERSION: 0.116.1\n"
+        "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
+        in workflow
+    )
     assert "  schedule:\n" not in monitor
     assert "  workflow_dispatch:\n" in monitor
     assert "      payload:\n" in monitor
