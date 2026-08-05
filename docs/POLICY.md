@@ -6,12 +6,10 @@ Pushes to `main` rebuild published images. Pull requests build, scan, and
 smoke-test affected images but never authenticate to GHCR, publish, sign,
 attest, or move tags.
 
-At 03:17 UTC each day, the monitor requires the catalog to match the reviewed
-image inventory and each digest to match its published version tag. It then
-verifies every platform SPDX attestation and scans both platform SBOMs with the
-current Grype database. It opens or updates one issue per vulnerable image
-version and closes the issue after a clean scan. The monitor does not pull image
-layers or rebuild images.
+After publication, Squawk stores each platform SBOM once and compares its
+components with incremental OSV updates. New findings dispatch the monitor
+workflow, which opens or updates one issue per vulnerable image version. The
+monitor does not pull image layers, rescan images, or rebuild images.
 
 ## Vulnerability gates
 
@@ -48,6 +46,26 @@ never overwrite `:latest` when rebuilt.
 
 Non-default flavors suffix every tag, for example `:2-fips`, `:2.11-fips`, and
 `:latest-fips`.
+
+The `fips` suffix means only that the flavor's declared cryptographic mechanism
+is enabled and its repository checks passed. It does not claim that an
+application or container is CMVP validated. The shared OpenSSL provider recipe
+uses the unmodified OpenSSL 3.1.2 inputs associated with certificate 4985, but
+that certificate does not list Wolfi or Linux arm64 as tested operational
+environments.
+
+The provider APK contains `fips.so`, its package-time checksum, a static OpenSSL
+configuration template, and an activation wrapper. It does not contain a
+machine-generated `fipsmodule.cnf`. Each consuming container runs
+`openssl fipsinstall` in an explicitly writable runtime directory before the
+application starts, verifies the generated configuration and module, then
+executes the original application argv. The image root filesystem may remain
+read-only. APKO consumers use `https://tektum.github.io/verity-images/apk`, the
+committed `verity-apk-2026.rsa.pub` key, and the pinned
+`openssl-fips-provider=3.1.2-r3` package; they do not rebuild the provider.
+FIPS Go images add a local entrypoint package that invokes the generic helper
+before `/usr/bin/go`, so both `docker run IMAGE` and `docker run IMAGE version`
+activate FIPS before Go starts.
 
 Tags are mutable discovery aids. Consumers should pin
 `ghcr.io/tektum/<image>@sha256:<digest>`.

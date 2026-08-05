@@ -25,6 +25,12 @@ GLOBAL_PATHS: Final = {
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
 }
+OPENSSL_FIPS_PATHS: Final = {
+    "packages/keys/verity-apk-2026.rsa.pub",
+    "packages/repository-state.json",
+    "packages/repository-state.pin.json",
+    "packages/repository-state.schema.json",
+}
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
 
 type Track = Literal["wolfi", "patched"]
@@ -171,6 +177,13 @@ def image_directories() -> list[Path]:
     return sorted(path.parent for root in ("images", "patched") for path in (ROOT / root).glob("**/metadata.yaml"))
 
 
+def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
+    config = directory / ("apko.yaml" if flavor == "plain" else f"{flavor}.apko.yaml")
+    if not config.is_file():
+        config = directory / "apko.yaml"
+    return config.is_file() and "openssl-fips-provider=3.1.2-r3" in config.read_text(encoding="utf-8")
+
+
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
 
@@ -178,6 +191,7 @@ def version_key(version: str) -> tuple[int, ...]:
 def generate(base_ref: str | None) -> Matrix:
     changed: set[str] = changed_paths(base_ref) if base_ref else set()
     global_changed = bool(changed & GLOBAL_PATHS)
+    openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     samples = {
         (metadata.track, flavor): (
@@ -223,8 +237,14 @@ def generate(base_ref: str | None) -> Matrix:
                 raise MetadataError(f"{relative}: metadata upstream must match source image")
             platforms = ",".join(source.platforms)
         for flavor in metadata.flavors:
+            provider_changed = (
+                openssl_fips_changed
+                and metadata.track == "wolfi"
+                and uses_openssl_fips_provider(directory, flavor)
+            )
             if base_ref and not directly_changed and (
-                not global_changed or samples[(metadata.track, flavor)] != relative
+                not provider_changed
+                and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"

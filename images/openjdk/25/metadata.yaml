@@ -1,0 +1,8 @@
+name: openjdk
+track: wolfi
+description: OpenJDK 25 JDK and JRE flavors assembled from Wolfi packages.
+upstream: https://openjdk.org/
+versions: [25]
+flavors: [plain, jre]
+owner: tektum
+enabled: true

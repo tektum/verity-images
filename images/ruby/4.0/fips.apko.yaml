@@ -1,0 +1,33 @@
+contents:
+  repositories:
+    - https://tektum.github.io/verity-images/apk
+    - https://packages.wolfi.dev/os
+  keyring:
+    - packages/keys/verity-apk-2026.rsa.pub
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - ruby-4.0
+    - ruby4.0-bundler
+    - openssl
+    - openssl-fips-provider=3.1.2-r3
+
+entrypoint:
+  command: /usr/bin/ruby
+
+environment:
+  GEM_HOME: /usr/local/bundle
+  BUNDLE_APP_CONFIG: /usr/local/bundle
+  BUNDLE_SILENCE_ROOT_WARNING: "1"
+  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips
+  PATH: /usr/local/bundle/bin:/usr/bin:/bin
+
+paths:
+  - path: /usr/local/bundle
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /run/openssl-fips
+    type: directory
+    permissions: 0o1777

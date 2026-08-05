@@ -1,0 +1,105 @@
+#!/bin/sh
+set -eu
+
+image=${1:?usage: test.sh IMAGE [FLAVOR]}
+flavor=${2:-plain}
+
+case "$flavor" in
+  plain|dev|fips) ;;
+  *) printf 'unknown flavor: %s\n' "$flavor" >&2; exit 1 ;;
+esac
+
+docker run --rm "$image" -ropenssl -rrubygems -rbundler -e '
+  abort unless RUBY_VERSION.split(".").first(2) == %w[3 3]
+  abort if Gem::VERSION.empty? || Bundler::VERSION.empty?
+  abort unless ENV.values_at("GEM_HOME", "BUNDLE_APP_CONFIG", "BUNDLE_SILENCE_ROOT_WARNING", "PATH") == ["/usr/local/bundle", "/usr/local/bundle", "1", "/usr/local/bundle/bin:/usr/bin:/bin"]
+  abort unless Gem.dir == "/usr/local/bundle"
+  abort unless File.stat(Gem.dir).mode & 0o7777 == 0o1777
+'
+docker run --rm --user 65532:65532 "$image" -e 'path = File.join(Gem.dir, ".write-test"); File.write(path, "ok"); File.delete(path)'
+docker run --rm "$image" -e '
+  expected = ARGV.fetch(0) == "dev"
+  %w[cc gcc make].each do |tool|
+    present = ENV.fetch("PATH").split(":").any? { |directory| File.executable?(File.join(directory, tool)) }
+    abort tool unless present == expected
+  end
+' "$flavor"
+
+if [ "$flavor" = fips ]; then
+  runtime=/run/openssl-fips
+  [ "$(docker image inspect --format '{{json .Config.Entrypoint}} {{json .Config.Cmd}}' "$image")" = '["/usr/bin/ruby-fips-entrypoint"] null' ]
+  docker run --rm --read-only \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" "$image" -ropenssl -e '
+    abort unless OpenSSL::Digest::SHA256.digest("").bytesize == 32
+    begin
+      OpenSSL::Digest::MD5.digest("")
+      abort
+    rescue OpenSSL::Digest::DigestError
+    end
+  '
+  work=$(mktemp -d)
+  trap 'rm -rf "$work"' EXIT INT TERM
+  container=$(docker create "$image")
+  docker cp "$container:/usr/lib/ossl-modules/fips.so" "$work/fips.so"
+  docker rm "$container" >/dev/null
+  printf tampered >>"$work/fips.so"
+  if docker run --rm --read-only \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=1777" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+    -v "$work/fips.so:/usr/lib/ossl-modules/fips.so:ro" \
+    "$image" -e 'puts "ruby-ran"' \
+    >"$work/tampered.stdout" 2>/dev/null; then
+    exit 1
+  fi
+  [ ! -s "$work/tampered.stdout" ]
+  if docker run --rm --read-only --user 65532 \
+    --tmpfs "$runtime:rw,noexec,nosuid,nodev,mode=0500" \
+    -e "OPENSSL_FIPS_RUNTIME_DIR=$runtime" \
+    "$image" -e 'puts "ruby-ran"' \
+    >"$work/denied.stdout" 2>/dev/null; then
+    exit 1
+  fi
+  [ ! -s "$work/denied.stdout" ]
+  exit 0
+fi
+
+[ "$flavor" = dev ] || exit 0
+
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT INT TERM
+mkdir -p "$work/ext/tiny_native" "$work/lib"
+cat > "$work/tiny_native.gemspec" <<'EOF'
+Gem::Specification.new do |spec|
+  spec.name = "tiny_native"
+  spec.version = "0.1.0"
+  spec.summary = "tiny native extension"
+  spec.authors = ["Verity Images"]
+  spec.files = %w[ext/tiny_native/extconf.rb ext/tiny_native/tiny_native.c lib/tiny_native.rb]
+  spec.extensions = ["ext/tiny_native/extconf.rb"]
+end
+EOF
+cat > "$work/ext/tiny_native/extconf.rb" <<'EOF'
+require "mkmf"
+create_makefile("tiny_native/tiny_native")
+EOF
+cat > "$work/ext/tiny_native/tiny_native.c" <<'EOF'
+#include "ruby.h"
+
+static VALUE answer(VALUE self) { return INT2NUM(42); }
+
+void Init_tiny_native(void) {
+  VALUE module = rb_define_module("TinyNative");
+  rb_define_singleton_method(module, "answer", answer, 0);
+}
+EOF
+cat > "$work/lib/tiny_native.rb" <<'EOF'
+require "tiny_native/tiny_native"
+EOF
+docker run --rm -i --network none -v "$work:/work" -w /work "$image" - <<'EOF'
+abort unless system("gem", "build", "tiny_native.gemspec")
+gem = Dir["tiny_native-*.gem"].fetch(0)
+abort unless system("gem", "install", "--local", "--no-document", gem)
+require "tiny_native"
+abort unless TinyNative.answer == 42
+EOF

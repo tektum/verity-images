@@ -1,6 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
+root=$(cd "$(dirname "$0")/.." && pwd)
 context=${1:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 build_name=${2:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 flavor=${3:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
@@ -9,34 +10,62 @@ version=${5:?usage: build_candidate.sh CONTEXT BUILD_NAME FLAVOR TRACK VERSION}
 output="dist/${build_name}"
 candidate="local/verity-${build_name}:${GITHUB_SHA}"
 
+ensure_image_history() {
+  local image=$1 image_arch=$2
+  if ! docker image history "$image" >/dev/null 2>&1; then
+    local archive
+    archive=$(mktemp)
+    if ! docker image save "$image" --output "$archive"; then
+      rm -f "$archive"
+      return 1
+    fi
+    if ! sudo ctr -a /run/containerd/containerd.sock -n moby images import \
+      --platform "linux/$image_arch" --snapshotter overlayfs "$archive"; then
+      rm -f "$archive"
+      return 1
+    fi
+    rm -f "$archive"
+    docker image history "$image" >/dev/null
+  fi
+}
+
 mkdir -p "${output}/sbom"
 
 if [[ "$track" == wolfi ]]; then
   config="${context}/apko.yaml"
   lockfile="${context}/apko.lock.json"
-  if [[ "$flavor" != plain ]]; then
+  if [[ "$flavor" != plain && -f "${context}/${flavor}.apko.yaml" ]]; then
     config="${context}/${flavor}.apko.yaml"
     lockfile="${context}/${flavor}.apko.lock.json"
+    [[ -f "${context}/${flavor}-wrapper.apko.yaml" ]] && config="${context}/${flavor}-wrapper.apko.yaml"
   fi
-  if [[ -f "${context}/melange.yaml" ]]; then
+  template=$config
+  [[ -f "$template" ]]
+  recipe="${context}/melange.yaml"
+  [[ -f "${context}/${flavor}.melange.yaml" ]] && recipe="${context}/${flavor}.melange.yaml"
+  if [[ -f "$recipe" ]]; then
     key_dir=$(mktemp -d)
     key="$key_dir/melange.rsa"
     config=$(mktemp)
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
+    mkdir -p "${output}/packages"
     melange keygen "$key"
-    if [[ -f "${context}/${flavor}.env" ]]; then
-      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance \
-        --env-file "${context}/${flavor}.env"
-    else
-      melange build "${context}/melange.yaml" --arch amd64,arm64 --runner docker \
-        --signing-key "$key" --out-dir "${output}/packages" --generate-provenance
-    fi
+    melange_args=(--runner docker --signing-key "$key" \
+      --out-dir "${output}/packages" --generate-provenance)
+    for arch in amd64 arm64; do
+      if [[ -f "${context}/${flavor}.env" ]]; then
+        melange build "$recipe" --arch "$arch" "${melange_args[@]}" \
+          --env-file "${context}/${flavor}.env"
+      else
+        melange build "$recipe" --arch "$arch" "${melange_args[@]}"
+      fi
+    done
     godebug=fips140=off
-    [[ "$flavor" == fips ]] && godebug=fips140=on
+    [[ "$flavor" == fips ]] && godebug=fips140=only
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
       -e "s|@LOCAL_KEY@|$key.pub|" -e "s|@GODEBUG@|$godebug|" \
-      "${context}/apko.yaml" > "$config"
+      -e "s|@REPOSITORY_KEY@|$root/packages/keys/verity-apk-2026.rsa.pub|" \
+      "$template" > "$config"
     apko show-config "$config" >/dev/null
     apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"
   else
@@ -83,6 +112,12 @@ for arch in amd64 arm64; do
     source_repository=${upstream%:*}
     docker tag "${source_repository}:${GITHUB_SHA}-${arch}" "$patched"
   fi
+  if [[ -f "${context}/post-patch.Dockerfile" ]]; then
+    post_patched="${candidate}-post-${arch}"
+    docker build --platform "linux/$arch" --provenance=false --build-arg "BASE=$patched" \
+      --tag "$post_patched" --file "${context}/post-patch.Dockerfile" "$context"
+    docker tag "$post_patched" "$patched"
+  fi
   if [[ -n "$npm_version" ]]; then
     npm_patched="${candidate}-npm-${arch}"
     docker build --build-arg BASE="$patched" --build-arg NPM_VERSION="$npm_version" \
@@ -99,6 +134,7 @@ EOF
     scripts/replace_gosu.sh "${context}/source.yaml" "$arch" "$patched" "$gosu_patched"
     docker tag "$gosu_patched" "$patched"
   fi
+  ensure_image_history "$patched" "$arch"
   trivy image --image-src docker --scanners vuln --pkg-types library --ignore-unfixed \
     --format json --output "$library_report" "$patched"
   library_updates=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$library_report")
@@ -111,6 +147,7 @@ EOF
     library_repository=${library_source%:*}
     docker tag "${library_repository}:${GITHUB_SHA}-library-${arch}" "$patched"
   fi
+  ensure_image_history "$patched" "$arch"
   syft "docker:${patched}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
 done
 

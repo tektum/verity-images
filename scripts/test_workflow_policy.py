@@ -7,6 +7,8 @@
 #   uv run scripts/test_workflow_policy.py
 
 import shlex
+import os
+import subprocess
 from dataclasses import replace
 from pathlib import Path
 from typing import Final
@@ -101,6 +103,11 @@ def between(text: str, start: str, end: str) -> str:
     assert text.count(start) == 1
     assert text.count(end) == 1
     return text.split(start, maxsplit=1)[1].split(end, maxsplit=1)[0]
+
+
+def runner(job: str) -> str:
+    line = next(line.strip() for line in job.splitlines() if line.startswith("    runs-on: "))
+    return line.removeprefix("runs-on: ").split("  #", maxsplit=1)[0]
 
 
 def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
@@ -210,24 +217,40 @@ def main() -> None:
         "  cancel-in-progress: false\n"
     )
     assert "\n  schedule:\n" not in workflow
-    assert '    - cron: "17 3 * * *"\n' in monitor
+    assert (
+        "  GRYPE_VERSION: 0.116.1\n"
+        "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
+        in workflow
+    )
+    assert "  schedule:\n" not in monitor
     assert "  workflow_dispatch:\n" in monitor
+    assert "      payload:\n" in monitor
+    assert "        required: true\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
-    assert 'run: scripts/install_image_tools.sh monitor\n' in monitor
-    assert "gh run download" not in monitor
-    assert (
-        "run: curl -fsSL https://tektum.github.io/verity-images/catalog.json "
-        "-o catalog.json\n"
-        in monitor
-    )
-    assert "run: python3 scripts/gen_matrix.py --all > expected-images.json\n" in monitor
-    assert (
-        "run: scripts/monitor_sboms.sh catalog.json expected-images.json\n"
-        in monitor
-    )
+    assert "scripts/monitor_sboms.sh squawk-payload.json\n" in monitor
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
-    assert "\n    timeout-minutes: 60\n" in publish_job
+    matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
+    validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
+    build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
+    assert runner(matrix_job) == "ubuntu-latest"
+    assert runner(validate_job) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
+        "extras=otel/spot=false"
+    )
+    assert runner(publish_job) == (
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
+        "extras=otel/spot=false"
+    )
+    assert runner(build_gate_job) == "ubuntu-latest"
+    assert runner(catalog) == "ubuntu-latest"
+    assert runner(lint) == "ubuntu-latest"
+    assert runner(monitor) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
+        workflow, "\n  validate:\n", "\n  publish:\n"
+    )
     assert (
         "\n    concurrency:\n"
         "      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}\n"
@@ -249,6 +272,54 @@ def main() -> None:
     assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
         "      - name: Download current catalog\n"
     )
+    assert "devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'" in catalog
+    assert "for report in reports/report-*.json; do" in workflow
+    assert "length == 1 and" in workflow
+    assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
+    assert '$event == "pull_request"' in workflow
+    assert ".[0].digest == \"local\"" in workflow
+    assert "reports/report-*.json > build-report.json" in workflow
+    assert (
+        "github.ref != 'refs/heads/main' && "
+        "fromJSON(needs.matrix.outputs.images).include[0] != null"
+    ) in workflow
+
+    build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
+        "\n\n      - name:", maxsplit=1
+    )[0].split("        run: |\n", maxsplit=1)[1]
+    for event, ref, images, validate, publish, expected in (
+        ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "success", "failure", 0),
+        (
+            "merge_group",
+            "refs/heads/gh-readonly-queue/main/pr-111-f4fd989828677e72f1bdfee557636db67af25f5f",
+            '{"include":[{}]}',
+            "success",
+            "skipped",
+            0,
+        ),
+        ("merge_group", "refs/heads/main", '{"include":[{}]}', "success", "skipped", 0),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
+        ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 1),
+        ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
+    ):
+        result = subprocess.run(
+            ["bash", "-c", build_gate_script],
+            check=False,
+            capture_output=True,
+            env={
+                **os.environ,
+                "EVENT": event,
+                "GITHUB_REF": ref,
+                "IMAGES": images,
+                "MATRIX_RESULT": "success",
+                "VALIDATE_RESULT": validate,
+                "PUBLISH_RESULT": publish,
+            },
+        )
+        assert result.returncode == expected
+
     assert (
         '          if [[ "$status" == 200 ]]; then\n'
         "            devbox run -- check-jsonschema --schemafile docs/catalog.schema.json previous.json\n"
