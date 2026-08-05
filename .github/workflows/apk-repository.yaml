@@ -25,9 +25,63 @@ on:
 permissions: {}
 
 jobs:
-  build-x86_64:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement'
+  apk-matrix:
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    outputs:
+      aarch64: ${{ steps.matrix.outputs.aarch64 }}
+      x86_64: ${{ steps.matrix.outputs.x86_64 }}
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Generate APK package matrix
+        id: matrix
+        env:
+          MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          MERGE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
+          MODE: ${{ inputs.mode }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PUSH_BASE_SHA: ${{ github.event.before }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$MODE" == migration ]]; then
+              matrix='{"include":[]}'
+            else
+              matrix=$(
+                python3 scripts/gen_apk_matrix.py --all |
+                  jq -c '{include:[.include[] | select(.package == "openssl-fips-provider")]}'
+              )
+            fi
+          else
+            BASE_SHA=${PR_BASE_SHA:-${MERGE_BASE_SHA:-$PUSH_BASE_SHA}}
+            HEAD_SHA=${PR_HEAD_SHA:-${MERGE_HEAD_SHA:-$GITHUB_SHA}}
+            matrix=$(python3 scripts/gen_apk_matrix.py --changed "$BASE_SHA" "$HEAD_SHA")
+          fi
+          for architecture in aarch64 x86_64; do
+            value=$(
+              jq -c --arg architecture "$architecture" \
+                '{include:[.include[] | select(.architecture == $architecture)]}' <<<"$matrix"
+            )
+            printf '%s=%s\n' "$architecture" "$value" >> "$GITHUB_OUTPUT"
+          done
+
+  build-x86_64:
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
+      fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
+    needs: [apk-matrix]
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.apk-matrix.outputs.x86_64) }}
     permissions:
       attestations: write
       contents: read
@@ -55,25 +109,31 @@ jobs:
           ARCHITECTURE: x86_64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload x86_64 build artifact
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: apk-build-x86_64
+          name: apk-build-${{ matrix.package }}-x86_64
           path: artifact
           retention-days: 7
 
       - name: Attest x86_64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+          subject-path: artifact/*.apk
 
   build-aarch64:
-    if: github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement'
+    if: >-
+      (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
+      fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
+    needs: [apk-matrix]
     runs-on: ubuntu-24.04-arm
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.apk-matrix.outputs.aarch64) }}
     permissions:
       attestations: write
       contents: read
@@ -101,21 +161,21 @@ jobs:
           ARCHITECTURE: aarch64
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload aarch64 build artifact
         id: upload
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: apk-build-aarch64
+          name: apk-build-${{ matrix.package }}-aarch64
           path: artifact
           retention-days: 7
 
       - name: Attest aarch64 build artifact
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373  # v4.1.1
         with:
-          subject-path: artifact/openssl-fips-provider-3.1.2-r3.apk
+          subject-path: artifact/*.apk
 
   apk-gate:
     if: always()
@@ -147,8 +207,12 @@ jobs:
             fi
             [[ "$SIGNING_RESULT" == success ]]
           else
-            [[ "$X86_64_RESULT" == success ]]
-            [[ "$AARCH64_RESULT" == success ]]
+            if [[ "$X86_64_RESULT" == skipped && "$AARCH64_RESULT" == skipped ]]; then
+              :
+            else
+              [[ "$X86_64_RESULT" == success ]]
+              [[ "$AARCH64_RESULT" == success ]]
+            fi
             [[ "$SIGNING_RESULT" == skipped ]]
           fi
 
@@ -179,12 +243,12 @@ jobs:
           ref: ${{ github.sha }}
 
       - name: Validate source and artifacts
-        if: inputs.mode == 'replacement'
         env:
           AARCH64_ARTIFACT_DIGEST: ${{ needs.build-aarch64.outputs.artifact-digest }}
           AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
           AARCH64_SOURCE_SHA: ${{ needs.build-aarch64.outputs.source-sha }}
           GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
           REPOSITORY: ${{ github.repository }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           SOURCE_SHA: ${{ inputs.source-sha }}
@@ -195,23 +259,25 @@ jobs:
           set -euo pipefail
           [[ "$SOURCE_SHA" =~ ^[0-9a-f]{40}$ ]]
           [[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]
-          [[ "$X86_64_SOURCE_SHA" == "$SOURCE_SHA" ]]
-          [[ "$AARCH64_SOURCE_SHA" == "$SOURCE_SHA" ]]
           [[ "$RELEASE_TAG" =~ ^apk-repo-v[0-9]{4}$ ]]
           [[ "$(git rev-parse HEAD)" == "$SOURCE_SHA" ]]
-          for artifact_id in "$X86_64_ARTIFACT_ID" "$AARCH64_ARTIFACT_ID"; do
-            [[ "$artifact_id" =~ ^[0-9]+$ ]]
-          done
-          artifact_pairs=(
-            "$X86_64_ARTIFACT_ID:$X86_64_ARTIFACT_DIGEST"
-            "$AARCH64_ARTIFACT_ID:$AARCH64_ARTIFACT_DIGEST"
-          )
-          for artifact_id_and_digest in "${artifact_pairs[@]}"; do
-            artifact_id=${artifact_id_and_digest%%:*}
-            artifact_digest=${artifact_id_and_digest#*:}
-            gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
-            bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
-          done
+          if [[ "$MODE" == replacement ]]; then
+            [[ "$X86_64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+            [[ "$AARCH64_SOURCE_SHA" == "$SOURCE_SHA" ]]
+            for artifact_id in "$X86_64_ARTIFACT_ID" "$AARCH64_ARTIFACT_ID"; do
+              [[ "$artifact_id" =~ ^[0-9]+$ ]]
+            done
+            artifact_pairs=(
+              "$X86_64_ARTIFACT_ID:$X86_64_ARTIFACT_DIGEST"
+              "$AARCH64_ARTIFACT_ID:$AARCH64_ARTIFACT_DIGEST"
+            )
+            for artifact_id_and_digest in "${artifact_pairs[@]}"; do
+              artifact_id=${artifact_id_and_digest%%:*}
+              artifact_digest=${artifact_id_and_digest#*:}
+              gh api "repos/${REPOSITORY}/actions/artifacts/${artifact_id}" > artifact.json
+              bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"
+            done
+          fi
       - name: Download only current-run build artifacts
         if: inputs.mode == 'replacement'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
@@ -231,7 +297,7 @@ jobs:
         run: |
           set -euo pipefail
           for architecture in x86_64 aarch64; do
-            package="input/apk-build-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
+            package="input/apk-build-openssl-fips-provider-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
             [[ -f "$package" ]]
             case "$architecture" in
               x86_64) expected_digest=$X86_64_PACKAGE_DIGEST ;;
@@ -281,11 +347,11 @@ jobs:
           else
             jq -n \
             --arg source "$SOURCE_SHA" --arg workflow_ref "$GITHUB_WORKFLOW_REF" --argjson run_id "$GITHUB_RUN_ID" \
-            --arg x86_file input/apk-build-x86_64/openssl-fips-provider-3.1.2-r3.apk \
-            --argjson x86_id "$X86_64_ARTIFACT_ID" --arg x86_artifact "$X86_64_ARTIFACT_DIGEST" \
+            --arg x86_file input/apk-build-openssl-fips-provider-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson x86_id "$X86_64_ARTIFACT_ID" --arg x86_artifact "sha256:$X86_64_ARTIFACT_DIGEST" \
             --arg x86_unsigned "$X86_64_PACKAGE_DIGEST" \
-            --arg arm_file input/apk-build-aarch64/openssl-fips-provider-3.1.2-r3.apk \
-            --argjson arm_id "$AARCH64_ARTIFACT_ID" --arg arm_artifact "$AARCH64_ARTIFACT_DIGEST" \
+            --arg arm_file input/apk-build-openssl-fips-provider-aarch64/openssl-fips-provider-3.1.2-r3.apk \
+            --argjson arm_id "$AARCH64_ARTIFACT_ID" --arg arm_artifact "sha256:$AARCH64_ARTIFACT_DIGEST" \
             --arg arm_unsigned "$AARCH64_PACKAGE_DIGEST" '
             def origin($artifact_id;$artifact_sha256;$unsigned_sha256): {
               type:"build-input",sourceCommit:$source,workflowRef:$workflow_ref,runId:$run_id,

@@ -45,6 +45,7 @@ def main() -> None:
     repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
     reserver = RESERVER.read_text(encoding="utf-8")
     signing_doc = SIGNING_DOC.read_text(encoding="utf-8")
+    matrix = job(workflow, "apk-matrix", "build-x86_64")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-gate")
     gate = job(workflow, "apk-gate", "apk-signing")
@@ -53,13 +54,21 @@ def main() -> None:
     assert "  pull_request:\n" in workflow
     assert "  merge_group:\n    types: [checks_requested]\n" in workflow
     assert "    branches: [main]\n" in workflow
+    assert "python3 scripts/gen_apk_matrix.py" in matrix
+    assert "for architecture in aarch64 x86_64" in matrix
+    assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
+    assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
     assert runner(x86_64) == "ubuntu-24.04"
     assert runner(aarch64) == "ubuntu-24.04-arm"
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
-    assert 'bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"' in x86_64
-    assert 'bash scripts/build_apk_package.sh openssl-fips-provider "$ARCHITECTURE"' in aarch64
+    assert "needs: [apk-matrix]" in x86_64 + aarch64
+    assert "fromJSON(needs.apk-matrix.outputs.x86_64)" in x86_64
+    assert "fromJSON(needs.apk-matrix.outputs.aarch64)" in aarch64
+    assert 'bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"' in x86_64 + aarch64
+    assert "apk-build-${{ matrix.package }}-x86_64" in x86_64
+    assert "apk-build-${{ matrix.package }}-aarch64" in aarch64
     assert "environment:" not in x86_64 + aarch64
     assert "secrets." not in x86_64 + aarch64
     assert "retention-days: 7\n" in x86_64 + aarch64
@@ -85,6 +94,7 @@ def main() -> None:
         ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", 0),
         ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "success", 0),
         ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "migration", "skipped", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "skipped", "success", 1),
         ("workflow_dispatch", "refs/heads/main", "fork/example", "replacement", "success", "skipped", 0),
         ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "skipped", 1),
         ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "failure", 1),
@@ -124,11 +134,19 @@ def main() -> None:
     assert "artifact-ids:" in signing
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")
+    source_validation = signing.split("      - name: Validate source and artifacts\n", maxsplit=1)[1].split(
+        "      - name: Download only current-run build artifacts\n", maxsplit=1
+    )[0]
+    assert "if: inputs.mode == 'replacement'" not in source_validation
+    assert "MODE: ${{ inputs.mode }}" in source_validation
+    assert 'if [[ "$MODE" == replacement ]]; then' in source_validation
     assert signing.index("Validate source and artifacts") < signing.index("Download only current-run build artifacts")
     assert "Reserve package identity" in signing
     assert ".github/scripts/reserve-apk-release-identity.sh reserve" in signing
     assert "packages/repository-state.json release/inputs.json" in signing
     assert 'type:"build-input"' in signing
+    assert '--arg x86_artifact "sha256:$X86_64_ARTIFACT_DIGEST"' in signing
+    assert '--arg arm_artifact "sha256:$AARCH64_ARTIFACT_DIGEST"' in signing
     assert "gh_call release create" in reserver
     assert "gh_call api --paginate --slurp" in reserver
     assert "releases/assets/" in reserver
@@ -211,12 +229,16 @@ def main() -> None:
         root = Path(temporary)
         repository = root / "repository"
         repository.mkdir()
+        (repository / "x86_64").mkdir()
+        valid = repository / "x86_64" / "valid.apk"
+        valid.write_bytes(b"valid")
         (repository / "manifest.json").write_text(
             json.dumps(
                 {
+                    "architectures": ["aarch64", "x86_64"],
                     "packages": [
-                        {"path": "x86_64/valid.apk"},
-                        {"path": "../unsafe.apk"},
+                        {"architecture": "x86_64", "path": "x86_64/valid.apk", "sha256": "0" * 64},
+                        {"architecture": "aarch64", "path": "../unsafe.apk", "sha256": "1" * 64},
                     ]
                 }
             ),
@@ -232,9 +254,11 @@ def main() -> None:
         result = subprocess.run(
             ["bash", str(REPOSITORY_VERIFY), str(repository), str(key)],
             check=False,
+            capture_output=True,
+            text=True,
             env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"},
         )
-        assert result.returncode == 1
+        assert result.returncode == 1 and "unsafe manifest path" in result.stderr
 
 
 if __name__ == "__main__":
