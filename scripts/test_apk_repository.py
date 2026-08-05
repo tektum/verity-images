@@ -138,6 +138,9 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
 def unit_tests() -> None:
     valid = signed_shape(unsigned_package("x86_64", payload("x86_64")))
     assert apk_archive.package_info(valid, "x86_64", apk_repository_policy.REQUIRED_FILES).name == "openssl-fips-provider"
+    signature, _, data = apk_archive.gzip_members(valid, 3)
+    missing_pkginfo = signature.compressed + gzip_member(pack_tar((entry(".melange.yaml", b"recipe"),), final=False)) + data.compressed
+    rejects_package(missing_pkginfo)
     rejects_package(valid[:-1])
     rejects_package(valid + b"suffix")
     assert apk_archive.package_info(signed_shape(unsigned_package("x86_64", payload("x86_64", "other"), name="other")), "x86_64", apk_repository_policy.REQUIRED_FILES).name == "other"

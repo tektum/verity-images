@@ -136,12 +136,14 @@ def package_info(data: bytes, architecture: str, required_files: frozenset[str])
     del signature
     control_entries = tar_entries(control.plain)
     control_files = {entry.name: entry.contents for entry in control_entries if entry.contents is not None}
+    if set(control_files) != {".PKGINFO", MELANGE_RECIPE} or len(control_entries) != len(control_files):
+        raise ValueError("invalid control archive")
     metadata = fields(control_files[".PKGINFO"])
     name, version = metadata.get("pkgname", ""), metadata.get("pkgver", "")
     package_version, separator, epoch = version.rpartition("-r")
     recipe = control_files.get(MELANGE_RECIPE)
     recipe_identity = f"package:\n  name: {name}\n  version: {package_version}\n  epoch: {epoch}\n".encode()
-    if not name or not package_version or not separator or not epoch.isdecimal() or set(control_files) != {".PKGINFO", MELANGE_RECIPE} or len(control_entries) != len(control_files) or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or recipe_identity not in recipe or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
+    if not name or not package_version or not separator or not epoch.isdecimal() or recipe is None or not 0 < len(recipe) <= MAX_MELANGE_RECIPE_SIZE or recipe_identity not in recipe or not all(field in recipe for field in MELANGE_RECIPE_FIELDS):
         raise ValueError("invalid control archive")
     if metadata.get("arch") != architecture or metadata.get("datahash") != hashlib.sha256(payload.compressed).hexdigest():
         raise ValueError("invalid package metadata")
