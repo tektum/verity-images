@@ -248,6 +248,12 @@ def manifest_identity_tests() -> None:
             manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
             rejects_repository(root, keys, hashlib.sha256(manifest.read_bytes()).hexdigest())
 
+        _, keys, _ = repository(root)
+        values = json.loads(manifest.read_text(encoding="utf-8"))
+        values["packages"] = [{field: value for field, value in package.items() if field not in {"name", "version", "epoch"}} for package in values["packages"]]
+        manifest.write_text(json.dumps(values, sort_keys=True), encoding="utf-8")
+        apk_repository_policy.validate(root, keys, hashlib.sha256(manifest.read_bytes()).hexdigest())
+
 
 def real_melange_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
