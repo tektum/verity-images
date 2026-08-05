@@ -4,6 +4,7 @@ set -eu
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
 previous=docker.io/library/rabbitmq@sha256:a36989b2306803d31a0936d376c937e5bae5018e71a238ff457ee4144191109d
+previous_repository=${previous%@*}
 
 fail() {
   printf '%s\n' "error: $*" >&2
@@ -95,8 +96,23 @@ assert_runtime_state() {
   [ "$node" = "rabbit@$hostname" ] || fail "unexpected node identity $node"
 }
 
-timeout 180 docker pull --platform "linux/$arch" "$previous"
-docker tag "$previous" "$upgrade_image"
+previous_index=$(timeout 180 docker buildx imagetools inspect --raw "$previous") || \
+  fail "cannot inspect previous image index"
+previous_children=$(printf '%s\n' "$previous_index" | jq -r --arg arch "$arch" '
+  .manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest
+') || fail "cannot resolve previous image child digest"
+previous_count=$(printf '%s\n' "$previous_children" | grep -c . || :)
+case $previous_count in
+  0) fail "no linux/$arch child digest in previous image index" ;;
+  1) ;;
+  *) fail "multiple linux/$arch child digests in previous image index" ;;
+esac
+previous_child=$previous_children
+printf '%s\n' "$previous_child" | grep -Eq '^sha256:[0-9a-f]{64}$' || \
+  fail "invalid previous image child digest $previous_child"
+previous_image=${previous_repository}@${previous_child}
+timeout 180 docker pull --platform "linux/$arch" "$previous_image"
+docker tag "$previous_image" "$upgrade_image"
 [ "$(docker image inspect --format '{{.Architecture}}' "$upgrade_image")" = "$arch" ] || \
   fail "previous image architecture does not match candidate $arch"
 docker volume create "$volume" >/dev/null
