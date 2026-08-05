@@ -10,15 +10,15 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 source_sha=0123456789012345678901234567890123456789
 
 make_package() {
-  local path=$1 architecture=$2 payload=${3:-same}
-  PYTHONPATH="$root/scripts" python3 - "$path" "$architecture" "$payload" <<'PY'
+  local path=$1 architecture=$2 payload=${3:-same} name=${4:-openssl-fips-provider}
+  PYTHONPATH="$root/scripts" python3 - "$path" "$architecture" "$payload" "$name" <<'PY'
 import sys
 from pathlib import Path
 
 from apk_test_fixtures import entry, signed_shape, unsigned_package
 
 Path(sys.argv[1]).write_bytes(
-    signed_shape(unsigned_package(sys.argv[2], (entry("payload", sys.argv[3].encode()),)))
+    signed_shape(unsigned_package(sys.argv[2], (entry("payload", sys.argv[3].encode()),), name=sys.argv[4]))
 )
 PY
 }
@@ -115,6 +115,18 @@ case "$1:$2" in
     [[ ${GH_BAD_JSON:-0} -eq 0 ]] || { printf 'misleading success output\n'; exit 0; }
     jq '[.[0:1],.[1:]]' "$GH_RELEASES"
     ;;
+  api:repos/*/git/ref/tags/*)
+    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "${INTERRUPT_TARGET:?}"; fi
+    [[ ${GH_TAG_MISSING:-0} -eq 0 ]] || exit 1
+    if [[ ${GH_TAG_TYPE:-commit} == tag ]]; then
+      jq -cn '{object:{type:"tag",sha:("a" * 40)}}'
+    else
+      jq -cn --arg sha "${GH_TAG_SHA:-$SOURCE_SHA}" '{object:{type:"commit",sha:$sha}}'
+    fi
+    ;;
+  api:repos/*/git/tags/*)
+    jq -cn --arg sha "${GH_TAG_SHA:-$SOURCE_SHA}" '{sha:("a" * 40),object:{type:"commit",sha:$sha}}'
+    ;;
   api:repos/*/releases/assets/*)
     asset_id=${2##*/}
     cp "$GH_ARCHIVES/$asset_id.tar.zst" /dev/stdout
@@ -127,12 +139,12 @@ case "$1:$2" in
       '. + [{id:9000,tag_name:$tag,target_commitish:$target,draft:true,prerelease:false,immutable:false,body:$body,assets:[]}]' \
       "$GH_RELEASES" > "$GH_RELEASES.next"
     mv "$GH_RELEASES.next" "$GH_RELEASES"
+    [[ ${GH_CREATE_LOSER:-0} -eq 0 ]] || exit 1
     if [[ ${GH_RACE:-0} -eq 1 ]]; then
       jq --arg target "$target" '. + [{id:9001,tag_name:"apk-repo-v0004",target_commitish:$target,draft:true,prerelease:false,immutable:false,body:"competing",assets:[]}]' \
         "$GH_RELEASES" > "$GH_RELEASES.next"
       mv "$GH_RELEASES.next" "$GH_RELEASES"
     fi
-    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "${INTERRUPT_TARGET:?}"; fi
     ;;
   release:edit)
     tag=$3
@@ -160,7 +172,11 @@ duration=$1
 shift
 if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then
   trap '' TERM
-  INTERRUPT_TARGET=$PPID "$@"
+  target=$PPID
+  if [[ " $* " == *'/git/ref/tags/'* ]]; then
+    target=$(ps -o ppid= -p "$PPID" | tr -d ' ')
+  fi
+  INTERRUPT_TARGET=$target "$@"
 else
   exec "$REAL_TIMEOUT" "$duration" "$@"
 fi
@@ -201,7 +217,9 @@ run_script() {
   COMMAND_LOG="$work_dir/commands.log" GH_ARCHIVES="$work_dir/assets" GH_RELEASES="$work_dir/releases.json" \
     SOURCE_SHA="$source_sha" REAL_TIMEOUT="$real_timeout" PATH="$work_dir/bin:$PATH" GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-1}" \
     DIRTY_STATE="${DIRTY_STATE:-0}" GH_BAD_JSON="${GH_BAD_JSON:-0}" GH_HANG="${GH_HANG:-0}" \
-    GH_RACE="${GH_RACE:-0}" GH_INTERRUPT="${GH_INTERRUPT:-0}" "$reserver" "$@"
+    GH_RACE="${GH_RACE:-0}" GH_INTERRUPT="${GH_INTERRUPT:-0}" GH_CREATE_LOSER="${GH_CREATE_LOSER:-0}" \
+    GH_TAG_MISSING="${GH_TAG_MISSING:-0}" GH_TAG_SHA="${GH_TAG_SHA:-$source_sha}" GH_TAG_TYPE="${GH_TAG_TYPE:-commit}" \
+    "$reserver" "$@"
 }
 
 reserve() {
@@ -229,6 +247,19 @@ expect_failure_after_create() {
   ! grep -Eq 'APK_REPOSITORY_PRIVATE_KEY|prepare-apk-signing-key|release upload|release edit .*--draft=false' "$work_dir/commands.log"
 }
 
+set_release_state() {
+  local tag=$1 archive=$2 draft=${3:-false} digest
+  digest="sha256:$(/usr/bin/sha256sum "$archive" | cut -d' ' -f1)"
+  jq --arg tag "$tag" --arg digest "$digest" --argjson draft "$draft" '
+    map(if .tag_name == $tag then
+      .draft=$draft | .prerelease=false | .immutable=($draft | not) |
+      .published_at=(if $draft then null else "2026-08-05T00:00:00Z" end) |
+      .assets=[{id:9100,name:"verity-apk-repository.tar.zst",state:"uploaded",digest:$digest}]
+    else . end)
+  ' "$work_dir/releases.json" > "$work_dir/releases.next"
+  mv "$work_dir/releases.next" "$work_dir/releases.json"
+}
+
 mkdir -p "$work_dir/assets"
 make_repository "$work_dir/legacy"
 cp "$work_dir/legacy/repository.tar.zst" "$work_dir/assets/498710090.tar.zst"
@@ -236,6 +267,58 @@ cp "$work_dir/legacy/repository.tar.zst" "$work_dir/assets/498881369.tar.zst"
 make_base_state "$work_dir/legacy" "$work_dir/state"
 write_tools
 write_inputs "$work_dir/migration.json" migration "$work_dir/legacy"
+
+# Given a final manifest containing replacement and reused packages, when completion runs, then final origins are preserved while unsigned inputs remain separately bound.
+reset_releases
+mkdir -p "$work_dir/mixed-input/x86_64" "$work_dir/mixed-input/aarch64" "$work_dir/mixed-final/apk/x86_64" "$work_dir/mixed-final/apk/aarch64"
+for architecture in x86_64 aarch64; do
+  cp "$work_dir/legacy/apk/$architecture/openssl-fips-provider-3.1.2-r3.apk" "$work_dir/mixed-final/apk/$architecture/"
+  replacement="$work_dir/mixed-input/$architecture/new-package-3.1.2-r3.apk"
+  make_package "$replacement" "$architecture" replacement new-package
+  cp "$replacement" "$work_dir/mixed-final/apk/$architecture/"
+done
+jq -n --arg source "$source_sha" \
+  --arg x "$work_dir/mixed-input/x86_64/new-package-3.1.2-r3.apk" \
+  --arg a "$work_dir/mixed-input/aarch64/new-package-3.1.2-r3.apk" \
+  --arg xsha "$(/usr/bin/sha256sum "$work_dir/mixed-input/x86_64/new-package-3.1.2-r3.apk" | cut -d' ' -f1)" \
+  --arg asha "$(/usr/bin/sha256sum "$work_dir/mixed-input/aarch64/new-package-3.1.2-r3.apk" | cut -d' ' -f1)" '
+  def origin($id;$sha): {type:"build-input",sourceCommit:$source,workflowRef:"workflow@ref",runId:20,
+    artifactId:$id,artifactSha256:("sha256:"+$sha),unsignedSha256:$sha};
+  {mode:"replacement",identity:{name:"new-package",version:"3.1.2-r3",epoch:3},packages:[
+    {architecture:"x86_64",path:"x86_64/new-package-3.1.2-r3.apk",file:$x,origin:origin(21;$xsha)},
+    {architecture:"aarch64",path:"aarch64/new-package-3.1.2-r3.apk",file:$a,origin:origin(22;$asha)}]}
+' > "$work_dir/mixed-inputs.json"
+reserve apk-repo-v0003 "$work_dir/mixed-inputs.json" > "$work_dir/mixed-reservation.json"
+jq -nS --slurpfile base "$work_dir/legacy/apk/manifest.json" --slurpfile state "$work_dir/state/repository-state.json" \
+  --slurpfile reservation "$work_dir/mixed-reservation.json" '
+  def legacy($package): $package + {name:"openssl-fips-provider",version:"3.1.2-r3",epoch:3,origin:{
+    type:"legacy-snapshot",releaseId:$state[0].release.id,releaseTag:$state[0].release.tag,
+    targetCommit:$state[0].release.targetCommit,assetId:$state[0].asset.id,assetSha256:$state[0].asset.sha256,
+    manifestSha256:$state[0].archive.manifestSha256,sourcePath:$package.path}};
+  def replacement($package):
+    ($reservation[0].unsignedPackages[] | select(.architecture == $package.architecture)) as $unsigned |
+    $package + {name:"new-package",version:"3.1.2-r3",epoch:3,origin:{
+      type:"attested-build",sourceCommit:$unsigned.origin.sourceCommit,buildWorkflowId:30,
+      buildRunId:$unsigned.origin.runId,buildArtifactId:$unsigned.origin.artifactId,
+      buildArtifactSha256:$unsigned.origin.artifactSha256,unsignedSha256:$unsigned.sha256,
+      signingWorkflowId:30,signingRunId:31,bundlePath:("bundles/new-package/"+$package.architecture+".json"),
+      bundleSha256:("b" * 64)}};
+  (([$base[0].packages[] | legacy(.)]) +
+  (["aarch64","x86_64"] | map(. as $architecture | replacement({architecture:$architecture,
+    path:($architecture+"/new-package-3.1.2-r3.apk"),
+    sha256:($reservation[0].unsignedPackages[] | select(.architecture == $architecture) | .sha256)})))) as $packages |
+  {schemaVersion:2,architectures:["aarch64","x86_64"],fingerprint:("7" * 64),packages:($packages | sort_by(.name,.version,.epoch,.architecture,.path))}
+' > "$work_dir/mixed-final/apk/manifest.json"
+tar --zstd --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner -C "$work_dir/mixed-final" \
+  -cf "$work_dir/mixed-final/repository.tar.zst" apk
+run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/mixed-reservation.json" \
+  "$work_dir/mixed-final/repository.tar.zst" > "$work_dir/mixed-complete.json"
+jq -e '
+  (.unsignedPackages | length) == 2 and all(.unsignedPackages[]; .origin.type == "build-input") and
+  (.packages | length) == 4 and
+  all(.packages[] | select(.name == "new-package"); .origin.type == "attested-build") and
+  all(.packages[] | select(.name == "openssl-fips-provider"); .origin.type == "legacy-snapshot")
+' "$work_dir/mixed-complete.json" >/dev/null
 
 # Given immutable v0001/v0002, when exact v0002 bytes are reserved and completed, then markers round-trip canonically.
 reset_releases
@@ -268,6 +351,7 @@ reset_releases
 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
 run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
   "$work_dir/legacy/repository.tar.zst" > /dev/null
+set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst"
 reserve apk-repo-v0004 "$work_dir/migration.json" > /dev/null
 
 # Given a repeated identity, when bytes or paths change, then reservation fails before creation.
@@ -285,8 +369,30 @@ reset_releases
 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
 run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
   "$work_dir/legacy/repository.tar.zst" > /dev/null
+set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst"
 write_inputs "$work_dir/replacement.json" replacement "$work_dir/legacy" "$origin"
 expect_failure reserve apk-repo-v0004 "$work_dir/replacement.json"
+
+# Given a complete marker, when its release postcondition is incomplete or unpublished, then it is not authoritative.
+reset_releases
+reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
+run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
+  "$work_dir/legacy/repository.tar.zst" >/dev/null
+set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst"
+cp "$work_dir/releases.json" "$work_dir/published-complete.json"
+for mutation in \
+  '.[2].draft=true | .[2].immutable=false' \
+  '.[2].published_at=null' \
+  '.[2].prerelease=true' \
+  '.[2].immutable=false' \
+  '.[2].assets=[]' \
+  '.[2].assets += [.[2].assets[0]]' \
+  '.[2].assets[0].name="other.tar.zst"' \
+  '.[2].assets[0].state="new"' \
+  '.[2].assets[0].digest="sha256:"+("0"*64)'; do
+  jq "$mutation" "$work_dir/published-complete.json" > "$work_dir/releases.json"
+  expect_failure reserve apk-repo-v0004 "$work_dir/migration.json"
+done
 
 # Given untrusted release notes, when markers are malformed, duplicated, or incomplete, then scanning fails closed.
 for body in \
@@ -335,6 +441,26 @@ GH_BAD_JSON=0 GH_HANG=1 GH_TIMEOUT_SECONDS=0.1 expect_failure reserve apk-repo-v
 reset_releases
 GH_RACE=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
+
+# Given another invocation wins identical draft creation, when this invocation loses, then it never owns or deletes the winner.
+reset_releases
+GH_CREATE_LOSER=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
+grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log" && exit 1
+jq -e '.[] | select(.tag_name == "apk-repo-v0003" and .draft == true)' "$work_dir/releases.json" >/dev/null
+
+# Given lightweight or annotated live tags, when they resolve to the expected commit, then reservation accepts both forms.
+reset_releases
+GH_TAG_TYPE=commit reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null
+grep -Fq 'gh api repos/tektum/verity-images/git/ref/tags/apk-repo-v0003' "$work_dir/commands.log"
+reset_releases
+GH_TAG_TYPE=tag reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null
+grep -Fq 'gh api repos/tektum/verity-images/git/tags/' "$work_dir/commands.log"
+
+# Given a moved or missing live tag, when reservation checks ownership, then it fails before protected work.
+reset_releases
+GH_TAG_SHA=1111111111111111111111111111111111111111 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
+reset_releases
+GH_TAG_MISSING=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
 jq -e '.[] | select(.tag_name == "apk-repo-v0003")' "$work_dir/releases.json" >/dev/null && exit 1
 reset_releases
 if GH_INTERRUPT=1 reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null 2>&1; then
@@ -349,5 +475,13 @@ grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
 reset_releases
 reserve apk-repo-v0003 "$work_dir/migration.json" > /dev/null
 expect_failure run_script publish tektum/verity-images apk-repo-v0003
+
+# Given a complete draft with its fixed asset, when the live tag moved immediately before publication, then publication fails closed.
+reset_releases
+reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
+run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
+  "$work_dir/legacy/repository.tar.zst" >/dev/null
+set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst" true
+GH_TAG_SHA=1111111111111111111111111111111111111111 expect_failure run_script publish tektum/verity-images apk-repo-v0003
 
 grep -Fq 'gh api --paginate --slurp repos/tektum/verity-images/releases?per_page=100' "$work_dir/commands.log"

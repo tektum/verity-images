@@ -159,14 +159,21 @@ def main() -> None:
     assert "body=${body//$'\\r'/}" in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
     assert ".github/scripts/reserve-apk-release-identity.sh complete" in signing
+    assert ".github/scripts/reserve-apk-release-identity.sh publish" in signing
     assert "release/reservation.json release/verity-apk-repository.tar.zst" in signing
     update_draft = signing.split("      - name: Update reserved draft release\n", maxsplit=1)[1]
     assert "REPOSITORY: ${{ github.repository }}" in update_draft.split("        run: |\n", maxsplit=1)[0]
     assert 'SOURCE_SHA: ${{ inputs.source-sha }}' in update_draft.split("        run: |\n", maxsplit=1)[0]
     assert signing.index("reserve-apk-release-identity.sh complete") < signing.index("gh release upload")
+    assert signing.index("gh release upload") < signing.index("reserve-apk-release-identity.sh publish")
     assert "--draft=false" not in signing
     assert "gh release delete apk-repo-vNNNN --yes --cleanup-tag" in signing_doc
     assert "--clobber" not in signing
+    reserve_function = reserver.split("reserve() {", maxsplit=1)[1].split("\n}\n\ncomplete()", maxsplit=1)[0]
+    publish_function = reserver.split("publish() {", maxsplit=1)[1].split("\n}\n\nmode=", maxsplit=1)[0]
+    assert reserve_function.index("scan_releases post-create") < reserve_function.index('verify_live_tag "$source_sha"')
+    assert publish_function.index("scan_releases publish") < publish_function.index('verify_live_tag "$source_sha"')
+    assert publish_function.index('verify_live_tag "$source_sha"') < publish_function.index("--draft=false")
     assert (
         "    concurrency:\n"
         "      group: apk-signing\n"

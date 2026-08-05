@@ -18,6 +18,28 @@ gh_call() {
   timeout "${GH_TIMEOUT_SECONDS:-30}" gh "$@"
 }
 
+resolve_live_tag() {
+  local ref type sha tag
+  ref=$(gh_call api "repos/${repository}/git/ref/tags/${release_tag}") || error "Live tag $release_tag is missing."
+  type=$(jq -er '.object.type' <<<"$ref")
+  sha=$(jq -er '.object.sha | select(test("^[0-9a-f]{40}$"))' <<<"$ref")
+  if [[ "$type" == tag ]]; then
+    tag=$(gh_call api "repos/${repository}/git/tags/${sha}") || error "Annotated tag $release_tag cannot be resolved."
+    jq -e --arg sha "$sha" '.sha == $sha and .object.type == "commit" and (.object.sha | test("^[0-9a-f]{40}$"))' \
+      <<<"$tag" >/dev/null || error "Annotated tag $release_tag does not resolve to a commit."
+    jq -er '.object.sha' <<<"$tag"
+  else
+    [[ "$type" == commit ]] || error "Tag $release_tag does not resolve to a commit."
+    printf '%s\n' "$sha"
+  fi
+}
+
+verify_live_tag() {
+  local expected=$1 actual
+  actual=$(resolve_live_tag)
+  [[ "$actual" == "$expected" ]] || error "Tag $release_tag moved from expected commit $expected."
+}
+
 release_pages() {
   gh_call api --paginate --slurp "repos/${repository}/releases?per_page=100"
 }
@@ -297,6 +319,9 @@ scan_releases() {
       if [[ "$tag" == "$release_tag" && ( "$phase" == post-create || "$phase" == complete-pre ) ]]; then
         [[ "$body" == "$expected_body" ]]
         [[ $(jq -r '.assets | length' <<<"$release") -eq 0 ]]
+        if [[ "$phase" == post-create ]]; then
+          created=1
+        fi
         target_count=$((target_count + 1))
       else
         blockers=$((blockers + 1))
@@ -308,6 +333,15 @@ scan_releases() {
       [[ $(jq -r '.repository' <<<"$normalized") == "$repository" ]]
       [[ $(jq -r '.release.tag' <<<"$normalized") == "$tag" ]]
       [[ $(jq -r '.release.targetCommit' <<<"$normalized") == "$(jq -r '.target_commitish' <<<"$release")" ]]
+      if [[ "$tag" != "$release_tag" || ( "$phase" != complete-post && "$phase" != publish ) ]]; then
+        jq -e --arg digest "sha256:$(jq -r '.archive.sha256' <<<"$normalized")" '
+          .draft == false and .prerelease == false and .immutable == true and
+          (.published_at | type == "string" and length > 0) and
+          (.assets | type == "array" and length == 1) and
+          .assets[0].name == "verity-apk-repository.tar.zst" and
+          .assets[0].state == "uploaded" and .assets[0].digest == $digest
+        ' <<<"$release" >/dev/null || error "Complete release $tag is not an immutable published snapshot."
+      fi
       historical=$(jq -c '.packages' <<<"$normalized")
       collision_check "$candidate" "$historical" "$tag" true
       if [[ "$tag" == "$release_tag" && ( "$phase" == complete-post || "$phase" == publish ) ]]; then
@@ -397,8 +431,10 @@ reserve() {
   else
     operation=$(jq -ceS '{mode:"replacement",identity:.identity}' "$inputs")
     jq -ne --argjson operation "$operation" --argjson packages "$packages" '
-      all($packages[]; [.name,.version,.epoch] == [$operation.identity.name,$operation.identity.version,$operation.identity.epoch])
-    ' </dev/null >/dev/null || error "Replacement identity does not match every unsigned package."
+      all($packages[];
+        [.name,.version,.epoch] == [$operation.identity.name,$operation.identity.version,$operation.identity.epoch] and
+        .origin.type == "build-input" and .origin.unsignedSha256 == .sha256)
+    ' </dev/null >/dev/null || error "Replacement inputs do not match the requested identity and unsigned digests."
   fi
   reservation=$(jq -cnS --arg repository "$repository" --arg tag "$release_tag" --arg target "$source_sha" \
     --argjson base "$base" --argjson operation "$operation" --argjson packages "$packages" \
@@ -412,9 +448,9 @@ reserve() {
     "<!-- apk-release-reserved: \($reservation | tojson) -->"
   ')
   reservation_body=$notes
-  created=1
   gh_call release create "$release_tag" --repo "$repository" --draft --target "$source_sha" --title "$release_tag" --notes "$notes" >/dev/null
   scan_releases post-create "$packages" "$notes"
+  verify_live_tag "$source_sha"
   created=0
   printf '%s\n' "$reservation"
 }
@@ -422,7 +458,7 @@ reserve() {
 complete() {
   [[ $# -eq 5 ]]
   repository=$1 release_tag=$2
-  local source_sha=$3 reservation_file=$4 archive_file=$5 repository_dir="$work_dir/final/apk" reservation packages='[]' unsigned final path architecture digest identity origin entry complete notes member
+  local source_sha=$3 reservation_file=$4 archive_file=$5 repository_dir="$work_dir/final/apk" reservation packages='[]' unsigned final path architecture digest identity origin entry complete notes member mode binding manifest_schema replacement_count=0
   reservation=$(normalize_marker < "$reservation_file")
   [[ $(jq -r '.status' <<<"$reservation") == reserved ]]
   [[ $(jq -r '.repository' <<<"$reservation") == "$repository" ]]
@@ -438,6 +474,8 @@ complete() {
   [[ $(grep -cx 'apk/manifest.json' "$work_dir/final-members") -eq 1 ]] || error "Final archive has an invalid manifest path."
   tar --zstd --no-same-owner --no-same-permissions -xf "$archive_file" -C "$work_dir/final"
   unsigned=$(jq -c '.unsignedPackages' <<<"$reservation")
+  mode=$(jq -r '.operation.mode' <<<"$reservation")
+  manifest_schema=$(jq -r '.schemaVersion // 1' "$repository_dir/manifest.json")
   while IFS= read -r final; do
     architecture=$(jq -er '.architecture' <<<"$final")
     path=$(jq -er '.path' <<<"$final")
@@ -445,17 +483,48 @@ complete() {
     [[ -f "$repository_dir/$path" ]]
     [[ "$(sha256 "$repository_dir/$path")" == "$digest" ]]
     identity=$(package_identity "$repository_dir/$path")
-    origin=$(jq -ce --arg architecture "$architecture" --arg path "$path" --argjson identity "$identity" '
-      [.[] | select(.architecture == $architecture and .path == $path and [.name,.version,.epoch] == [$identity.name,$identity.version,$identity.epoch])] |
-      if length == 1 then .[0].origin else error("final package diverges from reservation") end
-    ' <<<"$unsigned")
+    if [[ "$manifest_schema" == 2 ]]; then
+      jq -e --argjson identity "$identity" '[.name,.version,.epoch] == [$identity.name,$identity.version,$identity.epoch]' \
+        <<<"$final" >/dev/null || error "Final package identity does not match its manifest entry."
+    fi
+    if origin=$(jq -ce '.origin' <<<"$final" 2>/dev/null); then
+      :
+    elif [[ "$mode" == migration ]]; then
+      origin=$(jq -ce --arg architecture "$architecture" --arg path "$path" --argjson identity "$identity" '
+        [.[] | select(.architecture == $architecture and .path == $path and [.name,.version,.epoch] == [$identity.name,$identity.version,$identity.epoch])] |
+        if length == 1 then .[0].origin else error("final migration package diverges from reservation") end
+      ' <<<"$unsigned") || error "Final migration package diverges from reservation."
+    else
+      error "Final replacement manifest is missing package provenance."
+    fi
+    if [[ "$mode" == replacement ]] && jq -e --argjson identity "$identity" \
+      '[.name,.version,.epoch] == [$identity.name,$identity.version,$identity.epoch]' \
+      <<<"$(jq -c '.operation.identity' <<<"$reservation")" >/dev/null; then
+      binding=$(jq -ce --arg architecture "$architecture" --arg path "$path" --argjson identity "$identity" '
+        [.[] | select(.architecture == $architecture and .path == $path and [.name,.version,.epoch] == [$identity.name,$identity.version,$identity.epoch])] |
+        if length == 1 then .[0] else error("replacement package diverges from reservation") end
+      ' <<<"$unsigned") || error "Final replacement package diverges from reservation."
+      jq -ne --argjson origin "$origin" --argjson binding "$binding" '
+        $binding.origin.type == "build-input" and
+        $binding.origin.unsignedSha256 == $binding.sha256 and
+        $origin.type == "attested-build" and
+        $origin.sourceCommit == $binding.origin.sourceCommit and
+        $origin.buildRunId == $binding.origin.runId and
+        $origin.buildArtifactId == $binding.origin.artifactId and
+        $origin.buildArtifactSha256 == $binding.origin.artifactSha256 and
+        $origin.unsignedSha256 == $binding.sha256
+      ' >/dev/null || error "Final replacement provenance does not bind its reserved input."
+      replacement_count=$((replacement_count + 1))
+    fi
     entry=$(jq -cn --argjson identity "$identity" --arg architecture "$architecture" --arg path "$path" --arg sha256 "$digest" --argjson origin "$origin" \
       '$identity + {architecture:$architecture,path:$path,sha256:$sha256,origin:$origin}')
     packages=$(jq -cn --argjson packages "$packages" --argjson entry "$entry" '$packages + [$entry]')
   done < <(jq -c '.packages[]' "$repository_dir/manifest.json")
   packages=$(jq -ceS 'sort_by(.name,.version,.epoch,.architecture,.path)' <<<"$packages")
-  if [[ $(jq -r '.operation.mode' <<<"$reservation") == migration ]]; then
+  if [[ "$mode" == migration ]]; then
     [[ "$packages" == "$(jq -ceS '.unsignedPackages' <<<"$reservation")" ]] || error "Migration changed package bytes."
+  else
+    [[ $replacement_count -eq $(jq -r 'length' <<<"$unsigned") ]] || error "Final manifest does not contain every reserved replacement."
   fi
   complete=$(jq -cnS --argjson reservation "$reservation" --argjson packages "$packages" --arg archive_sha "$(sha256 "$archive_file")" \
     '$reservation | .status="complete" | .packages=$packages | .archive={name:"verity-apk-repository.tar.zst",sha256:$archive_sha}' | normalize_marker)
@@ -473,19 +542,21 @@ complete() {
 publish() {
   [[ $# -eq 2 ]]
   repository=$1 release_tag=$2
-  local releases body complete notes
+  local releases body complete notes source_sha
   releases=$(release_pages | flat_releases)
   body=$(jq -er --arg tag "$release_tag" '[.[] | select(.tag_name == $tag)] | if length == 1 then .[0].body // "" else error("release lookup mismatch") end' <<<"$releases")
   body=${body//$'\r'/}
   complete=$(marker_from_body complete "$body")
   [[ -n "$complete" ]] || error "Release $release_tag has no complete marker; publication refused."
   complete=$(normalize_marker <<<"$complete")
+  source_sha=$(jq -r '.release.targetCommit' <<<"$complete")
   notes=$(jq -nr --arg release_tag "$release_tag" --argjson complete "$complete" '
     "APK repository complete byte ledger: \($release_tag)\n\n" +
     "SHA-256: \($complete.archive.sha256)\n\n" +
     "<!-- apk-release-complete: \($complete | tojson) -->"
   ')
   scan_releases publish "$(jq -c '.packages' <<<"$complete")" "$notes"
+  verify_live_tag "$source_sha"
   gh_call release edit "$release_tag" --repo "$repository" --draft=false >/dev/null
 }
 

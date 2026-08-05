@@ -474,3 +474,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release-tag }}
         run: gh release upload "$RELEASE_TAG" "$ARCHIVE"
+
+      - name: Publish immutable repository release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.release-tag }}
+          REPOSITORY: ${{ github.repository }}
+        run: .github/scripts/reserve-apk-release-identity.sh publish "$REPOSITORY" "$RELEASE_TAG"
