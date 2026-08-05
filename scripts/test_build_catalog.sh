@@ -100,3 +100,11 @@ jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
   (.[1].include | map([.name, .tag_version]) | sort)
 ' "$work/catalog.json" "$work/expected-images.json" >/dev/null
+jq '.images = .images[:-1]' "$work/catalog.json" > "$work/stale-catalog.json"
+if jq -e --slurp '
+  (.[0].images | map([.name, .version]) | sort) ==
+  (.[1].include | map([.name, .tag_version]) | sort)
+' "$work/stale-catalog.json" "$work/expected-images.json" >/dev/null; then
+  printf '%s\n' 'stale catalog unexpectedly matched expected images' >&2
+  exit 1
+fi
