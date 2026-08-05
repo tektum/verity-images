@@ -158,8 +158,8 @@ def unit_tests() -> None:
         raise AssertionError("package recipe disagreement was accepted")
     try:
         apk_archive.recipe_info(b"package:\n  nested:\n    name: example-package\n    version: 1.0.0\n    epoch: 1\n")
-    except ValueError:
-        pass
+    except ValueError as error:
+        assert str(error) == "invalid package recipe"
     else:
         raise AssertionError("nested package identity was accepted")
     signature, _, data = apk_archive.gzip_members(valid, 3)
