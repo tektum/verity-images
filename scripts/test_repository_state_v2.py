@@ -30,7 +30,12 @@ def state() -> dict[str, object]:
 
 def v2_state() -> dict[str, object]:
     candidate = state()
+    legacy_release = candidate["release"]
+    legacy_asset = candidate["asset"]
+    legacy_archive = candidate["archive"]
     candidate["schemaVersion"] = 2
+    candidate["release"] = {"id": 4, "tag": "apk-repo-v0003", "targetCommit": "4" * 40, "immutable": True}
+    candidate["asset"] = {"id": 5, "name": "verity-apk-repository.tar.zst", "sha256": "sha256:" + "7" * 64}
     packages = []
     for entry in candidate["packages"]:
         packages.append(
@@ -38,12 +43,12 @@ def v2_state() -> dict[str, object]:
                 **entry,
                 "origin": {
                     "type": "legacy-snapshot",
-                    "releaseId": candidate["release"]["id"],
-                    "releaseTag": candidate["release"]["tag"],
-                    "targetCommit": candidate["release"]["targetCommit"],
-                    "assetId": candidate["asset"]["id"],
-                    "assetSha256": candidate["asset"]["sha256"],
-                    "manifestSha256": candidate["archive"]["manifestSha256"],
+                    "releaseId": legacy_release["id"],
+                    "releaseTag": legacy_release["tag"],
+                    "targetCommit": legacy_release["targetCommit"],
+                    "assetId": legacy_asset["id"],
+                    "assetSha256": legacy_asset["sha256"],
+                    "manifestSha256": legacy_archive["manifestSha256"],
                     "sourcePath": entry["path"],
                 },
             }
@@ -70,6 +75,7 @@ def v2_state() -> dict[str, object]:
         packages.append(entry)
     candidate["packages"] = packages
     archive = copy.deepcopy(candidate["archive"])
+    archive["sha256"] = candidate["asset"]["sha256"]
     archive["manifest"] = {**archive["manifest"], "schemaVersion": 2, "packages": copy.deepcopy(packages)}
     candidate["archive"] = archive
     return candidate

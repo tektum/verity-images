@@ -44,9 +44,9 @@ def attested(name: str, architecture: str, bundle: Path) -> dict[str, str | int]
     }
 
 
-def base_snapshot(root: Path, schema_version: int = 2) -> tuple[Path, Path]:
+def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.rsa") -> tuple[Path, Path]:
     base = root / "base"
-    repository(base)
+    repository(base, key_name)
     if schema_version == 1:
         for architecture in ARCHITECTURES:
             (base / architecture / f"{B}-3.1.2-r3.apk").unlink()

@@ -105,13 +105,22 @@ def validate_v1(state: dict[str, object]) -> None:
 
 
 def validate_v2(state: dict[str, object]) -> None:
-    release, asset, archive, package_entries, manifest_entries = snapshot_fields(state)
+    release, _, archive, package_entries, manifest_entries = snapshot_fields(state)
     manifest = mapping(field(archive, "manifest"), "archive.manifest")
     if field(manifest, "schemaVersion") != 2:
         raise StateError("unexpected archive manifest schema version")
     if package_entries != manifest_entries:
         raise StateError("package manifest mismatch")
     architectures_by_package: dict[tuple[object, object, object], set[object]] = {}
+    legacy_snapshot: dict[str, object] | None = None
+    legacy_labels = {
+        "releaseId": "release id",
+        "releaseTag": "release tag",
+        "targetCommit": "target commit",
+        "assetId": "asset id",
+        "assetSha256": "asset digest",
+        "manifestSha256": "manifest digest",
+    }
     for entry in package_entries:
         identity = (field(entry, "name"), field(entry, "version"), field(entry, "epoch"))
         architectures = architectures_by_package.setdefault(identity, set())
@@ -122,27 +131,18 @@ def validate_v2(state: dict[str, object]) -> None:
         origin = mapping(field(entry, "origin"), "package.origin")
         match field(origin, "type"):
             case "legacy-snapshot":
-                expected = {
-                    "releaseId": field(release, "id"),
-                    "releaseTag": field(release, "tag"),
-                    "targetCommit": field(release, "targetCommit"),
-                    "assetId": field(asset, "id"),
-                    "assetSha256": field(asset, "sha256"),
-                    "manifestSha256": field(archive, "manifestSha256"),
-                    "sourcePath": field(entry, "path"),
-                }
-                labels = {
-                    "releaseId": "release id",
-                    "releaseTag": "release tag",
-                    "targetCommit": "target commit",
-                    "assetId": "asset id",
-                    "assetSha256": "asset digest",
-                    "manifestSha256": "manifest digest",
-                    "sourcePath": "source path",
-                }
-                for name, value in expected.items():
-                    if field(origin, name) != value:
-                        raise StateError(f"legacy snapshot {labels[name]} mismatch")
+                historical = {name: field(origin, name) for name in legacy_labels}
+                if historical["releaseId"] == field(release, "id"):
+                    raise StateError("legacy snapshot release id mismatch")
+                if historical["releaseTag"] == field(release, "tag"):
+                    raise StateError("legacy snapshot release tag mismatch")
+                if legacy_snapshot is None:
+                    legacy_snapshot = historical
+                for name, value in historical.items():
+                    if legacy_snapshot[name] != value:
+                        raise StateError(f"legacy snapshot {legacy_labels[name]} mismatch")
+                if field(origin, "sourcePath") != field(entry, "path"):
+                    raise StateError("legacy snapshot source path mismatch")
             case "attested-build":
                 for name in (
                     "sourceCommit", "buildWorkflowId", "buildRunId", "buildArtifactId", "buildArtifactSha256",

@@ -57,14 +57,14 @@ def sign(path: Path, key: Path) -> None:
     subprocess.run(["melange", "sign", "--signing-key", str(key), str(path)], check=True)
 
 
-def repository(root: Path) -> tuple[Path, Path, str]:
+def repository(root: Path, key_name: str = "fixture.rsa") -> tuple[Path, Path, str]:
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir()
-    key = root / "fixture.rsa"
+    key = root / key_name
     keys = root / "keys"
     keys.mkdir()
     subprocess.run(["melange", "keygen", str(key)], check=True)
-    shutil.copy2(key.with_suffix(".rsa.pub"), keys / "fixture.rsa.pub")
+    shutil.copy2(key.with_suffix(".rsa.pub"), keys / key.with_suffix(".rsa.pub").name)
     packages: list[dict[str, str]] = []
     for architecture in sorted(apk_repository_policy.ARCHITECTURES):
         directory = root / architecture
