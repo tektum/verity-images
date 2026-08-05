@@ -143,8 +143,8 @@ def recipe_info(raw: bytes) -> RecipeInfo:
             in_package = True
         elif in_package and not line.startswith("  "):
             break
-        elif in_package and ": " in line:
-            key, value = line.strip().split(": ", maxsplit=1)
+        elif in_package and line.startswith("  ") and not line.startswith("    ") and ": " in line:
+            key, value = line[2:].split(": ", maxsplit=1)
             if key in {"name", "version", "epoch"}:
                 if key in values:
                     raise ValueError("invalid package recipe")

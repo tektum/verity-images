@@ -156,6 +156,12 @@ def unit_tests() -> None:
         assert str(error) == "package recipe identity mismatch"
     else:
         raise AssertionError("package recipe disagreement was accepted")
+    try:
+        apk_archive.recipe_info(b"package:\n  nested:\n    name: example-package\n    version: 1.0.0\n    epoch: 1\n")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("nested package identity was accepted")
     signature, _, data = apk_archive.gzip_members(valid, 3)
     missing_pkginfo = signature.compressed + gzip_member(pack_tar((entry(".melange.yaml", b"recipe"),), final=False)) + data.compressed
     rejects_package(missing_pkginfo)
