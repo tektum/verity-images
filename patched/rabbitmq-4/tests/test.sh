@@ -190,9 +190,11 @@ rabbitmq_version=$(docker exec "$container" rabbitmqctl version)
 otp_version=$(docker exec "$container" rabbitmq-diagnostics -q erlang_version)
 otp_version=${otp_version#Erlang/OTP }
 otp_version=${otp_version%% *}
-openssl_version=$(docker exec "$container" openssl version)
-openssl_version=${openssl_version#OpenSSL }
-openssl_version=${openssl_version%% *}
+openssl_version=$(docker exec "$container" erl -noshell -eval '
+  [{<<"OpenSSL">>, _, Version}] = crypto:info_lib(),
+  [<<"OpenSSL">>, Number | _] = binary:split(Version, <<" ">>, [global]),
+  io:format("~s", [Number]).
+' -s init stop)
 version_at_least "$rabbitmq_version" 4.3.4 || fail "RabbitMQ $rabbitmq_version is below 4.3.4"
 version_at_least "$otp_version" 27.3.4.15 || fail "OTP $otp_version is below 27.3.4.15"
 version_at_least "$otp_version" 28 && fail "OTP $otp_version must be below 28"
