@@ -240,7 +240,7 @@ def crypto_tests() -> None:
 def manifest_identity_tests() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        for field, forged in (("name", "forged-package"), ("version", "9.9.9-r9"), ("epoch", 9)):
+        for field, forged in (("name", "forged-package"), ("version", "9.9.9-r9"), ("epoch", 9), ("epoch", True)):
             _, keys, _ = repository(root)
             manifest = root / "manifest.json"
             values = json.loads(manifest.read_text(encoding="utf-8"))
