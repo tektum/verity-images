@@ -407,7 +407,7 @@ jobs:
               architecture=$(jq -er '.architecture' <<<"$reserved")
               path=$(jq -er '.path' <<<"$reserved")
               name=$(jq -er '.name' <<<"$reserved")
-              source="input/apk-build-${architecture}/$(basename "$path")"
+              source="input/apk-build-${name}-${architecture}/$(basename "$path")"
               [[ "$(sha256sum "$source" | cut -d' ' -f1)" == "$(jq -er '.sha256' <<<"$reserved")" ]]
               signed="$work_dir/signed/$path"
               bundle="$work_dir/signed/bundles/$name/$architecture.json"
