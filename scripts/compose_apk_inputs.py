@@ -1,4 +1,5 @@
 #!/usr/bin/env -S uv run --script
+# noqa: SIZE_OK -- composition stays linear so rollback invariants remain visible
 # /// script
 # requires-python = ">=3.12"
 # dependencies = []
@@ -18,6 +19,7 @@ from __future__ import annotations
 import filecmp
 import hashlib
 import json
+import re
 import shutil
 import signal
 import sys
@@ -183,10 +185,16 @@ def replacement_packages(value: JsonValue) -> tuple[str, list[JsonObject], list[
         bundle_source = Path(text(field(package, "bundleFile"), "replacement.bundleFile"))
         clean = {key: package[key] for key in ("architecture", "name", "version", "epoch", "path", "sha256", "origin")}
         architecture = text(field(clean, "architecture"), "replacement.architecture")
-        if not source.is_file() or not bundle_source.is_file() or (info := checked_package(source, architecture)).name != name or info.version != field(clean, "version") or field(clean, "name") != name:
-            raise fail("invalid replacement package")
+        if not source.is_file() or not bundle_source.is_file():
+            raise fail("invalid replacement file")
+        info = checked_package(source, architecture)
+        package_epoch = int(info.version.rpartition("-r")[2])
+        if info.name != name or info.version != field(clean, "version") or package_epoch != field(clean, "epoch") or field(clean, "name") != name:
+            raise fail("replacement identity mismatch")
         bundle = bundle_path(clean)
-        if bundle is None or bundle != f"bundles/{name}/{architecture}.json" or digest(source) != field(clean, "sha256"):
+        if bundle is None or bundle != f"bundles/{name}/{architecture}.json":
+            raise fail("invalid replacement bundle")
+        if digest(source) != field(clean, "sha256"):
             raise fail("replacement digest mismatch")
         origin = mapping(field(clean, "origin"), "replacement.origin")
         if digest(bundle_source) != field(origin, "bundleSha256"):
@@ -207,12 +215,15 @@ def compose(state_path: Path, base: Path, input_path: Path, output: Path) -> Non
     inputs = read_json(input_path, "composition metadata")
     if set(inputs) != {"schemaVersion", "releaseTag", "replacement"} or field(inputs, "schemaVersion") != 1:
         raise fail("unsupported composition metadata schema")
+    packages = validate_base(state, base)
     release = mapping(field(state, "release"), "release")
     base_tag = text(field(release, "tag"), "release.tag")
-    expected_tag = f"apk-repo-v{int(base_tag.removeprefix('apk-repo-v')) + 1:04d}"
+    match = re.fullmatch(r"apk-repo-v([0-9]{4})", base_tag)
+    if match is None:
+        raise fail("invalid base release tag")
+    expected_tag = f"apk-repo-v{int(match.group(1)) + 1:04d}"
     if field(inputs, "releaseTag") != expected_tag:
         raise fail("composition release is not strictly next")
-    packages = validate_base(state, base)
     replacement = field(inputs, "replacement")
     if field(state, "schemaVersion") == 1 and (expected_tag != "apk-repo-v0003" or replacement is not None):
         raise fail("schema-v1 base only supports v0003 migration")

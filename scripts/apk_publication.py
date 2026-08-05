@@ -5,12 +5,10 @@ from pathlib import Path
 
 
 def publish(stage: Path, output: Path) -> None:
-    published = False
     succeeded = False
     try:
-        published = True
         stage.rename(output)
         succeeded = True
     finally:
-        if published and not succeeded and output.exists():
+        if not succeeded and not stage.exists() and output.exists():
             shutil.rmtree(output)

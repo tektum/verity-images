@@ -1,4 +1,5 @@
 from __future__ import annotations
+# noqa: SIZE_OK -- end-to-end regressions share one expensive signed repository fixture
 
 import copy
 import hashlib
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import compose_apk_inputs
+import apk_publication
 from apk_test_fixtures import unsigned_package
 from test_apk_repository import payload, repository, sign
 
@@ -192,6 +194,39 @@ def failure_paths() -> None:
             else:
                 raise AssertionError("invalid composition was accepted")
 
+
+def replacement_epoch_mismatch_fails() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state, base = base_snapshot(root)
+        metadata = replacement(root, base / "fixture.rsa")
+        value = json.loads(metadata.read_text())
+        for package in value["replacement"]["packages"]:
+            package["epoch"] = 4
+        metadata.write_text(json.dumps(value))
+        try:
+            compose_apk_inputs.compose(state, base, metadata, root / "output")
+        except compose_apk_inputs.ComposeError as error:
+            assert str(error) == "replacement identity mismatch"
+        else:
+            raise AssertionError("replacement epoch mismatch was accepted")
+
+
+def base_validation_precedes_release_tag_parsing() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state, base = base_snapshot(root)
+        metadata = replacement(root, base / "fixture.rsa")
+        value = json.loads(state.read_text())
+        value["release"]["tag"] = "invalid"
+        state.write_text(json.dumps(value))
+        try:
+            compose_apk_inputs.compose(state, base, metadata, root / "output")
+        except compose_apk_inputs.ComposeError as error:
+            assert str(error) == "noncanonical release tag"
+        else:
+            raise AssertionError("invalid base was accepted before release tag parsing")
+
 def undeclared_base_package_fails() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -268,13 +303,35 @@ def interruption_after_publication_cleans_output() -> None:
         assert output.is_dir()
 
 
+def failed_publication_preserves_existing_output() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        stage = root / "stage"
+        output = root / "output"
+        stage.mkdir()
+        output.mkdir()
+        sentinel = output / "sentinel"
+        sentinel.write_text("existing", encoding="utf-8")
+        try:
+            apk_publication.publish(stage, output)
+        except OSError:
+            pass
+        else:
+            raise AssertionError("publication unexpectedly replaced an existing output")
+        assert stage.is_dir()
+        assert sentinel.read_text(encoding="utf-8") == "existing"
+
+
 def main() -> None:
     happy_paths()
     failure_paths()
+    replacement_epoch_mismatch_fails()
+    base_validation_precedes_release_tag_parsing()
     undeclared_base_package_fails()
     missing_base_provenance_fails()
     mutation_after_copy_fails()
     interruption_after_publication_cleans_output()
+    failed_publication_preserves_existing_output()
 
 
 if __name__ == "__main__":
