@@ -40,6 +40,19 @@ verify_live_tag() {
   [[ "$actual" == "$expected" ]] || error "Tag $release_tag moved from expected commit $expected."
 }
 
+verify_tag_absent() {
+  local refs
+  refs=$(gh_call api "repos/${repository}/git/matching-refs/tags/${release_tag}") || error "Tag $release_tag could not be checked."
+  jq -e 'type == "array" and length == 0' <<<"$refs" >/dev/null || error "Tag $release_tag already exists."
+}
+
+ensure_live_tag() {
+  local expected=$1
+  gh_call api --method POST "repos/${repository}/git/refs" \
+    -f "ref=refs/tags/${release_tag}" -f "sha=${expected}" >/dev/null 2>&1 || true
+  verify_live_tag "$expected"
+}
+
 release_pages() {
   gh_call api --paginate --slurp "repos/${repository}/releases?per_page=100"
 }
@@ -61,7 +74,7 @@ safe_cleanup() {
     then $matches[0] else empty end
   ' <<<"$releases" 2>/dev/null) || return 0
   [[ -n "$release" ]] || return 0
-  gh_call release delete "$release_tag" --repo "$repository" --yes --cleanup-tag >/dev/null 2>&1 || true
+  gh_call release delete "$release_tag" --repo "$repository" --yes >/dev/null 2>&1 || true
 }
 
 cleanup() {
@@ -290,9 +303,16 @@ collision_check() {
 }
 
 scan_releases() {
-  local phase=$1 candidate=${2:-'[]'} expected_body=${3:-} releases max_tag expected_tag target_count=0 blockers=0
+  local phase=$1 candidate=${2:-'[]'} expected_body=${3:-} releases max_tag expected_tag attempt target_count=0 blockers=0
   local release tag body reserved complete normalized historical
-  releases=$(release_pages | flat_releases)
+  for attempt in {1..10}; do
+    releases=$(release_pages | flat_releases)
+    if [[ "$phase" != post-create ]] || jq -e --arg tag "$release_tag" 'any(.[]; .tag_name == $tag)' <<<"$releases" >/dev/null; then
+      break
+    fi
+    [[ $attempt -lt 10 ]] || error "Release $release_tag was not visible after creation."
+    sleep "${GH_VISIBILITY_RETRY_SECONDS:-1}"
+  done
   max_tag=$(jq -r '[.[] | .tag_name? | select(type == "string" and test("^apk-repo-v[0-9]{4}$"))] | max // "apk-repo-v0000"' <<<"$releases")
   expected_tag=$(printf 'apk-repo-v%04d' "$((10#${max_tag##*v} + 1))")
   if [[ "$phase" == reserve && "$release_tag" != "$expected_tag" ]]; then
@@ -440,17 +460,16 @@ reserve() {
     --argjson base "$base" --argjson operation "$operation" --argjson packages "$packages" \
     '{schemaVersion:2,status:"reserved",repository:$repository,release:{tag:$tag,targetCommit:$target},base:$base,operation:$operation,unsignedPackages:$packages}' | normalize_marker)
   scan_releases reserve "$packages"
-  if git ls-remote --exit-code --tags origin "refs/tags/${release_tag}" >/dev/null 2>&1; then
-    error "Tag $release_tag already exists."
-  fi
+  verify_tag_absent
   notes=$(jq -nr --arg release_tag "$release_tag" --argjson reservation "$reservation" '
     "APK repository byte reservation: \($release_tag)\n\n" +
     "<!-- apk-release-reserved: \($reservation | tojson) -->"
   ')
   reservation_body=$notes
   gh_call release create "$release_tag" --repo "$repository" --draft --target "$source_sha" --title "$release_tag" --notes "$notes" >/dev/null
+  created=1
   scan_releases post-create "$packages" "$notes"
-  verify_live_tag "$source_sha"
+  verify_tag_absent
   created=0
   printf '%s\n' "$reservation"
 }
@@ -556,8 +575,8 @@ publish() {
     "<!-- apk-release-complete: \($complete | tojson) -->"
   ')
   scan_releases publish "$(jq -c '.packages' <<<"$complete")" "$notes"
-  verify_live_tag "$source_sha"
-  gh_call release edit "$release_tag" --repo "$repository" --draft=false >/dev/null
+  ensure_live_tag "$source_sha"
+  gh_call release edit "$release_tag" --repo "$repository" --target "$source_sha" --draft=false >/dev/null
 }
 
 mode=${1:-}

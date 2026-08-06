@@ -113,15 +113,45 @@ if [[ ${GH_HANG:-0} -eq 1 ]]; then sleep 2; fi
 case "$1:$2" in
   api:--paginate)
     [[ ${GH_BAD_JSON:-0} -eq 0 ]] || { printf 'misleading success output\n'; exit 0; }
-    jq '[.[0:1],.[1:]]' "$GH_RELEASES"
+    if [[ ${GH_INTERRUPT:-0} -eq 1 && ! -f "$GH_RELEASES.interrupted" ]] && \
+      jq -e 'any(.[]; .tag_name == "apk-repo-v0003")' "$GH_RELEASES" >/dev/null; then
+      touch "$GH_RELEASES.interrupted"
+      kill -TERM "${INTERRUPT_TARGET:?}"
+    fi
+    if [[ ${GH_DELAYED_VISIBILITY:-0} -eq 1 && -f "$GH_RELEASES.delay" ]]; then
+      rm "$GH_RELEASES.delay"
+      jq 'map(select(.tag_name != "apk-repo-v0003")) | [.[0:1],.[1:]]' "$GH_RELEASES"
+    else
+      jq '[.[0:1],.[1:]]' "$GH_RELEASES"
+    fi
+    ;;
+  api:repos/*/git/matching-refs/tags/*)
+    if [[ -f "$GH_RELEASES.tag" || ${GH_TAG_MISSING:-1} -eq 0 ]]; then
+      jq -cn --arg tag "${2##*/}" '[{ref:("refs/tags/"+$tag),object:{type:"commit",sha:env.SOURCE_SHA}}]'
+    else
+      printf '[]\n'
+    fi
+    ;;
+  api:--method)
+    [[ $3 == POST && $4 == repos/*/git/refs ]]
+    [[ ! -f "$GH_RELEASES.tag" && ${GH_TAG_MISSING:-1} -eq 1 ]] || exit 1
+    sha=
+    for argument in "$@"; do
+      [[ "$argument" != sha=* ]] || sha=${argument#sha=}
+    done
+    [[ "$sha" =~ ^[0-9a-f]{40}$ ]]
+    jq -cn --arg sha "$sha" '{object:{type:"commit",sha:$sha}}' | tee "$GH_RELEASES.tag"
     ;;
   api:repos/*/git/ref/tags/*)
-    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "${INTERRUPT_TARGET:?}"; fi
-    [[ ${GH_TAG_MISSING:-0} -eq 0 ]] || exit 1
-    if [[ ${GH_TAG_TYPE:-commit} == tag ]]; then
+    if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then exit 130; fi
+    if [[ -f "$GH_RELEASES.tag" ]]; then
+      cat "$GH_RELEASES.tag"
+    elif [[ ${GH_TAG_MISSING:-1} -eq 0 && ${GH_TAG_TYPE:-commit} == tag ]]; then
       jq -cn '{object:{type:"tag",sha:("a" * 40)}}'
-    else
+    elif [[ ${GH_TAG_MISSING:-1} -eq 0 ]]; then
       jq -cn --arg sha "${GH_TAG_SHA:-$SOURCE_SHA}" '{object:{type:"commit",sha:$sha}}'
+    else
+      exit 1
     fi
     ;;
   api:repos/*/git/tags/*)
@@ -140,6 +170,10 @@ case "$1:$2" in
       "$GH_RELEASES" > "$GH_RELEASES.next"
     mv "$GH_RELEASES.next" "$GH_RELEASES"
     [[ ${GH_CREATE_LOSER:-0} -eq 0 ]] || exit 1
+    [[ ${GH_DELAYED_VISIBILITY:-0} -eq 0 ]] || touch "$GH_RELEASES.delay"
+    if [[ ${GH_TAG_AFTER_CREATE:-0} -eq 1 ]]; then
+      jq -cn '{object:{type:"commit",sha:("1" * 40)}}' > "$GH_RELEASES.tag"
+    fi
     if [[ ${GH_RACE:-0} -eq 1 ]]; then
       jq --arg target "$target" '. + [{id:9001,tag_name:"apk-repo-v0004",target_commitish:$target,draft:true,prerelease:false,immutable:false,body:"competing",assets:[]}]' \
         "$GH_RELEASES" > "$GH_RELEASES.next"
@@ -173,7 +207,7 @@ shift
 if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then
   trap '' TERM
   target=$PPID
-  if [[ " $* " == *'/git/ref/tags/'* ]]; then
+  if [[ " $* " == *'/git/ref/tags/'* || " $* " == *'api --paginate'* ]]; then
     target=$(ps -o ppid= -p "$PPID" | tr -d ' ')
   fi
   INTERRUPT_TARGET=$target "$@"
@@ -190,6 +224,7 @@ reset_releases() {
     <(legacy_release apk-repo-v0002 363781736 498881369 7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a) \
     > "$work_dir/releases.json"
   : > "$work_dir/commands.log"
+  rm -f "$work_dir/releases.json.interrupted" "$work_dir/releases.json.tag"
 }
 
 write_inputs() {
@@ -218,7 +253,10 @@ run_script() {
     SOURCE_SHA="$source_sha" REAL_TIMEOUT="$real_timeout" PATH="$work_dir/bin:$PATH" GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-1}" \
     DIRTY_STATE="${DIRTY_STATE:-0}" GH_BAD_JSON="${GH_BAD_JSON:-0}" GH_HANG="${GH_HANG:-0}" \
     GH_RACE="${GH_RACE:-0}" GH_INTERRUPT="${GH_INTERRUPT:-0}" GH_CREATE_LOSER="${GH_CREATE_LOSER:-0}" \
-    GH_TAG_MISSING="${GH_TAG_MISSING:-0}" GH_TAG_SHA="${GH_TAG_SHA:-$source_sha}" GH_TAG_TYPE="${GH_TAG_TYPE:-commit}" \
+    GH_DELAYED_VISIBILITY="${GH_DELAYED_VISIBILITY:-0}" \
+    GH_TAG_AFTER_CREATE="${GH_TAG_AFTER_CREATE:-0}" \
+    GH_VISIBILITY_RETRY_SECONDS=0 \
+    GH_TAG_MISSING="${GH_TAG_MISSING:-1}" GH_TAG_SHA="${GH_TAG_SHA:-$source_sha}" GH_TAG_TYPE="${GH_TAG_TYPE:-commit}" \
     "$reserver" "$@"
 }
 
@@ -442,33 +480,42 @@ reset_releases
 GH_RACE=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
 
+# Given a successful create whose list endpoint is briefly stale, when reservation rescans, then it waits for the owned draft.
+reset_releases
+GH_DELAYED_VISIBILITY=1 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/delayed-reservation.json"
+jq -e '.status == "reserved" and .release.tag == "apk-repo-v0003"' "$work_dir/delayed-reservation.json" >/dev/null
+
 # Given another invocation wins identical draft creation, when this invocation loses, then it never owns or deletes the winner.
 reset_releases
 GH_CREATE_LOSER=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log" && exit 1
 jq -e '.[] | select(.tag_name == "apk-repo-v0003" and .draft == true)' "$work_dir/releases.json" >/dev/null
 
-# Given lightweight or annotated live tags, when they resolve to the expected commit, then reservation accepts both forms.
+# Given lightweight or annotated live tags, when reservation starts, then both forms block creation.
 reset_releases
-GH_TAG_TYPE=commit reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null
-grep -Fq 'gh api repos/tektum/verity-images/git/ref/tags/apk-repo-v0003' "$work_dir/commands.log"
+GH_TAG_MISSING=0 GH_TAG_TYPE=commit expect_failure reserve apk-repo-v0003 "$work_dir/migration.json"
+grep -Fq 'gh api repos/tektum/verity-images/git/matching-refs/tags/apk-repo-v0003' "$work_dir/commands.log"
 reset_releases
-GH_TAG_TYPE=tag reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null
-grep -Fq 'gh api repos/tektum/verity-images/git/tags/' "$work_dir/commands.log"
+GH_TAG_MISSING=0 GH_TAG_TYPE=tag expect_failure reserve apk-repo-v0003 "$work_dir/migration.json"
 
-# Given a moved or missing live tag, when reservation checks ownership, then it fails before protected work.
+# Given a draft release with no live tag, when reservation checks ownership, then the exact draft is retained.
 reset_releases
-GH_TAG_SHA=1111111111111111111111111111111111111111 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
+GH_TAG_MISSING=1 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/tagless-reservation.json"
+jq -e '.[] | select(.tag_name == "apk-repo-v0003" and .draft == true)' "$work_dir/releases.json" >/dev/null
+
+# Given a live tag appears after draft creation, when reservation checks ownership, then it preserves the competing tag.
 reset_releases
-GH_TAG_MISSING=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
-jq -e '.[] | select(.tag_name == "apk-repo-v0003")' "$work_dir/releases.json" >/dev/null && exit 1
+GH_TAG_AFTER_CREATE=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
+grep -Fq 'gh release delete apk-repo-v0003 --repo tektum/verity-images --yes' "$work_dir/commands.log"
+grep -Fq -- '--cleanup-tag' "$work_dir/commands.log" && exit 1
+jq -e '.object.sha == ("1" * 40)' "$work_dir/releases.json.tag" >/dev/null
 reset_releases
 if GH_INTERRUPT=1 reserve apk-repo-v0003 "$work_dir/migration.json" >/dev/null 2>&1; then
   status=0
 else
   status=$?
 fi
-[[ $status -eq 130 ]]
+[[ $status -eq 143 ]]
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
 
 # Given a reserved draft, when publication is requested, then the incomplete marker prevents publication.
@@ -482,6 +529,17 @@ reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
 run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
   "$work_dir/legacy/repository.tar.zst" >/dev/null
 set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst" true
-GH_TAG_SHA=1111111111111111111111111111111111111111 expect_failure run_script publish tektum/verity-images apk-repo-v0003
+GH_TAG_MISSING=0 GH_TAG_SHA=1111111111111111111111111111111111111111 expect_failure run_script publish tektum/verity-images apk-repo-v0003
+
+# Given a complete tagless draft with its fixed asset, when publication runs, then it creates the exact tag before publishing.
+reset_releases
+reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/reservation.json"
+run_script complete tektum/verity-images apk-repo-v0003 "$source_sha" "$work_dir/reservation.json" \
+  "$work_dir/legacy/repository.tar.zst" >/dev/null
+set_release_state apk-repo-v0003 "$work_dir/legacy/repository.tar.zst" true
+run_script publish tektum/verity-images apk-repo-v0003
+tag_create_line=$(grep -n 'gh api --method POST repos/tektum/verity-images/git/refs' "$work_dir/commands.log" | cut -d: -f1)
+publish_line=$(grep -n 'gh release edit apk-repo-v0003 .*--draft=false' "$work_dir/commands.log" | cut -d: -f1)
+[[ "$tag_create_line" -lt "$publish_line" ]]
 
 grep -Fq 'gh api --paginate --slurp repos/tektum/verity-images/releases?per_page=100' "$work_dir/commands.log"
