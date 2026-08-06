@@ -1,0 +1,14 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - php-8.4
+
+entrypoint:
+  command: /usr/bin/php
+
+environment:
+  PATH: /usr/bin:/bin
