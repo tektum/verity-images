@@ -41,6 +41,9 @@ until response=$(curl --fail --silent --connect-timeout 1 --max-time 5 "http://1
 done
 printf '%s' "$response" | grep -q 'Prometheus Server is Ready.'
 curl --fail --silent "http://127.0.0.1:$port/api/v1/status/buildinfo" | grep -q '"status":"success"'
+if curl --fail --silent "http://127.0.0.1:$port/debug/pprof/" >/dev/null 2>&1; then
+  exit 1
+fi
 
 printf 'not: [valid\n' > "$invalid_config"
 chmod 644 "$invalid_config"
