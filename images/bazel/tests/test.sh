@@ -33,11 +33,19 @@ docker run --rm -v "$work:/home/bazel" --entrypoint /bin/bash "$image" -eu -c '
     printf "%s\n" "unexpected Bazel artifact: $artifact" >&2
     exit 1
   }
-' || fail 'deterministic Bazel build failed'
 
-printf 'genrule(\n' > "$work/BUILD.bazel"
-if docker run --rm -v "$work:/home/bazel" "$image" --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact 2>"$work/broken.log"; then
-  printf '%s\n' 'broken BUILD.bazel unexpectedly succeeded' >&2
-  exit 1
-fi
-grep -Eq 'BUILD\.bazel:1.*syntax error' "$work/broken.log" || fail 'broken BUILD.bazel did not report a syntax error'
+  printf "genrule(name =\n" > BUILD.bazel
+  if negative_output=$(bazel --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact 2>&1); then
+    printf "%s\n" "$negative_output"
+    printf "%s\n" "broken BUILD.bazel unexpectedly succeeded" >&2
+    exit 1
+  fi
+  printf "%s\n" "$negative_output"
+  case "$negative_output" in
+    *BUILD.bazel*) ;;
+    *)
+      printf "%s\n" "failure did not identify BUILD.bazel" >&2
+      exit 1
+      ;;
+  esac
+' || fail 'deterministic Bazel build failed'
