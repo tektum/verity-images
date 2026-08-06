@@ -26,6 +26,7 @@ genrule(
     cmd = "printf 'bazel-smoke\\n' > $@",
 )
 EOF
+chmod 666 "$work/BUILD.bazel"
 docker run --rm -v "$work:/home/bazel" --entrypoint /bin/bash "$image" -eu -c '
   bazel --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact
   artifact=$(<bazel-bin/artifact.txt)
