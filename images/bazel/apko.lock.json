@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/bazel/apko.yaml",
-    "checksum": "sha256-CYpZphA6xpgKGj7fxBUEKNtdeQeyYBx1L+HI11UR5gI="
+    "checksum": "sha256-HzNhr/o3ribVXeAxo/z8itG07kblcPTNYaL8EcJyZ1Y="
   },
   "contents": {
     "keyring": [
@@ -408,25 +408,6 @@
         "checksum": "Q1epGysJ+UJSe6mvw4BjSykwUqaHA="
       },
       {
-        "name": "libxrender",
-        "url": "https://packages.wolfi.dev/os/x86_64/libxrender-0.9.12-r8.apk",
-        "version": "0.9.12-r8",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-8287",
-          "checksum": "sha1-V2dHbSX2yINgakhVBb6Co2x11KY="
-        },
-        "data": {
-          "range": "bytes=8288-31956",
-          "checksum": "sha256-HVpVQ8cYEtzHvt6+5r9fA8LCyLqEty7ncx1uf0Aozos="
-        },
-        "checksum": "Q1V2dHbSX2yINgakhVBb6Co2x11KY="
-      },
-      {
         "name": "lcms2",
         "url": "https://packages.wolfi.dev/os/x86_64/lcms2-2.19.1-r1.apk",
         "version": "2.19.1-r1",
@@ -444,6 +425,25 @@
           "checksum": "sha256-oG5LitJf1Aw6ySU9yagiBxWx16DaLen4RXdQGgJbbwQ="
         },
         "checksum": "Q1n0np8n7G3wPEpRZnQwaWHR5y1g8="
+      },
+      {
+        "name": "libxrender",
+        "url": "https://packages.wolfi.dev/os/x86_64/libxrender-0.9.12-r8.apk",
+        "version": "0.9.12-r8",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8287",
+          "checksum": "sha1-V2dHbSX2yINgakhVBb6Co2x11KY="
+        },
+        "data": {
+          "range": "bytes=8288-31956",
+          "checksum": "sha256-HVpVQ8cYEtzHvt6+5r9fA8LCyLqEty7ncx1uf0Aozos="
+        },
+        "checksum": "Q1V2dHbSX2yINgakhVBb6Co2x11KY="
       },
       {
         "name": "libtasn1",
@@ -788,8 +788,8 @@
         "checksum": "Q1SCuh+rjXg+MqwjQ+H28i3GULN+o="
       },
       {
-        "name": "openjdk-21-jre",
-        "url": "https://packages.wolfi.dev/os/x86_64/openjdk-21-jre-21.0.12-r0.apk",
+        "name": "openjdk-21",
+        "url": "https://packages.wolfi.dev/os/x86_64/openjdk-21-21.0.12-r0.apk",
         "version": "21.0.12-r0",
         "architecture": "x86_64",
         "signature": {
@@ -797,14 +797,14 @@
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-11534",
-          "checksum": "sha1-B/bCJuL+HcwNZ3bpCwCso4dWNUA="
+          "range": "bytes=0-11556",
+          "checksum": "sha1-njCe5dpvweLfCaeyjkzNuJ9vzp0="
         },
         "data": {
-          "range": "bytes=11535-55481952",
-          "checksum": "sha256-QvZK+cMGekdbPvyP8+dIGHHidRefFmDkpCh8WiFkNek="
+          "range": "bytes=11557-82910991",
+          "checksum": "sha256-h5XdLDLCpsahWA5Rufrb95H5eY4ZA/imTP2S0mmJKMk="
         },
-        "checksum": "Q1B/bCJuL+HcwNZ3bpCwCso4dWNUA="
+        "checksum": "Q1njCe5dpvweLfCaeyjkzNuJ9vzp0="
       },
       {
         "name": "wolfi-baselayout",
@@ -1187,25 +1187,6 @@
         "checksum": "Q1AMHWprwcb2YHuH3cMUTy0Ev03O8="
       },
       {
-        "name": "libxrender",
-        "url": "https://packages.wolfi.dev/os/aarch64/libxrender-0.9.12-r8.apk",
-        "version": "0.9.12-r8",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-8326",
-          "checksum": "sha1-a0gHzqt9l4+LtpvTEogyvIza7q0="
-        },
-        "data": {
-          "range": "bytes=8327-30689",
-          "checksum": "sha256-kTxENah3TylJGbg26gJ/SvJTzsVB+CBwHkIyBLK2WQU="
-        },
-        "checksum": "Q1a0gHzqt9l4+LtpvTEogyvIza7q0="
-      },
-      {
         "name": "lcms2",
         "url": "https://packages.wolfi.dev/os/aarch64/lcms2-2.19.1-r1.apk",
         "version": "2.19.1-r1",
@@ -1223,6 +1204,25 @@
           "checksum": "sha256-O+IxQ0b4ZQUJY9t2ZsSCYmRsgONUaF6PeHBKGAtyAfk="
         },
         "checksum": "Q1q3XLS1cQvVnqk7UsU85Yjh5P+7s="
+      },
+      {
+        "name": "libxrender",
+        "url": "https://packages.wolfi.dev/os/aarch64/libxrender-0.9.12-r8.apk",
+        "version": "0.9.12-r8",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8326",
+          "checksum": "sha1-a0gHzqt9l4+LtpvTEogyvIza7q0="
+        },
+        "data": {
+          "range": "bytes=8327-30689",
+          "checksum": "sha256-kTxENah3TylJGbg26gJ/SvJTzsVB+CBwHkIyBLK2WQU="
+        },
+        "checksum": "Q1a0gHzqt9l4+LtpvTEogyvIza7q0="
       },
       {
         "name": "libtasn1",
@@ -1567,8 +1567,8 @@
         "checksum": "Q1aZCipPa4vSmIFE+0PyIRDTVFrbk="
       },
       {
-        "name": "openjdk-21-jre",
-        "url": "https://packages.wolfi.dev/os/aarch64/openjdk-21-jre-21.0.12-r0.apk",
+        "name": "openjdk-21",
+        "url": "https://packages.wolfi.dev/os/aarch64/openjdk-21-21.0.12-r0.apk",
         "version": "21.0.12-r0",
         "architecture": "aarch64",
         "signature": {
@@ -1576,14 +1576,14 @@
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-11558",
-          "checksum": "sha1-IuWfVNaTOU1khRMXCHE9eY6r6S0="
+          "range": "bytes=0-11582",
+          "checksum": "sha1-zKVGRy9dp9vOhquuPBybvr+P+As="
         },
         "data": {
-          "range": "bytes=11559-54416144",
-          "checksum": "sha256-ofTmkaJb7ELeFTcTpALrkQayLxqjKfv+wp19w7fe2qY="
+          "range": "bytes=11583-81722044",
+          "checksum": "sha256-ZE6U5LvP99ca8xbZXOAZ2XnjRvhio2G+MXd/qUPsNdo="
         },
-        "checksum": "Q1IuWfVNaTOU1khRMXCHE9eY6r6S0="
+        "checksum": "Q1zKVGRy9dp9vOhquuPBybvr+P+As="
       }
     ]
   }
