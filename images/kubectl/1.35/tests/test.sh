@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 
 client_version=$(docker run --rm "$image" version --client --output=yaml |
   awk '$1 == "gitVersion:" { print $2 }')
-test "$client_version" = v1.35.4
+test "$client_version" = v1.35.7
 printf 'CLIENT VERSION %s\n' "$client_version"
 
 manifest_output=$(printf '%s\n' \
