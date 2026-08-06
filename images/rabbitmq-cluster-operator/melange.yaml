@@ -13,6 +13,7 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
+      - busybox
       - go-1.26
   environment:
     CGO_ENABLED: "0"
