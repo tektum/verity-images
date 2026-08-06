@@ -1,0 +1,61 @@
+package:
+  name: trivy
+  version: "0.72.0"
+  epoch: 7
+  description: Simple and comprehensive vulnerability scanner for containers
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "8"
+    memory: 15Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aquasecurity/trivy
+      tag: v${{package.version}}
+      expected-commit: 8a32853686209a428179bb3a1688802b25691564
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/sigstore/cosign/v2@v2.6.3
+        github.com/sigstore/sigstore-go@v1.2.0
+        github.com/sigstore/timestamp-authority/v2@v2.1.2
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/metric@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        go.opentelemetry.io/otel/trace@v1.44.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        oras.land/oras-go/v2@v2.6.2
+  - uses: go/build
+    with:
+      experiments: jsonv2
+      packages: ./cmd/trivy
+      output: trivy
+      ldflags: -X github.com/aquasecurity/trivy/pkg/version/app.ver=${{package.version}}
+      go-package: go-1.26
+  - runs: |
+      mkdir -p "${{targets.destdir}}/contrib"
+      install -Dm644 contrib/*.tpl "${{targets.destdir}}/contrib/"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: trivy-build-metadata
+    description: Resolved Go module metadata for the Trivy build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/trivy-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/trivy-build/go.sum"

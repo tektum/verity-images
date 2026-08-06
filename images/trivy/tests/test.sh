@@ -6,6 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 printf 'fixture\n' > "$work/input.txt"
 
+docker run --rm "$image" version --format json | grep -q '"Version":"0.72.0"'
 docker run --rm -v "$work:/fixture:ro" "$image" filesystem --scanners secret --format json /fixture > "$work/report.json"
 grep -q '"SchemaVersion": 2' "$work/report.json"
 grep -q '"ArtifactType": "filesystem"' "$work/report.json"
