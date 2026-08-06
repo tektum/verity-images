@@ -19,8 +19,6 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
-      - nodejs-24
-      - npm
   environment:
     CGO_ENABLED: "0"
 
@@ -30,10 +28,13 @@ pipeline:
       repository: https://github.com/prometheus/alertmanager
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - runs: |
-      cd ui/app
-      npm ci
-      npm run build
+  - uses: fetch
+    with:
+      uri: >-
+        https://github.com/prometheus/alertmanager/releases/download/v${{package.version}}/alertmanager-web-ui-${{package.version}}.tar.gz
+      expected-sha256: 1f63344e196e47ba7bfe27276f44c1da77e39fb76493e42b2cf0a50ca8f04321
+      directory: ui/app
+      strip-components: 0
   - runs: |
       flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
       flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
