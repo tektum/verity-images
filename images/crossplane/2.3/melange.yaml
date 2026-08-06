@@ -1,0 +1,39 @@
+package:
+  name: crossplane-2.3
+  version: "2.3.4"
+  epoch: 0
+  description: Cloud native control plane
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/crossplane/crossplane
+      tag: v${{package.version}}
+      expected-commit: c2670a735103660d7f436585447f2071bc1de973
+  - uses: go/bump
+    with:
+      deps: github.com/sigstore/sigstore-go@v1.2.1
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/crossplane
+      output: crossplane
+      strip: -s -w
+      ldflags: >-
+        -X github.com/crossplane/crossplane-runtime/v2/pkg/version.version=v${{package.version}}
+
+test:
+  pipeline:
+    - runs: /usr/bin/crossplane --version
