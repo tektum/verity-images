@@ -1,0 +1,57 @@
+package:
+  name: kubectl-1.35
+  version: "1.35.7"
+  epoch: 0
+  description: Kubernetes command-line client
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "2"
+    memory: 8Gi
+    disk: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - findutils
+      - go-1.26
+      - grep
+      - rsync
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/kubernetes
+      tag: v${{package.version}}
+      expected-commit: 96cb9ab4201d88ce5e549fde047a686171838fdb
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+      work: true
+  - runs: |
+      go work edit -go=1.25.0
+      go work use
+  - runs: |
+      export FORCE_HOST_GO=true
+      export KUBE_GIT_TREE_STATE=clean
+      make WHAT=cmd/kubectl
+  - runs: |
+      install -m755 -D _output/bin/kubectl "${{targets.destdir}}/usr/bin/kubectl"
+
+test:
+  pipeline:
+    - runs: /usr/bin/kubectl --help
