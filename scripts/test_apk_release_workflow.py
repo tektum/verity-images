@@ -22,12 +22,7 @@ REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
 RESERVER: Final = ROOT / ".github/scripts/reserve-apk-release-identity.sh"
 SIGNING_DOC: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
-RUNS_ON_X64: Final = (
-    "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64"
-)
-RUNS_ON_ARM64: Final = (
-    "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-arm64"
-)
+RUNS_ON_PREFIX: Final = "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-"
 
 
 def job(text: str, name: str, next_name: str) -> str:
@@ -64,8 +59,13 @@ def main() -> None:
     assert "for architecture in aarch64 x86_64" in matrix
     assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
     assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
-    assert runner(x86_64) == RUNS_ON_X64
-    assert runner(aarch64) == RUNS_ON_ARM64
+    assert runner(matrix) == f"{RUNS_ON_PREFIX}apk-matrix/runner=4cpu-linux-x64"
+    assert runner(x86_64) == (
+        f"{RUNS_ON_PREFIX}build-x86_64-${{{{ strategy.job-index }}}}/runner=4cpu-linux-x64"
+    )
+    assert runner(aarch64) == (
+        f"{RUNS_ON_PREFIX}build-aarch64-${{{{ strategy.job-index }}}}/runner=4cpu-linux-arm64"
+    )
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
@@ -82,7 +82,7 @@ def main() -> None:
 
     assert "if: always()" in gate
     assert "needs: [build-x86_64, build-aarch64, apk-signing]" in gate
-    assert runner(gate) == RUNS_ON_X64
+    assert runner(gate) == f"{RUNS_ON_PREFIX}apk-gate/runner=4cpu-linux-x64"
     assert "EVENT: ${{ github.event_name }}" in gate
     assert "REF: ${{ github.ref }}" in gate
     assert "REPOSITORY: ${{ github.repository }}" in gate
@@ -125,8 +125,11 @@ def main() -> None:
     assert "github.event_name == 'workflow_dispatch'" in signing
     assert "github.repository == 'tektum/verity-images'" in signing
     assert "github.ref == 'refs/heads/main'" in signing
-    assert runner(signing) == RUNS_ON_X64
-    assert runner(smoke_workflow) == RUNS_ON_X64
+    assert runner(signing) == f"{RUNS_ON_PREFIX}apk-signing/runner=4cpu-linux-x64/spot=false"
+    assert runner(smoke_workflow) == (
+        f"{RUNS_ON_PREFIX}sign-and-verify/runner=4cpu-linux-x64/spot=false"
+    )
+    assert "    if: github.ref == 'refs/heads/main'\n" in smoke_workflow
     assert "environment: apk-signing" in signing
     assert "attestations: write" in signing
     assert "id-token: write" in signing
@@ -136,7 +139,7 @@ def main() -> None:
     assert 'bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"' in signing
     assert "gh attestation verify" in signing
     assert "--source-digest \"$SOURCE_SHA\"" in signing
-    assert "--deny-self-hosted-runners" in signing
+    assert "--deny-self-hosted-runners" not in signing
     assert "artifact-ids:" in signing
     assert "run-id:" not in signing
     assert signing.index("Validate source and artifacts") < signing.index("APK_REPOSITORY_PRIVATE_KEY")

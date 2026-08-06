@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   monitor:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor/runner=4cpu-linux-x64
     timeout-minutes: 15
     permissions:
       contents: read
