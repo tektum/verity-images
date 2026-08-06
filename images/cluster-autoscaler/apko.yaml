@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - cluster-autoscaler-1.35
+
+entrypoint:
+  command: /usr/bin/cluster-autoscaler
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /cluster-autoscaler
+    type: symlink
+    source: /usr/bin/cluster-autoscaler
+    uid: 0
+    gid: 0
+  - path: /usr/bin/cluster-autoscaler
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
