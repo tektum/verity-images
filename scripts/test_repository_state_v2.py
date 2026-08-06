@@ -30,29 +30,10 @@ def state() -> dict[str, object]:
 
 def v2_state() -> dict[str, object]:
     candidate = state()
-    legacy_release = candidate["release"]
-    legacy_asset = candidate["asset"]
-    legacy_archive = candidate["archive"]
     candidate["schemaVersion"] = 2
     candidate["release"] = {"id": 4, "tag": "apk-repo-v0003", "targetCommit": "4" * 40, "immutable": True}
     candidate["asset"] = {"id": 5, "name": "verity-apk-repository.tar.zst", "sha256": "sha256:" + "7" * 64}
-    packages = []
-    for entry in candidate["packages"]:
-        packages.append(
-            {
-                **entry,
-                "origin": {
-                    "type": "legacy-snapshot",
-                    "releaseId": legacy_release["id"],
-                    "releaseTag": legacy_release["tag"],
-                    "targetCommit": legacy_release["targetCommit"],
-                    "assetId": legacy_asset["id"],
-                    "assetSha256": legacy_asset["sha256"],
-                    "manifestSha256": legacy_archive["manifestSha256"],
-                    "sourcePath": entry["path"],
-                },
-            }
-        )
+    packages = copy.deepcopy(candidate["packages"])
     for entry in copy.deepcopy(packages):
         entry["name"] = "openssl-fips-provider-next"
         entry["version"] = "3.2.0-r0"

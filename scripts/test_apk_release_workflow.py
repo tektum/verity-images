@@ -154,7 +154,8 @@ def main() -> None:
     assert "apk-release-complete" in reserver
     assert 'immutable == true' in reserver
     assert 'timeout "${GH_TIMEOUT_SECONDS:-30}" gh' in reserver
-    assert 'git ls-remote --exit-code --tags origin "refs/tags/${release_tag}"' in reserver
+    assert 'git/matching-refs/tags/${release_tag}' in reserver
+    assert 'gh_call api --method POST "repos/${repository}/git/refs"' in reserver
     assert 'gh_call release create "$release_tag" --repo "$repository"' in reserver
     assert "body=${body//$'\\r'/}" in reserver
     assert "gh release upload \"$RELEASE_TAG\" \"$ARCHIVE\"" in signing
@@ -171,9 +172,9 @@ def main() -> None:
     assert "--clobber" not in signing
     reserve_function = reserver.split("reserve() {", maxsplit=1)[1].split("\n}\n\ncomplete()", maxsplit=1)[0]
     publish_function = reserver.split("publish() {", maxsplit=1)[1].split("\n}\n\nmode=", maxsplit=1)[0]
-    assert reserve_function.index("scan_releases post-create") < reserve_function.index('verify_live_tag "$source_sha"')
-    assert publish_function.index("scan_releases publish") < publish_function.index('verify_live_tag "$source_sha"')
-    assert publish_function.index('verify_live_tag "$source_sha"') < publish_function.index("--draft=false")
+    assert reserve_function.index("scan_releases post-create") < reserve_function.rindex("verify_tag_absent")
+    assert publish_function.index("scan_releases publish") < publish_function.index('ensure_live_tag "$source_sha"')
+    assert publish_function.index('ensure_live_tag "$source_sha"') < publish_function.index("--draft=false")
     assert (
         "    concurrency:\n"
         "      group: apk-signing\n"
