@@ -78,7 +78,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
     needs: [apk-matrix]
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-x86_64-${{ strategy.job-index }}/runner=4cpu-linux-x64
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-x86_64-${{ strategy.job-index }}/runner=4cpu-linux-x64  # yamllint disable-line rule:line-length
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.x86_64) }}
@@ -130,7 +130,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
     needs: [apk-matrix]
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-aarch64-${{ strategy.job-index }}/runner=4cpu-linux-arm64
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-aarch64-${{ strategy.job-index }}/runner=4cpu-linux-arm64  # yamllint disable-line rule:line-length
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.aarch64) }}
