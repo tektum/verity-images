@@ -37,11 +37,11 @@ def pack_tar(entries: tuple[tuple[tarfile.TarInfo, bytes | None], ...], *, final
     return output.getvalue()[:offset] + (b"\0" * 1024 if final else b"")
 
 
-def entry(name: str, contents: bytes = b"", *, typeflag: bytes = tarfile.REGTYPE, linkname: str = "") -> tuple[tarfile.TarInfo, bytes | None]:
+def entry(name: str, contents: bytes = b"", *, typeflag: bytes = tarfile.REGTYPE, linkname: str = "", mode: int | None = None) -> tuple[tarfile.TarInfo, bytes | None]:
     header = tarfile.TarInfo(name)
     header.type = typeflag
     header.linkname = linkname
-    header.mode = 0o755 if name.endswith("activate") else 0o644
+    header.mode = mode if mode is not None else (0o755 if name.endswith("activate") else 0o644)
     header.pax_headers = {"APK-TOOLS.checksum.SHA1": hashlib.sha1(contents).hexdigest()} if typeflag == tarfile.REGTYPE else {}
     return header, contents if typeflag == tarfile.REGTYPE else None
 

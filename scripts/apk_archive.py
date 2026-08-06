@@ -27,6 +27,7 @@ class GzipMember:
 class TarEntry:
     name: str
     contents: bytes | None
+    mode: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -108,9 +109,9 @@ def tar_entries(raw: bytes) -> tuple[TarEntry, ...]:
                     source = archive.extractfile(entry)
                     if source is None:
                         raise ValueError("unreadable tar entry")
-                    entries.append(TarEntry(entry.name, source.read()))
+                    entries.append(TarEntry(entry.name, source.read(), entry.mode))
                 elif entry.isdir():
-                    entries.append(TarEntry(entry.name, None))
+                    entries.append(TarEntry(entry.name, None, entry.mode))
                 else:
                     raise ValueError("unsupported tar entry")
     except (tarfile.TarError, OSError) as error:

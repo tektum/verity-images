@@ -56,6 +56,7 @@ GOSU_RECIPE_FIELDS: Final = (
     b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
     b"  x-sys-version: v0.44.0\n",
 )
+GOSU_VERSION: Final = "1.19-r0"
 GOSU_REQUIRED_FILES: Final = frozenset({"usr/bin/gosu"})
 GOSU_PAYLOAD_DIRECTORIES: Final = frozenset({"usr", "usr/bin", "var", "var/lib", "var/lib/db", "var/lib/db/sbom"})
 GOSU_BINARY_SHA256: Final = {
@@ -120,11 +121,15 @@ def validate_openssl_fips(info: PackageInfo) -> None:
 
 
 def validate_gosu(info: PackageInfo) -> None:
+    if info.version != GOSU_VERSION:
+        raise ValueError("unexpected gosu package version")
     if not all(field in info.recipe.contents for field in GOSU_RECIPE_FIELDS):
         raise ValueError("invalid gosu recipe")
     binary = payload_files(info, GOSU_REQUIRED_FILES, GOSU_PAYLOAD_DIRECTORIES).get("usr/bin/gosu", b"")
     if not native_elf(binary, info.architecture):
         raise ValueError("invalid gosu ELF")
+    if not all(entry.mode & 0o111 for entry in info.payload if entry.name == "usr/bin/gosu"):
+        raise ValueError("gosu binary is not executable")
     if hashlib.sha256(binary).hexdigest() != GOSU_BINARY_SHA256[info.architecture]:
         raise ValueError("unexpected gosu binary checksum")
 

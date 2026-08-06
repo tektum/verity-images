@@ -48,6 +48,7 @@ def package_version_tests() -> None:
         {"architecture": "aarch64"},
         {"identity": {"name": "openssl-fips-provider", "version": "1.19-r0"}},
         {"identity": {"name": "gosu", "version": "1.19"}},
+        {"identity": {"name": "gosu", "version": "1.20-r0"}},
         {"recipe": {"path": "packages/other/melange.yaml", "sha256": "0" * 64}},
     )
     for forgery in (None, *forgeries):

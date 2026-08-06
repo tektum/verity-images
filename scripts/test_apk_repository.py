@@ -45,11 +45,11 @@ def payload(architecture: str, name: str = "openssl-fips-provider") -> tuple[tup
     )
 
 
-def gosu_payload(binary: bytes, version: str = "1.19-r0") -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
+def gosu_payload(binary: bytes, version: str = "1.19-r0", mode: int = 0o755) -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
     return (
         entry("usr", typeflag=tarfile.DIRTYPE),
         entry("usr/bin", typeflag=tarfile.DIRTYPE),
-        entry("usr/bin/gosu", binary),
+        entry("usr/bin/gosu", binary, mode=mode),
         entry("var", typeflag=tarfile.DIRTYPE),
         entry("var/lib", typeflag=tarfile.DIRTYPE),
         entry("var/lib/db", typeflag=tarfile.DIRTYPE),
@@ -58,8 +58,8 @@ def gosu_payload(binary: bytes, version: str = "1.19-r0") -> tuple[tuple[tarfile
     )
 
 
-def gosu_package(payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], architecture: str = "x86_64", **kwargs: str) -> bytes:
-    return signed_shape(unsigned_package(architecture, payload, name="gosu", version="1.19-r0", **kwargs))
+def gosu_package(payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], architecture: str = "x86_64", version: str = "1.19-r0", **kwargs: str) -> bytes:
+    return signed_shape(unsigned_package(architecture, payload, name="gosu", version=version, **kwargs))
 
 
 def generic_payload() -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
@@ -162,18 +162,25 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
 
 def gosu_tests() -> None:
     binary = elf("x86_64") + b"\0" * 64
-    digests = {"x86_64": hashlib.sha256(binary).hexdigest(), "aarch64": "0" * 64}
+    arm_binary = elf("aarch64") + b"\0" * 64
+    digests = {"x86_64": hashlib.sha256(binary).hexdigest(), "aarch64": hashlib.sha256(arm_binary).hexdigest()}
     # The published binary digests cannot be forged, so the pinned table is
-    # swapped for the fixture digest to exercise every other gosu rule.
+    # swapped for the fixture digests to exercise every other gosu rule.
     with patch.dict(apk_repository_policy.GOSU_BINARY_SHA256, digests):
         info = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(binary)), "x86_64"))
         assert (info.name, info.version, info.epoch, info.architecture) == ("gosu", "1.19-r0", 0, "x86_64")
-        rejects_package(gosu_package(gosu_payload(elf("aarch64") + b"\0" * 64)))
+        arm = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(arm_binary), "aarch64"), "aarch64"))
+        assert (arm.name, arm.version, arm.epoch, arm.architecture) == ("gosu", "1.19-r0", 0, "aarch64")
+        rejects_package(gosu_package(gosu_payload(arm_binary)))
         rejects_package(gosu_package(gosu_payload(binary) + (entry("etc/evil", b"bad"),)))
         rejects_package(gosu_package(gosu_payload(binary)[:-1]))
         rejects_package(gosu_package(gosu_payload(binary) + (entry("usr/bin/other", b"extra"),)))
         rejects_package(gosu_package(gosu_payload(binary), recipe_vars="vars:\n  x-sys-version: v0.43.0\n"))
         rejects_package(gosu_package(gosu_payload(binary), "aarch64"), "aarch64")
+        # A non-executable binary is unusable once installed.
+        rejects_package(gosu_package(gosu_payload(binary, mode=0o644)))
+        # The published identity is pinned, so a rebuilt version cannot be reserved.
+        rejects_package(gosu_package(gosu_payload(binary, version="1.20-r0"), version="1.20-r0"))
     # The real pinned digests reject any other binary.
     rejects_package(gosu_package(gosu_payload(binary)))
 
