@@ -9,14 +9,18 @@ contents:
     - ca-certificates-bundle
     - trivy@local
 
+accounts:
+  run-as: 65532
+
 entrypoint:
   command: /usr/bin/trivy
 
 environment:
+  HOME: /home/nonroot
   PATH: /usr/bin:/bin
 
 paths:
-  - path: /root/.cache/trivy
+  - path: /home/nonroot/.cache/trivy
     type: directory
     uid: 65532
     gid: 65532
