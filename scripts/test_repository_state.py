@@ -56,15 +56,16 @@ def state() -> dict[str, object]:
 def valid_state() -> None:
     candidate = state()
     assert validate(candidate).returncode == 0
+    assert candidate["schemaVersion"] == 2
     assert candidate["release"] == {
-        "id": 363781736,
-        "tag": "apk-repo-v0002",
-        "targetCommit": "d5c04984b5ee70654c081b016a0d7818030a7f61",
+        "id": 366113836,
+        "tag": "apk-repo-v0003",
+        "targetCommit": "3f7ac08034766b3460606aae7362c9b14552c2e9",
         "immutable": True,
     }
-    assert candidate["asset"]["id"] == 498881369
-    assert candidate["asset"]["sha256"] == "sha256:7d6783ffae959a9761fc61cf10b7888a14813e2e24887ff8315fa52f8a68e79a"
-    assert candidate["archive"]["manifestSha256"] == "6604d9948d4c8acd95127eba2051721788eb1b9dd1490af6f4373f9c10cf1ea0"
+    assert candidate["asset"]["id"] == 503759632
+    assert candidate["asset"]["sha256"] == "sha256:1e02c09ad9d3abfbddfab5f6e0d481c4700dce1730ce2647c95f658f35518045"
+    assert candidate["archive"]["manifestSha256"] == "cb74c1aeb473a97b880389d2e4ca0d6d8b0b9cefe9e0b2f29d4e541d63e129d1"
     assert candidate["key"] == {
         "path": "packages/keys/verity-apk-2026.rsa.pub",
         "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698",
@@ -73,10 +74,37 @@ def valid_state() -> None:
         ("x86_64", "openssl-fips-provider", "3.1.2-r3", 3, "x86_64/openssl-fips-provider-3.1.2-r3.apk", "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"),
         ("aarch64", "openssl-fips-provider", "3.1.2-r3", 3, "aarch64/openssl-fips-provider-3.1.2-r3.apk", "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"),
     }
+    assert all(entry["origin"]["releaseTag"] == "apk-repo-v0002" for entry in candidate["packages"])
 
 
 def v1_rollback_state_remains_valid() -> None:
-    validator.validate_v1(state())
+    candidate = state()
+    packages = [{key: value for key, value in package.items() if key != "origin"} for package in candidate["packages"]]
+    origin = candidate["packages"][0]["origin"]
+    candidate["schemaVersion"] = 1
+    candidate["release"] = {
+        "id": origin["releaseId"],
+        "tag": origin["releaseTag"],
+        "targetCommit": origin["targetCommit"],
+        "immutable": True,
+    }
+    candidate["asset"] = {
+        "id": origin["assetId"],
+        "name": "verity-apk-repository.tar.zst",
+        "sha256": origin["assetSha256"],
+    }
+    candidate["archive"] = {
+        "root": "apk",
+        "sha256": origin["assetSha256"],
+        "manifestSha256": origin["manifestSha256"],
+        "manifest": {
+            "architectures": ["x86_64", "aarch64"],
+            "fingerprint": candidate["key"]["fingerprint"],
+            "packages": [{key: package[key] for key in ("architecture", "path", "sha256")} for package in packages],
+        },
+    }
+    candidate["packages"] = packages
+    validator.validate_v1(candidate)
 
 
 def rejects_invalid_owner() -> None:
