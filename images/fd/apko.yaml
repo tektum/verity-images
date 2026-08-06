@@ -1,0 +1,13 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - fd
+
+entrypoint:
+  command: /usr/bin/fd
+
+environment:
+  PATH: /usr/bin:/bin
