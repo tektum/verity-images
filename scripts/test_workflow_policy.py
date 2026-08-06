@@ -17,6 +17,9 @@ from unittest.mock import patch
 import gen_matrix
 
 ROOT: Final = Path(__file__).resolve().parents[1]
+RUNS_ON_X64: Final = (
+    "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64"
+)
 IDENTITY_ASSIGNMENT: Final = (
     "identity=https://github.com/tektum/verity-images/.github/workflows/"
     "build.yaml@refs/heads/main"
@@ -233,7 +236,7 @@ def main() -> None:
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
     validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
     build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
-    assert runner(matrix_job) == "ubuntu-latest"
+    assert runner(matrix_job) == RUNS_ON_X64
     assert runner(validate_job) == (
         "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
         "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
@@ -244,8 +247,8 @@ def main() -> None:
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
     )
-    assert runner(build_gate_job) == "ubuntu-latest"
-    assert runner(catalog) == "ubuntu-latest"
+    assert runner(build_gate_job) == RUNS_ON_X64
+    assert runner(catalog) == RUNS_ON_X64
     assert runner(lint) == "ubuntu-latest"
     assert runner(monitor) == "ubuntu-latest"
     assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
