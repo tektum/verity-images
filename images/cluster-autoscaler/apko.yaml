@@ -12,6 +12,9 @@ contents:
 entrypoint:
   command: /usr/bin/cluster-autoscaler
 
+accounts:
+  run-as: 65532
+
 environment:
   PATH: /usr/bin:/bin
 
