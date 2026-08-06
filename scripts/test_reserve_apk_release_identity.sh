@@ -113,7 +113,12 @@ if [[ ${GH_HANG:-0} -eq 1 ]]; then sleep 2; fi
 case "$1:$2" in
   api:--paginate)
     [[ ${GH_BAD_JSON:-0} -eq 0 ]] || { printf 'misleading success output\n'; exit 0; }
-    jq '[.[0:1],.[1:]]' "$GH_RELEASES"
+    if [[ ${GH_DELAYED_VISIBILITY:-0} -eq 1 && -f "$GH_RELEASES.delay" ]]; then
+      rm "$GH_RELEASES.delay"
+      jq 'map(select(.tag_name != "apk-repo-v0003")) | [.[0:1],.[1:]]' "$GH_RELEASES"
+    else
+      jq '[.[0:1],.[1:]]' "$GH_RELEASES"
+    fi
     ;;
   api:repos/*/git/ref/tags/*)
     if [[ ${GH_INTERRUPT:-0} -eq 1 ]]; then kill -TERM "${INTERRUPT_TARGET:?}"; fi
@@ -140,6 +145,7 @@ case "$1:$2" in
       "$GH_RELEASES" > "$GH_RELEASES.next"
     mv "$GH_RELEASES.next" "$GH_RELEASES"
     [[ ${GH_CREATE_LOSER:-0} -eq 0 ]] || exit 1
+    [[ ${GH_DELAYED_VISIBILITY:-0} -eq 0 ]] || touch "$GH_RELEASES.delay"
     if [[ ${GH_RACE:-0} -eq 1 ]]; then
       jq --arg target "$target" '. + [{id:9001,tag_name:"apk-repo-v0004",target_commitish:$target,draft:true,prerelease:false,immutable:false,body:"competing",assets:[]}]' \
         "$GH_RELEASES" > "$GH_RELEASES.next"
@@ -218,6 +224,8 @@ run_script() {
     SOURCE_SHA="$source_sha" REAL_TIMEOUT="$real_timeout" PATH="$work_dir/bin:$PATH" GH_TIMEOUT_SECONDS="${GH_TIMEOUT_SECONDS:-1}" \
     DIRTY_STATE="${DIRTY_STATE:-0}" GH_BAD_JSON="${GH_BAD_JSON:-0}" GH_HANG="${GH_HANG:-0}" \
     GH_RACE="${GH_RACE:-0}" GH_INTERRUPT="${GH_INTERRUPT:-0}" GH_CREATE_LOSER="${GH_CREATE_LOSER:-0}" \
+    GH_DELAYED_VISIBILITY="${GH_DELAYED_VISIBILITY:-0}" \
+    GH_VISIBILITY_RETRY_SECONDS=0 \
     GH_TAG_MISSING="${GH_TAG_MISSING:-0}" GH_TAG_SHA="${GH_TAG_SHA:-$source_sha}" GH_TAG_TYPE="${GH_TAG_TYPE:-commit}" \
     "$reserver" "$@"
 }
@@ -441,6 +449,11 @@ GH_BAD_JSON=0 GH_HANG=1 GH_TIMEOUT_SECONDS=0.1 expect_failure reserve apk-repo-v
 reset_releases
 GH_RACE=1 expect_failure_after_create reserve apk-repo-v0003 "$work_dir/migration.json"
 grep -Fq 'gh release delete apk-repo-v0003' "$work_dir/commands.log"
+
+# Given a successful create whose list endpoint is briefly stale, when reservation rescans, then it waits for the owned draft.
+reset_releases
+GH_DELAYED_VISIBILITY=1 reserve apk-repo-v0003 "$work_dir/migration.json" > "$work_dir/delayed-reservation.json"
+jq -e '.status == "reserved" and .release.tag == "apk-repo-v0003"' "$work_dir/delayed-reservation.json" >/dev/null
 
 # Given another invocation wins identical draft creation, when this invocation loses, then it never owns or deletes the winner.
 reset_releases

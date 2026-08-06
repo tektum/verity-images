@@ -290,9 +290,16 @@ collision_check() {
 }
 
 scan_releases() {
-  local phase=$1 candidate=${2:-'[]'} expected_body=${3:-} releases max_tag expected_tag target_count=0 blockers=0
+  local phase=$1 candidate=${2:-'[]'} expected_body=${3:-} releases max_tag expected_tag attempt target_count=0 blockers=0
   local release tag body reserved complete normalized historical
-  releases=$(release_pages | flat_releases)
+  for attempt in {1..10}; do
+    releases=$(release_pages | flat_releases)
+    if [[ "$phase" != post-create ]] || jq -e --arg tag "$release_tag" 'any(.[]; .tag_name == $tag)' <<<"$releases" >/dev/null; then
+      break
+    fi
+    [[ $attempt -lt 10 ]] || error "Release $release_tag was not visible after creation."
+    sleep "${GH_VISIBILITY_RETRY_SECONDS:-1}"
+  done
   max_tag=$(jq -r '[.[] | .tag_name? | select(type == "string" and test("^apk-repo-v[0-9]{4}$"))] | max // "apk-repo-v0000"' <<<"$releases")
   expected_tag=$(printf 'apk-repo-v%04d' "$((10#${max_tag##*v} + 1))")
   if [[ "$phase" == reserve && "$release_tag" != "$expected_tag" ]]; then
@@ -449,6 +456,7 @@ reserve() {
   ')
   reservation_body=$notes
   gh_call release create "$release_tag" --repo "$repository" --draft --target "$source_sha" --title "$release_tag" --notes "$notes" >/dev/null
+  created=1
   scan_releases post-create "$packages" "$notes"
   verify_live_tag "$source_sha"
   created=0
