@@ -32,6 +32,8 @@ cat >"$tmp/pgcat.toml" <<'EOF'
 [general]
 host = "0.0.0.0"
 port = 6432
+admin_username = "admin"
+admin_password = "admin-password"
 
 [pools.postgres]
 pool_mode = "transaction"
