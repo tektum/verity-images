@@ -239,7 +239,7 @@ runs:
         else
           tags+=("${VERSION}-$(date -u +%Y%m%d)${suffix}")
         fi
-        if [[ "$PUBLISH_LATEST" == true ]]; then
+        if [[ "$PUBLISH_LATEST" == true && "${VERSION}${suffix}" != "latest${suffix}" ]]; then
           tags+=("latest${suffix}")
         fi
         for tag in "${tags[@]}"; do
