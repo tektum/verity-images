@@ -1,0 +1,73 @@
+package:
+  name: grafana
+  version: "12.4.6"
+  epoch: 2
+  description: The open and composable observability and data visualization platform.
+  copyright:
+    - license: AGPL-3.0-or-later
+  dependencies:
+    runtime:
+      - bash
+  resources:
+    cpu: "14"
+    memory: 31Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - ca-certificates-bundle
+      - coreutils
+      - git
+      - go-1.26
+      - nodejs-22
+      - yarn
+  accounts:
+    run-as: ""
+    users:
+      - username: build
+        uid: 1000
+        gid: 1000
+        shell: ""
+        homedir: /home/build
+    groups:
+      - groupname: build
+        gid: 1000
+        members:
+          - build
+  environment:
+    GOMODCACHE: /var/cache/melange/gomodcache
+    GOTOOLCHAIN: local
+    HOME: /home/build
+    npm_config_cache: /var/cache/melange/npm
+    npm_config_git: /usr/bin/git
+    npm_config_ignore_scripts: "true"
+    npm_config_script_shell: /bin/sh
+    npm_config_shell: /bin/sh
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "1"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/grafana
+      tag: v${{package.version}}
+      expected-commit: 16fbc24965a6dbeb7ed7facafb090062214ba33e
+  - name: Build
+    runs: |
+      export NODE_OPTIONS="--max-old-space-size=8192"
+      yarn install --immutable
+      make build
+  - name: Package
+    runs: |
+      install -d "${{targets.destdir}}/usr/bin"
+      install -d "${{targets.destdir}}/usr/share/grafana"
+      install -d "${{targets.destdir}}/etc/grafana"
+      cp bin/linux-*/* "${{targets.destdir}}/usr/bin/"
+      cp -r conf public "${{targets.destdir}}/usr/share/grafana/"
+      cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini"
+      cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini.example"
