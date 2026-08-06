@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-cluster-autoscaler-1.35@local
+
+entrypoint:
+  command: /usr/bin/cluster-autoscaler
+
+accounts:
+  run-as: 65532
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /cluster-autoscaler
+    type: symlink
+    source: /usr/bin/cluster-autoscaler
+    uid: 0
+    gid: 0
+  - path: /usr/bin/cluster-autoscaler
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
