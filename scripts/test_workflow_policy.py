@@ -249,8 +249,8 @@ def main() -> None:
     )
     assert runner(build_gate_job) == RUNS_ON_X64
     assert runner(catalog) == RUNS_ON_X64
-    assert runner(lint) == "ubuntu-latest"
-    assert runner(monitor) == "ubuntu-latest"
+    assert runner(lint) == RUNS_ON_X64
+    assert runner(monitor) == RUNS_ON_X64
     assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
         workflow, "\n  validate:\n", "\n  publish:\n"
     )
