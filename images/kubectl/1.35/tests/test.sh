@@ -13,7 +13,7 @@ manifest_output=$(printf '%s\n' \
   'kind: ConfigMap' \
   'metadata:' \
   '  name: verity-smoke' |
-  docker run --rm -i "$image" create --dry-run=client -f - -o name)
+  docker run --rm -i "$image" label --local --dry-run=client -f - verity-smoke=true -o name)
 test "$manifest_output" = configmap/verity-smoke
 printf 'DRY RUN %s\n' "$manifest_output"
 
