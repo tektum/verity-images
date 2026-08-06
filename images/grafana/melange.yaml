@@ -55,6 +55,7 @@ pipeline:
   - uses: git-checkout
     with:
       repository: https://github.com/grafana/grafana
+      tag: v${{package.version}}
       expected-commit: 16fbc24965a6dbeb7ed7facafb090062214ba33e
   - name: Build
     runs: |
