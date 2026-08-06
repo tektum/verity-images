@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - rabbitmq-cluster-operator@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/manager
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /manager
+    type: symlink
+    source: /usr/bin/manager
+    uid: 0
+    gid: 0
+  - path: /usr/bin/manager
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
