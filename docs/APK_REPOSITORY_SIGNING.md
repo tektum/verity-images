@@ -66,8 +66,13 @@ published package version. Publish a new version for any correction.
 The `APK signing smoke` workflow is a protected, disposable sign-and-verify
 check. It creates no repository, signature, or key artifact.
 
-`Build APK repository` builds and runtime-tests the FIPS package once on each
-native GitHub-hosted architecture. The resulting unsigned packages are kept for
+`Build APK repository` builds one dispatch-selected package once on each native
+GitHub-hosted architecture, and runtime-tests it where a gate exists. The
+selected package must have a `packages/<name>/melange.yaml` recipe, and its
+identity, version, and paths are read from the build artifact metadata rather
+than hardcoded. A dispatch may add a package the pinned base snapshot does not
+carry yet; every other base package is reused byte-identically. The resulting
+unsigned packages are kept for
 seven days and receive GitHub artifact attestations. Only a manual dispatch from
 `tektum/verity-images` at `refs/heads/main` can enter `apk-signing`; before the
 key is read, it verifies the immutable source SHA, same-run artifact IDs and

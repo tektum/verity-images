@@ -13,8 +13,13 @@ on:
         required: true
         type: string
       mode:
-        description: Migrate v0002 unchanged or replace openssl-fips-provider.
+        description: Migrate the pinned snapshot unchanged or publish one package.
         options: [migration, replacement]
+        required: true
+        type: choice
+      package:
+        description: Package published in replacement mode.
+        options: [openssl-fips-provider, gosu]
         required: true
         type: choice
       source-sha:
@@ -46,6 +51,7 @@ jobs:
           MERGE_BASE_SHA: ${{ github.event.merge_group.base_sha }}
           MERGE_HEAD_SHA: ${{ github.event.merge_group.head_sha }}
           MODE: ${{ inputs.mode }}
+          PACKAGE: ${{ inputs.package }}
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_BASE_SHA: ${{ github.event.before }}
@@ -55,10 +61,12 @@ jobs:
             if [[ "$MODE" == migration ]]; then
               matrix='{"include":[]}'
             else
+              [[ -f "packages/${PACKAGE}/melange.yaml" ]]
               matrix=$(
                 python3 scripts/gen_apk_matrix.py --all |
-                  jq -c '{include:[.include[] | select(.package == "openssl-fips-provider")]}'
+                  jq -c --arg package "$PACKAGE" '{include:[.include[] | select(.package == $package)]}'
               )
+              [[ "$(jq -r '.include | length' <<<"$matrix")" == 2 ]]
             fi
           else
             BASE_SHA=${PR_BASE_SHA:-${MERGE_BASE_SHA:-$PUSH_BASE_SHA}}
@@ -291,13 +299,16 @@ jobs:
         env:
           AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ inputs.package }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.source-sha }}
           X86_64_PACKAGE_DIGEST: ${{ needs.build-x86_64.outputs.package-digest }}
         run: |
           set -euo pipefail
+          version=$(bash .github/scripts/apk-package-version.sh input "$PACKAGE")
+          printf 'PACKAGE_VERSION=%s\n' "$version" >> "$GITHUB_ENV"
           for architecture in x86_64 aarch64; do
-            package="input/apk-build-openssl-fips-provider-${architecture}/openssl-fips-provider-3.1.2-r3.apk"
+            package="input/apk-build-${PACKAGE}-${architecture}/${PACKAGE}-${version}.apk"
             [[ -f "$package" ]]
             case "$architecture" in
               x86_64) expected_digest=$X86_64_PACKAGE_DIGEST ;;
@@ -330,6 +341,7 @@ jobs:
           AARCH64_ARTIFACT_ID: ${{ needs.build-aarch64.outputs.artifact-id }}
           AARCH64_PACKAGE_DIGEST: ${{ needs.build-aarch64.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
+          PACKAGE: ${{ inputs.package }}
           RELEASE_TAG: ${{ inputs.release-tag }}
           REPOSITORY: ${{ github.repository }}
           SOURCE_SHA: ${{ inputs.source-sha }}
@@ -345,24 +357,29 @@ jobs:
               {mode:"migration",packages:[$state[0].packages[] | {architecture,path,file:("base-stage/apk/" + .path)}]}
             ' > release/inputs.json
           else
+            apk_name="${PACKAGE}-${PACKAGE_VERSION}.apk"
             jq -n \
             --arg source "$SOURCE_SHA" --arg workflow_ref "$GITHUB_WORKFLOW_REF" --argjson run_id "$GITHUB_RUN_ID" \
-            --arg x86_file input/apk-build-openssl-fips-provider-x86_64/openssl-fips-provider-3.1.2-r3.apk \
+            --arg name "$PACKAGE" --arg version "$PACKAGE_VERSION" --argjson epoch "${PACKAGE_VERSION##*-r}" \
+            --arg x86_file "input/apk-build-${PACKAGE}-x86_64/$apk_name" \
             --argjson x86_id "$X86_64_ARTIFACT_ID" --arg x86_artifact "sha256:$X86_64_ARTIFACT_DIGEST" \
             --arg x86_unsigned "$X86_64_PACKAGE_DIGEST" \
-            --arg arm_file input/apk-build-openssl-fips-provider-aarch64/openssl-fips-provider-3.1.2-r3.apk \
+            --arg arm_file "input/apk-build-${PACKAGE}-aarch64/$apk_name" \
             --argjson arm_id "$AARCH64_ARTIFACT_ID" --arg arm_artifact "sha256:$AARCH64_ARTIFACT_DIGEST" \
             --arg arm_unsigned "$AARCH64_PACKAGE_DIGEST" '
             def origin($artifact_id;$artifact_sha256;$unsigned_sha256): {
               type:"build-input",sourceCommit:$source,workflowRef:$workflow_ref,runId:$run_id,
               artifactId:$artifact_id,artifactSha256:$artifact_sha256,unsignedSha256:$unsigned_sha256
             };
+            ($name + "-" + $version + ".apk") as $apk |
             {
               mode:"replacement",
-              identity:{name:"openssl-fips-provider",version:"3.1.2-r3",epoch:3},
+              identity:{name:$name,version:$version,epoch:$epoch},
               packages:[
-                {architecture:"x86_64",path:"x86_64/openssl-fips-provider-3.1.2-r3.apk",file:$x86_file,origin:origin($x86_id;$x86_artifact;$x86_unsigned)},
-                {architecture:"aarch64",path:"aarch64/openssl-fips-provider-3.1.2-r3.apk",file:$arm_file,origin:origin($arm_id;$arm_artifact;$arm_unsigned)}
+                {architecture:"x86_64",path:("x86_64/" + $apk),file:$x86_file,
+                 origin:origin($x86_id;$x86_artifact;$x86_unsigned)},
+                {architecture:"aarch64",path:("aarch64/" + $apk),file:$arm_file,
+                 origin:origin($arm_id;$arm_artifact;$arm_unsigned)}
               ]
             }
             ' > release/inputs.json
@@ -380,6 +397,7 @@ jobs:
           APK_REPOSITORY_PRIVATE_KEY: ${{ secrets.APK_REPOSITORY_PRIVATE_KEY }}
           GH_TOKEN: ${{ github.token }}
           MODE: ${{ inputs.mode }}
+          PACKAGE: ${{ inputs.package }}
           RELEASE_TAG: ${{ inputs.release-tag }}
         run: |
           set -euo pipefail
@@ -407,6 +425,7 @@ jobs:
               architecture=$(jq -er '.architecture' <<<"$reserved")
               path=$(jq -er '.path' <<<"$reserved")
               name=$(jq -er '.name' <<<"$reserved")
+              [[ "$name" == "$PACKAGE" ]]
               source="input/apk-build-${name}-${architecture}/$(basename "$path")"
               [[ "$(sha256sum "$source" | cut -d' ' -f1)" == "$(jq -er '.sha256' <<<"$reserved")" ]]
               signed="$work_dir/signed/$path"
@@ -433,8 +452,8 @@ jobs:
               ')
               packages=$(jq -cn --argjson packages "$packages" --argjson entry "$entry" '$packages + [$entry]')
             done < <(jq -c '.unsignedPackages[]' release/reservation.json)
-            jq -nS --arg tag "$RELEASE_TAG" --argjson packages "$packages" '
-              {schemaVersion:1,releaseTag:$tag,replacement:{name:"openssl-fips-provider",packages:$packages}}
+            jq -nS --arg tag "$RELEASE_TAG" --arg name "$PACKAGE" --argjson packages "$packages" '
+              {schemaVersion:1,releaseTag:$tag,replacement:{name:$name,packages:$packages}}
             ' > "$work_dir/composition.json"
           fi
           python3 scripts/compose_apk_inputs.py packages/repository-state.json base-stage/apk \

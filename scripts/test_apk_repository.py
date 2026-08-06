@@ -45,6 +45,23 @@ def payload(architecture: str, name: str = "openssl-fips-provider") -> tuple[tup
     )
 
 
+def gosu_payload(binary: bytes, version: str = "1.19-r0") -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
+    return (
+        entry("usr", typeflag=tarfile.DIRTYPE),
+        entry("usr/bin", typeflag=tarfile.DIRTYPE),
+        entry("usr/bin/gosu", binary),
+        entry("var", typeflag=tarfile.DIRTYPE),
+        entry("var/lib", typeflag=tarfile.DIRTYPE),
+        entry("var/lib/db", typeflag=tarfile.DIRTYPE),
+        entry("var/lib/db/sbom", typeflag=tarfile.DIRTYPE),
+        entry(f"var/lib/db/sbom/gosu-{version}.spdx.json", b"{}"),
+    )
+
+
+def gosu_package(payload: tuple[tuple[tarfile.TarInfo, bytes | None], ...], architecture: str = "x86_64", **kwargs: str) -> bytes:
+    return signed_shape(unsigned_package(architecture, payload, name="gosu", version="1.19-r0", **kwargs))
+
+
 def generic_payload() -> tuple[tuple[tarfile.TarInfo, bytes | None], ...]:
     return (
         entry("usr", typeflag=tarfile.DIRTYPE),
@@ -141,6 +158,24 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
     apk_repository_policy.verify(package, keys)
     apk_repository_policy.verify(index, keys)
     return package, keys, hashlib.sha256((repository / "manifest.json").read_bytes()).hexdigest()
+
+
+def gosu_tests() -> None:
+    binary = elf("x86_64") + b"\0" * 64
+    digests = {"x86_64": hashlib.sha256(binary).hexdigest(), "aarch64": "0" * 64}
+    # The published binary digests cannot be forged, so the pinned table is
+    # swapped for the fixture digest to exercise every other gosu rule.
+    with patch.dict(apk_repository_policy.GOSU_BINARY_SHA256, digests):
+        info = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(binary)), "x86_64"))
+        assert (info.name, info.version, info.epoch, info.architecture) == ("gosu", "1.19-r0", 0, "x86_64")
+        rejects_package(gosu_package(gosu_payload(elf("aarch64") + b"\0" * 64)))
+        rejects_package(gosu_package(gosu_payload(binary) + (entry("etc/evil", b"bad"),)))
+        rejects_package(gosu_package(gosu_payload(binary)[:-1]))
+        rejects_package(gosu_package(gosu_payload(binary) + (entry("usr/bin/other", b"extra"),)))
+        rejects_package(gosu_package(gosu_payload(binary), recipe_vars="vars:\n  x-sys-version: v0.43.0\n"))
+        rejects_package(gosu_package(gosu_payload(binary), "aarch64"), "aarch64")
+    # The real pinned digests reject any other binary.
+    rejects_package(gosu_package(gosu_payload(binary)))
 
 
 def unit_tests() -> None:
@@ -287,6 +322,7 @@ def real_melange_tests() -> None:
 def main() -> None:
     manifest_identity_tests()
     unit_tests()
+    gosu_tests()
     crypto_tests()
     real_melange_tests()
 
