@@ -39,9 +39,15 @@ PY
 wait_for_port() {
   attempts=0
   until [ -s "$1" ]; do
-    kill -0 "$2"
+    if ! kill -0 "$2"; then
+      printf 'fixture process %s exited before writing %s\n' "$2" "$1" >&2
+      return 1
+    fi
     attempts=$((attempts + 1))
-    [ "$attempts" -lt 20 ]
+    if [ "$attempts" -ge 20 ]; then
+      printf 'timed out waiting for %s\n' "$1" >&2
+      return 1
+    fi
     sleep 1
   done
 }
@@ -55,7 +61,8 @@ python3 "$tempdir/server.py" "$tempdir/http.port" "$tempdir" &
 http_pid=$!
 wait_for_port "$tempdir/http.port" "$http_pid"
 http_port=$(cat "$tempdir/http.port")
-[ "$(docker run --rm --network host "$image" --fail --silent "http://127.0.0.1:$http_port/fixture.txt")" = 'curl fixture' ]
+[ "$(docker run --rm --network host "$image" --fail --silent --max-time 10 \
+  "http://127.0.0.1:$http_port/fixture.txt")" = 'curl fixture' ]
 
 openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 1 -subj /CN=localhost \
   -addext subjectAltName=DNS:localhost -keyout "$tempdir/tls.key" \
@@ -66,12 +73,13 @@ https_pid=$!
 wait_for_port "$tempdir/https.port" "$https_pid"
 https_port=$(cat "$tempdir/https.port")
 [ "$(docker run --rm --network host -v "$tempdir/tls.crt:/tmp/ca.crt:ro" "$image" \
-  --fail --silent --cacert /tmp/ca.crt "https://localhost:$https_port/fixture.txt")" = 'curl fixture' ]
+  --fail --silent --max-time 10 --cacert /tmp/ca.crt \
+  "https://localhost:$https_port/fixture.txt")" = 'curl fixture' ]
 
-if docker run --rm "$image" --fail --silent 'http://[::1'; then
+if docker run --rm "$image" --fail --silent --max-time 10 'http://[::1'; then
   exit 1
 fi
-if docker run --rm --network host "$image" --fail --silent \
+if docker run --rm --network host "$image" --fail --silent --max-time 10 \
   "https://localhost:$https_port/fixture.txt"; then
   exit 1
 fi
