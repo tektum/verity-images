@@ -20,7 +20,9 @@ from typing import Final
 from apk_archive import ARCHITECTURES, IndexRecord, PackageInfo, index_records, package_info, read_archive
 
 OPENSSL_FIPS_PACKAGE: Final = "openssl-fips-provider"
+GOSU_PACKAGE: Final = "gosu"
 MAX_SPDX_SIZE: Final = 64 * 1024
+ELF_MACHINES: Final = {"x86_64": 62, "aarch64": 183}
 MELANGE_RECIPE_FIELDS: Final = (
     b"vars:\n",
     b"  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n",
@@ -48,6 +50,18 @@ PAYLOAD_DIRECTORIES: Final = frozenset(
         "var/lib/db/sbom",
     }
 )
+GOSU_RECIPE_FIELDS: Final = (
+    b"vars:\n",
+    b"  go-version: go1.26.5\n",
+    b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
+    b"  x-sys-version: v0.44.0\n",
+)
+GOSU_REQUIRED_FILES: Final = frozenset({"usr/bin/gosu"})
+GOSU_PAYLOAD_DIRECTORIES: Final = frozenset({"usr", "usr/bin", "var", "var/lib", "var/lib/db", "var/lib/db/sbom"})
+GOSU_BINARY_SHA256: Final = {
+    "x86_64": "8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025",
+    "aarch64": "420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859",
+}
 
 
 def safe_name(name: str) -> bool:
@@ -83,21 +97,43 @@ def verify(archive: Path, keys: Path) -> None:
         raise ValueError(f"signature verification failed: {archive.name}")
 
 
-def validate_package(info: PackageInfo) -> PackageInfo:
-    if info.name != OPENSSL_FIPS_PACKAGE:
-        return info
-    if not all(field in info.recipe.contents for field in MELANGE_RECIPE_FIELDS):
-        raise ValueError("invalid OpenSSL FIPS recipe")
-    payload_files = {entry.name: entry.contents for entry in info.payload if entry.contents is not None}
+def payload_files(info: PackageInfo, required: frozenset[str], directories: frozenset[str]) -> dict[str, bytes]:
+    files = {entry.name: entry.contents for entry in info.payload if entry.contents is not None}
     payload_directories = {entry.name for entry in info.payload if entry.contents is None}
     spdx = f"var/lib/db/sbom/{info.name}-{info.version}.spdx.json"
-    spdx_contents = payload_files.get(spdx)
-    if len(info.payload) != len(payload_files) + len(payload_directories) or set(payload_files) != REQUIRED_FILES | {spdx} or payload_directories != PAYLOAD_DIRECTORIES or spdx_contents is None or not 0 < len(spdx_contents) <= MAX_SPDX_SIZE:
-        raise ValueError("invalid FIPS payload")
-    module = payload_files.get("usr/lib/ossl-modules/fips.so", b"")
-    machines = {"x86_64": 62, "aarch64": 183}
-    if len(module) < 20 or module[:5] != b"\x7fELF\x02" or module[5] != 1 or int.from_bytes(module[18:20], "little") != machines[info.architecture]:
+    spdx_contents = files.get(spdx)
+    if len(info.payload) != len(files) + len(payload_directories) or set(files) != required | {spdx} or payload_directories != directories or spdx_contents is None or not 0 < len(spdx_contents) <= MAX_SPDX_SIZE:
+        raise ValueError(f"invalid {info.name} payload")
+    return files
+
+
+def native_elf(contents: bytes, architecture: str) -> bool:
+    return len(contents) >= 20 and contents[:5] == b"\x7fELF\x02" and contents[5] == 1 and int.from_bytes(contents[18:20], "little") == ELF_MACHINES[architecture]
+
+
+def validate_openssl_fips(info: PackageInfo) -> None:
+    if not all(field in info.recipe.contents for field in MELANGE_RECIPE_FIELDS):
+        raise ValueError("invalid OpenSSL FIPS recipe")
+    module = payload_files(info, REQUIRED_FILES, PAYLOAD_DIRECTORIES).get("usr/lib/ossl-modules/fips.so", b"")
+    if not native_elf(module, info.architecture):
         raise ValueError("invalid FIPS module ELF")
+
+
+def validate_gosu(info: PackageInfo) -> None:
+    if not all(field in info.recipe.contents for field in GOSU_RECIPE_FIELDS):
+        raise ValueError("invalid gosu recipe")
+    binary = payload_files(info, GOSU_REQUIRED_FILES, GOSU_PAYLOAD_DIRECTORIES).get("usr/bin/gosu", b"")
+    if not native_elf(binary, info.architecture):
+        raise ValueError("invalid gosu ELF")
+    if hashlib.sha256(binary).hexdigest() != GOSU_BINARY_SHA256[info.architecture]:
+        raise ValueError("unexpected gosu binary checksum")
+
+
+def validate_package(info: PackageInfo) -> PackageInfo:
+    if info.name == OPENSSL_FIPS_PACKAGE:
+        validate_openssl_fips(info)
+    elif info.name == GOSU_PACKAGE:
+        validate_gosu(info)
     return info
 
 

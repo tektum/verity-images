@@ -241,9 +241,9 @@ def compose(state_path: Path, base: Path, input_path: Path, output: Path) -> Non
             source_by_member[member] = (source, digest(source), True)
         if replacement is not None:
             name, overlay, overlay_sources = replacement_packages(replacement)
+            # A replacement may add a package the base does not carry yet; validate_base
+            # already guarantees every base package covers both architectures.
             removed = [package for package in packages if field(package, "name") == name]
-            if {field(package, "architecture") for package in removed} != ARCHITECTURES:
-                raise fail("replacement package is absent from base")
             packages = [package for package in packages if field(package, "name") != name]
             surviving_bundles = expected_members(packages)[1]
             for package in removed:

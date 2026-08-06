@@ -13,7 +13,7 @@ from unittest.mock import patch
 import compose_apk_inputs
 import apk_publication
 from apk_test_fixtures import unsigned_package
-from test_apk_repository import payload, repository, sign
+from test_apk_repository import generic_payload, payload, repository, sign
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +22,8 @@ FINGERPRINT = "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698"
 ARCHITECTURES = ("aarch64", "x86_64")
 A = "openssl-fips-provider"
 B = "example-package"
-VERSIONS = {A: "3.1.2-r3", B: "1.0.0-r1"}
+C = "new-package"
+VERSIONS = {A: "3.1.2-r3", B: "1.0.0-r1", C: "2.0.0-r0"}
 
 
 def digest(path: Path) -> str:
@@ -45,7 +46,7 @@ def attested(name: str, architecture: str, bundle: Path) -> dict[str, str | int]
     }
 
 
-def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.rsa") -> tuple[Path, Path]:
+def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.rsa", omit: tuple[str, str] | None = None) -> tuple[Path, Path]:
     base = root / "base"
     repository(base, key_name)
     if schema_version == 1:
@@ -56,6 +57,9 @@ def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.
         for name in ((A, B) if schema_version == 2 else (A,)):
             version = VERSIONS[name]
             package = base / architecture / f"{name}-{version}.apk"
+            if omit == (name, architecture):
+                package.unlink()
+                continue
             entry: dict[str, str | int | dict[str, str | int]] = {
                 "architecture": architecture,
                 "name": name,
@@ -104,34 +108,36 @@ def base_snapshot(root: Path, schema_version: int = 2, key_name: str = "fixture.
     return state_path, base
 
 
-def replacement(root: Path, key: Path) -> Path:
+def replacement(root: Path, key: Path, name: str = A) -> Path:
+    version = VERSIONS[name]
     packages = []
     for architecture in ARCHITECTURES:
-        package = root / "replacement" / architecture / f"{A}-3.1.2-r3.apk"
+        package = root / "replacement" / architecture / f"{name}-{version}.apk"
         package.parent.mkdir(parents=True, exist_ok=True)
-        package.write_bytes(unsigned_package(architecture, payload(architecture), extra="pkgdesc = replacement\n"))
+        contents = payload(architecture) if name == A else generic_payload()
+        package.write_bytes(unsigned_package(architecture, contents, name=name, version=version, extra="pkgdesc = replacement\n"))
         with (root / "signing.log").open("a", encoding="utf-8") as signing_log:
             signing_log.write(f"sign {package}\n")
         sign(package, key)
-        bundle = root / "replacement" / "bundles" / A / f"{architecture}.json"
+        bundle = root / "replacement" / "bundles" / name / f"{architecture}.json"
         bundle.parent.mkdir(parents=True, exist_ok=True)
         bundle.write_text(json.dumps({"signed": package.name, "architecture": architecture}), encoding="utf-8")
         packages.append(
             {
                 "architecture": architecture,
-                "name": A,
-                "version": "3.1.2-r3",
-                "epoch": 3,
+                "name": name,
+                "version": version,
+                "epoch": int(version.rsplit("-r", maxsplit=1)[1]),
                 "path": f"{architecture}/{package.name}",
                 "sha256": digest(package),
                 "sourceFile": str(package),
                 "bundleFile": str(bundle),
-                "origin": attested(A, architecture, bundle),
+                "origin": attested(name, architecture, bundle),
             }
         )
     metadata = root / "replacement.json"
     metadata.write_text(
-        json.dumps({"schemaVersion": 1, "releaseTag": "apk-repo-v0003", "replacement": {"name": A, "packages": packages}}),
+        json.dumps({"schemaVersion": 1, "releaseTag": "apk-repo-v0003", "replacement": {"name": name, "packages": packages}}),
         encoding="utf-8",
     )
     return metadata
@@ -173,6 +179,37 @@ def happy_paths() -> None:
             path = f"{architecture}/{A}-3.1.2-r3.apk"
             assert (base / path).read_bytes() == (output / path).read_bytes()
         assert all(entry["origin"]["type"] == "legacy-snapshot" for entry in json.loads((output / "metadata.json").read_text())["packages"])
+
+
+def addition_keeps_base_packages() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state, base = base_snapshot(root)
+        metadata = replacement(root, base / "fixture.rsa", C)
+        output = root / "composed"
+        compose_apk_inputs.compose(state, base, metadata, output)
+        final = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+        assert {(entry["name"], entry["architecture"]) for entry in final["packages"]} == {
+            (name, architecture) for name in (A, B, C) for architecture in ARCHITECTURES
+        }
+        for architecture in ARCHITECTURES:
+            assert (output / architecture / f"{C}-{VERSIONS[C]}.apk").is_file()
+            assert (output / "bundles" / C / f"{architecture}.json").is_file()
+            reused = f"{architecture}/{A}-{VERSIONS[A]}.apk"
+            assert (base / reused).read_bytes() == (output / reused).read_bytes()
+
+
+def partial_base_presence_fails() -> None:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        state, base = base_snapshot(root, omit=(A, "aarch64"))
+        metadata = replacement(root, base / "fixture.rsa")
+        try:
+            compose_apk_inputs.compose(state, base, metadata, root / "output")
+        except compose_apk_inputs.ComposeError as error:
+            assert str(error) == "incomplete package architecture set"
+        else:
+            raise AssertionError("partially present base package was accepted")
 
 
 def failure_paths() -> None:
@@ -326,6 +363,8 @@ def failed_publication_preserves_existing_output() -> None:
 
 def main() -> None:
     happy_paths()
+    addition_keeps_base_packages()
+    partial_base_presence_fails()
     failure_paths()
     replacement_epoch_mismatch_fails()
     base_validation_precedes_release_tag_parsing()
