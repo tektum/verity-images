@@ -1,0 +1,23 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - gcc=15.2.0-r11
+    - build-base
+    - binutils
+    - make
+    - glibc-dev
+
+entrypoint:
+  command: /usr/bin/gcc
+
+work-dir: /usr/src
+
+paths:
+  - path: /usr/src
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
