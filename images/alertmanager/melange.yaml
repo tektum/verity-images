@@ -1,0 +1,48 @@
+package:
+  name: prometheus-alertmanager
+  version: "0.33.1"
+  epoch: 4
+  description: Prometheus Alertmanager
+  copyright:
+    - license: Apache-2.0
+
+vars:
+  source-commit: 2c8da51e03f3dbbed24f9711ca2d76aab4eef9c5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - nodejs-24
+      - npm
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/alertmanager
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      cd ui/app
+      npm ci
+      npm run build
+  - runs: |
+      flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
+      flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -ldflags "$flags" -o alertmanager ./cmd/alertmanager
+      go build -mod=readonly -trimpath -ldflags "$flags" -o amtool ./cmd/amtool
+      install -m755 -D alertmanager "${{targets.destdir}}/usr/bin/alertmanager"
+      install -m755 -D amtool "${{targets.destdir}}/usr/bin/amtool"
+
+test:
+  pipeline:
+    - runs: /usr/bin/alertmanager --version
+    - runs: /usr/bin/amtool --help
