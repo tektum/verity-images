@@ -78,6 +78,9 @@ ln -s "$root/scripts" "$work/scripts"
   PATH="$work:$PATH" devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json' > cold-banner.log
 )
 grep -Fx 'Info: creating Python environment' "$work/cold-banner.log"
+jq '.include += [{name: "latest-selector-fixture", tag_version: "latest", track: "wolfi", description: "Latest selector fixture."}]' \
+  "$work/expected-images.json" > "$work/expected-images-with-fixture.json"
+mv "$work/expected-images-with-fixture.json" "$work/expected-images.json"
 jq '{images: [.include[] | {
   name,
   version: .tag_version,
@@ -96,7 +99,7 @@ python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/all-scans" "
   "$work/catalog.json" 3 https://github.com/tektum/verity-images/actions/runs/3 \
   cccccccccccccccccccccccccccccccccccccccc 2026-08-01T00:00:00Z
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/catalog.json"
-jq -e '(.images[] | select(.name == "configmap-reload").tags) == ["latest", "latest-20260801"]' \
+jq -e '(.images[] | select(.name == "latest-selector-fixture").tags) == ["latest", "latest-20260801"]' \
   "$work/catalog.json" >/dev/null
 jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
