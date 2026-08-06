@@ -49,4 +49,11 @@ docker run --rm -v "$work:/home/bazel" --entrypoint /bin/bash "$image" -eu -c '
       exit 1
       ;;
   esac
+  case "$negative_output" in
+    *"syntax error"*) ;;
+    *)
+      printf "%s\n" "failure was not a syntax error" >&2
+      exit 1
+      ;;
+  esac
 ' || fail 'deterministic Bazel build failed'
