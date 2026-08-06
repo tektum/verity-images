@@ -130,6 +130,7 @@ def main() -> None:
         f"{RUNS_ON_PREFIX}sign-and-verify/runner=4cpu-linux-x64/spot=false"
     )
     assert "    if: github.ref == 'refs/heads/main'\n" in smoke_workflow
+    assert "environment: apk-signing" in smoke_workflow
     assert "environment: apk-signing" in signing
     assert "attestations: write" in signing
     assert "id-token: write" in signing
@@ -138,6 +139,10 @@ def main() -> None:
     assert '[[ "$GITHUB_SHA" == "$SOURCE_SHA" ]]' in signing
     assert 'bash .github/scripts/validate-artifact-digest.sh artifact.json "$artifact_digest" "$GITHUB_RUN_ID"' in signing
     assert "gh attestation verify" in signing
+    assert '--repo "$REPOSITORY"' in signing
+    assert (
+        '--signer-workflow "$REPOSITORY/.github/workflows/apk-repository.yaml"' in signing
+    )
     assert "--source-digest \"$SOURCE_SHA\"" in signing
     assert "--deny-self-hosted-runners" not in signing
     assert "artifact-ids:" in signing
