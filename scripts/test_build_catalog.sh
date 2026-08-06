@@ -84,7 +84,7 @@ jq '{images: [.include[] | {
   track,
   description,
   digest: ("sha256:" + ("e" * 64)),
-  tags: (.tag_version + ",latest"),
+  tags: (if .tag_version == "latest" then "latest,latest-20260801" else .tag_version + ",latest" end),
   scan: {all: {}, fixable: 0}
 }]}' "$work/expected-images.json" > "$work/report.json"
 while IFS=$'\t' read -r name version; do
@@ -96,6 +96,8 @@ python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/all-scans" "
   "$work/catalog.json" 3 https://github.com/tektum/verity-images/actions/runs/3 \
   cccccccccccccccccccccccccccccccccccccccc 2026-08-01T00:00:00Z
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/catalog.json"
+jq -e '(.images[] | select(.name == "configmap-reload").tags) == ["latest", "latest-20260801"]' \
+  "$work/catalog.json" >/dev/null
 jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
   (.[1].include | map([.name, .tag_version]) | sort)
