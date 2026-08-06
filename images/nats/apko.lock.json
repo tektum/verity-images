@@ -1,0 +1,70 @@
+{
+  "version": "v1",
+  "config": {
+    "name": "images/nats/apko.yaml",
+    "checksum": "sha256-p2BFroU+pnTZ5yvVp65yzALz5KuwnFQpFky+ppSaOOI="
+  },
+  "contents": {
+    "keyring": [
+      {
+        "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5qQUHmzqX9oa/RS3OSgL\nYTYB1mzvVmnWC0JXsAafdgRkavJ9xRhsXMKXWPKMghZw6UnkxuxQCZlB9UhaFqed\nX7SWfQ8qRgECFmdGUjoeV7P3VUkg17RU0mUKsXZZF/2mU+jCGyk5eweKcLWrk6bn\nlNNF1vBJ9EXbHdfvbQsA5GfLku5tJhqRJ4FVQAGCw+1JoSKu+o3q+6xP7z6kMfR9\ncp54FSj48rTJUibbAv+cPtZ3AnbpjdyarV7SYMfxp14Q/KR0CJYDihG3CFoU+TaM\ndr7LUrgXaYw7m7g8hA2PY1jF8aqDqVFjVu/csPKnKVQSqNHfm4C4gljwT6TDVhPe\n6xKSGKfAUNvHx2RIqSsZJCh68Af+VnfuimbHMYzGhzV4/efihpJlYsDnOXJj/PeY\nSbEIYG2yoI3AYvDFyFX2OAOtQ9d4TPs4zS4aDg4R3UseXLib46FX3ZTfIi1/W0IO\neC3AFU5mK+02jq+7swcGbgzem30dFA/B3n8NQExJjF2WlGNJxFw2WnJQqKIkIh0s\nkm5jaxJ28xYgik+bEgxy1LsilKTowdkbEPRKv36JGdap4dOEGR+LwZsM+ontF1AO\nwY6tvwtZKJWhgj7ES3BdtiC1GA2htFnP90lA7KnKbSMOxwWtSCH8spitdPdzgI8G\nSxrOb0SZs6ZFAxYYe3GlvS0CAwEAAQ==\n-----END PUBLIC KEY-----\n"
+      }
+    ],
+    "build_repositories": [],
+    "runtime_repositories": [],
+    "repositories": [
+      {
+        "name": "packages.wolfi.dev/os/x86_64",
+        "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
+        "name": "packages.wolfi.dev/os/aarch64",
+        "url": "https://packages.wolfi.dev/os/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
+      }
+    ],
+    "packages": [
+      {
+        "name": "nats-server",
+        "url": "https://packages.wolfi.dev/os/x86_64/nats-server-2.14.4-r0.apk",
+        "version": "2.14.4-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8052",
+          "checksum": "sha1-GPh8LZhYRFr9ABUwkCbQqRNBNVU="
+        },
+        "data": {
+          "range": "bytes=8053-7110153",
+          "checksum": "sha256-YL4ta85mhYtnpagowEFWC8dX2iFrc1olJLs3mBFYAWk="
+        },
+        "checksum": "Q1GPh8LZhYRFr9ABUwkCbQqRNBNVU="
+      },
+      {
+        "name": "nats-server",
+        "url": "https://packages.wolfi.dev/os/aarch64/nats-server-2.14.4-r0.apk",
+        "version": "2.14.4-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8078",
+          "checksum": "sha1-hTP/VYB4//RvbapIVwo2ADu2pzY="
+        },
+        "data": {
+          "range": "bytes=8079-6411480",
+          "checksum": "sha256-KsnoMwhmiZqPhP2p+FOsrqSv9QfT+b6cF/nHMz2PoCM="
+        },
+        "checksum": "Q1hTP/VYB4//RvbapIVwo2ADu2pzY="
+      }
+    ]
+  }
+}
