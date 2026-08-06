@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/cosign/apko.yaml",
-    "checksum": "sha256-ZNS6w5uxtaXMl/KMmbJq743AeULicBE7M9N6awIvilU="
+    "checksum": "sha256-1FEZC5kh7Z39MEdADLnssWzioX5jGEHSJZsYb9f9MnY="
   },
   "contents": {
     "keyring": [
@@ -65,23 +65,23 @@
         "checksum": "Q1KyCdEL20IKE+B7DKW97GLXu2QLM="
       },
       {
-        "name": "cosign",
-        "url": "https://packages.wolfi.dev/os/x86_64/cosign-2.6.1-r0.apk",
-        "version": "2.6.1-r0",
+        "name": "cosign-3",
+        "url": "https://packages.wolfi.dev/os/x86_64/cosign-3-3.1.3-r0.apk",
+        "version": "3.1.3-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-4494",
-          "checksum": "sha1-+zngMiN91GJQiv8UVa0FBj31fXA="
+          "range": "bytes=0-6877",
+          "checksum": "sha1-TzLFJTpbnS1mdXcNOjyqh5r+fkI="
         },
         "data": {
-          "range": "bytes=4495-36177534",
-          "checksum": "sha256-AaiKC7ZT1dSTmuEN/sg7NINMGRGMRJVdHQgnG6f8WfY="
+          "range": "bytes=6878-33308773",
+          "checksum": "sha256-yqIumPc9K0Vmn8UUR1PWZ0JTKMF66vBbgvEEdQAXnM8="
         },
-        "checksum": "Q1+zngMiN91GJQiv8UVa0FBj31fXA="
+        "checksum": "Q1TzLFJTpbnS1mdXcNOjyqh5r+fkI="
       },
       {
         "name": "wolfi-baselayout",
@@ -122,23 +122,23 @@
         "checksum": "Q1YLGEH8o/PNCjR8sxoxh//AGpOgQ="
       },
       {
-        "name": "cosign",
-        "url": "https://packages.wolfi.dev/os/aarch64/cosign-2.6.1-r0.apk",
-        "version": "2.6.1-r0",
+        "name": "cosign-3",
+        "url": "https://packages.wolfi.dev/os/aarch64/cosign-3-3.1.3-r0.apk",
+        "version": "3.1.3-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-4528",
-          "checksum": "sha1-Q15R6tUhLk8zSGhaHu1VQ4XpqQE="
+          "range": "bytes=0-6911",
+          "checksum": "sha1-u/xSQKX2dKNK/Gcpt6Cl/Gpq6mA="
         },
         "data": {
-          "range": "bytes=4529-32488153",
-          "checksum": "sha256-JNjoXmR8r3H0M7Q5h+ju/9EiRWzG3iTHZau+g0Y7yqU="
+          "range": "bytes=6912-29878635",
+          "checksum": "sha256-67izdpjy6d+1g54cmGG8Pte360Ysh47nlOyVxGK5zHs="
         },
-        "checksum": "Q1Q15R6tUhLk8zSGhaHu1VQ4XpqQE="
+        "checksum": "Q1u/xSQKX2dKNK/Gcpt6Cl/Gpq6mA="
       }
     ]
   }
