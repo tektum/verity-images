@@ -32,7 +32,8 @@ pipeline:
   - uses: git-checkout
     with:
       repository: https://github.com/prometheus/prometheus
-      tag: v${{package.version}}
+      branch: main
+      depth: -1
       expected-commit: ${{vars.source-commit}}
   - uses: go/bump
     with:
