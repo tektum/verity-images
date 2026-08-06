@@ -26,7 +26,7 @@ genrule(
     cmd = "printf 'bazel-smoke\\n' > $@",
 )
 EOF
-docker run --rm --network none -v "$work:/home/bazel" --entrypoint /bin/bash "$image" -eu -c '
+docker run --rm -v "$work:/home/bazel" --entrypoint /bin/bash "$image" -eu -c '
   bazel --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact
   artifact=$(<bazel-bin/artifact.txt)
   [ "$artifact" = bazel-smoke ] || {
@@ -36,7 +36,7 @@ docker run --rm --network none -v "$work:/home/bazel" --entrypoint /bin/bash "$i
 ' || fail 'deterministic Bazel build failed'
 
 printf 'genrule(\n' > "$work/BUILD.bazel"
-if docker run --rm --network none -v "$work:/home/bazel" "$image" --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact 2>"$work/broken.log"; then
+if docker run --rm -v "$work:/home/bazel" "$image" --output_user_root=/tmp/bazel build --color=no --noshow_progress //:artifact 2>"$work/broken.log"; then
   printf '%s\n' 'broken BUILD.bazel unexpectedly succeeded' >&2
   exit 1
 fi
