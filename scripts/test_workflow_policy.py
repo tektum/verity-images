@@ -17,6 +17,7 @@ from unittest.mock import patch
 import gen_matrix
 
 ROOT: Final = Path(__file__).resolve().parents[1]
+RUNS_ON_PREFIX: Final = "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-"
 IDENTITY_ASSIGNMENT: Final = (
     "identity=https://github.com/tektum/verity-images/.github/workflows/"
     "build.yaml@refs/heads/main"
@@ -233,21 +234,23 @@ def main() -> None:
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
     validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
     build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
-    assert runner(matrix_job) == "ubuntu-latest"
+    deploy_job = catalog.split("\n  deploy:\n", maxsplit=1)[1]
+    assert runner(matrix_job) == f"{RUNS_ON_PREFIX}matrix/runner=4cpu-linux-x64"
     assert runner(validate_job) == (
-        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        f"{RUNS_ON_PREFIX}validate-${{{{ strategy.job-index }}}}/"
         "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
         "extras=otel/spot=false"
     )
     assert runner(publish_job) == (
-        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/"
+        f"{RUNS_ON_PREFIX}publish-${{{{ strategy.job-index }}}}/"
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
     )
-    assert runner(build_gate_job) == "ubuntu-latest"
-    assert runner(catalog) == "ubuntu-latest"
-    assert runner(lint) == "ubuntu-latest"
-    assert runner(monitor) == "ubuntu-latest"
+    assert runner(build_gate_job) == f"{RUNS_ON_PREFIX}build-gate/runner=4cpu-linux-x64"
+    assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
+    assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
+    assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
+    assert runner(monitor) == f"{RUNS_ON_PREFIX}monitor/runner=4cpu-linux-x64"
     assert "\n    timeout-minutes: 120\n" in publish_job and "\n    timeout-minutes:" not in between(
         workflow, "\n  validate:\n", "\n  publish:\n"
     )
