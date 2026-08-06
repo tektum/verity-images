@@ -26,17 +26,17 @@ docker run --rm --network none "$image" --version | grep -q '^rustc 1\.86\.' || 
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
-chmod 777 "$work"
 cat >"$work/hello.rs" <<'EOF'
 fn main() {
     println!("Hello World");
 }
 EOF
-docker run --rm --network none -v "$work:/app" "$image" hello.rs -o hello
-[ "$(docker run --rm --network none -v "$work:/app:ro" --entrypoint /app/hello "$image")" = 'Hello World' ] || { echo 'unexpected Hello World output' >&2; exit 1; }
-
 printf '%s\n' 'fn main( {' >"$work/invalid.rs"
-if docker run --rm --network none -v "$work:/app" "$image" invalid.rs -o invalid >/dev/null 2>&1; then
+chmod 755 "$work"
+chmod 644 "$work/hello.rs" "$work/invalid.rs"
+[ "$(docker run --rm --network none -v "$work:/source:ro" --entrypoint /bin/sh "$image" -c '/usr/bin/rustc /source/hello.rs -o /app/hello && /app/hello')" = 'Hello World' ] || { echo 'unexpected Hello World output' >&2; exit 1; }
+
+if docker run --rm --network none -v "$work:/source:ro" "$image" /source/invalid.rs -o /app/invalid >/dev/null 2>&1; then
   echo 'malformed Rust compiled successfully' >&2
   exit 1
 fi
