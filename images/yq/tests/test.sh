@@ -8,7 +8,7 @@ actual=$(printf 'name: old\n' | docker run --rm -i "$image" '.name = "new"' -)
   exit 1
 }
 
-if docker run --rm "$image" '.[' >/dev/null 2>&1; then
+if docker run --rm "$image" '.name = [' >/dev/null 2>&1; then
   printf 'malformed expression unexpectedly succeeded\n' >&2
   exit 1
 fi
