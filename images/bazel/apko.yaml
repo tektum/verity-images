@@ -6,6 +6,7 @@ contents:
   packages:
     - bash
     - bazel-9
+    - openjdk-21-jre
 
 accounts:
   groups:
@@ -24,7 +25,8 @@ work-dir: /home/bazel
 
 environment:
   HOME: /home/bazel
-  PATH: /usr/bin:/bin
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  PATH: /usr/lib/jvm/java-21-openjdk/bin:/usr/bin:/bin
   USER: bazel
 
 paths:
