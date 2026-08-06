@@ -22,6 +22,12 @@ REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
 RESERVER: Final = ROOT / ".github/scripts/reserve-apk-release-identity.sh"
 SIGNING_DOC: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
+RUNS_ON_X64: Final = (
+    "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64"
+)
+RUNS_ON_ARM64: Final = (
+    "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-arm64"
+)
 
 
 def job(text: str, name: str, next_name: str) -> str:
@@ -58,8 +64,8 @@ def main() -> None:
     assert "for architecture in aarch64 x86_64" in matrix
     assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
     assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
-    assert runner(x86_64) == "ubuntu-24.04"
-    assert runner(aarch64) == "ubuntu-24.04-arm"
+    assert runner(x86_64) == RUNS_ON_X64
+    assert runner(aarch64) == RUNS_ON_ARM64
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
@@ -76,7 +82,7 @@ def main() -> None:
 
     assert "if: always()" in gate
     assert "needs: [build-x86_64, build-aarch64, apk-signing]" in gate
-    assert runner(gate) == "ubuntu-24.04"
+    assert runner(gate) == RUNS_ON_X64
     assert "EVENT: ${{ github.event_name }}" in gate
     assert "REF: ${{ github.ref }}" in gate
     assert "REPOSITORY: ${{ github.repository }}" in gate
@@ -119,8 +125,8 @@ def main() -> None:
     assert "github.event_name == 'workflow_dispatch'" in signing
     assert "github.repository == 'tektum/verity-images'" in signing
     assert "github.ref == 'refs/heads/main'" in signing
-    assert runner(signing) == "ubuntu-24.04"
-    assert runner(smoke_workflow) == "ubuntu-latest"
+    assert runner(signing) == RUNS_ON_X64
+    assert runner(smoke_workflow) == RUNS_ON_X64
     assert "environment: apk-signing" in signing
     assert "attestations: write" in signing
     assert "id-token: write" in signing

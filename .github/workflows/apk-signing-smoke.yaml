@@ -7,7 +7,7 @@ permissions: {}
 
 jobs:
   sign-and-verify:
-    runs-on: ubuntu-latest
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
     environment: apk-signing
     permissions:
       contents: read

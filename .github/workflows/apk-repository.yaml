@@ -26,7 +26,7 @@ permissions: {}
 
 jobs:
   apk-matrix:
-    runs-on: ubuntu-24.04
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
     permissions:
       contents: read
     outputs:
@@ -78,7 +78,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
     needs: [apk-matrix]
-    runs-on: ubuntu-24.04
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.x86_64) }}
@@ -130,7 +130,7 @@ jobs:
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
     needs: [apk-matrix]
-    runs-on: ubuntu-24.04-arm
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-arm64
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.aarch64) }}
@@ -180,7 +180,7 @@ jobs:
   apk-gate:
     if: always()
     needs: [build-x86_64, build-aarch64, apk-signing]
-    runs-on: ubuntu-24.04
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
     permissions:
       contents: read
     steps:
@@ -224,7 +224,7 @@ jobs:
       (inputs.mode == 'migration' ||
       (needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success'))
     needs: [build-x86_64, build-aarch64]
-    runs-on: ubuntu-24.04
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}/runner=4cpu-linux-x64
     environment: apk-signing
     permissions:
       actions: read
