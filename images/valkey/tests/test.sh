@@ -4,6 +4,7 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 container="verity-valkey-test-$$"
 volume="verity-valkey-data-$$"
+password="verity-test-$$"
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
@@ -18,17 +19,35 @@ docker run --rm --entrypoint /bin/sh "$image" -c \
   'command -v valkey-server >/dev/null && command -v valkey-cli >/dev/null'
 docker volume create "$volume" >/dev/null
 
+docker run --name "$container" -d -p 127.0.0.1::6379 "$image" >/dev/null
+port=$(docker port "$container" 6379/tcp | awk -F: 'NR == 1 { print $2 }')
+i=0
+until docker exec "$container" valkey-cli ping 2>/dev/null | grep -Fx PONG >/dev/null; do
+  i=$((i + 1))
+  [ "$i" -lt 20 ] || {
+    docker logs "$container" >&2
+    exit 1
+  }
+  sleep 1
+done
+rejected=$(docker run --rm --network host --entrypoint /usr/bin/valkey-cli \
+  "$image" -h 127.0.0.1 -p "$port" ping 2>&1 || true)
+printf '%s\n' "$rejected" | grep -qi 'protected mode'
+docker rm -f "$container" >/dev/null
+
 start_server() {
   docker run --name "$container" -d \
     -v "$volume:/data" \
     -p 127.0.0.1::6379 \
-    "$image" --dir /data --dbfilename dump.rdb >/dev/null
+    "$image" --dir /data --dbfilename dump.rdb \
+    --requirepass "$password" --protected-mode no >/dev/null
   port=$(docker port "$container" 6379/tcp | awk -F: 'NR == 1 { print $2 }')
   test -n "$port"
 
   i=0
   until docker run --rm --network host --entrypoint /usr/bin/valkey-cli \
-    "$image" -h 127.0.0.1 -p "$port" ping 2>/dev/null | grep -Fx PONG >/dev/null; do
+    "$image" -h 127.0.0.1 -p "$port" -a "$password" --no-auth-warning ping 2>/dev/null |
+    grep -Fx PONG >/dev/null; do
     i=$((i + 1))
     [ "$i" -lt 20 ] || {
       docker logs "$container" >&2
@@ -39,14 +58,15 @@ start_server() {
 }
 
 start_server
-test "$(docker exec "$container" valkey-cli set verity works)" = OK
-test "$(docker exec "$container" valkey-cli get verity)" = works
-test "$(docker exec "$container" valkey-cli save)" = OK
+test "$(docker exec "$container" valkey-cli -a "$password" --no-auth-warning set verity works)" = OK
+test "$(docker exec "$container" valkey-cli -a "$password" --no-auth-warning get verity)" = works
+test "$(docker exec "$container" valkey-cli -a "$password" --no-auth-warning save)" = OK
 docker rm -f "$container" >/dev/null
 
 start_server
-test "$(docker exec "$container" valkey-cli get verity)" = works
-if error=$(docker exec "$container" valkey-cli -e NOT_A_REAL_COMMAND 2>&1); then
+test "$(docker exec "$container" valkey-cli -a "$password" --no-auth-warning get verity)" = works
+if error=$(docker exec "$container" valkey-cli -a "$password" --no-auth-warning \
+  -e NOT_A_REAL_COMMAND 2>&1); then
   printf '%s\n' 'invalid command unexpectedly succeeded' >&2
   exit 1
 fi
