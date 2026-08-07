@@ -9,17 +9,25 @@ advances and contains every enabled image version.
 
 Record the live catalog source and current main commit:
 
-```sh
+Run the recovery commands in one Bash shell so strict mode and variables remain
+active across the steps.
+
+```bash
+set -euo pipefail
 repository=tektum/verity-images
 catalog_url=https://tektum.github.io/verity-images/catalog.json
-catalog_source=$(curl -fsSL "$catalog_url" | jq -r .source.commit)
+if ! catalog_source=$(curl -fsSL "$catalog_url" | jq -er \
+  '.source.commit | select(test("^[0-9a-f]{40}$"))'); then
+  printf '%s\n' 'Catalog source is missing or is not a 40-character commit SHA.' >&2
+  exit 1
+fi
 main=$(gh api "repos/$repository/branches/main" --jq .commit.sha)
 printf 'catalog=%s\nmain=%s\n' "$catalog_source" "$main"
 ```
 
 The catalog source must be an ancestor of current main:
 
-```sh
+```bash
 git fetch origin main
 git merge-base --is-ancestor "$catalog_source" origin/main
 ```
@@ -27,7 +35,7 @@ git merge-base --is-ancestor "$catalog_source" origin/main
 Inspect the latest main workflows before recovery. Do not rebuild or restart a
 green run merely to refresh the catalog.
 
-```sh
+```bash
 gh run list --repo "$repository" --branch main --limit 20 \
   --json databaseId,workflowName,event,status,conclusion,headSha,url
 ```
@@ -37,9 +45,13 @@ gh run list --repo "$repository" --branch main --limit 20 \
 Use one changed-image Build run from the live catalog source to current main.
 This creates one complete delta report and avoids rebuilding unchanged images.
 
-```sh
+```bash
 build_url=$(gh workflow run build.yaml --repo "$repository" --ref main \
   -f base-sha="$catalog_source")
+if [[ ! "$build_url" =~ /actions/runs/[0-9]+$ ]]; then
+  printf 'Build dispatch did not return a run URL: %s\n' "$build_url" >&2
+  exit 1
+fi
 build_run=${build_url##*/}
 gh run watch "$build_run" --repo "$repository" --exit-status
 ```
@@ -48,9 +60,13 @@ The successful Build run automatically triggers `Build catalog data`. If that
 event was not delivered, dispatch the catalog workflow once with the exact
 successful Build run ID:
 
-```sh
+```bash
 catalog_run_url=$(gh workflow run catalog.yaml --repo "$repository" --ref main \
   -f mode=images -f run-id="$build_run")
+if [[ ! "$catalog_run_url" =~ /actions/runs/[0-9]+$ ]]; then
+  printf 'Catalog dispatch did not return a run URL: %s\n' "$catalog_run_url" >&2
+  exit 1
+fi
 catalog_run=${catalog_run_url##*/}
 gh run watch "$catalog_run" --repo "$repository" --exit-status
 ```
@@ -65,7 +81,7 @@ Read the successful Build run source SHA and require the live catalog to bind to
 that run, contain no fixable findings, and include every currently enabled image
 version:
 
-```sh
+```bash
 build_sha=$(gh run view "$build_run" --repo "$repository" --json headSha --jq .headSha)
 curl -fsSL "$catalog_url" > catalog.json
 jq -e --arg sha "$build_sha" --argjson run "$build_run" '
@@ -75,7 +91,7 @@ jq -e --arg sha "$build_sha" --argjson run "$build_run" '
   (.images | length > 0) and
   all(.images[]; .scan.fixable == 0)
 ' catalog.json >/dev/null
-python3 scripts/gen_matrix.py --all > expected-images.json
+uv run scripts/gen_matrix.py --all > expected-images.json
 jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
   (.[1].include | map([.name, .tag_version]) | sort)

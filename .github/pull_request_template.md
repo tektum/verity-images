@@ -9,7 +9,7 @@
 
 ## Validation
 
-- [ ] `./check`
+- [ ] `./check` completed with exit status 0
 - [ ] The native-architecture happy path and one meaningful failure path were exercised.
 - [ ] Required changed-scope CI is green.
 
