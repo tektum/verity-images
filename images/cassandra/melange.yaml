@@ -1,0 +1,107 @@
+package:
+  name: cassandra-5.0
+  version: "5.0.8"
+  epoch: 13
+  description: Open Source NoSQL Database
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - curl
+      - jemalloc
+      - python-${{vars.python-version}}
+    provides:
+      - cassandra=${{package.full-version}}
+
+vars:
+  python-version: 3.11
+  java-version: 17
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - ant
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go
+      - openjdk-${{vars.java-version}}-default-jdk
+      - python-${{vars.python-version}}
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-${{vars.java-version}}-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/cassandra
+      expected-commit: 172227094626d50d4bc9a3d9de2e3659a7844386
+      tag: cassandra-${{package.version}}
+  - runs: |
+      python3 - <<'PY'
+      from pathlib import Path
+      from xml.etree import ElementTree
+
+      path = Path(".build/parent-pom-template.xml")
+      namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+      versions = {
+          ("at.yawk.lz4", "lz4-java"): "1.11.1",
+          ("ch.qos.logback", "logback-classic"): "1.5.34",
+          ("ch.qos.logback", "logback-core"): "1.5.34",
+          ("com.fasterxml.jackson.core", "jackson-annotations"): "2.21",
+          ("com.fasterxml.jackson.core", "jackson-core"): "2.21.5",
+          ("com.fasterxml.jackson.core", "jackson-databind"): "2.21.5",
+          ("io.netty", "netty-all"): "4.1.136.Final",
+          ("io.netty", "netty-transport-native-epoll"): "4.1.136.Final",
+      }
+      tree = ElementTree.parse(path)
+      updated = set()
+      for dependency in tree.findall(".//m:dependency", namespace):
+          group = dependency.find("m:groupId", namespace)
+          artifact = dependency.find("m:artifactId", namespace)
+          version = dependency.find("m:version", namespace)
+          if group is None or artifact is None or version is None:
+              continue
+          key = (group.text, artifact.text)
+          if key in versions:
+              version.text = versions[key]
+              updated.add(key)
+      if updated != versions.keys():
+          raise SystemExit(f"dependency set changed: {sorted(versions.keys() - updated)}")
+      ElementTree.register_namespace("", namespace["m"])
+      tree.write(path, encoding="unicode")
+      PY
+  - runs: |
+      ant -Drat.skip=true artifacts -Dversion=${{package.version}}
+      mkdir -p "${{targets.destdir}}/usr/share/java/cassandra" "${{targets.destdir}}/usr/bin"
+      tar --strip-components 1 -C "${{targets.destdir}}/usr/share/java/cassandra" \
+        -xzf build/apache-cassandra-${{package.version}}-bin.tar.gz
+      for file in build/dist/bin/*; do
+        name=$(basename "$file")
+        ln -sf "/usr/share/java/cassandra/bin/$name" "${{targets.destdir}}/usr/bin/$name"
+      done
+      ln -sT /var/lib/cassandra "${{targets.destdir}}/usr/share/java/cassandra/data"
+      ln -sT /var/log/cassandra "${{targets.destdir}}/usr/share/java/cassandra/logs"
+      rm -f "${{targets.destdir}}"/usr/share/java/cassandra/lib/sigar-bin/*
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-${{vars.java-version}}-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-${{vars.java-version}}-openjdk
+  pipeline:
+    - runs: /usr/bin/cassandra -v
+
+update:
+  enabled: true
+  github:
+    identifier: apache/cassandra
+    use-tag: true
+    tag-filter-prefix: cassandra-5.0
+    strip-prefix: cassandra-
