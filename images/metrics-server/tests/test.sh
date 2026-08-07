@@ -39,6 +39,8 @@ docker run --name "$container" -d --read-only --user 1000 \
   --tmpfs /tmp:uid=1000,gid=1000,mode=1777 \
   -v "$kubeconfig:/tmp/kubeconfig:ro" \
   -p 127.0.0.1::10250 "$image" \
+  --secure-port=10250 \
+  --cert-dir=/tmp \
   --kubeconfig=/tmp/kubeconfig \
   --authentication-skip-lookup >/dev/null
 port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
