@@ -1,7 +1,7 @@
 package:
   name: deno
-  version: "2.9.2"
-  epoch: 0
+  version: "2.9.4"
+  epoch: 2
   description: A modern runtime for JavaScript and TypeScript.
   copyright:
     - license: MIT
@@ -38,7 +38,7 @@ pipeline:
     with:
       repository: https://github.com/denoland/deno
       tag: v${{package.version}}
-      expected-commit: 356c132ed60e679b34535a287a493193aa8bb6a4
+      expected-commit: 14eea3160ae5834476aa3b9d317b8d41d991b982
   - uses: patch
     with:
       patches: rand-pin-bump.patch
