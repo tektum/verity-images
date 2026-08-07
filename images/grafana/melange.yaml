@@ -64,17 +64,18 @@ pipeline:
       tag: v2.10.3
       expected-commit: 4aeafc237b8d9a8d62e45735131e8a89eb741a00
       destination: third_party/tempo
+  - runs: |
+      go mod edit -require=github.com/grafana/tempo@v2.10.3+incompatible
+      go mod edit -replace=github.com/grafana/tempo=./third_party/tempo
   - uses: go/bump
     with:
       deps: |-
-        github.com/grafana/tempo@v2.10.3+incompatible
         github.com/prometheus/prometheus@v0.311.3
         github.com/google/cel-go@v0.29.0
         google.golang.org/grpc@v1.82.1
         github.com/getkin/kin-openapi@v0.144.0
         golang.org/x/net@v0.56.0
         golang.org/x/text@v0.39.0
-      replaces: github.com/grafana/tempo=./third_party/tempo
       tidy: false
       work: true
   - name: Build
