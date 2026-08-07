@@ -110,6 +110,7 @@ pipeline:
       export NODE_OPTIONS="--max-old-space-size=8192"
       yarn install --immutable
       make build
+      rm -rf third_party/loki third_party/tempo
   - name: Package
     runs: |
       install -d "${{targets.destdir}}/usr/bin"
