@@ -1,0 +1,753 @@
+{
+  "version": "v1",
+  "config": {
+    "name": "images/proxysql/apko.yaml",
+    "checksum": "sha256-ezzyiodjpOpi9hyd/LNvl/rqP64Mwyhkl2m5CpNR6qg="
+  },
+  "contents": {
+    "keyring": [
+      {
+        "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub"
+      }
+    ],
+    "build_repositories": [],
+    "runtime_repositories": [],
+    "repositories": [
+      {
+        "name": "packages.wolfi.dev/os/x86_64",
+        "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
+        "name": "packages.wolfi.dev/os/aarch64",
+        "url": "https://packages.wolfi.dev/os/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
+      }
+    ],
+    "packages": [
+      {
+        "name": "wolfi-baselayout",
+        "url": "https://packages.wolfi.dev/os/x86_64/wolfi-baselayout-20230201-r29.apk",
+        "version": "20230201-r29",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-1932",
+          "checksum": "sha1-mxVgkD4+r1cSUSeWo6ClkgNR1IA="
+        },
+        "data": {
+          "range": "bytes=1933-13952",
+          "checksum": "sha256-5jOBVeXTWJEbL+Cnxj5Nu4klEL4SEB7IDMzT96rbkkA="
+        },
+        "checksum": "Q1mxVgkD4+r1cSUSeWo6ClkgNR1IA="
+      },
+      {
+        "name": "ca-certificates-bundle",
+        "url": "https://packages.wolfi.dev/os/x86_64/ca-certificates-bundle-20260413-r0.apk",
+        "version": "20260413-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7872",
+          "checksum": "sha1-KyCdEL20IKE+B7DKW97GLXu2QLM="
+        },
+        "data": {
+          "range": "bytes=7873-137518",
+          "checksum": "sha256-foyxNKCWc3UQM3Kq5on+Gt/2d+HlzCUl+1lqiaviWE8="
+        },
+        "checksum": "Q1KyCdEL20IKE+B7DKW97GLXu2QLM="
+      },
+      {
+        "name": "glibc-locale-posix",
+        "url": "https://packages.wolfi.dev/os/x86_64/glibc-locale-posix-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13015",
+          "checksum": "sha1-npirsSp9Qt3Aa1n8CaC2i99nv8A="
+        },
+        "data": {
+          "range": "bytes=13016-89758",
+          "checksum": "sha256-qXzcGBEELIJays9BPEo77JB6Qr5gMKFbZteJHEuthAI="
+        },
+        "checksum": "Q1npirsSp9Qt3Aa1n8CaC2i99nv8A="
+      },
+      {
+        "name": "glibc",
+        "url": "https://packages.wolfi.dev/os/x86_64/glibc-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13257",
+          "checksum": "sha1-XSTHGW6PUOUepKQvlUCPEpu+my0="
+        },
+        "data": {
+          "range": "bytes=13258-3077429",
+          "checksum": "sha256-C538Z51QWuZPy/fxQGBCBbpulG8dVbn1OeaW+JsKoXQ="
+        },
+        "checksum": "Q1XSTHGW6PUOUepKQvlUCPEpu+my0="
+      },
+      {
+        "name": "ld-linux",
+        "url": "https://packages.wolfi.dev/os/x86_64/ld-linux-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13051",
+          "checksum": "sha1-Dc94e4JF2fG8/SX4PWCAtLjItu4="
+        },
+        "data": {
+          "range": "bytes=13052-147283",
+          "checksum": "sha256-oI72DIuJLqlUM/LSFYKdgbxsaYUZgfThezkV95CHQPk="
+        },
+        "checksum": "Q1Dc94e4JF2fG8/SX4PWCAtLjItu4="
+      },
+      {
+        "name": "libgcc",
+        "url": "https://packages.wolfi.dev/os/x86_64/libgcc-16.1.0-r4.apk",
+        "version": "16.1.0-r4",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-9951",
+          "checksum": "sha1-v4FvRKA29cOT2WtAXaWZBCzRXaU="
+        },
+        "data": {
+          "range": "bytes=9952-105490",
+          "checksum": "sha256-ExYZSr5G/sH+fzFe+TjVUTTj/GQ1Qbjx8MMEh+6ZxE0="
+        },
+        "checksum": "Q1v4FvRKA29cOT2WtAXaWZBCzRXaU="
+      },
+      {
+        "name": "libstdc++",
+        "url": "https://packages.wolfi.dev/os/x86_64/libstdc++-16.1.0-r4.apk",
+        "version": "16.1.0-r4",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-9949",
+          "checksum": "sha1-0G/kziut8KEYt22cLifRa9QA+HQ="
+        },
+        "data": {
+          "range": "bytes=9950-1261924",
+          "checksum": "sha256-+PxUlxtKRnSh9H8NjtevLTb3x4S8Bl3jFaJMzHYEGlg="
+        },
+        "checksum": "Q10G/kziut8KEYt22cLifRa9QA+HQ="
+      },
+      {
+        "name": "gmp",
+        "url": "https://packages.wolfi.dev/os/x86_64/gmp-6.3.0-r8.apk",
+        "version": "6.3.0-r8",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3146",
+          "checksum": "sha1-EmPqkatD3RZaAekI7H2++FuHDEU="
+        },
+        "data": {
+          "range": "bytes=3147-312348",
+          "checksum": "sha256-wA6I5IvLGyLMG9gUHXskQXXvqmjL2lN10jiFYeP+WVk="
+        },
+        "checksum": "Q1EmPqkatD3RZaAekI7H2++FuHDEU="
+      },
+      {
+        "name": "gmp-dev",
+        "url": "https://packages.wolfi.dev/os/x86_64/gmp-dev-6.3.0-r8.apk",
+        "version": "6.3.0-r8",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3119",
+          "checksum": "sha1-+zUaJhE0ZHu5SWTU4q1ea7zeFBw="
+        },
+        "data": {
+          "range": "bytes=3120-430496",
+          "checksum": "sha256-p9gYWvdJEfgvFKaeszRPmpHm45M4Yzw2bhDspwdRd+s="
+        },
+        "checksum": "Q1+zUaJhE0ZHu5SWTU4q1ea7zeFBw="
+      },
+      {
+        "name": "nettle",
+        "url": "https://packages.wolfi.dev/os/x86_64/nettle-3.10.2-r2.apk",
+        "version": "3.10.2-r2",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3601",
+          "checksum": "sha1-jGW+lrzhWTCpJyVu8Hp+nCq1DtQ="
+        },
+        "data": {
+          "range": "bytes=3602-413634",
+          "checksum": "sha256-CKRRevlK0rWLPlT3lumz3waulG6FkA7P6j4dmhghYd4="
+        },
+        "checksum": "Q1jGW+lrzhWTCpJyVu8Hp+nCq1DtQ="
+      },
+      {
+        "name": "libtasn1",
+        "url": "https://packages.wolfi.dev/os/x86_64/libtasn1-4.21.0-r4.apk",
+        "version": "4.21.0-r4",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7082",
+          "checksum": "sha1-ODP/1NgzbUOmyl3fOPeIXJjyRxY="
+        },
+        "data": {
+          "range": "bytes=7083-54584",
+          "checksum": "sha256-VESIkGksvd8fbu2pBWK0jotLHDsXo7VLwM4uOBSybLU="
+        },
+        "checksum": "Q1ODP/1NgzbUOmyl3fOPeIXJjyRxY="
+      },
+      {
+        "name": "libunistring",
+        "url": "https://packages.wolfi.dev/os/x86_64/libunistring-1.4.2-r2.apk",
+        "version": "1.4.2-r2",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7520",
+          "checksum": "sha1-yQVDwlBj+eVaAbOLQdnJEtSg9X8="
+        },
+        "data": {
+          "range": "bytes=7521-904686",
+          "checksum": "sha256-GI6eG0zWe5m0XvD9gtqeVflLEmYFymJ721kuHiTCrjQ="
+        },
+        "checksum": "Q1yQVDwlBj+eVaAbOLQdnJEtSg9X8="
+      },
+      {
+        "name": "libffi",
+        "url": "https://packages.wolfi.dev/os/x86_64/libffi-3.7.1-r0.apk",
+        "version": "3.7.1-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8906",
+          "checksum": "sha1-HdrLCWZYEimNeFVjpmx0CW+Fa5k="
+        },
+        "data": {
+          "range": "bytes=8907-46315",
+          "checksum": "sha256-/j9YDBAKoRvYfsSzcyejcfSMuOlUSpmMkGuhDq4cybA="
+        },
+        "checksum": "Q1HdrLCWZYEimNeFVjpmx0CW+Fa5k="
+      },
+      {
+        "name": "p11-kit",
+        "url": "https://packages.wolfi.dev/os/x86_64/p11-kit-0.26.5-r0.apk",
+        "version": "0.26.5-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7122",
+          "checksum": "sha1-aO7xJejkKa8DjT8OAe9DzqxYlrg="
+        },
+        "data": {
+          "range": "bytes=7123-767139",
+          "checksum": "sha256-dhiK9MFNfvV/5pIKVsNwtmDqMwEuI7VVMnrHiWMzF98="
+        },
+        "checksum": "Q1aO7xJejkKa8DjT8OAe9DzqxYlrg="
+      },
+      {
+        "name": "gnutls",
+        "url": "https://packages.wolfi.dev/os/x86_64/gnutls-3.8.13-r1.apk",
+        "version": "3.8.13-r1",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8128",
+          "checksum": "sha1-r7o8Jpwv3mmU8GP3aIwz+UOrU8Y="
+        },
+        "data": {
+          "range": "bytes=8129-1450513",
+          "checksum": "sha256-lwQSaAkAwvT8mtk+/ckq1Jy9i5EejbOKRZaCUBTbQ7k="
+        },
+        "checksum": "Q1r7o8Jpwv3mmU8GP3aIwz+UOrU8Y="
+      },
+      {
+        "name": "libuuid",
+        "url": "https://packages.wolfi.dev/os/x86_64/libuuid-2.42.2-r0.apk",
+        "version": "2.42.2-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8832",
+          "checksum": "sha1-ls7rIbdJFe9ng7bSo/rg3Ld6UNI="
+        },
+        "data": {
+          "range": "bytes=8833-63370",
+          "checksum": "sha256-0DrrnQM+Vo9D93jmK/MqxIuLa136WA6EGMiAuh0LRIA="
+        },
+        "checksum": "Q1ls7rIbdJFe9ng7bSo/rg3Ld6UNI="
+      },
+      {
+        "name": "libcrypto3",
+        "url": "https://packages.wolfi.dev/os/x86_64/libcrypto3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-10990",
+          "checksum": "sha1-8czJwPp28PlmrUy6evlca3lfXlk="
+        },
+        "data": {
+          "range": "bytes=10991-2439998",
+          "checksum": "sha256-Gtu+CyjMO2oH9qFjvJKo2t0zE0aDLG2dwtmDVnll8/4="
+        },
+        "checksum": "Q18czJwPp28PlmrUy6evlca3lfXlk="
+      },
+      {
+        "name": "libssl3",
+        "url": "https://packages.wolfi.dev/os/x86_64/libssl3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11000",
+          "checksum": "sha1-cfdB5BXNoGxB998AA6UNEUQzmG4="
+        },
+        "data": {
+          "range": "bytes=11001-524305",
+          "checksum": "sha256-VtGnoMNcs4UcJxBfFv47/vmpWT2kz+LXfzmLFrDzndQ="
+        },
+        "checksum": "Q1cfdB5BXNoGxB998AA6UNEUQzmG4="
+      },
+      {
+        "name": "proxysql",
+        "url": "https://packages.wolfi.dev/os/x86_64/proxysql-3.0.9-r0.apk",
+        "version": "3.0.9-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-5676",
+          "checksum": "sha1-99gVo7+VYDkBFLcWsnqoyTylPgM="
+        },
+        "data": {
+          "range": "bytes=5677-6729770",
+          "checksum": "sha256-Q05xHcpp0cMFcoMaCGGQ3w6nF/Ufcmyp0IJN8U927Hs="
+        },
+        "checksum": "Q199gVo7+VYDkBFLcWsnqoyTylPgM="
+      },
+      {
+        "name": "wolfi-baselayout",
+        "url": "https://packages.wolfi.dev/os/aarch64/wolfi-baselayout-20230201-r29.apk",
+        "version": "20230201-r29",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-1962",
+          "checksum": "sha1-FcjlR8BAUcyRjMQxsc/f5gWSv8I="
+        },
+        "data": {
+          "range": "bytes=1963-13980",
+          "checksum": "sha256-jYse4NUqE3SQbsor532PGqEhuLikUOl38/yf1PJA1nY="
+        },
+        "checksum": "Q1FcjlR8BAUcyRjMQxsc/f5gWSv8I="
+      },
+      {
+        "name": "ca-certificates-bundle",
+        "url": "https://packages.wolfi.dev/os/aarch64/ca-certificates-bundle-20260413-r0.apk",
+        "version": "20260413-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7907",
+          "checksum": "sha1-YLGEH8o/PNCjR8sxoxh//AGpOgQ="
+        },
+        "data": {
+          "range": "bytes=7908-137552",
+          "checksum": "sha256-1NKuKrCJxco8aTxdlzNkEjM/4HyDXmO6sGOfSTiu8aE="
+        },
+        "checksum": "Q1YLGEH8o/PNCjR8sxoxh//AGpOgQ="
+      },
+      {
+        "name": "glibc-locale-posix",
+        "url": "https://packages.wolfi.dev/os/aarch64/glibc-locale-posix-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13058",
+          "checksum": "sha1-BIBCJGNefQ6OZhfH+yQAL1S3/bM="
+        },
+        "data": {
+          "range": "bytes=13059-89800",
+          "checksum": "sha256-CY8DYMdTEZQDdr0V9mSZy6OO+DzjhmSBZSD4dF/nK5s="
+        },
+        "checksum": "Q1BIBCJGNefQ6OZhfH+yQAL1S3/bM="
+      },
+      {
+        "name": "ld-linux",
+        "url": "https://packages.wolfi.dev/os/aarch64/ld-linux-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13092",
+          "checksum": "sha1-vqCKIZcxA7Bw0Sdk31ANMcX7SkE="
+        },
+        "data": {
+          "range": "bytes=13093-125752",
+          "checksum": "sha256-S1pHeMAxoXQpYYtqlbDdPoKu7tt5flTCAms4yNZv6NI="
+        },
+        "checksum": "Q1vqCKIZcxA7Bw0Sdk31ANMcX7SkE="
+      },
+      {
+        "name": "glibc",
+        "url": "https://packages.wolfi.dev/os/aarch64/glibc-2.43-r11.apk",
+        "version": "2.43-r11",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13295",
+          "checksum": "sha1-iNjpwJYrlEf1vRh127vhMVvg6TI="
+        },
+        "data": {
+          "range": "bytes=13296-2235744",
+          "checksum": "sha256-K/MWiiI44ynr5ZGr3okL8Axmy+4VArr8y5zH6DYDRuk="
+        },
+        "checksum": "Q1iNjpwJYrlEf1vRh127vhMVvg6TI="
+      },
+      {
+        "name": "libgcc",
+        "url": "https://packages.wolfi.dev/os/aarch64/libgcc-16.1.0-r4.apk",
+        "version": "16.1.0-r4",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-9968",
+          "checksum": "sha1-0/N/tQIIDrAIbJ8QA8/iMB2bmfU="
+        },
+        "data": {
+          "range": "bytes=9969-86427",
+          "checksum": "sha256-ECrE4xEgBQV3df1UklKqzMzpglmWfjLg9FsjCGK05lc="
+        },
+        "checksum": "Q10/N/tQIIDrAIbJ8QA8/iMB2bmfU="
+      },
+      {
+        "name": "libstdc++",
+        "url": "https://packages.wolfi.dev/os/aarch64/libstdc++-16.1.0-r4.apk",
+        "version": "16.1.0-r4",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-9975",
+          "checksum": "sha1-UknHYoUowwYP/yjIaxIFq8CaEUg="
+        },
+        "data": {
+          "range": "bytes=9976-1178043",
+          "checksum": "sha256-LFku50w/HG35xaMJmM1fWes2JiJR31JYex1BzQNfwrk="
+        },
+        "checksum": "Q1UknHYoUowwYP/yjIaxIFq8CaEUg="
+      },
+      {
+        "name": "gmp",
+        "url": "https://packages.wolfi.dev/os/aarch64/gmp-6.3.0-r8.apk",
+        "version": "6.3.0-r8",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3185",
+          "checksum": "sha1-0E0Cbwo947xIppsMc/IcDYfTYb8="
+        },
+        "data": {
+          "range": "bytes=3186-304773",
+          "checksum": "sha256-65yd7i1r3U/j4fHjQ7AaVeNICTzelQ13eu4t9VZC+xQ="
+        },
+        "checksum": "Q10E0Cbwo947xIppsMc/IcDYfTYb8="
+      },
+      {
+        "name": "gmp-dev",
+        "url": "https://packages.wolfi.dev/os/aarch64/gmp-dev-6.3.0-r8.apk",
+        "version": "6.3.0-r8",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3157",
+          "checksum": "sha1-xoZ9uugkOXM769eJu85wkLT/FrQ="
+        },
+        "data": {
+          "range": "bytes=3158-428613",
+          "checksum": "sha256-3TxmZbiIfdxe4RBqUAbRhSYLYqE40mAEFlrW2nQHZBM="
+        },
+        "checksum": "Q1xoZ9uugkOXM769eJu85wkLT/FrQ="
+      },
+      {
+        "name": "nettle",
+        "url": "https://packages.wolfi.dev/os/aarch64/nettle-3.10.2-r2.apk",
+        "version": "3.10.2-r2",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-3647",
+          "checksum": "sha1-JizEtwFSevAqyOnuoGOR99YRQuo="
+        },
+        "data": {
+          "range": "bytes=3648-424227",
+          "checksum": "sha256-OQDqf1Io+Jkeo9+JKs9RLaJMMTcbA+tMHCpACh34Rc0="
+        },
+        "checksum": "Q1JizEtwFSevAqyOnuoGOR99YRQuo="
+      },
+      {
+        "name": "libtasn1",
+        "url": "https://packages.wolfi.dev/os/aarch64/libtasn1-4.21.0-r4.apk",
+        "version": "4.21.0-r4",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7125",
+          "checksum": "sha1-HCX0cLQh7Ke0OrTPwepV05AWcPo="
+        },
+        "data": {
+          "range": "bytes=7126-54213",
+          "checksum": "sha256-S+NutDbMI0+Ssao0KKtxP7nOq0MIwQLAfcuItEPnprk="
+        },
+        "checksum": "Q1HCX0cLQh7Ke0OrTPwepV05AWcPo="
+      },
+      {
+        "name": "libunistring",
+        "url": "https://packages.wolfi.dev/os/aarch64/libunistring-1.4.2-r2.apk",
+        "version": "1.4.2-r2",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7571",
+          "checksum": "sha1-li8Uu5qbyF+ET0JXyOFf3o4pMVY="
+        },
+        "data": {
+          "range": "bytes=7572-891330",
+          "checksum": "sha256-dEmLS1PTRcIFaHF0UbyENBXkoArFt1ypwQyYxV0/TzM="
+        },
+        "checksum": "Q1li8Uu5qbyF+ET0JXyOFf3o4pMVY="
+      },
+      {
+        "name": "libffi",
+        "url": "https://packages.wolfi.dev/os/aarch64/libffi-3.7.1-r0.apk",
+        "version": "3.7.1-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8951",
+          "checksum": "sha1-tV+ruo1zrDYt/nl/3tvs5xFr5Zs="
+        },
+        "data": {
+          "range": "bytes=8952-39230",
+          "checksum": "sha256-FUAp2QuQrQGz+Zs2AkyeN/NwFy23bC0wySw3vHlOW3w="
+        },
+        "checksum": "Q1tV+ruo1zrDYt/nl/3tvs5xFr5Zs="
+      },
+      {
+        "name": "p11-kit",
+        "url": "https://packages.wolfi.dev/os/aarch64/p11-kit-0.26.5-r0.apk",
+        "version": "0.26.5-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7153",
+          "checksum": "sha1-J/e2i5GJRtd0cqhbd80jBheCUKw="
+        },
+        "data": {
+          "range": "bytes=7154-689447",
+          "checksum": "sha256-iWzVPZHUU9joukAMSEXJoUTrpvbkvxvTh3k+5GgG4qI="
+        },
+        "checksum": "Q1J/e2i5GJRtd0cqhbd80jBheCUKw="
+      },
+      {
+        "name": "gnutls",
+        "url": "https://packages.wolfi.dev/os/aarch64/gnutls-3.8.13-r1.apk",
+        "version": "3.8.13-r1",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8160",
+          "checksum": "sha1-Gf6KP+4N6KP4oasNHgWG59Ngjkg="
+        },
+        "data": {
+          "range": "bytes=8161-1363918",
+          "checksum": "sha256-8PXteWrQkdnV/109dfVSz+EBkne+VzMKNv4vxvSRGBs="
+        },
+        "checksum": "Q1Gf6KP+4N6KP4oasNHgWG59Ngjkg="
+      },
+      {
+        "name": "libuuid",
+        "url": "https://packages.wolfi.dev/os/aarch64/libuuid-2.42.2-r0.apk",
+        "version": "2.42.2-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8875",
+          "checksum": "sha1-CZKMqgSIovXl6DHThmTNqbDBN5s="
+        },
+        "data": {
+          "range": "bytes=8876-61795",
+          "checksum": "sha256-Wcxi+3xB23hBWACBcImAv5bvUnFosC5cbyOyxkaM4YY="
+        },
+        "checksum": "Q1CZKMqgSIovXl6DHThmTNqbDBN5s="
+      },
+      {
+        "name": "libcrypto3",
+        "url": "https://packages.wolfi.dev/os/aarch64/libcrypto3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11026",
+          "checksum": "sha1-IhlZQ3XyVyqnes8zsNjtdfcdEO0="
+        },
+        "data": {
+          "range": "bytes=11027-2210037",
+          "checksum": "sha256-Z8qrYFVxk9L0+ZpEpIV/yFNFZwBgRHR+W4OPv/UJY1k="
+        },
+        "checksum": "Q1IhlZQ3XyVyqnes8zsNjtdfcdEO0="
+      },
+      {
+        "name": "libssl3",
+        "url": "https://packages.wolfi.dev/os/aarch64/libssl3-3.6.3-r3.apk",
+        "version": "3.6.3-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-11031",
+          "checksum": "sha1-b1pa5Bgcwm18pYPDH0t+0fM/OXw="
+        },
+        "data": {
+          "range": "bytes=11032-489215",
+          "checksum": "sha256-Ba2zY8Skdb0ILJ0vTo3C4nxRvw/Y5SOoYAvILmBcOhE="
+        },
+        "checksum": "Q1b1pa5Bgcwm18pYPDH0t+0fM/OXw="
+      },
+      {
+        "name": "proxysql",
+        "url": "https://packages.wolfi.dev/os/aarch64/proxysql-3.0.9-r0.apk",
+        "version": "3.0.9-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-5700",
+          "checksum": "sha1-rqnzWIKs0yDcBryoapvvnlBo7jo="
+        },
+        "data": {
+          "range": "bytes=5701-6182478",
+          "checksum": "sha256-dwJ+5spiHcxcZAkDj0ZK7+t47fHUomc/wbhWOnpH9b0="
+        },
+        "checksum": "Q1rqnzWIKs0yDcBryoapvvnlBo7jo="
+      }
+    ]
+  }
+}
