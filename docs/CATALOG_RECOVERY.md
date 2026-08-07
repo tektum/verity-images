@@ -28,7 +28,11 @@ printf 'catalog=%s\nmain=%s\n' "$catalog_source" "$main"
 The catalog source must be an ancestor of current main:
 
 ```bash
-git fetch origin main
+if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
+  git fetch --unshallow origin main
+else
+  git fetch origin main
+fi
 git merge-base --is-ancestor "$catalog_source" origin/main
 ```
 
@@ -56,18 +60,35 @@ build_run=${build_url##*/}
 gh run watch "$build_run" --repo "$repository" --exit-status
 ```
 
-The successful Build run automatically triggers `Build catalog data`. If that
-event was not delivered, dispatch the catalog workflow once with the exact
-successful Build run ID:
+The successful Build run automatically triggers `Build catalog data`. Wait for
+a workflow-run event on the same commit that started after the Build dispatch.
+If that event was not delivered, dispatch the catalog workflow once with the
+exact successful Build run ID:
 
 ```bash
-catalog_run_url=$(gh workflow run catalog.yaml --repo "$repository" --ref main \
-  -f mode=images -f run-id="$build_run")
-if [[ ! "$catalog_run_url" =~ /actions/runs/[0-9]+$ ]]; then
-  printf 'Catalog dispatch did not return a run URL: %s\n' "$catalog_run_url" >&2
-  exit 1
+build_metadata=$(gh run view "$build_run" --repo "$repository" \
+  --json headSha,createdAt)
+build_sha=$(jq -r .headSha <<<"$build_metadata")
+build_created=$(jq -r .createdAt <<<"$build_metadata")
+catalog_run=
+for _ in $(seq 1 20); do
+  catalog_run=$(gh run list --repo "$repository" --workflow catalog.yaml \
+    --branch main --event workflow_run --limit 20 \
+    --json databaseId,headSha,createdAt | jq -r \
+    --arg sha "$build_sha" --arg created "$build_created" \
+    '[.[] | select(.headSha == $sha and .createdAt >= $created)] | first | .databaseId // empty')
+  [[ -n "$catalog_run" ]] && break
+  sleep 15
+done
+if [[ -z "$catalog_run" ]]; then
+  catalog_run_url=$(gh workflow run catalog.yaml --repo "$repository" --ref main \
+    -f mode=images -f run-id="$build_run")
+  if [[ ! "$catalog_run_url" =~ /actions/runs/[0-9]+$ ]]; then
+    printf 'Catalog dispatch did not return a run URL: %s\n' "$catalog_run_url" >&2
+    exit 1
+  fi
+  catalog_run=${catalog_run_url##*/}
 fi
-catalog_run=${catalog_run_url##*/}
 gh run watch "$catalog_run" --repo "$repository" --exit-status
 ```
 
