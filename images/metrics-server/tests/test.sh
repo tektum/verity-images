@@ -5,12 +5,10 @@ image=${1:?usage: test.sh IMAGE}
 container="verity-metrics-server-test-$$"
 image_container="${container}-image"
 kubeconfig=$(mktemp)
-tmpdir=$(mktemp -d)
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker rm -f "$image_container" >/dev/null 2>&1 || true
-  rm -rf "$tmpdir"
   rm -f "$kubeconfig"
 }
 trap cleanup EXIT INT TERM
@@ -19,9 +17,7 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/metrics-server"]' ]
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["--secure-port=10250","--cert-dir=/tmp"]' ]
 docker create --name "$image_container" "$image" >/dev/null
-rmdir "$tmpdir"
-docker cp "$image_container:/tmp" "$tmpdir"
-[ "$(stat -c '%u:%g:%a' "$tmpdir")" = 1000:1000:1777 ]
+docker export "$image_container" | tar -tvf - tmp | grep -Eq '^drwxrwxrwt .* 1000/1000 .* tmp$'
 
 cat > "$kubeconfig" <<'EOF'
 apiVersion: v1
