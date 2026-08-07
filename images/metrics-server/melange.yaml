@@ -34,11 +34,20 @@ pipeline:
     with:
       uri: https://github.com/kubernetes-sigs/metrics-server/archive/${{vars.source-commit}}.tar.gz
       expected-sha256: 7c3dc479484fca306297221058bf55f5d4620305b4041e729dfb497386a621fa
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/google/cel-go@v0.29.0
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
   - runs: |
-      GIT_TAG=v${{package.version}} \
-      GIT_COMMIT=${{vars.source-commit}} \
-      BUILD_DATE=2026-07-13T10:38:03Z \
-        make metrics-server ARCH="$(go env GOARCH)"
+      make metrics-server \
+        ARCH="$(go env GOARCH)" \
+        BUILD_DATE=2026-07-13T10:38:03Z \
+        GIT_COMMIT=${{vars.source-commit}} \
+        GIT_TAG=v${{package.version}}
       install -Dm755 metrics-server "${{targets.destdir}}/usr/bin/metrics-server"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       "${{targets.destdir}}/usr/bin/metrics-server" --version | grep -F "v${{package.version}}"
