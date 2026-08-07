@@ -1,0 +1,27 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - go-1.26
+    - ko
+
+entrypoint:
+  command: /usr/bin/ko
+
+work-dir: /app
+
+environment:
+  GOPATH: /go
+  KO_DEFAULTBASEIMAGE: cgr.dev/chainguard/static:latest
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /app
+    type: directory
+    permissions: 0o755
+  - path: /go
+    type: directory
+    permissions: 0o755
