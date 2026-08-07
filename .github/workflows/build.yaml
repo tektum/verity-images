@@ -67,7 +67,7 @@ jobs:
   validate:
     if: github.ref != 'refs/heads/main' && fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
     permissions:
       contents: read
     strategy:
