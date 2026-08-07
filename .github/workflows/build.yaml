@@ -7,6 +7,11 @@ on:
   merge_group:
     types: [checks_requested]
   workflow_dispatch:
+    inputs:
+      base-sha:
+        description: Trusted base commit SHA for changed-image recovery
+        required: false
+        type: string
 
 permissions: {}
 
@@ -48,11 +53,11 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           BASE_SHA: >-
-            ${{ github.event.pull_request.base.sha ||
+            ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||
             github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch ]]; then
+          if [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
           else
             matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")

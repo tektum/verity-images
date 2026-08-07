@@ -176,12 +176,23 @@ def main() -> None:
     ] == [("wolfi", "images/go/1.26")]
     assert "  merge_group:\n    types: [checks_requested]\n" in lint
     assert (
+        "      base-sha:\n"
+        "        description: Trusted base commit SHA for changed-image recovery\n"
+        "        required: false\n"
+        "        type: string\n"
+        in workflow
+    )
+    assert (
         "          BASE_SHA: >-\n"
-        "            ${{ github.event.pull_request.base.sha ||\n"
+        "            ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||\n"
         "            github.event.merge_group.base_sha || github.event.before }}\n"
         in workflow
     )
-    assert "          if [[ \"$EVENT\" == workflow_dispatch ]]; then\n" in workflow
+    assert (
+        '          if [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n'
+        in workflow
+    )
+    assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
     assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
 
     verify_step = between(
