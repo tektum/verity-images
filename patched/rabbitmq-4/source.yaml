@@ -1,11 +1,7 @@
 image: docker.io/library/rabbitmq:4.3
 digest: sha256:4b336f82e93749f1ebf8d6283b4d5a98bf1efac8412ec56015a6ab5aae0f57a2
 platforms: [linux/amd64, linux/arm64]
-gosu-version: 1.19
-gosu-source: 6456aaa0f3c854d199d0f037f068eb97515b7513
-gosu-source-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b
-gosu-builder: docker.io/library/golang@sha256:3f6236bd765f898a2a3c2946112b04097814c4529d44534674700cd07b9c6b4c
-gosu-x-sys-version: v0.44.0
+gosu-version: 1.19-r0
 gosu-amd64-sha256: 8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025
 gosu-arm64-sha256: 420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859
 gosu-path: /usr/sbin/gosu
