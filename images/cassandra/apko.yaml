@@ -1,10 +1,12 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
-    - cassandra-5.0
+    - cassandra-5.0@local
     - openjdk-21-default-jvm
     - busybox
 
