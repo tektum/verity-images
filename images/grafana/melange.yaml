@@ -64,9 +64,22 @@ pipeline:
       tag: v2.10.3
       expected-commit: 4aeafc237b8d9a8d62e45735131e8a89eb741a00
       destination: third_party/tempo
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/loki
+      tag: v3.6.4
+      expected-commit: d80526692af3bf28c35622a59a3231933b193bc2
+      destination: third_party/loki
   - runs: |
+      sed -i \
+        -e 's|tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"|"errors"|' \
+        -e 's|errs := tsdb_errors.NewMulti()|var errs []error|' \
+        -e 's|errs.Add(err)|errs = append(errs, err)|' \
+        -e 's|errs.Err()|errors.Join(errs...)|' \
+        third_party/loki/pkg/util/metrics_helper.go
       go mod edit -require=github.com/grafana/tempo@v2.10.3+incompatible
       go mod edit -replace=github.com/grafana/tempo=./third_party/tempo
+      go mod edit -replace=github.com/grafana/loki/v3=./third_party/loki
   - uses: go/bump
     with:
       deps: |-
