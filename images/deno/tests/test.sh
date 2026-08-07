@@ -11,12 +11,7 @@ trap 'rm -rf "$work"' EXIT INT TERM
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ] || { printf 'wrong work directory\n' >&2; exit 1; }
 docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image" | grep -qx 'DENO_DIR=/deno-dir' || { printf 'wrong DENO_DIR\n' >&2; exit 1; }
 
-docker run --rm --network none --entrypoint /usr/bin/deno "$image" eval --allow-read=/app,/deno-dir '
-  for (const path of ["/app", "/deno-dir"]) {
-    const info = await Deno.stat(path);
-    if (!info.isDirectory || info.uid !== 65532 || info.gid !== 65532 || info.mode === null || (info.mode & 0o777) !== 0o755) Deno.exit(1);
-  }
-' || { printf 'wrong directory metadata\n' >&2; exit 1; }
+docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --allow-read=/app,/deno-dir /fixture.ts directories || { printf 'wrong directory metadata\n' >&2; exit 1; }
 docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --allow-sys=uid,gid /fixture.ts identity || { printf 'wrong runtime identity\n' >&2; exit 1; }
 [ "$(docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --no-prompt /fixture.ts)" = 422 ] || { printf 'fixture failed\n' >&2; exit 1; }
 
