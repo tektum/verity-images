@@ -18,7 +18,8 @@ fail() {
 
 [ "$(docker image inspect -f '{{.Config.Entrypoint}}' "$image")" = '[/usr/bin/ko]' ] || fail 'unexpected OCI entrypoint'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ] || fail 'unexpected OCI working directory'
-docker run --rm --network none "$image" version | grep -Fq '0.19.1' || fail 'unexpected ko version'
+version=$(docker run --rm --network none "$image" version)
+[ "$version" = 0.19.1 ] || fail 'unexpected ko version'
 
 cat > "$work/go.mod" <<'EOF'
 module example.com/ko-smoke
