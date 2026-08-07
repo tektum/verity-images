@@ -90,23 +90,10 @@ docker run --name "$container" -d --read-only --user 65532 \
   --add-host host.docker.internal:host-gateway \
   --tmpfs /tmp:uid=65532,gid=65532 \
   -v "$fixture/kubeconfig:/tmp/kubeconfig:ro" \
-  -p 127.0.0.1::8080 -p 127.0.0.1::8081 "$image" \
+  -p 127.0.0.1::8081 "$image" \
   --kubeconfig=/tmp/kubeconfig --resources=pods --port=8080 --telemetry-port=8081 >/dev/null
-port=$(docker port "$container" 8080/tcp | awk -F: 'NR == 1 { print $2 }')
 telemetry_port=$(docker port "$container" 8081/tcp | awk -F: 'NR == 1 { print $2 }')
-test -n "$port" && test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
-
-for _ in $(seq 1 100); do
-  if curl --fail --silent --connect-timeout 1 --max-time 5 "http://127.0.0.1:$port/metrics" > "$fixture/metrics"; then
-    break
-  fi
-  sleep 0.1
-done
-test -s "$fixture/metrics" || {
-  docker logs "$container" >&2
-  printf 'metrics endpoint did not respond\n' >&2
-  exit 1
-}
+test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
 curl --fail --silent "http://127.0.0.1:$telemetry_port/metrics" > "$fixture/telemetry"
 grep -q '^kube_state_metrics_build_info{' "$fixture/telemetry" || {
   docker logs "$container" >&2
