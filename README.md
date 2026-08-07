@@ -80,6 +80,8 @@ promotion.
 - `.github/workflows/lint.yaml` validates repository policy.
 - `devbox.json` locks local and CI lint tooling.
 - [APK signing](docs/APK_REPOSITORY_SIGNING.md) and [repository state](docs/APK_REPOSITORY_STATE.md) document APK key recovery, retention, and rollback rehearsal.
+- [Catalog recovery](docs/CATALOG_RECOVERY.md) documents stale-catalog diagnosis,
+  changed-image backfill, and public verification.
 - `docs/POLICY.md` defines publication and support policy.
 - `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
 

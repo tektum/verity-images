@@ -1,0 +1,69 @@
+package:
+  name: pgweb
+  version: "0.17.0"
+  epoch: 0
+  description: Web-based PostgreSQL database browser
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sosedoff/pgweb
+      tag: v${{package.version}}
+      expected-commit: 6b0b0244d1aefd6971999b03481eeeaa4ec7cf55
+
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/sirupsen/logrus@v1.9.1
+        golang.org/x/crypto@v0.52.0
+        golang.org/x/net@v0.55.0
+        golang.org/x/text@v0.39.0
+
+  - uses: go/build
+    with:
+      packages: .
+      output: pgweb
+      go-package: go-1.26
+      ldflags: |
+        -X github.com/sosedoff/pgweb/pkg/command.GitCommit=6b0b0244d1aefd6971999b03481eeeaa4ec7cf55
+        -X github.com/sosedoff/pgweb/pkg/command.BuildTime=$(date -u -d@${SOURCE_DATE_EPOCH} +%FT%TZ)
+
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        pgweb --version | grep -F "Pgweb v${{package.version}}"
+        apk info --who-owns /usr/bin/pgweb | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F "MIT License" "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: sosedoff/pgweb
+    strip-prefix: v
+    tag-filter: v

@@ -246,10 +246,10 @@ def main() -> None:
     validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
     build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
     deploy_job = catalog.split("\n  deploy:\n", maxsplit=1)[1]
-    assert runner(matrix_job) == f"{RUNS_ON_PREFIX}matrix/runner=4cpu-linux-x64"
+    assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
         f"{RUNS_ON_PREFIX}validate-${{{{ strategy.job-index }}}}/"
-        "family=c8i+m8i/cpu=16/ram=32/image=ubuntu24-full-x64/volume=100gb:gp3/"
+        "family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
         "extras=otel/spot=false"
     )
     assert runner(publish_job) == (
@@ -257,7 +257,7 @@ def main() -> None:
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
     )
-    assert runner(build_gate_job) == f"{RUNS_ON_PREFIX}build-gate/runner=4cpu-linux-x64"
+    assert runner(build_gate_job) == "ubuntu-latest"
     assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
