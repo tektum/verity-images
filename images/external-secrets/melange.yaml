@@ -1,0 +1,72 @@
+package:
+  name: external-secrets-operator
+  version: "2.6.0"
+  epoch: 5
+  description: Integrate external secret management systems with Kubernetes
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://github.com/external-secrets/external-secrets/archive/cc1ae7fe2927fbe61df9aa87bf2e5075972c79f9.tar.gz
+      expected-sha256: c45b054f10c90acf2d5814296205438631c83c17a9bb32d0888703b631d266fb
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/Azure/go-ntlmssp@v0.1.1
+        github.com/google/cel-go@v0.29.0
+        go.mongodb.org/mongo-driver@v1.17.7
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/metric@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        go.opentelemetry.io/otel/trace@v1.44.0
+        golang.org/x/crypto@v0.52.0
+        golang.org/x/net@v0.55.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+        software.sslmate.com/src/go-pkcs12@v0.7.2
+  - uses: go/build
+    with:
+      go-package: go-1.26
+      packages: .
+      output: external-secrets
+  - runs: |
+      "${{targets.destdir}}/usr/bin/external-secrets" --help >/dev/null
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: external-secrets-operator-build-metadata
+    description: Resolved Go module metadata for the External Secrets build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/external-secrets-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/external-secrets-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        external-secrets --help >/dev/null
+        apk info --who-owns /usr/bin/external-secrets \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
