@@ -32,7 +32,6 @@ pipeline:
     with:
       patches: modern-dependencies.patch
   - runs: |
-      cargo update
       cargo auditable build --release --locked
       install -m755 -D target/release/pgcat "${{targets.destdir}}/usr/bin/pgcat"
       rm -rf .cargo
