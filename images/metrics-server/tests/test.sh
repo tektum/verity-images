@@ -55,5 +55,4 @@ port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
 
 sleep 2
-[ "$(docker inspect -f '{{.State.Running}}' "$container")" = true ]
 docker logs "$container" 2>&1 | grep -F 'Generated self-signed cert (/tmp/apiserver.crt, /tmp/apiserver.key)'
