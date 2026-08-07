@@ -72,14 +72,15 @@ pipeline:
       destination: third_party/loki
   - runs: |
       sed -i \
-        -e 's|tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"|"errors"|' \
+        -e 's|tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"|stderrors "errors"|' \
         -e 's|errs := tsdb_errors.NewMulti()|var errs []error|' \
         -e 's|errs.Add(err)|errs = append(errs, err)|' \
-        -e 's|errs.Err()|errors.Join(errs...)|' \
+        -e 's|errs.Err()|stderrors.Join(errs...)|' \
         third_party/loki/pkg/util/metrics_helper.go
       go mod edit -require=github.com/grafana/tempo@v2.10.3+incompatible
       go mod edit -replace=github.com/grafana/tempo=./third_party/tempo
       go mod edit -replace=github.com/grafana/loki/v3=./third_party/loki
+      go mod edit -replace=github.com/olekukonko/tablewriter=github.com/olekukonko/tablewriter@v0.0.5
   - uses: go/bump
     with:
       deps: |-
