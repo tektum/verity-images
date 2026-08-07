@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
-test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/influxd"]'
+test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/influxdb3"]'
 docker create --name "$container" "$image" >/dev/null
 docker export "$container" >"$rootfs"
 docker rm "$container" >/dev/null
@@ -27,12 +27,12 @@ start_server() {
   docker run --name "$container" -d \
     -v "$volume:/var/lib/influxdb2" \
     -p 127.0.0.1::8181 \
-    "$image" serve --node-id verity --object-store file --data-dir /var/lib/influxdb2 >/dev/null
+    "$image" serve --node-id verity --object-store file --data-dir /var/lib/influxdb2 --without-auth >/dev/null
   port=$(docker port "$container" 8181/tcp | awk -F: 'NR == 1 { print $2 }')
 
   i=0
   until curl --fail --silent --connect-timeout 1 --max-time 5 \
-    "http://127.0.0.1:$port/ready" >/dev/null; do
+    "http://127.0.0.1:$port/health" >/dev/null; do
     i=$((i + 1))
     [ "$i" -lt 30 ] || {
       docker logs "$container" >&2
@@ -56,11 +56,9 @@ start_server
 curl --fail --silent --show-error "http://127.0.0.1:$port/api/v3/query_sql" \
   -H 'Content-Type: application/json' \
   --data '{"db":"verity","q":"SELECT * FROM cpu LIMIT 1","format":"json"}' | grep -q '42'
-if curl --fail --silent --show-error \
+status=$(curl --silent --output /dev/null --write-out '%{http_code}' \
   "http://127.0.0.1:$port/api/v3/write_lp?db=verity&accept_partial=false" \
-  --data-raw 'cpu,host=test usage=not-a-float 1735545600' >/dev/null 2>&1; then
-  printf '%s\n' 'invalid API request unexpectedly succeeded' >&2
-  exit 1
-fi
+  --data-raw 'cpu,host=test usage=not-a-float 1735545600')
+test "$status" = 400
 
 printf 'SMOKE PASS image=%s\n' "$image"
