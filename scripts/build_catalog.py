@@ -106,7 +106,10 @@ def main() -> None:
         ):
             raise SystemExit(f"invalid build report: {report}: image fields are invalid")
         artifact = scans / f"scan-{name}-{version}"
-        if not artifact.is_dir() or not tuple(artifact.glob("scan-*.json")):
+        scan_files = tuple(artifact.glob("scan-*.json")) if artifact.is_dir() else ()
+        if not scan_files and len(report_document["images"]) == 1:
+            scan_files = tuple(scans.glob(f"scan-{name}-*.json"))
+        if not scan_files:
             raise SystemExit(f"missing scan artifact: {artifact}")
     catalog = run(
         [
