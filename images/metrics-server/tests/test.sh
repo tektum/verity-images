@@ -19,8 +19,9 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/metrics-server"]' ]
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["--secure-port=10250","--cert-dir=/tmp"]' ]
 docker create --name "$image_container" "$image" >/dev/null
+rmdir "$tmpdir"
 docker cp "$image_container:/tmp" "$tmpdir"
-[ "$(stat -c '%u:%g:%a' "$tmpdir/tmp")" = 1000:1000:1777 ]
+[ "$(stat -c '%u:%g:%a' "$tmpdir")" = 1000:1000:1777 ]
 
 cat > "$kubeconfig" <<'EOF'
 apiVersion: v1
