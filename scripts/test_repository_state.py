@@ -263,6 +263,10 @@ def updater_requires_review() -> None:
         and rule.get("labels") == ["apk-repository-state", "review-required"]
         for rule in rules
     )
+    assert not any(
+        rule.get("matchPackageNames") == ["*"] and rule.get("automerge") is False
+        for rule in rules
+    )
     assert all(rule.get("automerge", False) is False for rule in rules)
     assert all(rule.get("platformAutomerge", False) is False for rule in rules)
     assert all(rule.get("automergeType", "pr") == "pr" for rule in rules)
