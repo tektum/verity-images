@@ -34,11 +34,12 @@ class Handler(BaseHTTPRequestHandler):
             body = {"kind": "APIGroupList", "apiVersion": "v1", "groups": []}
         elif request.path == "/api/v1":
             body = {"kind": "APIResourceList", "apiVersion": "v1", "groupVersion": "v1", "resources": [{"name": "pods", "singularName": "", "namespaced": True, "kind": "Pod", "verbs": ["get", "list", "watch"]}]}
-        elif request.path == "/api/v1/pods" and parse_qs(request.query).get("watch") == ["true"]:
+        elif request.path.endswith("/pods") and parse_qs(request.query).get("watch") == ["true"]:
             body = {"type": "BOOKMARK", "object": {"kind": "Pod", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}}}
-        elif request.path == "/api/v1/pods":
+        elif request.path.endswith("/pods"):
             body = {"kind": "PodList", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}, "items": [{"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "fixture", "namespace": "default", "uid": "fixture-uid", "resourceVersion": "1"}, "spec": {"nodeName": "fixture-node", "containers": []}, "status": {"phase": "Running"}}]}
         else:
+            print(f"unexpected API path: {self.path}", file=sys.stderr, flush=True)
             self.send_error(404)
             return
         payload = (json.dumps(body) + "\n").encode()
@@ -91,7 +92,7 @@ docker run --name "$container" -d --read-only --user 65532 \
   --tmpfs /tmp:uid=65532,gid=65532 \
   -v "$fixture/kubeconfig:/tmp/kubeconfig:ro" \
   -p 127.0.0.1::8080 -p 127.0.0.1::8081 "$image" \
-  --kubeconfig=/tmp/kubeconfig --resources=pods --port=8080 --telemetry-port=8081 >/dev/null
+  --kubeconfig=/tmp/kubeconfig --namespaces=default --resources=pods --port=8080 --telemetry-port=8081 >/dev/null
 port=$(docker port "$container" 8080/tcp | awk -F: 'NR == 1 { print $2 }')
 telemetry_port=$(docker port "$container" 8081/tcp | awk -F: 'NR == 1 { print $2 }')
 test -n "$port" && test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
@@ -108,6 +109,7 @@ for _ in $(seq 1 100); do
 done
 test -n "$metrics_ready" || {
   docker logs "$container" >&2
+  cat "$fixture/metrics" >&2 || true
   printf 'metrics endpoint did not expose fixture pod\n' >&2
   exit 1
 }
