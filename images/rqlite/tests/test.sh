@@ -6,7 +6,7 @@ container="verity-rqlite-test-$$"
 volume="verity-rqlite-data-$$"
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -fv "$container" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -44,13 +44,12 @@ start() {
 [ "$(docker image inspect --format '{{json .Config.Volumes}}' "$image")" = '{"/rqlite/data":{}}' ] || fail 'missing /rqlite/data volume'
 docker run --rm "$image" -version 2>&1 | grep -Fq 'rqlited v8.43.4' || fail 'unexpected rqlite version'
 
-docker volume create "$volume" >/dev/null
-docker run --name "$container" -d --read-only --user 65532 \
-  -v "$volume:/rqlite/data" "$image" >/dev/null
+docker run --name "$container" -d --read-only --user 65532 "$image" >/dev/null
 sleep 2
 [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || fail 'default command did not keep rqlite running'
-docker rm -f "$container" >/dev/null
+docker rm -fv "$container" >/dev/null
 
+docker volume create "$volume" >/dev/null
 start
 
 raft_probe=$(curl --verbose --connect-timeout 2 --max-time 3 "http://127.0.0.1:$raft_port/" 2>&1 || true)
