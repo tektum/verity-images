@@ -33,7 +33,8 @@ def v2_state() -> dict[str, object]:
     candidate["schemaVersion"] = 2
     candidate["release"] = {"id": 4, "tag": "apk-repo-v0003", "targetCommit": "4" * 40, "immutable": True}
     candidate["asset"] = {"id": 5, "name": "verity-apk-repository.tar.zst", "sha256": "sha256:" + "7" * 64}
-    packages = copy.deepcopy(candidate["packages"])
+    # The fixture renames the snapshot packages, so it starts from the legacy entries alone.
+    packages = [package for package in copy.deepcopy(candidate["packages"]) if package["origin"]["type"] == "legacy-snapshot"]
     for entry in copy.deepcopy(packages):
         entry["name"] = "openssl-fips-provider-next"
         entry["version"] = "3.2.0-r0"

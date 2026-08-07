@@ -58,14 +58,14 @@ def valid_state() -> None:
     assert validate(candidate).returncode == 0
     assert candidate["schemaVersion"] == 2
     assert candidate["release"] == {
-        "id": 366113836,
-        "tag": "apk-repo-v0003",
-        "targetCommit": "3f7ac08034766b3460606aae7362c9b14552c2e9",
+        "id": 366688435,
+        "tag": "apk-repo-v0004",
+        "targetCommit": "be06c720a52496262c1d6aa210af2d02536046f3",
         "immutable": True,
     }
-    assert candidate["asset"]["id"] == 503759632
-    assert candidate["asset"]["sha256"] == "sha256:1e02c09ad9d3abfbddfab5f6e0d481c4700dce1730ce2647c95f658f35518045"
-    assert candidate["archive"]["manifestSha256"] == "cb74c1aeb473a97b880389d2e4ca0d6d8b0b9cefe9e0b2f29d4e541d63e129d1"
+    assert candidate["asset"]["id"] == 505040937
+    assert candidate["asset"]["sha256"] == "sha256:52ad0e8fdb04d389bca3d2f670edb87c3aa42bfbc10755d2941d9b7ceab6d50e"
+    assert candidate["archive"]["manifestSha256"] == "c48c9301dd4676be389116d59e8592bb0e8ab2bc3c3c5f4422bef681e518609d"
     assert candidate["key"] == {
         "path": "packages/keys/verity-apk-2026.rsa.pub",
         "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698",
@@ -73,14 +73,19 @@ def valid_state() -> None:
     assert {(entry["architecture"], entry["name"], entry["version"], entry["epoch"], entry["path"], entry["sha256"]) for entry in candidate["packages"]} == {
         ("x86_64", "openssl-fips-provider", "3.1.2-r3", 3, "x86_64/openssl-fips-provider-3.1.2-r3.apk", "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"),
         ("aarch64", "openssl-fips-provider", "3.1.2-r3", 3, "aarch64/openssl-fips-provider-3.1.2-r3.apk", "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"),
+        ("x86_64", "gosu", "1.19-r0", 0, "x86_64/gosu-1.19-r0.apk", "e34eaeaa7d901f18b115e31624528d7d5161336621adeb501c47457bdb73a553"),
+        ("aarch64", "gosu", "1.19-r0", 0, "aarch64/gosu-1.19-r0.apk", "c4b0a87c4047a36e1e06eab4781cb1c50b2c991b6b5c64720360489d264b9256"),
     }
-    assert all(entry["origin"]["releaseTag"] == "apk-repo-v0002" for entry in candidate["packages"])
+    assert all(entry["origin"]["releaseTag"] == "apk-repo-v0002" for entry in candidate["packages"] if entry["name"] == "openssl-fips-provider")
+    assert all(entry["origin"]["sourceCommit"] == "be06c720a52496262c1d6aa210af2d02536046f3" for entry in candidate["packages"] if entry["name"] == "gosu")
 
 
 def v1_rollback_state_remains_valid() -> None:
     candidate = state()
-    packages = [{key: value for key, value in package.items() if key != "origin"} for package in candidate["packages"]]
-    origin = candidate["packages"][0]["origin"]
+    # Only legacy-snapshot packages describe a v1 release, so an attested build is not a rollback target.
+    snapshot = [package for package in candidate["packages"] if package["origin"]["type"] == "legacy-snapshot"]
+    packages = [{key: value for key, value in package.items() if key != "origin"} for package in snapshot]
+    origin = snapshot[0]["origin"]
     candidate["schemaVersion"] = 1
     candidate["release"] = {
         "id": origin["releaseId"],
