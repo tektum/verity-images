@@ -1,0 +1,60 @@
+package:
+  name: prometheus-3.11
+  version: "3.11.3"
+  epoch: 11
+  description: The Prometheus monitoring system and time series database.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+
+vars:
+  source-commit: eb173f5256d4022afba1e9bc3d19740a76859fae
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - go
+      - make
+      - nodejs
+      - npm
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/prometheus
+      branch: main
+      depth: -1
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.55.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+  - uses: patch
+    with:
+      patches: disable-pprof.patch
+  - runs: |
+      make -j1 assets-compress
+      flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
+      flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -ldflags "$flags" -tags netgo,builtinassets -o prometheus ./cmd/prometheus
+      go build -mod=readonly -trimpath -ldflags "$flags" -o promtool ./cmd/promtool
+      install -Dm755 prometheus "${{targets.destdir}}/usr/bin/prometheus"
+      install -Dm755 promtool "${{targets.destdir}}/usr/bin/promtool"
+      install -Dm644 -t "${{targets.destdir}}/etc/prometheus" documentation/examples/prometheus.yml
+
+test:
+  pipeline:
+    - runs: /usr/bin/prometheus --version
+    - runs: /usr/bin/promtool --help
