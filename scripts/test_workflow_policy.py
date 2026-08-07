@@ -249,7 +249,7 @@ def main() -> None:
     assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
         f"{RUNS_ON_PREFIX}validate-${{{{ strategy.job-index }}}}/"
-        "family=m8i/cpu=16/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
+        "family=c8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
         "extras=otel/spot=false"
     )
     assert runner(publish_job) == (
