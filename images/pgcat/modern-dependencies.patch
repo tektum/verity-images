@@ -1,0 +1,137 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 762a9a0..2e73e42 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -27,7 +27,7 @@ hmac = "0.12"
+ sha2 = "0.10"
+ base64 = "0.21"
+ stringprep = "0.1"
+-tokio-rustls = "0.26"
++tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
+ rustls-pemfile = "2"
+ http-body-util = "0.1.2"
+ hyper = { version = "1.4.1", features = ["full"] }
+@@ -41,10 +41,10 @@ atomic_enum = "0.2.0"
+ postgres-protocol = "0.6.5"
+ fallible-iterator = "0.2"
+ pin-project = "1"
+-webpki-roots = "0.23"
+-rustls = { version = "0.23.12", features=["ring", "tls12"]}
++webpki-roots = "1"
++rustls = { version = "0.23.12", default-features = false, features = ["logging", "ring", "std", "tls12"] }
+ rustls-pki-types = "1.8.0"
+-trust-dns-resolver = "0.22.0"
++hickory-resolver = "0.25.2"
+ tokio-test = "0.4.2"
+ serde_json = "1"
+ itertools = "0.10"
+diff --git a/src/dns_cache.rs b/src/dns_cache.rs
+index 5c2be5d..58d838f 100644
+--- a/src/dns_cache.rs
++++ b/src/dns_cache.rs
+@@ -4,14 +4,12 @@ use arc_swap::ArcSwap;
+ use log::{debug, error, info, warn};
+ use once_cell::sync::Lazy;
+ use std::collections::{HashMap, HashSet};
+-use std::io;
+ use std::net::IpAddr;
+ use std::sync::Arc;
+ use std::sync::RwLock;
+ use tokio::time::{sleep, Duration};
+-use trust_dns_resolver::error::{ResolveError, ResolveResult};
+-use trust_dns_resolver::lookup_ip::LookupIp;
+-use trust_dns_resolver::TokioAsyncResolver;
++use hickory_resolver::lookup_ip::LookupIp;
++use hickory_resolver::{ResolveError, TokioResolver};
+ 
+ /// Cached Resolver Globally available
+ pub static CACHED_RESOLVER: Lazy<ArcSwap<CachedResolver>> =
+@@ -79,7 +77,7 @@ pub struct CachedResolver {
+     data: Option<RwLock<HashMap<String, AddrSet>>>,
+ 
+     // The resolver to be used for DNS queries.
+-    resolver: Option<TokioAsyncResolver>,
++    resolver: Option<TokioResolver>,
+ 
+     // The RefreshLoop
+     refresh_loop: RwLock<Option<tokio::task::JoinHandle<()>>>,
+@@ -134,9 +132,9 @@ impl CachedResolver {
+     pub async fn new(
+         config: CachedResolverConfig,
+         data: Option<HashMap<String, AddrSet>>,
+-    ) -> Result<Arc<Self>, io::Error> {
++    ) -> Result<Arc<Self>, ResolveError> {
+         // Construct a new Resolver with default configuration options
+-        let resolver = Some(TokioAsyncResolver::tokio_from_system_conf()?);
++        let resolver = Some(TokioResolver::builder_tokio()?.build());
+ 
+         let data = if let Some(hash) = data {
+             Some(RwLock::new(hash))
+@@ -171,7 +169,7 @@ impl CachedResolver {
+ 
+     // Schedules the refresher
+     async fn refresh_dns_entries_loop(&self) {
+-        let resolver = TokioAsyncResolver::tokio_from_system_conf().unwrap();
++        let resolver = TokioResolver::builder_tokio().unwrap().build();
+         let interval = Duration::from_secs(self.config.dns_max_ttl);
+         loop {
+             debug!("Begin refreshing cached DNS addresses.");
+@@ -241,7 +239,7 @@ impl CachedResolver {
+     /// # })
+     /// ```
+     ///
+-    pub async fn lookup_ip(&self, host: &str) -> ResolveResult<AddrSet> {
++    pub async fn lookup_ip(&self, host: &str) -> Result<AddrSet, ResolveError> {
+         debug!("Lookup up {} in cache", host);
+         match self.fetch_from_cache(host) {
+             Some(addr_set) => {
+@@ -326,7 +324,7 @@ impl CachedResolver {
+ #[cfg(test)]
+ mod tests {
+     use super::*;
+-    use trust_dns_resolver::error::ResolveError;
++    use hickory_resolver::ResolveError;
+ 
+     #[tokio::test]
+     async fn new() {
+diff --git a/src/main.rs b/src/main.rs
+index 6c8c165..153c31c 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -35,7 +35,7 @@ extern crate sqlparser;
+ extern crate tokio;
+ extern crate tokio_rustls;
+ extern crate toml;
+-extern crate trust_dns_resolver;
++extern crate hickory_resolver;
+ 
+ #[cfg(not(target_env = "msvc"))]
+ use jemallocator::Jemalloc;
+diff --git a/src/server.rs b/src/server.rs
+index 9de6f34..b12ca39 100644
+--- a/src/server.rs
++++ b/src/server.rs
+@@ -7,7 +7,6 @@ use lru::LruCache;
+ use once_cell::sync::Lazy;
+ use parking_lot::{Mutex, RwLock};
+ use postgres_protocol::message;
+-use rustls::pki_types::TrustAnchor;
+ use std::collections::{HashMap, HashSet, VecDeque};
+ use std::mem;
+ use std::net::IpAddr;
+@@ -400,14 +399,7 @@ impl Server {
+                     debug!("Connecting to server using TLS");
+ 
+                     let root_store = rustls::RootCertStore::from_iter(
+-                        webpki_roots::TLS_SERVER_ROOTS
+-                            .0
+-                            .iter()
+-                            .map(|ta| TrustAnchor {
+-                                subject: ta.subject.into(),
+-                                subject_public_key_info: ta.spki.into(),
+-                                name_constraints: ta.name_constraints.map(|nc| nc.into()),
+-                            }),
++                        webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+                     );
+ 
+                     let mut tls_config = rustls::ClientConfig::builder()

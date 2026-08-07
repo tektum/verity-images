@@ -1,0 +1,43 @@
+package:
+  name: pgcat
+  version: "1.2.0"
+  epoch: 0
+  description: PostgreSQL pooler with sharding, load balancing, and failover support
+  copyright:
+    - license: MIT
+
+vars:
+  source-commit: 78982a68e4b6eeb1933f065092f0974c3dcbf6a1
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - rust-1.97
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sarajmunjal/pgcat
+      branch: saraj/upgrade-tls
+      expected-commit: ${{vars.source-commit}}
+  - uses: patch
+    with:
+      patches: modern-dependencies.patch
+  - runs: |
+      cargo update
+      cargo auditable build --release --locked
+      install -m755 -D target/release/pgcat "${{targets.destdir}}/usr/bin/pgcat"
+      rm -rf .cargo
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: /usr/bin/pgcat --version
