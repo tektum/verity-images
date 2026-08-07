@@ -90,13 +90,18 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json(200, resource_list("v1", CORE))
         if path == "/apis":
             groups = []
-            for name, version in (("external-secrets.io", "v1"), ("generators.external-secrets.io", "v1alpha1")):
-                group_version = f"{name}/{version}"
-                item = {"groupVersion": group_version, "version": version}
-                groups.append({"name": name, "preferredVersion": item, "versions": [item]})
+            external_versions = [
+                {"groupVersion": "external-secrets.io/v1", "version": "v1"},
+                {"groupVersion": "external-secrets.io/v1alpha1", "version": "v1alpha1"},
+            ]
+            groups.append({"name": "external-secrets.io", "preferredVersion": external_versions[0], "versions": external_versions})
+            generator_version = {"groupVersion": "generators.external-secrets.io/v1alpha1", "version": "v1alpha1"}
+            groups.append({"name": "generators.external-secrets.io", "preferredVersion": generator_version, "versions": [generator_version]})
             return self.send_json(200, {"apiVersion": "v1", "kind": "APIGroupList", "groups": groups})
         if path == "/apis/external-secrets.io/v1":
             return self.send_json(200, resource_list("external-secrets.io/v1", EXTERNAL))
+        if path == "/apis/external-secrets.io/v1alpha1":
+            return self.send_json(200, resource_list("external-secrets.io/v1alpha1", EXTERNAL))
         if path == "/apis/generators.external-secrets.io/v1alpha1":
             return self.send_json(200, resource_list("generators.external-secrets.io/v1alpha1", GENERATORS))
         if path == "/version":
