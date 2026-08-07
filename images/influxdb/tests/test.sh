@@ -4,17 +4,23 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 container="verity-influxdb-test-$$"
 volume="verity-influxdb-data-$$"
+rootfs=$(mktemp)
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
+  rm -f "$rootfs"
 }
 trap cleanup EXIT INT TERM
 
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/influxd"]'
-docker run --rm --entrypoint /bin/sh "$image" -c \
-  'test "$(stat -c %u:%g /etc/influxdb2)" = 65532:65532 && test "$(stat -c %u:%g /var/lib/influxdb2)" = 65532:65532'
+docker create --name "$container" "$image" >/dev/null
+docker export "$container" >"$rootfs"
+docker rm "$container" >/dev/null
+for path in etc/influxdb2 var/lib/influxdb2; do
+  tar --numeric-owner -tvf "$rootfs" "$path" | awk '$2 == "65532/65532" { found = 1 } END { exit !found }'
+done
 docker volume create "$volume" >/dev/null
 
 start_server() {
