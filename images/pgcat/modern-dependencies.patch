@@ -21,7 +21,7 @@ index 762a9a0..2e73e42 100644
 +rustls = { version = "0.23.12", default-features = false, features = ["logging", "ring", "std", "tls12"] }
  rustls-pki-types = "1.8.0"
 -trust-dns-resolver = "0.22.0"
-+hickory-resolver = "0.25.2"
++hickory-resolver = "0.26.1"
  tokio-test = "0.4.2"
  serde_json = "1"
  itertools = "0.10"
@@ -42,7 +42,7 @@ index 5c2be5d..58d838f 100644
 -use trust_dns_resolver::lookup_ip::LookupIp;
 -use trust_dns_resolver::TokioAsyncResolver;
 +use hickory_resolver::lookup_ip::LookupIp;
-+use hickory_resolver::{ResolveError, TokioResolver};
++use hickory_resolver::{net::NetError, TokioResolver};
  
  /// Cached Resolver Globally available
  pub static CACHED_RESOLVER: Lazy<ArcSwap<CachedResolver>> =
@@ -60,10 +60,10 @@ index 5c2be5d..58d838f 100644
          config: CachedResolverConfig,
          data: Option<HashMap<String, AddrSet>>,
 -    ) -> Result<Arc<Self>, io::Error> {
-+    ) -> Result<Arc<Self>, ResolveError> {
++    ) -> Result<Arc<Self>, NetError> {
          // Construct a new Resolver with default configuration options
 -        let resolver = Some(TokioAsyncResolver::tokio_from_system_conf()?);
-+        let resolver = Some(TokioResolver::builder_tokio()?.build());
++        let resolver = Some(TokioResolver::builder_tokio()?.build()?);
  
          let data = if let Some(hash) = data {
              Some(RwLock::new(hash))
@@ -72,7 +72,7 @@ index 5c2be5d..58d838f 100644
      // Schedules the refresher
      async fn refresh_dns_entries_loop(&self) {
 -        let resolver = TokioAsyncResolver::tokio_from_system_conf().unwrap();
-+        let resolver = TokioResolver::builder_tokio().unwrap().build();
++        let resolver = TokioResolver::builder_tokio().unwrap().build().unwrap();
          let interval = Duration::from_secs(self.config.dns_max_ttl);
          loop {
              debug!("Begin refreshing cached DNS addresses.");
@@ -81,19 +81,45 @@ index 5c2be5d..58d838f 100644
      /// ```
      ///
 -    pub async fn lookup_ip(&self, host: &str) -> ResolveResult<AddrSet> {
-+    pub async fn lookup_ip(&self, host: &str) -> Result<AddrSet, ResolveError> {
++    pub async fn lookup_ip(&self, host: &str) -> Result<AddrSet, NetError> {
          debug!("Lookup up {} in cache", host);
          match self.fetch_from_cache(host) {
              Some(addr_set) => {
-@@ -326,7 +324,7 @@ impl CachedResolver {
+@@ -256,7 +254,7 @@ impl CachedResolver {
+                     self.store_in_cache(host, addr_set.clone());
+                     Ok(addr_set)
+                 } else {
+-                    Err(ResolveError::from("No resolver available"))
++                    Err(NetError::from("No resolver available"))
+                 }
+             }
+         }
+@@ -326,7 +324,6 @@ impl CachedResolver {
  #[cfg(test)]
  mod tests {
      use super::*;
 -    use trust_dns_resolver::error::ResolveError;
-+    use hickory_resolver::ResolveError;
  
      #[tokio::test]
      async fn new() {
+@@ -371,7 +368,7 @@ mod tests {
+         let resolver = CachedResolver::new(config, None).await.unwrap();
+         let hostname = "www.idontexists.";
+         let response = resolver.lookup_ip(hostname).await;
+-        assert!(matches!(response, Err(ResolveError { .. })));
++        assert!(response.is_err());
+     }
+ 
+     #[tokio::test]
+@@ -383,7 +380,7 @@ mod tests {
+         let resolver = CachedResolver::new(config, None).await.unwrap();
+         let hostname = "w  ww.idontexists.";
+         let response = resolver.lookup_ip(hostname).await;
+-        assert!(matches!(response, Err(ResolveError { .. })));
++        assert!(response.is_err());
+         assert!(!resolver.has_changed(hostname, &AddrSet::new()));
+     }
+ 
 diff --git a/src/main.rs b/src/main.rs
 index 6c8c165..153c31c 100644
 --- a/src/main.rs
@@ -107,6 +133,13 @@ index 6c8c165..153c31c 100644
  
  #[cfg(not(target_env = "msvc"))]
  use jemallocator::Jemalloc;
+diff --git a/Cargo.toml b/Cargo.toml
+index 762a9a0..2e73e42 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -58 +58 @@ tracing-subscriber = { version = "0.3.17", features = [
+-lru = "0.12.0"
++lru = "0.16.3"
 diff --git a/src/server.rs b/src/server.rs
 index 9de6f34..b12ca39 100644
 --- a/src/server.rs
