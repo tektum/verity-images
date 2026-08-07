@@ -1,0 +1,122 @@
+package:
+  name: grafana
+  version: "12.4.6"
+  epoch: 2
+  description: The open and composable observability and data visualization platform.
+  copyright:
+    - license: AGPL-3.0-or-later
+  dependencies:
+    runtime:
+      - bash
+  resources:
+    cpu: "14"
+    memory: 31Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - git
+      - go-1.26
+      - nodejs-22
+      - yarn
+  accounts:
+    run-as: ""
+    users:
+      - username: build
+        uid: 1000
+        gid: 1000
+        shell: ""
+        homedir: /home/build
+    groups:
+      - groupname: build
+        gid: 1000
+        members:
+          - build
+  environment:
+    GOMODCACHE: /var/cache/melange/gomodcache
+    GOTOOLCHAIN: local
+    HOME: /home/build
+    npm_config_cache: /var/cache/melange/npm
+    npm_config_git: /usr/bin/git
+    npm_config_ignore_scripts: "true"
+    npm_config_script_shell: /bin/sh
+    npm_config_shell: /bin/sh
+    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "1"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/grafana
+      tag: v${{package.version}}
+      expected-commit: 16fbc24965a6dbeb7ed7facafb090062214ba33e
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/tempo
+      tag: v2.10.3
+      expected-commit: 4aeafc237b8d9a8d62e45735131e8a89eb741a00
+      destination: third_party/tempo
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/loki
+      tag: v3.6.4
+      expected-commit: d80526692af3bf28c35622a59a3231933b193bc2
+      destination: third_party/loki
+  - runs: |
+      sed -i \
+        -e 's|tsdb_errors "github.com/prometheus/prometheus/tsdb/errors"|stderrors "errors"|' \
+        -e 's|errs := tsdb_errors.NewMulti()|var errs []error|' \
+        -e 's|errs.Add(err)|errs = append(errs, err)|' \
+        -e 's|errs.Err()|stderrors.Join(errs...)|' \
+        third_party/loki/pkg/util/metrics_helper.go
+      sed -i \
+        -e 's|parser.ParseExpr(rawExpr)|parser.NewParser(parser.Options{}).ParseExpr(rawExpr)|' \
+        pkg/promlib/models/scope.go
+      sed -i \
+        -e 's|parser.ParseExpr(expr)|parser.NewParser(parser.Options{}).ParseExpr(expr)|' \
+        pkg/promlib/resource/resource.go
+      old='parser.ParseMetricSelector(labelSelector)'
+      new='parser.NewParser(parser.Options{}).ParseMetricSelector(labelSelector)'
+      sed -i "s|$old|$new|" pkg/tsdb/grafana-pyroscope-datasource/instance.go
+      sed -i \
+        -e 's|promql_parser.ParseMetric(lbs)|promql_parser.NewParser(promql_parser.Options{}).ParseMetric(lbs)|' \
+        third_party/loki/pkg/logql/syntax/parser.go
+      go mod edit -require=github.com/grafana/tempo@v2.10.3+incompatible
+      go mod edit -replace=github.com/grafana/tempo=./third_party/tempo
+      go mod edit -replace=github.com/grafana/loki/v3=./third_party/loki
+      go mod edit -replace=github.com/olekukonko/tablewriter=github.com/olekukonko/tablewriter@v0.0.5
+      go mod edit -dropreplace=github.com/prometheus/prometheus
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/prometheus/prometheus@v0.311.3
+        github.com/google/cel-go@v0.29.0
+        google.golang.org/grpc@v1.82.1
+        github.com/getkin/kin-openapi@v0.144.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+      tidy: false
+      work: true
+  - name: Build
+    runs: |
+      export NODE_OPTIONS="--max-old-space-size=8192"
+      yarn install --immutable
+      make build
+      rm -rf third_party/loki third_party/tempo
+  - name: Package
+    runs: |
+      install -d "${{targets.destdir}}/usr/bin"
+      install -d "${{targets.destdir}}/usr/share/grafana"
+      install -d "${{targets.destdir}}/etc/grafana"
+      cp bin/linux/*/* "${{targets.destdir}}/usr/bin/"
+      cp -r conf public "${{targets.destdir}}/usr/share/grafana/"
+      cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini"
+      cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini.example"
