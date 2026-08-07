@@ -143,6 +143,7 @@ users:
     user:
       token: smoke
 EOF
+chmod 0644 "$work/kubeconfig"
 
 container=$(docker run -d --network host \
   -e KUBECONFIG=/tmp/kubeconfig \
