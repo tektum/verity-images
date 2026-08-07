@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+fixture='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 container="verity-clickhouse-test-$$"
 volume="verity-clickhouse-data-$$"
 
@@ -32,6 +33,10 @@ start_server() {
 
   i=0
   until docker exec "$container" clickhouse-client --query 'SELECT 1' 2>/dev/null | grep -Fx 1 >/dev/null; do
+    [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || {
+      docker logs "$container" >&2
+      fail 'ClickHouse exited before becoming ready'
+    }
     i=$((i + 1))
     [ "$i" -lt 60 ] || {
       docker logs "$container" >&2
@@ -42,19 +47,23 @@ start_server() {
 }
 
 start_server
-if docker run --rm --network host --entrypoint /usr/bin/curl "$image" \
-  --fail --silent --show-error --data-binary 'SELECT 1' "http://127.0.0.1:$http_port/" >/dev/null 2>&1; then
-  fail 'unauthenticated HTTP access escaped the container'
-fi
-if docker run --rm --network host --entrypoint /usr/bin/clickhouse-client "$image" \
-  --host 127.0.0.1 --port "$native_port" --query 'SELECT 1' >/dev/null 2>&1; then
-  fail 'unauthenticated native access escaped the container'
-fi
-[ "$(docker exec "$container" curl --fail --silent --show-error --data-binary 'SELECT 42' http://127.0.0.1:8123/)" = 42 ] || fail 'HTTP query on port 8123 failed'
+# CI runs Docker on Linux; host networking validates the mapped-port boundary.
+http_error=$(docker run --rm --network host "$fixture" --fail --silent --show-error \
+  --data-binary 'SELECT 1' "http://127.0.0.1:$http_port/" 2>&1) \
+  && fail 'unauthenticated HTTP access escaped the container'
+printf '%s\n' "$http_error" | grep -qiE 'failed to connect|connection reset|recv failure' || \
+  fail "expected connection refusal on host HTTP port, got: $http_error"
+native_error=$(docker run --rm --network host --entrypoint /usr/bin/clickhouse-client "$image" \
+  --host 127.0.0.1 --port "$native_port" --query 'SELECT 1' 2>&1) \
+  && fail 'unauthenticated native access escaped the container'
+printf '%s\n' "$native_error" | grep -qiE 'connection refused|connection reset|cannot connect' || \
+  fail "expected connection refusal on host native port, got: $native_error"
+[ "$(docker run --rm --network "container:$container" "$fixture" --fail --silent --show-error \
+  --data-binary 'SELECT 42' http://127.0.0.1:8123/)" = 42 ] || fail 'HTTP query on port 8123 failed'
 [ "$(docker exec "$container" clickhouse-client --query 'SELECT 40 + 2')" = 42 ] || fail 'native query on port 9000 failed'
 docker exec "$container" clickhouse-client --multiquery --query \
   "CREATE TABLE verity (value UInt8) ENGINE = MergeTree ORDER BY tuple(); INSERT INTO verity VALUES (42)"
-docker stop "$container" >/dev/null
+docker stop --time 30 "$container" >/dev/null
 docker rm "$container" >/dev/null
 
 start_server
