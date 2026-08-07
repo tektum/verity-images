@@ -1,7 +1,7 @@
 package:
   name: kube-state-metrics
   version: "2.19.1"
-  epoch: 2
+  epoch: 6
   description: Add-on agent to generate and expose cluster-level metrics
   copyright:
     - license: Apache-2.0
@@ -33,6 +33,11 @@ pipeline:
     with:
       uri: https://github.com/kubernetes/kube-state-metrics/archive/45e1513e95beaaa2f2df92af9958cd9837bb66ab.tar.gz
       expected-sha256: cbe6345fe3b927d0c8f7732eca5d14af300f928511d09548181d437210f99ca7
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/google/cel-go@v0.29.0
+        google.golang.org/grpc@v1.82.1
   - uses: go/build
     with:
       packages: .
