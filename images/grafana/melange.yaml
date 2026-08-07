@@ -58,6 +58,18 @@ pipeline:
       repository: https://github.com/grafana/grafana
       tag: v${{package.version}}
       expected-commit: 16fbc24965a6dbeb7ed7facafb090062214ba33e
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/grafana/tempo@v2.10.3
+        github.com/prometheus/prometheus@v0.311.3
+        github.com/google/cel-go@v0.29.0
+        google.golang.org/grpc@v1.82.1
+        github.com/getkin/kin-openapi@v0.144.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+      tidy: false
+      work: true
   - name: Build
     runs: |
       export NODE_OPTIONS="--max-old-space-size=8192"
