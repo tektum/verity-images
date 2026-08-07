@@ -33,9 +33,11 @@ def archive(root: Path, output: Path, name: str = "apk") -> None:
 
 
 def fixture(root: Path, state: dict[str, object]) -> Path:
-    for member in validate_repository_state.archive_paths(state):
+    members = validate_repository_state.archive_paths(state)
+    directories = {member for member in members if any(other.startswith(f"{member}/") for other in members)}
+    for member in members:
         target = root / member
-        if member == "apk" or member.endswith(tuple(validate_repository_state.ARCHITECTURES)):
+        if member in directories:
             target.mkdir(parents=True, exist_ok=True)
         else:
             target.parent.mkdir(parents=True, exist_ok=True)
