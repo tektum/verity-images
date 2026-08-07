@@ -1,0 +1,28 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-metrics-server@local
+
+accounts:
+  run-as: 1000
+
+entrypoint:
+  command: /usr/bin/metrics-server
+
+cmd: --secure-port=10250 --cert-dir=/tmp
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o1777
