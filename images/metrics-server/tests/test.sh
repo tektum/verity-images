@@ -42,6 +42,8 @@ docker run --name "$container" -d --read-only --user 1000 \
   --secure-port=10250 \
   --cert-dir=/tmp \
   --kubeconfig=/tmp/kubeconfig \
+  --authentication-kubeconfig=/tmp/kubeconfig \
+  --authorization-kubeconfig=/tmp/kubeconfig \
   --authentication-skip-lookup >/dev/null
 port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
