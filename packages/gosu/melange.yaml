@@ -1,0 +1,60 @@
+package:
+  name: gosu
+  version: "1.19"
+  epoch: 0
+  description: Deterministic gosu build with patched golang.org/x/sys
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: Apache-2.0
+
+vars:
+  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513
+  go-version: go1.26.5
+  x-sys-version: v0.44.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://github.com/tianon/gosu/archive/${{vars.source-commit}}.tar.gz
+      expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b
+  - runs: |
+      # The upstream Go release archive is pinned so the output stays byte-identical
+      # to the reference build. Distribution toolchains of the same Go version embed
+      # different build settings and produce different bytes.
+      case "${{build.arch}}" in
+        x86_64)
+          toolchain=${{vars.go-version}}.linux-amd64.tar.gz
+          toolchain_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+          expected=8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025
+          ;;
+        aarch64)
+          toolchain=${{vars.go-version}}.linux-arm64.tar.gz
+          toolchain_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+          expected=420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859
+          ;;
+        *) exit 1 ;;
+      esac
+      wget -q -O "/tmp/$toolchain" "https://go.dev/dl/$toolchain"
+      printf '%s  /tmp/%s\n' "$toolchain_sha256" "$toolchain" | sha256sum -c -
+      tar -xzf "/tmp/$toolchain" -C /tmp
+      export PATH=/tmp/go/bin:$PATH CGO_ENABLED=0 GOOS=linux GOTOOLCHAIN=local
+      [ "$(go version | cut -d' ' -f3)" = "${{vars.go-version}}" ]
+      [ "$(awk -F '"' '/^const Version = "/ { print $2 }' version.go)" = "${{package.version}}" ]
+      go mod edit -require="golang.org/x/sys@${{vars.x-sys-version}}"
+      go mod tidy
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags '-d -w' -o gosu .
+      printf '%s  gosu\n' "$expected" | sha256sum -c -
+      install -m755 -D gosu "${{targets.destdir}}/usr/bin/gosu"

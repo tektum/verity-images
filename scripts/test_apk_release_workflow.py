@@ -20,6 +20,7 @@ POLICY: Final = ROOT / "scripts/apk_repository_policy.py"
 RUNTIME_TEST: Final = ROOT / "scripts/test_fips_runtime.sh"
 REPOSITORY_VERIFY: Final = ROOT / "scripts/verify_apk_repository.sh"
 RESERVER: Final = ROOT / ".github/scripts/reserve-apk-release-identity.sh"
+PACKAGE_VERSION: Final = ROOT / ".github/scripts/apk-package-version.sh"
 SIGNING_DOC: Final = ROOT / "docs/APK_REPOSITORY_SIGNING.md"
 RUNTIME_IMAGE: Final = "cgr.dev/chainguard/wolfi-base@sha256:003627df3c1e1bba0c4116afcddb314aca9594ee2328c7e876a8081a6c988b2e"
 RUNS_ON_PREFIX: Final = "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-"
@@ -36,6 +37,49 @@ def job(text: str, name: str, next_name: str) -> str:
 def runner(job: str) -> str:
     line = next(line.strip() for line in job.splitlines() if line.startswith("    runs-on: "))
     return line.removeprefix("runs-on: ").split("  #", maxsplit=1)[0]
+
+
+def package_version_tests() -> None:
+    metadata = {
+        "architecture": "x86_64",
+        "identity": {"name": "gosu", "version": "1.19-r0"},
+        "recipe": {"path": "packages/gosu/melange.yaml", "sha256": "0" * 64},
+    }
+    forgeries = (
+        {"architecture": "aarch64"},
+        {"identity": {"name": "openssl-fips-provider", "version": "1.19-r0"}},
+        {"identity": {"name": "gosu", "version": "1.19"}},
+        {"identity": {"name": "gosu", "version": "1.20-r0"}},
+        {"recipe": {"path": "packages/other/melange.yaml", "sha256": "0" * 64}},
+    )
+    for forgery in (None, *forgeries):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for architecture in ("x86_64", "aarch64"):
+                directory = root / f"apk-build-gosu-{architecture}"
+                directory.mkdir()
+                values = {**metadata, "architecture": architecture}
+                if forgery is not None and architecture == "x86_64":
+                    values |= forgery
+                (directory / "metadata.json").write_text(json.dumps(values), encoding="utf-8")
+            result = subprocess.run(
+                ["bash", str(PACKAGE_VERSION), str(root), "gosu"],
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            if forgery is None:
+                assert result.returncode == 0 and result.stdout.strip() == "1.19-r0", result.stderr
+            else:
+                assert result.returncode != 0, forgery
+    with tempfile.TemporaryDirectory() as temporary:
+        result = subprocess.run(
+            ["bash", str(PACKAGE_VERSION), temporary, "gosu"],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+        assert result.returncode != 0 and "missing build metadata" in result.stderr
 
 
 def main() -> None:
@@ -56,6 +100,11 @@ def main() -> None:
     assert "  merge_group:\n    types: [checks_requested]\n" in workflow
     assert "    branches: [main]\n" in workflow
     assert "python3 scripts/gen_apk_matrix.py" in matrix
+    assert "        options: [openssl-fips-provider, gosu]\n" in workflow
+    assert "PACKAGE: ${{ inputs.package }}" in matrix
+    assert '[[ -f "packages/${PACKAGE}/melange.yaml" ]]' in matrix
+    assert 'select(.package == $package)' in matrix
+    assert "openssl-fips-provider" not in matrix
     assert "for architecture in aarch64 x86_64" in matrix
     assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
     assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
@@ -161,6 +210,11 @@ def main() -> None:
     assert 'type:"build-input"' in signing
     assert '--arg x86_artifact "sha256:$X86_64_ARTIFACT_DIGEST"' in signing
     assert '--arg arm_artifact "sha256:$AARCH64_ARTIFACT_DIGEST"' in signing
+    assert "openssl-fips-provider" not in signing
+    assert 'bash .github/scripts/apk-package-version.sh input "$PACKAGE"' in signing
+    assert '[[ "$name" == "$PACKAGE" ]]' in signing
+    assert '--arg name "$PACKAGE"' in signing
+    assert signing.index("apk-package-version.sh") < signing.index("Reserve package identity")
     assert "gh_call release create" in reserver
     assert "gh_call api --paginate --slurp" in reserver
     assert "releases/assets/" in reserver
@@ -281,6 +335,8 @@ def main() -> None:
             env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}"},
         )
         assert result.returncode == 1 and "unsafe manifest path" in result.stderr
+
+    package_version_tests()
 
 
 if __name__ == "__main__":
