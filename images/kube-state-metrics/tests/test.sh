@@ -37,7 +37,7 @@ class Handler(BaseHTTPRequestHandler):
         elif request.path == "/api/v1/pods" and parse_qs(request.query).get("watch") == ["true"]:
             body = {"type": "BOOKMARK", "object": {"kind": "Pod", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}}}
         elif request.path == "/api/v1/pods":
-            body = {"kind": "PodList", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}, "items": []}
+            body = {"kind": "PodList", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}, "items": [{"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "fixture", "namespace": "default", "uid": "fixture-uid", "resourceVersion": "1"}, "spec": {"nodeName": "fixture-node", "containers": []}, "status": {"phase": "Running"}}]}
         else:
             self.send_error(404)
             return
@@ -90,12 +90,39 @@ docker run --name "$container" -d --read-only --user 65532 \
   --add-host host.docker.internal:host-gateway \
   --tmpfs /tmp:uid=65532,gid=65532 \
   -v "$fixture/kubeconfig:/tmp/kubeconfig:ro" \
-  -p 127.0.0.1::8081 "$image" \
+  -p 127.0.0.1::8080 -p 127.0.0.1::8081 "$image" \
   --kubeconfig=/tmp/kubeconfig --resources=pods --port=8080 --telemetry-port=8081 >/dev/null
+port=$(docker port "$container" 8080/tcp | awk -F: 'NR == 1 { print $2 }')
 telemetry_port=$(docker port "$container" 8081/tcp | awk -F: 'NR == 1 { print $2 }')
-test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
-curl --fail --silent "http://127.0.0.1:$telemetry_port/metrics" > "$fixture/telemetry"
-grep -q '^kube_state_metrics_build_info{' "$fixture/telemetry" || {
+test -n "$port" && test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
+
+metrics_ready=
+for _ in $(seq 1 100); do
+  if curl --fail --silent --connect-timeout 1 --max-time 5 \
+      "http://127.0.0.1:$port/metrics" > "$fixture/metrics" &&
+    grep -q '^kube_pod_info{.*pod="fixture"' "$fixture/metrics"; then
+    metrics_ready=1
+    break
+  fi
+  sleep 0.1
+done
+test -n "$metrics_ready" || {
+  docker logs "$container" >&2
+  printf 'metrics endpoint did not expose fixture pod\n' >&2
+  exit 1
+}
+
+telemetry_ready=
+for _ in $(seq 1 100); do
+  if curl --fail --silent --connect-timeout 1 --max-time 5 \
+      "http://127.0.0.1:$telemetry_port/metrics" > "$fixture/telemetry" &&
+    grep -q '^kube_state_metrics_build_info{' "$fixture/telemetry"; then
+    telemetry_ready=1
+    break
+  fi
+  sleep 0.1
+done
+test -n "$telemetry_ready" || {
   docker logs "$container" >&2
   printf 'telemetry endpoint did not expose build info\n' >&2
   exit 1
