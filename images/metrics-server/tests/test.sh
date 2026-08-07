@@ -49,7 +49,7 @@ port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
 
 i=0
-until curl --fail --silent --insecure --connect-timeout 1 --max-time 5 "https://127.0.0.1:$port/livez" >/dev/null; do
+until curl --silent --insecure --connect-timeout 1 --max-time 5 "https://127.0.0.1:$port/livez" >/dev/null; do
   i=$((i + 1))
   [ "$i" -lt 20 ] || { docker logs "$container" >&2 || true; exit 1; }
   sleep 1
