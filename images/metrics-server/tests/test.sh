@@ -6,6 +6,7 @@ container="verity-metrics-server-test-$$"
 image_container="${container}-image"
 kubeconfig=$(mktemp)
 
+# cleanup removes the test containers and temporary kubeconfig file.
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker rm -f "$image_container" >/dev/null 2>&1 || true
