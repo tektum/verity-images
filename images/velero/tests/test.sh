@@ -152,14 +152,14 @@ users:
       token: smoke
 EOF
 
-container=$(docker run --rm -d --network host \
+container=$(docker run -d --network host \
   -e VELERO_NAMESPACE=velero \
   -v "$work/kubeconfig:/tmp/kubeconfig:ro" \
   "$image" server --kubeconfig=/tmp/kubeconfig --metrics-address=:8085)
 
 deadline=$(( $(date +%s) + 30 ))
 until curl -fsS http://127.0.0.1:8085/metrics > "$work/metrics" 2>/dev/null; do
-  if ! docker inspect "$container" >/dev/null 2>&1; then
+  if [ "$(docker inspect -f '{{.State.Running}}' "$container" 2>/dev/null || true)" != true ]; then
     docker logs "$container" >&2 || true
     fail 'Velero server exited before metrics became ready'
   fi
