@@ -9,7 +9,9 @@ cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 fail() {
   docker logs "$container" >&2 2>/dev/null || true
@@ -37,11 +39,18 @@ start() {
 }
 
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/rqlited"]' ] || fail 'unexpected entrypoint'
+[ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/rqlite/data"]' ] || fail 'unexpected command'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected user'
 [ "$(docker image inspect --format '{{json .Config.Volumes}}' "$image")" = '{"/rqlite/data":{}}' ] || fail 'missing /rqlite/data volume'
 docker run --rm "$image" -version 2>&1 | grep -Fq 'rqlited v8.43.4' || fail 'unexpected rqlite version'
 
 docker volume create "$volume" >/dev/null
+docker run --name "$container" -d --read-only --user 65532 \
+  -v "$volume:/rqlite/data" "$image" >/dev/null
+sleep 2
+[ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || fail 'default command did not keep rqlite running'
+docker rm -f "$container" >/dev/null
+
 start
 
 raft_probe=$(curl --verbose --connect-timeout 2 --max-time 3 "http://127.0.0.1:$raft_port/" 2>&1 || true)
