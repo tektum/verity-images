@@ -21,8 +21,8 @@ environment:
 paths:
   - path: /etc/pgbouncer
     type: directory
-    uid: 65532
-    gid: 65532
+    uid: 0
+    gid: 0
     permissions: 0o755
   - path: /tmp/pgbouncer
     type: directory
