@@ -19,7 +19,8 @@ docker run --rm --entrypoint /bin/sh "$image" -c \
   'command -v valkey-server >/dev/null && command -v valkey-cli >/dev/null'
 docker volume create "$volume" >/dev/null
 
-docker run --name "$container" -d -p 127.0.0.1::6379 "$image" >/dev/null
+docker run --name "$container" -d -p 127.0.0.1::6379 \
+  "$image" --ignore-warnings ARM64-COW-BUG >/dev/null
 port=$(docker port "$container" 6379/tcp | awk -F: 'NR == 1 { print $2 }')
 i=0
 until docker exec "$container" valkey-cli ping 2>/dev/null | grep -Fx PONG >/dev/null; do
@@ -40,7 +41,8 @@ start_server() {
     -v "$volume:/data" \
     -p 127.0.0.1::6379 \
     "$image" --dir /data --dbfilename dump.rdb \
-    --requirepass "$password" --protected-mode no >/dev/null
+    --requirepass "$password" --protected-mode no \
+    --ignore-warnings ARM64-COW-BUG >/dev/null
   port=$(docker port "$container" 6379/tcp | awk -F: 'NR == 1 { print $2 }')
   test -n "$port"
 
