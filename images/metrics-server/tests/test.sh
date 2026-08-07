@@ -40,8 +40,7 @@ docker run --name "$container" -d --read-only --user 1000 \
   -v "$kubeconfig:/tmp/kubeconfig:ro" \
   -p 127.0.0.1::10250 "$image" \
   --kubeconfig=/tmp/kubeconfig \
-  --authentication-skip-lookup \
-  --authorization-mode=AlwaysAllow >/dev/null
+  --authentication-skip-lookup >/dev/null
 port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
 
