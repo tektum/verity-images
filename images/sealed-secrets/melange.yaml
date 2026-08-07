@@ -38,6 +38,10 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 0cc547ad0c3756726768dcc916e39de3ac5b101b
 
+  - uses: go/bump
+    with:
+      deps: golang.org/x/text@v0.39.0
+
   - uses: go/build
     with:
       go-package: go-1.26
