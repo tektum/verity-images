@@ -1,5 +1,8 @@
 # Agent verification
 
+- Read `CONTRIBUTING.md` before changing an image definition.
+- Keep image pull requests image-local. Land shared workflow, matrix, catalog, or
+  scanner changes in a separate prerequisite pull request.
 - Run `./check` and require a zero exit status before creating or updating a
   pull request.
 - Do not inspect manifests to invent alternate local check commands. `./check`
