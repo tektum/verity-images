@@ -68,7 +68,7 @@ pipeline:
       install -d "${{targets.destdir}}/usr/bin"
       install -d "${{targets.destdir}}/usr/share/grafana"
       install -d "${{targets.destdir}}/etc/grafana"
-      cp bin/linux-*/* "${{targets.destdir}}/usr/bin/"
+      cp bin/linux/*/* "${{targets.destdir}}/usr/bin/"
       cp -r conf public "${{targets.destdir}}/usr/share/grafana/"
       cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini"
       cp conf/sample.ini "${{targets.destdir}}/etc/grafana/grafana.ini.example"
