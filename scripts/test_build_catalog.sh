@@ -37,6 +37,23 @@ rejects_report "$work/malformed-report.json" 'invalid JSON in build report'
 printf '%s\n' '{"images":[{"name":"image","version":"1"}]}' > "$work/invalid-fields-report.json"
 rejects_report "$work/invalid-fields-report.json" 'invalid build report'
 
+mkdir "$work/single-scan"
+printf '%s\n' '{}' > "$work/single-scan/scan-single-amd64.json"
+cat > "$work/single-report.json" <<'EOF'
+{"images":[{"name":"single","version":"1","track":"wolfi","description":"Single image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
+EOF
+python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
+  "$work/single-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
+  0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
+jq -e '.images | map([.name, .version]) == [["single", "1"]]' "$work/single-catalog.json" >/dev/null
+mv "$work/single-scan/scan-single-amd64.json" "$work/single-scan/scan-wrong-amd64.json"
+if python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
+  "$work/rejected.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
+  0000000000000000000000000000000000000000 2026-07-29T00:00:00Z 2>/dev/null; then
+  printf '%s\n' 'mismatched direct scan artifact was accepted' >&2
+  exit 1
+fi
+
 cat > "$work/report.json" <<'EOF'
 {"images":[{"name":"preserved","version":"1","track":"wolfi","description":"Preserved image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0}},{"name":"replaced","version":"1","track":"wolfi","description":"Old image.","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
 EOF
