@@ -1,0 +1,61 @@
+package:
+  name: rqlite-8
+  version: "8.43.4"
+  epoch: 0
+  description: rqlite distributed SQLite
+  copyright:
+    - license: MIT
+
+vars:
+  source-commit: a127df48fa5d8b907ce5a229e97c24e5ec3dd9ee
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - icu-dev
+      - pkgconf
+      - zlib-dev
+  environment:
+    CGO_ENABLED: "1"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rqlite/rqlite
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+      tidy: false
+  - runs: |
+      flags="-s -w -X github.com/rqlite/rqlite/v8/cmd.CompilerCommand=cc"
+      flags="$flags -X github.com/rqlite/rqlite/v8/cmd.Version=v${{package.version}}"
+      flags="$flags -X github.com/rqlite/rqlite/v8/cmd.Branch=v${{package.version}}"
+      flags="$flags -X github.com/rqlite/rqlite/v8/cmd.Commit=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -ldflags "$flags" -o rqlited ./cmd/rqlited/.
+      install -m755 -D rqlited "${{targets.destdir}}/usr/bin/rqlited"
+
+subpackages:
+  - name: rqlite-8-build-metadata
+    description: Resolved Go module metadata for the rqlite build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/rqlite-8-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/rqlite-8-build/go.sum"
+
+test:
+  pipeline:
+    - runs: /usr/bin/rqlited -version
