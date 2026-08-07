@@ -1,0 +1,36 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - velero@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/velero
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /plugins
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /velero
+    type: symlink
+    source: /usr/bin/velero
+    uid: 0
+    gid: 0
+  - path: /usr/bin/velero
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
