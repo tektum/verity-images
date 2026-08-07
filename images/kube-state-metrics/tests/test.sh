@@ -26,6 +26,7 @@ from urllib.parse import parse_qs, urlparse
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         request = urlparse(self.path)
+        pod = {"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "fixture", "namespace": "default", "uid": "fixture-uid", "resourceVersion": "1"}, "spec": {"nodeName": "fixture-node", "containers": []}, "status": {"phase": "Running"}}
         if request.path == "/version":
             body = {"major": "1", "minor": "35", "gitVersion": "v1.35.0"}
         elif request.path == "/api":
@@ -35,9 +36,9 @@ class Handler(BaseHTTPRequestHandler):
         elif request.path == "/api/v1":
             body = {"kind": "APIResourceList", "apiVersion": "v1", "groupVersion": "v1", "resources": [{"name": "pods", "singularName": "", "namespaced": True, "kind": "Pod", "verbs": ["get", "list", "watch"]}]}
         elif request.path.endswith("/pods") and parse_qs(request.query).get("watch") == ["true"]:
-            body = {"type": "BOOKMARK", "object": {"kind": "Pod", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}}}
+            body = {"type": "ADDED", "object": pod}
         elif request.path.endswith("/pods"):
-            body = {"kind": "PodList", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}, "items": [{"kind": "Pod", "apiVersion": "v1", "metadata": {"name": "fixture", "namespace": "default", "uid": "fixture-uid", "resourceVersion": "1"}, "spec": {"nodeName": "fixture-node", "containers": []}, "status": {"phase": "Running"}}]}
+            body = {"kind": "PodList", "apiVersion": "v1", "metadata": {"resourceVersion": "1"}, "items": [pod]}
         else:
             print(f"unexpected API path: {self.path}", file=sys.stderr, flush=True)
             self.send_error(404)
@@ -95,12 +96,14 @@ docker run --name "$container" -d --read-only --user 65532 \
   --kubeconfig=/tmp/kubeconfig --resources=pods --port=8080 --telemetry-port=8081 >/dev/null
 telemetry_port=$(docker port "$container" 8081/tcp | awk -F: 'NR == 1 { print $2 }')
 test -n "$telemetry_port" || { docker logs "$container" >&2 || true; exit 1; }
-curl --fail --silent "http://127.0.0.1:$telemetry_port/metrics" > "$fixture/telemetry"
-grep -q '^kube_state_metrics_build_info{' "$fixture/telemetry" || {
-  docker logs "$container" >&2
-  printf 'telemetry endpoint did not expose build info\n' >&2
-  exit 1
-}
+i=0
+until curl --fail --silent --connect-timeout 1 --max-time 5 \
+  "http://127.0.0.1:$telemetry_port/metrics" > "$fixture/telemetry" &&
+  grep -q '^kube_state_metrics_build_info{' "$fixture/telemetry"; do
+  i=$((i + 1))
+  [ "$i" -lt 20 ] || { docker logs "$container" >&2; exit 1; }
+  sleep 1
+done
 
 printf 'apiVersion: [' > "$fixture/invalid-kubeconfig"
 chmod 644 "$fixture/invalid-kubeconfig"
