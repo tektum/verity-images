@@ -132,13 +132,17 @@ their reviewed `apko.lock.json` remains the update boundary.
   review-caught behavior bug.
 - After the final push, wait for automated reviews and perform a paginated scan
   that confirms zero unresolved threads.
-- Require `lint`, every affected image validation, and `build-gate` to pass.
+- On pull requests, require `lint`, every affected image and APK validation,
+  `build-gate`, and `apk-gate` to pass.
+- The merge queue reruns `lint` and validates the changed-image and APK
+  matrices, but intentionally skips artifact builds. `main` rebuilds and
+  publishes affected images after merge.
 - Merge prerequisite pull requests before dependent image pull requests.
 
 ## Recommended branch protection
 
 Protect `main` in repository settings. Require pull requests, one approving
-review, resolved conversations, the `lint` and `build-gate` checks, and the
-merge queue. Block force pushes and branch deletion. Repository administrators
-must configure these settings because workflows cannot safely protect their own
-branch.
+review, resolved conversations, the `lint`, `build-gate`, and `apk-gate` checks,
+and the merge queue. Block force pushes and branch deletion. Repository
+administrators must configure these settings because workflows cannot safely
+protect their own branch.
