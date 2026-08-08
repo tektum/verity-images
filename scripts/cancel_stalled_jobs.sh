@@ -9,6 +9,15 @@ now=$(date -u +%s)
 jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" \
   --jq '[.[].jobs[]] | map(select(.name | test("^(validate|publish) \\(")))')
 
+# The caller only starts this script once matrix has produced at least one
+# image, so an empty result here means the API hasn't caught up with the
+# newly created validate/publish jobs yet, not that none exist. Treat that
+# as pending too, or a lagging first poll could report DONE before those
+# jobs are even visible.
+if [[ "$(jq 'length' <<<"$jobs")" -eq 0 ]]; then
+  exit 42
+fi
+
 pending=false
 while IFS= read -r job; do
   [[ -n "$job" ]] || continue

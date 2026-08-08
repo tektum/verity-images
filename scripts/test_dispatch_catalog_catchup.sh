@@ -22,11 +22,14 @@ chmod +x "$work/bin/gh"
 cat > "$work/bin/curl" <<'EOF'
 #!/bin/bash
 set -euo pipefail
+printf '%q ' "$@" >> "$CURL_LOG"
+printf '\n' >> "$CURL_LOG"
 cat "$CATALOG_FIXTURE"
 EOF
 chmod +x "$work/bin/curl"
 
 export GH_LOG="$work/gh.log"
+export CURL_LOG="$work/curl.log"
 export REPOSITORY=owner/repo
 export GITHUB_STEP_SUMMARY="$work/summary.md"
 
@@ -34,9 +37,11 @@ export GITHUB_STEP_SUMMARY="$work/summary.md"
 jq -n -c --arg sha "$base_sha" '{source: {commit: $sha}}' > "$work/catalog.json"
 export CATALOG_FIXTURE="$work/catalog.json"
 : > "$GH_LOG"
+: > "$CURL_LOG"
 (cd "$work/repo" && PATH="$work/bin:$PATH" "$root/scripts/dispatch_catalog_catchup.sh")
 grep -Fq "workflow run build.yaml --repo owner/repo --ref main -f base-sha=${base_sha}" "$GH_LOG"
 grep -Fq "$base_sha" "$work/summary.md"
+grep -Fq -- '--connect-timeout 10 --max-time 30' "$CURL_LOG"
 
 # A malformed source commit is refused without dispatching anything.
 jq -n -c '{source: {commit: "not-a-sha"}}' > "$work/catalog.json"

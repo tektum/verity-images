@@ -73,6 +73,19 @@ if grep -q '/cancel' "$GH_LOG"; then
   exit 1
 fi
 
+# No validate/publish jobs visible yet (API hasn't caught up with matrix's
+# output): treat as pending rather than declaring done prematurely.
+JOBS_PAGE=$(jq -n -c '{jobs: []}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
+[[ "$status" -eq 42 ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'an empty job list still triggered a cancel\n' >&2
+  exit 1
+fi
+
 # Completed jobs and unrelated job names never trigger a cancel; nothing left to watch is done.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$stalled_started" \

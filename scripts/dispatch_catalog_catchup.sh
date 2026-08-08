@@ -4,7 +4,8 @@ set -euo pipefail
 repository=${REPOSITORY:?REPOSITORY is required}
 catalog_url=${CATALOG_URL:-https://tektum.github.io/verity-images/catalog.json}
 
-catalog=$(curl --silent --show-error --location --fail "$catalog_url")
+catalog=$(curl --silent --show-error --location --fail \
+  --connect-timeout 10 --max-time 30 "$catalog_url")
 base_sha=$(jq -r '.source.commit // empty' <<<"$catalog")
 
 if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
