@@ -283,6 +283,19 @@ def main() -> None:
     )
     assert "https://tektum.github.io/verity-images/catalog.json" in catalog
     assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
+    assert (
+        "      - name: Check out source revision\n"
+        "        if: steps.mode.outputs.value != 'packages'\n"
+        "        env:\n"
+        "          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}\n"
+        '        run: git checkout --detach "$SOURCE_SHA"\n'
+        in catalog
+    )
+    assert catalog.index("      - name: Select source run\n") < catalog.index(
+        "      - name: Check out source revision\n"
+    ) < catalog.index("      - name: Check source artifacts\n") < catalog.index(
+        "      - name: Generate expected images\n"
+    )
     assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
         "      - name: Download current catalog\n"
     )
