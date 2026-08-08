@@ -1,6 +1,6 @@
 package:
   name: etcd-3.6
-  version: "3.6.13"
+  version: "3.6.14"
   epoch: 1  # GHSA-9h8m-3fm2-qjrq
   description: A highly-available key value store for shared configuration and service discovery.
   copyright:
@@ -35,39 +35,29 @@ pipeline:
     with:
       repository: https://github.com/etcd-io/etcd
       tag: v${{package.version}}
-      expected-commit: b0f9ef190952e6e66a778513097a02ee41220727
+      expected-commit: fc04cf702b0a46c2fd85547a2be05705b100a496
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
-        google.golang.org/grpc@v1.82.1
       modroot: tests
 
   - uses: go/bump
     with:
       deps: |-
-        google.golang.org/grpc@v1.82.1
-      modroot: etcdctl
-
-  - uses: go/bump
-    with:
-      deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
-        google.golang.org/grpc@v1.82.1
       modroot: server
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
-        google.golang.org/grpc@v1.82.1
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
-        google.golang.org/grpc@v1.82.1
       modroot: etcdutl
 
   - uses: go/build
