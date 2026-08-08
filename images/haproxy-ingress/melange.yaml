@@ -1,0 +1,58 @@
+package:
+  name: haproxy-ingress
+  version: "0.16.1"
+  epoch: 0
+  description: HAProxy Ingress Controller
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - dumb-init
+      - haproxy
+      - lua-json4
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jcmoraisjr/haproxy-ingress
+      tag: v${{package.version}}
+      expected-commit: 5cda817e35489ea12ba2ad2bf31857a7c7eb3b96
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.56.0
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/text@v0.39.0
+  - runs: |
+      PKG=github.com/jcmoraisjr/haproxy-ingress/pkg/version
+      LDFLAGS="-X $PKG.RELEASE=v${{package.version}}"
+      LDFLAGS="$LDFLAGS -X $PKG.COMMIT=$(git rev-parse HEAD)"
+      LDFLAGS="$LDFLAGS -X $PKG.REPO=https://github.com/jcmoraisjr/haproxy-ingress"
+      go build -trimpath -tags netgo,osusergo -ldflags "-w $LDFLAGS" -o haproxy-ingress-controller ./pkg/main.go
+      install -Dm755 haproxy-ingress-controller "${{targets.destdir}}/usr/bin/haproxy-ingress-controller"
+      install -Dm755 rootfs/start.sh "${{targets.destdir}}/usr/bin/start.sh"
+      install -Dm755 rootfs/haproxy-reload.sh "${{targets.destdir}}/usr/bin/haproxy-reload.sh"
+      install -Dm755 rootfs/haproxy-shutdown.sh "${{targets.destdir}}/usr/bin/haproxy-shutdown.sh"
+      mkdir -p "${{targets.destdir}}/etc/haproxy"
+      cp -R rootfs/etc/lua "${{targets.destdir}}/etc/lua"
+      cp -R rootfs/etc/templates "${{targets.destdir}}/etc/templates"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/haproxy-ingress-controller --version
+        /usr/bin/haproxy-ingress-controller --help
