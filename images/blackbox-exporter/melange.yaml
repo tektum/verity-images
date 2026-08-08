@@ -1,0 +1,42 @@
+package:
+  name: prometheus-blackbox-exporter
+  version: "0.28.0"
+  epoch: 0
+  description: Prometheus exporter for blackbox probing of endpoints
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+
+vars:
+  source-commit: 5a059bee8d8ffa4e75947c5055fb0abeefc582e6
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/blackbox_exporter
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
+      flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -ldflags "$flags" -o blackbox_exporter .
+      install -m755 -D blackbox_exporter "${{targets.destdir}}/usr/bin/blackbox_exporter"
+
+test:
+  pipeline:
+    - runs: /usr/bin/blackbox_exporter --version
