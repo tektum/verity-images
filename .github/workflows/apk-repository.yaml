@@ -83,6 +83,7 @@ jobs:
 
   build-x86_64:
     if: >-
+      github.event_name != 'merge_group' &&
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
     needs: [apk-matrix]
@@ -135,6 +136,7 @@ jobs:
 
   build-aarch64:
     if: >-
+      github.event_name != 'merge_group' &&
       (github.event_name != 'workflow_dispatch' || inputs.mode == 'replacement') &&
       fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
     needs: [apk-matrix]
@@ -187,7 +189,7 @@ jobs:
 
   apk-gate:
     if: always()
-    needs: [build-x86_64, build-aarch64, apk-signing]
+    needs: [apk-matrix, build-x86_64, build-aarch64, apk-signing]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-gate/runner=4cpu-linux-x64
     permissions:
       contents: read
@@ -197,6 +199,7 @@ jobs:
         env:
           AARCH64_RESULT: ${{ needs.build-aarch64.result }}
           EVENT: ${{ github.event_name }}
+          MATRIX_RESULT: ${{ needs.apk-matrix.result }}
           MODE: ${{ inputs.mode }}
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}
@@ -204,6 +207,7 @@ jobs:
           X86_64_RESULT: ${{ needs.build-x86_64.result }}
         run: |
           set -euo pipefail
+          [[ "$MATRIX_RESULT" == success ]]
           if [[ "$EVENT" == workflow_dispatch &&
             "$REPOSITORY" == tektum/verity-images && "$REF" == refs/heads/main ]]; then
             if [[ "$MODE" == migration ]]; then
@@ -214,6 +218,10 @@ jobs:
               [[ "$AARCH64_RESULT" == success ]]
             fi
             [[ "$SIGNING_RESULT" == success ]]
+          elif [[ "$EVENT" == merge_group ]]; then
+            [[ "$X86_64_RESULT" == skipped ]]
+            [[ "$AARCH64_RESULT" == skipped ]]
+            [[ "$SIGNING_RESULT" == skipped ]]
           else
             if [[ "$X86_64_RESULT" == skipped && "$AARCH64_RESULT" == skipped ]]; then
               :

@@ -307,9 +307,14 @@ def main() -> None:
     assert ".[0].digest == \"local\"" in workflow
     assert "reports/report-*.json > build-report.json" in workflow
     assert (
-        "github.ref != 'refs/heads/main' && "
+        "      github.event_name != 'merge_group' &&\n"
+        "      github.ref != 'refs/heads/main' &&\n"
+        "      fromJSON(needs.matrix.outputs.images).include[0] != null\n"
+    ) in validate_job
+    assert build_gate_job.count(
+        "github.event_name != 'merge_group' && "
         "fromJSON(needs.matrix.outputs.images).include[0] != null"
-    ) in workflow
+    ) == 3
 
     build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
         "\n\n      - name:", maxsplit=1
@@ -320,11 +325,11 @@ def main() -> None:
             "merge_group",
             "refs/heads/gh-readonly-queue/main/pr-111-f4fd989828677e72f1bdfee557636db67af25f5f",
             '{"include":[{}]}',
-            "success",
+            "skipped",
             "skipped",
             0,
         ),
-        ("merge_group", "refs/heads/main", '{"include":[{}]}', "success", "skipped", 0),
+        ("merge_group", "refs/heads/main", '{"include":[{}]}', "success", "skipped", 1),
         ("push", "refs/heads/main", '{"include":[{}]}', "success", "success", 0),
         ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),

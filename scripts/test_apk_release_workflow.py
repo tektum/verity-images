@@ -118,7 +118,9 @@ def main() -> None:
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
-    assert "needs: [apk-matrix]" in x86_64 + aarch64
+    for build_job in (x86_64, aarch64):
+        assert "needs: [apk-matrix]" in build_job
+        assert "github.event_name != 'merge_group'" in build_job
     assert "fromJSON(needs.apk-matrix.outputs.x86_64)" in x86_64
     assert "fromJSON(needs.apk-matrix.outputs.aarch64)" in aarch64
     assert 'bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"' in x86_64 + aarch64
@@ -130,13 +132,14 @@ def main() -> None:
     assert "actions/attest-build-provenance@" in x86_64 + aarch64
 
     assert "if: always()" in gate
-    assert "needs: [build-x86_64, build-aarch64, apk-signing]" in gate
+    assert "needs: [apk-matrix, build-x86_64, build-aarch64, apk-signing]" in gate
     assert runner(gate) == f"{RUNS_ON_PREFIX}apk-gate/runner=4cpu-linux-x64"
     assert "EVENT: ${{ github.event_name }}" in gate
     assert "REF: ${{ github.ref }}" in gate
     assert "REPOSITORY: ${{ github.repository }}" in gate
     assert "X86_64_RESULT: ${{ needs.build-x86_64.result }}" in gate
     assert "AARCH64_RESULT: ${{ needs.build-aarch64.result }}" in gate
+    assert "MATRIX_RESULT: ${{ needs.apk-matrix.result }}" in gate
     assert "SIGNING_RESULT: ${{ needs.apk-signing.result }}" in gate
     assert '[[ "$X86_64_RESULT" == success ]]' in gate
     assert '[[ "$AARCH64_RESULT" == success ]]' in gate
@@ -144,15 +147,18 @@ def main() -> None:
     assert '[[ "$SIGNING_RESULT" == skipped ]]' in gate
     assert "APK_REPOSITORY_PRIVATE_KEY" not in gate
     gate_script = gate.split("        run: |\n", maxsplit=1)[1]
-    for event, ref, repository, mode, build_result, signing_result, expected in (
-        ("pull_request", "refs/pull/1/merge", "fork/example", "replacement", "success", "skipped", 0),
-        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "success", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "migration", "skipped", "success", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "skipped", "success", 1),
-        ("workflow_dispatch", "refs/heads/main", "fork/example", "replacement", "success", "skipped", 0),
-        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "skipped", 1),
-        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "failure", 1),
+    for event, ref, repository, mode, matrix_result, x86_result, arm_result, signing_result, expected in (
+        ("pull_request", "refs/pull/1/merge", "fork/example", "replacement", "success", "success", "success", "skipped", 0),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", "skipped", "skipped", 0),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "failure", "skipped", "skipped", "skipped", 1),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "success", "skipped", "skipped", 1),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", "success", "skipped", 1),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "success", "success", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "migration", "success", "skipped", "skipped", "success", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "skipped", "skipped", "success", 1),
+        ("workflow_dispatch", "refs/heads/main", "fork/example", "replacement", "success", "success", "success", "skipped", 0),
+        ("workflow_dispatch", "refs/heads/main", "tektum/verity-images", "replacement", "success", "success", "success", "skipped", 1),
+        ("merge_group", "refs/heads/gh-readonly-queue/main/pr-1", "tektum/verity-images", "replacement", "success", "skipped", "skipped", "failure", 1),
     ):
         result = subprocess.run(
             ["bash", "-c", gate_script],
@@ -160,13 +166,14 @@ def main() -> None:
             capture_output=True,
             env={
                 **os.environ,
-                "AARCH64_RESULT": build_result,
+                "AARCH64_RESULT": arm_result,
                 "EVENT": event,
+                "MATRIX_RESULT": matrix_result,
                 "MODE": mode,
                 "REF": ref,
                 "REPOSITORY": repository,
                 "SIGNING_RESULT": signing_result,
-                "X86_64_RESULT": build_result,
+                "X86_64_RESULT": x86_result,
             },
         )
         assert result.returncode == expected

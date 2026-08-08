@@ -50,8 +50,8 @@ they become operating evidence.
   publish, sign, attest, or move release tags.
 - Checkout credentials are not persisted.
 - `main` has an active ruleset requiring one approval, approval of the last push,
-  resolved review threads, linear history, and successful `lint` and `build-gate`
-  checks.
+  resolved review threads, linear history, and successful `lint`, `build-gate`,
+  and `apk-gate` checks.
 - All 16 live catalog image digests verified with Cosign `v3.0.6`.
 - All 16 live SPDX attestations verified with Cosign `v3.0.6`.
 - GitHub SLSA provenance verified for all 16 live image digests, with a GitHub-hosted
