@@ -6,6 +6,7 @@ contents:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     - "@LOCAL_KEY@"
   packages:
+    - busybox
     - ca-certificates-bundle
     - etcd-3.6@local
     - etcd-3.6-compat@local
