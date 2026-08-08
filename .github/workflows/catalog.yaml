@@ -43,7 +43,7 @@ jobs:
       github.ref == 'refs/heads/main' &&
       (github.event_name == 'push' ||
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')
+      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')
       )
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-catalog/runner=4cpu-linux-x64
     outputs:
@@ -97,10 +97,15 @@ jobs:
             run_id=$EVENT_RUN_ID
           fi
           metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")
+          conclusion=$(jq -r .conclusion <<<"$metadata")
+          if [[ "$conclusion" != success ]]; then
+            printf '::error title=Catalog not updated::Run %s (id %s) concluded "%s"; catalog unchanged.\n' \
+              "$(jq -r .html_url <<<"$metadata")" "$run_id" "$conclusion"
+            exit 1
+          fi
           jq -e --arg repository "$REPOSITORY" '
             .name == "Build images" and
             .path == ".github/workflows/build.yaml" and
-            .conclusion == "success" and
             .head_branch == "main" and
             .head_repository.full_name == $repository and
             (.event == "push" or .event == "schedule" or .event == "workflow_dispatch")

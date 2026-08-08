@@ -151,6 +151,39 @@ jobs:
           name: report-${{ matrix.name }}-${{ matrix.tag_version }}
           path: report-${{ matrix.name }}-${{ matrix.tag_version }}.json
 
+  stall-guard:
+    if: >-
+      github.event_name != 'merge_group' &&
+      fromJSON(needs.matrix.outputs.images).include[0] != null
+    needs: matrix
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Cancel validate/publish jobs stuck waiting for a runner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          STALL_MINUTES: "20"
+        run: |
+          set -euo pipefail
+          while :; do
+            status=0
+            scripts/cancel_stalled_jobs.sh || status=$?
+            [[ "$status" -eq 0 ]] && break
+            [[ "$status" -eq 42 ]] || exit "$status"
+            sleep 60
+          done
+
   publish:
     if: >-
       github.ref == 'refs/heads/main' &&
@@ -339,3 +372,26 @@ jobs:
         with:
           name: build-report
           path: build-report.json
+
+  catalog-catch-up:
+    if: >-
+      always() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&
+      needs.build-gate.result == 'failure'
+    needs: build-gate
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Dispatch a changed-image recovery build
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: scripts/dispatch_catalog_catchup.sh
