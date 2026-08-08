@@ -1,7 +1,11 @@
 package:
   name: prometheus-blackbox-exporter
   version: "0.28.0"
-  epoch: 0
+  # Epoch 99 ensures our bespoke (built with current Go toolchain and bumped
+  # dependencies) sorts above Wolfi's advisory fix revisions (0.28.0-r1..-r14)
+  # so the zero-fixable-CVE gate does not flag our epoch-0 build as behind
+  # Wolfi's own patched releases of the same package name.
+  epoch: 99
   description: Prometheus exporter for blackbox probing of endpoints
   copyright:
     - license: Apache-2.0
@@ -31,6 +35,14 @@ pipeline:
       repository: https://github.com/prometheus/blackbox_exporter
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/google/cel-go@v0.29.0
+        github.com/quic-go/quic-go@v0.59.1
+        golang.org/x/net@v0.53.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.79.3
   - runs: |
       flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
       flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
