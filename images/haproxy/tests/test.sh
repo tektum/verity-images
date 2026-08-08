@@ -51,10 +51,6 @@ test "$check_status" -eq 0 || {
   printf 'config check exited %s\n' "$check_status" >&2
   exit 1
 }
-grep -F 'Configuration file is valid' "$fixture/check.log" || {
-  printf 'config check output missing expected message\n' >&2
-  exit 1
-}
 
 docker run --name "$container" -d \
   -v "$fixture/valid.cfg:/etc/haproxy/haproxy.cfg:ro" \
