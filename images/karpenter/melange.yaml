@@ -31,10 +31,11 @@ environment:
 pipeline:
   # Pinned to verity-org/verity@96ae1121b1ee73f1e1ab42421804e441e3c155b8:packages/bespoke/karpenter-1.11.yaml,
   # which is adapted from wolfi-dev/os@2c0385b38bd6869a0e928363916e7a7148a1acaf.
-  - uses: fetch
+  - uses: git-checkout
     with:
-      uri: https://github.com/aws/karpenter-provider-aws/archive/77c161351fbad4f23fae329412de22f1045ccb42.tar.gz
-      expected-sha256: 73ee8d8865e0bddbe963923172c894212c4775063c5bebdfea7535ec2e6812c7
+      repository: https://github.com/aws/karpenter-provider-aws
+      tag: v${{package.version}}
+      expected-commit: 77c161351fbad4f23fae329412de22f1045ccb42
   - uses: go/bump
     with:
       deps: |-
