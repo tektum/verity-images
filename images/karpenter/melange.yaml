@@ -1,7 +1,9 @@
 package:
   name: karpenter-1.11
   version: "1.11.1"
-  epoch: 0
+  # Matches verity-org/verity's pinned revision, which supersedes the
+  # vulnerable public 1.11.1-r0 package for this same source commit.
+  epoch: 7
   description: Karpenter is a Kubernetes Node Autoscaler built for flexibility, performance, and simplicity.
   copyright:
     - license: Apache-2.0
@@ -33,6 +35,11 @@ pipeline:
     with:
       uri: https://github.com/aws/karpenter-provider-aws/archive/77c161351fbad4f23fae329412de22f1045ccb42.tar.gz
       expected-sha256: 73ee8d8865e0bddbe963923172c894212c4775063c5bebdfea7535ec2e6812c7
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
   - uses: go/build
     with:
       go-package: go-1.26
