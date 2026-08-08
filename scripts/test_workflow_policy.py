@@ -243,8 +243,10 @@ def main() -> None:
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
-    validate_job = between(workflow, "\n  validate:\n", "\n  publish:\n")
-    build_gate_job = workflow.split("\n  build-gate:\n", maxsplit=1)[1]
+    validate_job = between(workflow, "\n  validate:\n", "\n  stall-guard:\n")
+    stall_guard_job = between(workflow, "\n  stall-guard:\n", "\n  publish:\n")
+    build_gate_job = between(workflow, "\n  build-gate:\n", "\n  catalog-catch-up:\n")
+    catalog_catch_up_job = workflow.split("\n  catalog-catch-up:\n", maxsplit=1)[1]
     deploy_job = catalog.split("\n  deploy:\n", maxsplit=1)[1]
     assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
@@ -252,24 +254,79 @@ def main() -> None:
         "family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
         "extras=otel/spot=false"
     )
+    assert runner(stall_guard_job) == "ubuntu-latest"
     assert runner(publish_job) == (
         f"{RUNS_ON_PREFIX}publish-${{{{ strategy.job-index }}}}/"
         "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
     )
     assert runner(build_gate_job) == "ubuntu-latest"
+    assert runner(catalog_catch_up_job) == "ubuntu-latest"
     assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
     assert runner(monitor) == f"{RUNS_ON_PREFIX}monitor/runner=4cpu-linux-x64"
-    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in between(
-        workflow, "\n  validate:\n", "\n  publish:\n"
+    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
+
+    assert "needs: matrix\n" in stall_guard_job
+    assert (
+        "\n    permissions:\n"
+        "      actions: write\n"
+        "      contents: read\n"
+        in stall_guard_job
     )
+    assert "\n    timeout-minutes: 50\n" in stall_guard_job
+    assert "github.event_name != 'merge_group' &&" in stall_guard_job
+    assert "fromJSON(needs.matrix.outputs.images).include[0] != null" in stall_guard_job
+    guard_script = stall_guard_job.split("        run: |\n", maxsplit=1)[1]
+    assert 'scripts/cancel_stalled_jobs.sh || status=$?\n' in guard_script
+    assert '[[ "$status" -eq 0 ]] && break\n' in guard_script
+    assert '[[ "$status" -eq 42 ]] || exit "$status"\n' in guard_script
+
+    assert (
+        "    if: >-\n"
+        "      always() && github.event_name == 'push' && github.ref == 'refs/heads/main' &&\n"
+        "      needs.build-gate.result == 'failure'\n"
+        "    needs: build-gate\n"
+        in catalog_catch_up_job
+    )
+    assert (
+        "\n    permissions:\n"
+        "      actions: write\n"
+        "      contents: read\n"
+        in catalog_catch_up_job
+    )
+    assert "          fetch-depth: 0\n" in catalog_catch_up_job
+    assert "scripts/dispatch_catalog_catchup.sh\n" in catalog_catch_up_job
     assert (
         "\n    concurrency:\n"
         "      group: publish-${{ matrix.owner }}-${{ matrix.name }}-${{ matrix.tag_version }}-${{ matrix.flavor }}\n"
         "      cancel-in-progress: false\n"
     ) in publish_job
+
+    assert (
+        "    if: >-\n"
+        "      github.ref == 'refs/heads/main' &&\n"
+        "      (github.event_name == 'push' ||\n"
+        "      github.event_name == 'workflow_dispatch' ||\n"
+        "      (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')\n"
+        "      )\n"
+        in catalog
+    )
+    assert "github.event.workflow_run.conclusion" not in catalog
+    source_step = between(
+        catalog,
+        "      - name: Select source run\n",
+        "\n      - name: Check out source revision\n",
+    )
+    assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in source_step
+    assert (
+        '          if [[ "$conclusion" != success ]]; then\n'
+        "            printf '::error title=Catalog not updated::"
+        'Run %s (id %s) concluded "%s"; catalog unchanged.\\n\' \\\n'
+        in source_step
+    )
+    assert '.conclusion == "success" and' not in source_step
 
     catalog_step = between(
         catalog,
