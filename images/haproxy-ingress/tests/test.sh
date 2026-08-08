@@ -16,12 +16,23 @@ fail() {
   exit 1
 }
 
-[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/haproxy-ingress-controller"]' ] \
+[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/dumb-init","--","/usr/bin/start.sh"]' ] \
   || fail 'unexpected entrypoint'
 
 docker run --rm --network none --entrypoint /bin/sh "$image" -c \
-  'test -x /usr/bin/haproxy-ingress-controller && test -x /usr/bin/haproxy && test -d /etc/haproxy && test -d /var/lib/haproxy' \
+  'test -x /usr/bin/haproxy-ingress-controller && test -x /usr/bin/haproxy \
+   && test -x /usr/bin/start.sh && test -L /haproxy-ingress-controller \
+   && test -d /etc/haproxy && test -d /etc/lua && test -d /var/lib/haproxy' \
   || fail 'required HAProxy paths are missing'
+
+# The default entrypoint runs the upstream start.sh wrapper via dumb-init, which
+# must copy /etc/lua into /etc/haproxy/lua before execing the controller.
+wrapper_container="verity-haproxy-ingress-wrapper-$$"
+docker create --name "$wrapper_container" --network none "$image" --version >/dev/null
+docker start -a "$wrapper_container" >/dev/null || { docker logs "$wrapper_container" >&2; docker rm -f "$wrapper_container" >/dev/null; fail 'wrapper startup failed'; }
+docker export "$wrapper_container" | tar -tf - | grep -q '^etc/haproxy/lua/auth-request.lua$' \
+  || { docker rm -f "$wrapper_container" >/dev/null; fail 'start.sh did not copy /etc/lua into /etc/haproxy/lua'; }
+docker rm -f "$wrapper_container" >/dev/null
 
 docker run --rm --network none "$image" --help 2>&1 | grep -q 'Usage of HAProxy Ingress' \
   || fail 'controller --help did not print usage'

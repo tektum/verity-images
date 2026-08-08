@@ -10,7 +10,19 @@ contents:
     - haproxy-ingress@local
 
 entrypoint:
-  command: /usr/bin/haproxy-ingress-controller
+  command: /usr/bin/dumb-init -- /usr/bin/start.sh
 
 environment:
   PATH: /usr/bin:/bin
+
+paths:
+  - path: /haproxy-ingress-controller
+    type: symlink
+    source: /usr/bin/haproxy-ingress-controller
+    uid: 0
+    gid: 0
+  - path: /usr/bin/haproxy-ingress-controller
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
