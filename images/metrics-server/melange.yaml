@@ -1,0 +1,61 @@
+package:
+  name: verity-metrics-server
+  version: "0.9.0"
+  epoch: 0
+  description: Resource metrics for Kubernetes built-in autoscaling pipelines.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 2a7c4b2c7d46552ff47f4aeaa3a735c582587ecd
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://github.com/kubernetes-sigs/metrics-server/archive/${{vars.source-commit}}.tar.gz
+      expected-sha256: 7c3dc479484fca306297221058bf55f5d4620305b4041e729dfb497386a621fa
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/google/cel-go@v0.29.0
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+  - runs: |
+      make metrics-server \
+        ARCH="$(go env GOARCH)" \
+        BUILD_DATE=2026-07-13T10:38:03Z \
+        GIT_COMMIT=${{vars.source-commit}} \
+        GIT_TAG=v${{package.version}}
+      install -Dm755 metrics-server "${{targets.destdir}}/usr/bin/metrics-server"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      "${{targets.destdir}}/usr/bin/metrics-server" --version | grep -F "v${{package.version}}"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        metrics-server --version | grep -F "v${{package.version}}"
+        metrics-server --help >/dev/null
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
