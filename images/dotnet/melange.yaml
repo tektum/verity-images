@@ -131,7 +131,6 @@ subpackages:
             - ldd-check
       pipeline:
         - runs: ldd-check --packages="${{context.name}}"
-        - runs: dotnet tool install -g Microsoft.Web.LibraryManager.Cli
 
   - name: dotnet-${{vars.major-version}}-runtime
     description: "The .NET ${{vars.major-version}} Core Runtime"
