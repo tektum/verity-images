@@ -148,7 +148,13 @@ subpackages:
           ln -s ../../bin/etcdutl "${{targets.subpkgdir}}/usr/local/bin/etcdutl-${{package.version}}"
     test:
       pipeline:
-        - uses: test/tw/symlink-check
+        - runs: |
+            test -L /usr/local/bin/etcd
+            test -L /usr/local/bin/etcdctl
+            test -L /usr/local/bin/etcdutl
+            /usr/local/bin/etcd --version
+            /usr/local/bin/etcdctl version
+            /usr/local/bin/etcdutl version
 
 update:
   enabled: true
