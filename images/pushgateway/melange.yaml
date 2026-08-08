@@ -1,0 +1,92 @@
+package:
+  name: prometheus-pushgateway
+  version: "1.11.3"
+  # r2 rebuilds the latest immutable release with its fixed Prometheus v0.311.3
+  # dependency for CVE-2026-42151 and CVE-2026-42154.
+  epoch: 2
+  description: Push acceptor for ephemeral and batch jobs
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 7Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/pushgateway
+      tag: v${{package.version}}
+      expected-commit: e803ebd81be5867ff17a21205030611fa033af13
+
+  - uses: go/build
+    with:
+      packages: .
+      output: prometheus-pushgateway
+      go-package: go-1.26
+      ldflags: |
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=e803ebd81be5867ff17a21205030611fa033af13
+        -X github.com/prometheus/common/version.Branch=HEAD
+        -X github.com/prometheus/common/version.BuildUser=verity
+        -X github.com/prometheus/common/version.BuildDate=2026-08-08T00:00:00Z
+
+  - runs: |
+      binary="${{targets.destdir}}/usr/bin/prometheus-pushgateway"
+      "$binary" --version 2>&1 | grep -F "version ${{package.version}}"
+      go version -m "$binary" \
+        | grep -E 'github.com/prometheus/prometheus[[:space:]]+v0.311.3'
+      ln -sf /usr/bin/prometheus-pushgateway \
+        "${{targets.destdir}}/usr/bin/pushgateway"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+        - go-1.26
+  pipeline:
+    - runs: |
+        pushgateway --version 2>&1 | grep -F "version ${{package.version}}"
+        pushgateway --help >/dev/null
+        test "$(readlink /usr/bin/pushgateway)" = "/usr/bin/prometheus-pushgateway"
+        go version -m /usr/bin/prometheus-pushgateway \
+          | grep -E 'github.com/prometheus/prometheus[[:space:]]+v0.311.3'
+        apk info --who-owns /usr/bin/prometheus-pushgateway \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: prometheus/pushgateway
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true
