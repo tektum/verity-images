@@ -253,21 +253,18 @@ def updater_requires_review() -> None:
     managers = renovate["customManagers"]
     rules = renovate["packageRules"]
     assert any("repository-state" in manager["managerFilePatterns"][0] for manager in managers)
-    assert renovate["automerge"] is False
-    assert renovate["platformAutomerge"] is False
+    assert renovate["automerge"] is True
+    assert renovate["platformAutomerge"] is True
     assert renovate["automergeType"] == "pr"
     assert renovate["prCreation"] == "immediate"
     assert any(
         rule.get("matchFileNames") == ["packages/repository-state.json"]
+        and rule.get("automerge") is False
         and rule.get("labels") == ["apk-repository-state", "review-required"]
         for rule in rules
     )
-    assert any(
-        rule.get("matchPackageNames") == ["*"]
-        and rule.get("automerge") is False
-        and rule.get("platformAutomerge") is False
-        and rule.get("automergeType") == "pr"
-        and rule.get("prCreation") == "immediate"
+    assert not any(
+        rule.get("matchPackageNames") == ["*"] and rule.get("automerge") is False
         for rule in rules
     )
     assert all(rule.get("automerge", False) is False for rule in rules)
