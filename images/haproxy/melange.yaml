@@ -1,0 +1,65 @@
+package:
+  name: haproxy
+  version: "3.3.12"
+  epoch: 0
+  description: Reliable, high performance TCP/HTTP load balancer
+  copyright:
+    - license: GPL-2.0-or-later
+  dependencies:
+    runtime:
+      - libssl3
+      - pcre2
+      - zlib
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - linux-headers
+      - openssl-dev
+      - pcre2-dev
+      - zlib-dev
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://www.haproxy.org/download/3.3/src/haproxy-${{package.version}}.tar.gz
+      expected-sha256: 6ef0d2510ba46d89e0773bbc5bdd99c1fd5ba2067a35332c49f985233159331b
+
+  - runs: |
+      make -j$(nproc) \
+        TARGET=linux-glibc \
+        USE_GETADDRINFO=1 \
+        USE_OPENSSL=1 \
+        USE_PCRE2=1 \
+        USE_ZLIB=1 \
+        PREFIX=/usr \
+        SBINDIR=/usr/bin
+      make \
+        TARGET=linux-glibc \
+        USE_GETADDRINFO=1 \
+        USE_OPENSSL=1 \
+        USE_PCRE2=1 \
+        USE_ZLIB=1 \
+        PREFIX=/usr \
+        SBINDIR=/usr/bin \
+        DESTDIR="${{targets.destdir}}" \
+        install-bin
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        haproxy -vv | grep -q "HAProxy version ${{package.version}}"
+        apk info --who-owns /usr/bin/haproxy | grep -F "${{package.name}}-${{package.full-version}}"
