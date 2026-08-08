@@ -50,16 +50,16 @@ run_tofu() {
   docker run --rm --network none -v "$work/valid:/workspace" "$image" "$@"
 }
 
-run_tofu init -input=false >"$work/init.log" 2>&1 ||
+run_tofu init -no-color -input=false >"$work/init.log" 2>&1 ||
   { cat "$work/init.log" >&2; fail 'offline init failed on a valid configuration'; }
 grep -Fq 'OpenTofu has been successfully initialized!' "$work/init.log" ||
   fail 'init did not report success'
 
-run_tofu validate >"$work/validate.log" 2>&1 ||
+run_tofu validate -no-color >"$work/validate.log" 2>&1 ||
   { cat "$work/validate.log" >&2; fail 'validate failed on a valid configuration'; }
 grep -Fq 'The configuration is valid.' "$work/validate.log" || fail 'validate did not report success'
 
-run_tofu plan -input=false -out=plan.tfplan >"$work/plan.log" 2>&1 ||
+run_tofu plan -no-color -input=false -out=plan.tfplan >"$work/plan.log" 2>&1 ||
   { cat "$work/plan.log" >&2; fail 'plan failed on a valid configuration'; }
 grep -Fq 'terraform_data.example will be created' "$work/plan.log" ||
   fail 'plan did not describe the expected resource change'
@@ -75,7 +75,7 @@ EOF
 chmod 666 "$work/invalid/main.tf"
 
 if docker run --rm --network none -v "$work/invalid:/workspace" "$image" \
-  init -input=false >"$work/invalid-init.log" 2>&1; then
+  init -no-color -input=false >"$work/invalid-init.log" 2>&1; then
   cat "$work/invalid-init.log" >&2
   fail 'init unexpectedly succeeded on a malformed configuration'
 fi
