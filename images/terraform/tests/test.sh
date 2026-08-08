@@ -12,6 +12,8 @@ fail() {
 
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/tofu"]' ] ||
   fail 'unexpected entrypoint'
+[ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["version"]' ] ||
+  fail 'unexpected default command'
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /workspace ] ||
   fail 'unexpected OCI working directory'
