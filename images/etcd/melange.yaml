@@ -41,23 +41,27 @@ pipeline:
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
+        google.golang.org/grpc@v1.82.1
       modroot: tests
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
+        google.golang.org/grpc@v1.82.1
       modroot: server
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
+        google.golang.org/grpc@v1.82.1
 
   - uses: go/bump
     with:
       deps: |-
         go.opentelemetry.io/otel/sdk@v1.44.0
+        google.golang.org/grpc@v1.82.1
       modroot: etcdutl
 
   - uses: go/build
