@@ -291,6 +291,11 @@ def main() -> None:
         '        run: git checkout --detach "$SOURCE_SHA"\n'
         in catalog
     )
+    assert catalog.index("      - name: Select source run\n") < catalog.index(
+        "      - name: Check out source revision\n"
+    ) < catalog.index("      - name: Check source artifacts\n") < catalog.index(
+        "      - name: Generate expected images\n"
+    )
     assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
         "      - name: Download current catalog\n"
     )
