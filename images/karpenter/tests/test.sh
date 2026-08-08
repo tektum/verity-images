@@ -49,6 +49,7 @@ docker run --name "$container" -d --read-only --user 65532 \
   --tmpfs /tmp:uid=65532,gid=65532 \
   -v "$fixture/kubeconfig:/tmp/kubeconfig:ro" \
   -e KUBECONFIG=/tmp/kubeconfig \
+  -e CLUSTER_NAME=smoke-cluster \
   -e DISABLE_LEADER_ELECTION=true \
   -p 127.0.0.1::8081 "$image" >/dev/null
 health_port=$(docker port "$container" 8081/tcp | awk -F: 'NR == 1 { print $2 }')
@@ -63,15 +64,15 @@ until curl --fail --silent --output /dev/null --connect-timeout 1 --max-time 5 \
 done
 test "$(docker inspect -f '{{.State.Running}}' "$container")" = true
 
-# Failure path: no kubeconfig, no in-cluster service account, and no
-# KUBERNETES_SERVICE_HOST/PORT means the controller cannot resolve cluster
-# config and must exit nonzero.
+# Failure path: no cluster-name, no kubeconfig, no in-cluster service account,
+# and no KUBERNETES_SERVICE_HOST/PORT means the controller cannot resolve
+# cluster config and must exit nonzero.
 if docker run --name "$missing_container" --user 65532 "$image" \
   >"$fixture/missing-config.log" 2>&1; then
   printf 'missing cluster config unexpectedly succeeded\n' >&2
   cat "$fixture/missing-config.log" >&2
   exit 1
 fi
-grep -F 'unable to get kubeconfig' "$fixture/missing-config.log"
+grep -Eq 'missing field, cluster-name|unable to get kubeconfig' "$fixture/missing-config.log"
 
 printf 'SMOKE PASS image=%s\n' "$image"
