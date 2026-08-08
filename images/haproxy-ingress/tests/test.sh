@@ -3,10 +3,12 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 container="verity-haproxy-ingress-test-$$"
+wrapper_container="verity-haproxy-ingress-wrapper-$$"
 work=$(mktemp -d)
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$wrapper_container" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -27,11 +29,10 @@ docker run --rm --network none --entrypoint /bin/sh "$image" -c \
 
 # The default entrypoint runs the upstream start.sh wrapper via dumb-init, which
 # must copy /etc/lua into /etc/haproxy/lua before execing the controller.
-wrapper_container="verity-haproxy-ingress-wrapper-$$"
 docker create --name "$wrapper_container" --network none "$image" --version >/dev/null
-docker start -a "$wrapper_container" >/dev/null || { docker logs "$wrapper_container" >&2; docker rm -f "$wrapper_container" >/dev/null; fail 'wrapper startup failed'; }
+docker start -a "$wrapper_container" >/dev/null || { docker logs "$wrapper_container" >&2; fail 'wrapper startup failed'; }
 docker export "$wrapper_container" | tar -tf - | grep -q '^etc/haproxy/lua/auth-request.lua$' \
-  || { docker rm -f "$wrapper_container" >/dev/null; fail 'start.sh did not copy /etc/lua into /etc/haproxy/lua'; }
+  || fail 'start.sh did not copy /etc/lua into /etc/haproxy/lua'
 docker rm -f "$wrapper_container" >/dev/null
 
 docker run --rm --network none "$image" --help 2>&1 | grep -q 'Usage of HAProxy Ingress' \
