@@ -115,6 +115,12 @@ jobs:
             printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Check out source revision
+        if: steps.mode.outputs.value != 'packages'
+        env:
+          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
+        run: git checkout --detach "$SOURCE_SHA"
+
       - name: Check source artifacts
         id: artifacts
         shell: bash
