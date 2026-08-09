@@ -124,7 +124,7 @@ printf 'default' > "$work/serviceaccount/namespace"
 chmod -R a+rX "$work/home" "$work/serviceaccount"
 chmod 0777 "$work/data"
 
-docker run --rm --network host \
+if docker run --rm --network host \
   -e LABEL=app \
   -e FOLDER=/data \
   -e METHOD=LIST \
@@ -137,11 +137,13 @@ docker run --rm --network host \
   -v "$work/serviceaccount:/var/run/secrets/kubernetes.io/serviceaccount:ro" \
   -v "$work/data:/data" \
   "$image" >"$work/run.log" 2>&1
-status=$?
-[ "$status" -eq 0 ] || {
+then
+  :
+else
+  status=$?
   cat "$work/run.log" >&2
   fail "sidecar exited $status on the happy path"
-}
+fi
 
 [ "$(cat "$work/data/hello.txt" 2>/dev/null || true)" = world ] ||
   fail 'sidecar did not write the expected file from the fake ConfigMap'
