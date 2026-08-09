@@ -31,6 +31,7 @@ OPENSSL_FIPS_PATHS: Final = {
     "packages/repository-state.pin.json",
     "packages/repository-state.schema.json",
 }
+SOURCE_REGISTRIES: Final = frozenset({"docker.io", "registry.k8s.io", "docker.elastic.co", "ghcr.io"})
 REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
 
 type Track = Literal["wolfi", "patched"]
@@ -153,8 +154,10 @@ def parse_source(path: Path) -> Source:
     image = values.get("image")
     digest = values.get("digest")
     platforms = values.get("platforms")
-    if not isinstance(image, str) or not image.startswith("docker.io/"):
-        raise MetadataError(f"{path}: image must be fully qualified on docker.io")
+    if not isinstance(image, str) or not any(
+        image.startswith(f"{registry}/") for registry in SOURCE_REGISTRIES
+    ):
+        raise MetadataError(f"{path}: image must use an approved fully qualified registry")
     if not isinstance(digest, str) or not digest.startswith("sha256:") or len(digest) != 71:
         raise MetadataError(f"{path}: digest must be a pinned sha256")
     if not isinstance(platforms, tuple) or platforms != ("linux/amd64", "linux/arm64"):
