@@ -13,6 +13,13 @@ from typing import Final
 import gen_matrix
 
 REGISTRIES: Final = ("docker.io", "registry.k8s.io", "docker.elastic.co", "ghcr.io")
+REJECTED_REGISTRIES: Final = (
+    "docker.io.example",
+    "registry.k8s.io.example",
+    "docker.elastic.co.example",
+    "ghcr.io.example",
+    "quay.io",
+)
 
 
 def source_is_valid(path: Path, registry: str) -> bool:
@@ -34,7 +41,7 @@ def main() -> None:
         source = Path(temporary_directory) / "source.yaml"
         accepted = {registry for registry in REGISTRIES if source_is_valid(source, registry)}
         assert accepted == set(REGISTRIES), accepted
-        assert not source_is_valid(source, "ghcr.io.example")
+        assert all(not source_is_valid(source, registry) for registry in REJECTED_REGISTRIES)
 
 
 if __name__ == "__main__":
