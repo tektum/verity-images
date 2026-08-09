@@ -1,0 +1,7 @@
+name: k8s-sidecar
+track: patched
+description: Kiwigrid sidecar that syncs labeled ConfigMaps and Secrets to files and calls a webhook.
+upstream: docker.io/kiwigrid/k8s-sidecar:2.10.1
+versions: [2.10.1]
+owner: tektum
+enabled: true
