@@ -1,0 +1,7 @@
+name: ingress-nginx-controller
+track: patched
+description: Kubernetes ingress-nginx controller 1.15.1 patched with Copacetic.
+upstream: registry.k8s.io/ingress-nginx/controller:v1.15.1
+versions: [1.15.1]
+owner: tektum
+enabled: true
