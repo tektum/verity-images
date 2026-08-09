@@ -137,8 +137,8 @@ for _ in $(seq 1 60); do
     docker logs "$container" >&2 || true
     fail 'reflector exited before becoming healthy'
   fi
-  live=$(curl -fsS "http://127.0.0.1:$health_port/health/live" 2>/dev/null || true)
-  ready=$(curl -fsS "http://127.0.0.1:$health_port/health/ready" 2>/dev/null || true)
+  live=$(curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:$health_port/health/live" 2>/dev/null || true)
+  ready=$(curl -fsS --connect-timeout 1 --max-time 2 "http://127.0.0.1:$health_port/health/ready" 2>/dev/null || true)
   [ "$live" = Healthy ] && [ "$ready" = Healthy ] && break
   sleep 0.5
 done
