@@ -73,15 +73,13 @@ if docker run --rm --network "container:$sandbox" --cap-drop ALL \
 fi
 
 docker run --rm --network "container:$sandbox" --cap-drop ALL --cap-add NET_ADMIN \
-  -v "$kubeconfig:/var/lib/kube-proxy/kubeconfig:ro" "$image" \
-  --init-only --proxy-mode=iptables --iptables-localhost-nodeports=false \
-  --hostname-override=synthetic-node --kubeconfig=/var/lib/kube-proxy/kubeconfig >/dev/null
+  --entrypoint /usr/bin/iptables "$image" -t nat -N KUBE-SERVICES
 
 docker run --rm --network "container:$sandbox" --cap-drop ALL --cap-add NET_ADMIN \
   --entrypoint /usr/bin/iptables "$image" -t nat -S KUBE-SERVICES >/dev/null || \
-  fail 'kube-proxy initialization did not create KUBE-SERVICES'
+  fail 'failed to seed KUBE-SERVICES'
 
-docker run --rm --network "container:$sandbox" --cap-drop ALL --cap-add NET_ADMIN \
+timeout 30 docker run --rm --network "container:$sandbox" --cap-drop ALL --cap-add NET_ADMIN \
   -v "$kubeconfig:/var/lib/kube-proxy/kubeconfig:ro" "$image" \
   --cleanup --proxy-mode=iptables --kubeconfig=/var/lib/kube-proxy/kubeconfig >/dev/null
 

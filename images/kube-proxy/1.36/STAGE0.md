@@ -48,13 +48,12 @@ Disposition: admitted.
   node. Do not share host PID, IPC, UTS, user, or cgroup namespaces. Mount a
   dedicated kubeconfig read-only and `/run/xtables.lock` read-write. Do not
   mount `/lib/modules`; that is needed for IPVS, not this iptables profile.
-  Run `--init-only --proxy-mode=iptables` before the long-running process,
-  then run the process with the same single capability. No `privileged: true`,
-  `NET_RAW`, `SYS_MODULE`, `SYS_ADMIN`, or reusable host credentials are
-  admitted.
+  Run the long-lived process with `--proxy-mode=iptables`. No
+  `privileged: true`, `NET_RAW`, `SYS_MODULE`, `SYS_ADMIN`, or reusable host
+  credentials are admitted.
 - Privileged smoke profile: GitHub Actions ephemeral runner only, private
   Docker network namespace, no host namespaces or host mounts, UID 0,
   `cap-drop=ALL`, `cap-add=NET_ADMIN`, iptables mode, and a synthetic
   loopback-only kubeconfig token. The test proves mutation fails without
-  `NET_ADMIN`, runs kube-proxy initialization and cleanup with it, and verifies
-  the `KUBE-SERVICES` chain is removed. It never targets the shared host.
+  `NET_ADMIN`, creates a recognized `KUBE-SERVICES` chain with it, and verifies
+  kube-proxy cleanup removes that chain. It never targets the shared host.
