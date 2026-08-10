@@ -3,7 +3,12 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT HUP INT TERM
+container=
+cleanup() {
+  [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1 || true
+  rm -rf "$tmp"
+}
+trap cleanup EXIT HUP INT TERM
 chmod 755 "$tmp"
 
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 || {
@@ -14,6 +19,15 @@ test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" =
   printf '%s\n' 'unexpected image entrypoint' >&2
   exit 1
 }
+
+container=$(docker create "$image" version)
+docker cp "$container:/etc/ssl/certs/ca-certificates.crt" "$tmp/ca-certificates.crt" >/dev/null
+[ -s "$tmp/ca-certificates.crt" ] || {
+  printf '%s\n' 'system CA bundle is missing' >&2
+  exit 1
+}
+docker rm "$container" >/dev/null
+container=
 
 cat >"$tmp/policy.rego" <<'EOF'
 package authz
