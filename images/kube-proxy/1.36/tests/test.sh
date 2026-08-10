@@ -61,6 +61,7 @@ contexts:
     user: synthetic
 current-context: synthetic
 EOF
+chmod 644 "$kubeconfig"
 
 docker run --name "$sandbox" -d --network none --cap-drop ALL --cap-add NET_ADMIN \
   --entrypoint /usr/bin/conntrack "$image" -E >/dev/null
