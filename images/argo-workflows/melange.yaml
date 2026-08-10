@@ -1,0 +1,82 @@
+package:
+  name: verity-argo-workflows
+  version: "3.7.17"
+  epoch: 0
+  description: Argo Workflows executor.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - mailcap
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj/argo-workflows
+      tag: v${{package.version}}
+      expected-commit: a75ff7d6ab50d1c80affc8895cdce89679741d7c
+
+  - runs: |
+      source_commit=$(git rev-parse HEAD)
+      build_date=$(git show -s --format=%cI HEAD)
+      go get github.com/go-git/go-git/v5@v5.19.2
+      go build -trimpath \
+        -ldflags="-s -w \
+          -X github.com/argoproj/argo-workflows/v3.version=v${{package.version}} \
+          -X github.com/argoproj/argo-workflows/v3.buildDate=$build_date \
+          -X github.com/argoproj/argo-workflows/v3.gitCommit=$source_commit \
+          -X github.com/argoproj/argo-workflows/v3.gitTreeState=dirty \
+          -X github.com/argoproj/argo-workflows/v3.gitTag=v${{package.version}}" \
+        -o argoexec ./cmd/argoexec
+
+      install -Dm755 argoexec "${{targets.destdir}}/usr/bin/argoexec"
+      install -Dm644 hack/ssh_known_hosts \
+        "${{targets.destdir}}/etc/ssh/ssh_known_hosts"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      version_output=$("${{targets.destdir}}/usr/bin/argoexec" version 2>&1)
+      printf '%s\n' "$version_output" | grep -F 'argoexec: v${{package.version}}+'
+      printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
+      printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
+
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        version_output=$(/usr/bin/argoexec version 2>&1)
+        printf '%s\n' "$version_output" | grep -F 'argoexec: v${{package.version}}+'
+        printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
+        test -s /etc/ssh/ssh_known_hosts
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: argoproj/argo-workflows
+    strip-prefix: v
+    tag-filter-prefix: v3.7.
+    use-tag: true
