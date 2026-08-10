@@ -56,8 +56,12 @@ pipeline:
         -DFLB_TLS=On
       cmake --build build -j$(nproc)
       DESTDIR="${{targets.destdir}}" cmake --install build
-      install -Dm644 LICENSE \
-        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      license_dir="${{targets.destdir}}/usr/share/licenses/${{package.name}}"
+      find . -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print |
+        while IFS= read -r source; do
+          install -Dm644 "$source" "$license_dir/third-party/${source#./}"
+        done
+      install -Dm644 LICENSE "$license_dir/LICENSE"
       rm -rf "${{targets.destdir}}/lib"
       rm -rf "${{targets.destdir}}/usr/include"
   - uses: strip
@@ -67,3 +71,4 @@ test:
     - runs: /usr/bin/fluent-bit --version | grep -F "Fluent Bit v${{package.version}}"
     - runs: /usr/bin/fluent-bit --dry-run -c /etc/fluent-bit/fluent-bit.conf
     - runs: test -f /usr/share/licenses/${{package.name}}/LICENSE
+    - runs: test -f /usr/share/licenses/${{package.name}}/third-party/lib/onigmo/COPYING
