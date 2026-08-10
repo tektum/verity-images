@@ -1,0 +1,60 @@
+package:
+  name: verity-contour-1.32
+  version: "1.32.5"
+  epoch: 0
+  description: Contour Kubernetes ingress controller
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: d908675ac6b180f1897ed3681c02d0fd29fa0e27
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/projectcontour/contour
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - runs: |
+      go build -mod=readonly -trimpath -tags "oidc gcp osusergo netgo" \
+        -ldflags="-s -w \
+          -X github.com/projectcontour/contour/internal/build.Version=v${{package.version}} \
+          -X github.com/projectcontour/contour/internal/build.Sha=${{vars.source-commit}} \
+          -X github.com/projectcontour/contour/internal/build.Branch=release-1.32" \
+        -o "${{targets.destdir}}/bin/contour" ./cmd/contour
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        /bin/contour version | grep -F "v${{package.version}}"
+        /bin/contour serve --help >/dev/null
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: projectcontour/contour
+    strip-prefix: v
