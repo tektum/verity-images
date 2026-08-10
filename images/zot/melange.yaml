@@ -12,9 +12,6 @@ package:
     cpu: "4"
     memory: 8Gi
 
-vars:
-  source-commit: 3b5796d834e8661ea661a5fcc47add8d4405aebf
-
 environment:
   contents:
     repositories:
@@ -22,6 +19,7 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
+      - busybox
       - go-1.26
   environment:
     CGO_ENABLED: "0"
@@ -34,11 +32,11 @@ pipeline:
     with:
       repository: https://github.com/project-zot/zot
       tag: v${{package.version}}
-      expected-commit: ${{vars.source-commit}}
+      expected-commit: 3b5796d834e8661ea661a5fcc47add8d4405aebf
   - runs: |
       flags="-s -w"
       flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.ReleaseTag=v${{package.version}}"
-      flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.Commit=${{vars.source-commit}}"
+      flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.Commit=3b5796d834e8661ea661a5fcc47add8d4405aebf"
       flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.BinaryType=minimal"
       flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.GoVersion=$(go version | cut -d' ' -f3)"
       go build -trimpath -ldflags "$flags" -o zot ./cmd/zot
@@ -65,7 +63,7 @@ subpackages:
 test:
   pipeline:
     - runs: |
-        /usr/bin/zot --version 2>&1 | grep -F '${{vars.source-commit}}'
+        /usr/bin/zot --version 2>&1 | grep -F '3b5796d834e8661ea661a5fcc47add8d4405aebf'
         /usr/bin/zot verify /etc/zot/config.json >/dev/null
         test -s /usr/share/licenses/${{package.name}}/LICENSE
 
