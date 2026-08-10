@@ -39,13 +39,11 @@ pipeline:
     with:
       deps: |-
         github.com/containerd/containerd@v1.7.33
-        github.com/docker/docker@v29.3.1+incompatible
-        github.com/moby/spdystream@v0.5.1
         golang.org/x/crypto@v0.53.0
         golang.org/x/net@v0.56.0
         golang.org/x/text@v0.39.0
         google.golang.org/grpc@v1.82.1
-        helm.sh/helm/v3@v3.18.5
+        helm.sh/helm/v3@v3.20.2
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" -o manager .
       install -Dm755 manager "${{targets.destdir}}/manager"
