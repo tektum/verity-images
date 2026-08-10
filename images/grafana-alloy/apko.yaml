@@ -1,0 +1,28 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - grafana-alloy@local
+
+accounts:
+  run-as: 473
+
+entrypoint:
+  command: /usr/bin/alloy
+
+cmd: run /etc/alloy/config.alloy --storage.path=/var/lib/alloy/data
+
+environment:
+  ALLOY_DEPLOY_MODE: docker
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /var/lib/alloy/data
+    type: directory
+    uid: 473
+    gid: 473
+    permissions: 0o770
