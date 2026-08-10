@@ -16,11 +16,11 @@ docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 25
   "$image" --help >/dev/null || fail '/manager safe help path failed'
 
 if output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
-  "$image" --kubeconfig=/tmp/missing 2>&1); then
+  -e KUBECONFIG=/tmp/missing "$image" 2>&1); then
   fail 'missing Kubernetes credentials unexpectedly succeeded'
 fi
-printf '%s\n' "$output" | grep -F '/tmp/missing' >/dev/null \
-  || fail 'missing Kubernetes credentials did not identify the kubeconfig'
+printf '%s\n' "$output" | grep -F 'unable to get kubeconfig' >/dev/null \
+  || fail 'missing Kubernetes credentials did not report a kubeconfig error'
 
 if docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
   "$image" --not-a-real-flag >/dev/null 2>&1; then
