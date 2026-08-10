@@ -71,6 +71,7 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    timeout-minutes: 540
     permissions:
       contents: read
     strategy:
@@ -191,7 +192,7 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-publish-${{ strategy.job-index }}/family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
-    timeout-minutes: 300
+    timeout-minutes: 540
     permissions:
       attestations: write
       contents: read

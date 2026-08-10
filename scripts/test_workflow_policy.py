@@ -266,7 +266,8 @@ def main() -> None:
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
     assert runner(monitor) == f"{RUNS_ON_PREFIX}monitor/runner=4cpu-linux-x64"
-    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
+    assert "\n    timeout-minutes: 540\n" in validate_job
+    assert "\n    timeout-minutes: 540\n" in publish_job
 
     assert "needs: matrix\n" in stall_guard_job
     assert (
