@@ -1,6 +1,14 @@
 # kube-proxy 1.36 admission receipt
 
-Disposition: admitted.
+Disposition: held.
+
+Blocker: the current isolated CI runs the arm64 image through QEMU on an amd64
+kernel. The arm64 privileged probe cannot keep its network namespace holder
+running and its iptables nft netlink call reports `Protocol not supported`, so
+the required arm64 `NET_ADMIN`/iptables runtime contract is not proven. Keep
+this definition disabled until an isolated native arm64 runner executes the
+same smoke test successfully; then regenerate the lock, repeat both scans, and
+revalidate every admission field before enabling.
 
 ## Release and provenance
 

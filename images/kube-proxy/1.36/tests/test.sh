@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-holder_image=${image%-*}-amd64
 sandbox="verity-kube-proxy-test-$$"
 filesystem_container=
 kubeconfig=$(mktemp)
@@ -65,7 +64,7 @@ EOF
 chmod 644 "$kubeconfig"
 
 docker run --name "$sandbox" -d --network none --cap-drop ALL --cap-add NET_ADMIN \
-  --entrypoint /usr/bin/conntrack "$holder_image" -E >/dev/null
+  --entrypoint /usr/bin/conntrack "$image" -E >/dev/null
 [ "$(docker inspect --format '{{.State.Running}}' "$sandbox")" = true ] || fail 'private network namespace holder did not start'
 
 if docker run --rm --network "container:$sandbox" --cap-drop ALL \
