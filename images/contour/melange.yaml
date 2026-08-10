@@ -42,15 +42,15 @@ pipeline:
           -X github.com/projectcontour/contour/internal/build.Version=v${{package.version}} \
           -X github.com/projectcontour/contour/internal/build.Sha=${{vars.source-commit}} \
           -X github.com/projectcontour/contour/internal/build.Branch=release-1.32" \
-        -o "${{targets.destdir}}/bin/contour" ./cmd/contour
+        -o "${{targets.destdir}}/usr/bin/contour" ./cmd/contour
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 test:
   pipeline:
     - runs: |
-        /bin/contour version | grep -F "v${{package.version}}"
-        /bin/contour serve --help >/dev/null
+        /usr/bin/contour version | grep -F "v${{package.version}}"
+        /usr/bin/contour serve --help >/dev/null
         test -s /usr/share/licenses/${{package.name}}/LICENSE
 
 update:

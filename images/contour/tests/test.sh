@@ -14,7 +14,7 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
-[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/bin/contour"]' ] \
+[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/contour"]' ] \
   || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["serve"]' ] \
   || fail 'unexpected image command'
