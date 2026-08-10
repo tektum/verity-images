@@ -1,0 +1,55 @@
+package:
+  name: verity-flux-helm-controller-1.3
+  version: "1.3.0"
+  epoch: 0
+  description: Flux Helm Controller for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: e47f47f1282d1c66b180be7a386f5afbe3f5ae26
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluxcd/helm-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" -o manager .
+      install -Dm755 manager "${{targets.destdir}}/manager"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        /manager --help >/dev/null
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
