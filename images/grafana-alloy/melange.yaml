@@ -1,0 +1,82 @@
+package:
+  name: grafana-alloy
+  version: "1.10.2"
+  epoch: 0
+  description: OpenTelemetry Collector distribution with Prometheus pipelines.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - libsystemd
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: b19f8c577aa79fd51de96ab292eedd7838336b09
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - nodejs-22
+      - systemd-dev
+      - yarn
+  environment:
+    CGO_ENABLED: "1"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/alloy
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      cd internal/web/ui
+      yarn --network-timeout=1200000
+      yarn run build
+  - runs: |
+      flags="-s -w -X github.com/grafana/alloy/internal/build.Branch=HEAD"
+      flags="$flags -X github.com/grafana/alloy/internal/build.Version=v${{package.version}}"
+      flags="$flags -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}"
+      flags="$flags -X github.com/grafana/alloy/internal/build.Revision=${{vars.source-commit}}"
+      flags="$flags -X github.com/grafana/alloy/internal/build.BuildUser=verity"
+      flags="$flags -X github.com/grafana/alloy/internal/build.BuildDate=2025-08-19T15:17:14Z"
+      go build -mod=readonly -trimpath \
+        -tags "netgo builtinassets promtail_journal_enabled" \
+        -ldflags "$flags" -o alloy .
+      install -Dm755 alloy "${{targets.destdir}}/usr/bin/alloy"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -d -m755 "${{targets.destdir}}/etc/alloy"
+      printf '%s\n' 'logging {' '  level = "info"' '}' \
+        > "${{targets.destdir}}/etc/alloy/config.alloy"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        alloy --version 2>&1 | grep -F "v${{package.version}}"
+        alloy run --help >/dev/null
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+        test -s /etc/alloy/config.alloy
+
+update:
+  enabled: true
+  github:
+    identifier: grafana/alloy
+    strip-prefix: v
+    tag-filter: v1.10.
+    use-tag: true
