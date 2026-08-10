@@ -1,0 +1,55 @@
+package:
+  name: vector
+  version: "0.51.1"
+  epoch: 0
+  description: High-performance observability data pipeline
+  copyright:
+    - license: MPL-2.0
+  resources:
+    cpu: "22"
+    memory: 36Gi
+  test-resources:
+    cpu: "1"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - clang
+      - cmake
+      - coreutils
+      - libtool
+      - llvm
+      - make
+      - openssl-dev
+      - perl
+      - pkgconf
+      - protobuf-dev
+      - protoc
+      - python3
+      - rust-1.90
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/vectordotdev/vector
+      tag: v${{package.version}}
+      expected-commit: 44c8f1cfd64bdedb924034c946f639d09890fc53
+  - runs: |
+      cargo auditable build --release --locked --no-default-features --features default-cmake
+      install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: /usr/bin/vector --version | grep -F "vector ${{package.version}}"
