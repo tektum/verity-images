@@ -1,0 +1,70 @@
+{
+  "version": "v1",
+  "config": {
+    "name": "images/opa/apko.yaml",
+    "checksum": "sha256-JVFuGT9q+nR9NjlwkPz35jsbKFaGseRgn07Rg7LiiJI="
+  },
+  "contents": {
+    "keyring": [
+      {
+        "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5qQUHmzqX9oa/RS3OSgL\nYTYB1mzvVmnWC0JXsAafdgRkavJ9xRhsXMKXWPKMghZw6UnkxuxQCZlB9UhaFqed\nX7SWfQ8qRgECFmdGUjoeV7P3VUkg17RU0mUKsXZZF/2mU+jCGyk5eweKcLWrk6bn\nlNNF1vBJ9EXbHdfvbQsA5GfLku5tJhqRJ4FVQAGCw+1JoSKu+o3q+6xP7z6kMfR9\ncp54FSj48rTJUibbAv+cPtZ3AnbpjdyarV7SYMfxp14Q/KR0CJYDihG3CFoU+TaM\ndr7LUrgXaYw7m7g8hA2PY1jF8aqDqVFjVu/csPKnKVQSqNHfm4C4gljwT6TDVhPe\n6xKSGKfAUNvHx2RIqSsZJCh68Af+VnfuimbHMYzGhzV4/efihpJlYsDnOXJj/PeY\nSbEIYG2yoI3AYvDFyFX2OAOtQ9d4TPs4zS4aDg4R3UseXLib46FX3ZTfIi1/W0IO\neC3AFU5mK+02jq+7swcGbgzem30dFA/B3n8NQExJjF2WlGNJxFw2WnJQqKIkIh0s\nkm5jaxJ28xYgik+bEgxy1LsilKTowdkbEPRKv36JGdap4dOEGR+LwZsM+ontF1AO\nwY6tvwtZKJWhgj7ES3BdtiC1GA2htFnP90lA7KnKbSMOxwWtSCH8spitdPdzgI8G\nSxrOb0SZs6ZFAxYYe3GlvS0CAwEAAQ==\n-----END PUBLIC KEY-----\n"
+      }
+    ],
+    "build_repositories": [],
+    "runtime_repositories": [],
+    "repositories": [
+      {
+        "name": "packages.wolfi.dev/os/x86_64",
+        "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
+        "name": "packages.wolfi.dev/os/aarch64",
+        "url": "https://packages.wolfi.dev/os/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
+      }
+    ],
+    "packages": [
+      {
+        "name": "opa",
+        "url": "https://packages.wolfi.dev/os/x86_64/opa-1.19.0-r0.apk",
+        "version": "1.19.0-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-6824",
+          "checksum": "sha1-GrgOm4Xujg7i2mOrmE+y25Sq2TQ="
+        },
+        "data": {
+          "range": "bytes=6825-15019724",
+          "checksum": "sha256-LiNlmsADe9HflLGHiZUpwYQ/bRmeOMCYUleHVf7UVtE="
+        },
+        "checksum": "Q1GrgOm4Xujg7i2mOrmE+y25Sq2TQ="
+      },
+      {
+        "name": "opa",
+        "url": "https://packages.wolfi.dev/os/aarch64/opa-1.19.0-r0.apk",
+        "version": "1.19.0-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-6860",
+          "checksum": "sha1-iplNQz4le50WxHhb+nxpDFrQHQs="
+        },
+        "data": {
+          "range": "bytes=6861-13580905",
+          "checksum": "sha256-3/pR85R3YIHuSek2UYOtKjqLYJeZHG06PqjCfu2kclA="
+        },
+        "checksum": "Q1iplNQz4le50WxHhb+nxpDFrQHQs="
+      }
+    ]
+  }
+}
