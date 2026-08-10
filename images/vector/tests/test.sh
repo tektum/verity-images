@@ -49,7 +49,12 @@ chmod 644 "$tmp/invalid.toml"
 if docker run --rm -v "$tmp/invalid.toml:/etc/vector/invalid.toml:ro" \
   "$image" validate --no-environment --config-toml /etc/vector/invalid.toml \
   >/dev/null 2>&1; then
-  printf '%s\n' 'invalid TOML unexpectedly succeeded' >&2
+  status=0
+else
+  status=$?
+fi
+if [ "$status" -ne 78 ]; then
+  printf 'invalid TOML returned status %s, expected 78\n' "$status" >&2
   exit 1
 fi
 
