@@ -1,0 +1,69 @@
+package:
+  name: fluent-bit-4.2
+  version: "4.2.8"
+  epoch: 0
+  description: Fast and lightweight logs and metrics processor and forwarder
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+vars:
+  source-commit: 419540c428089155f42e710503ad23ce60737618
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - bison
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cmake
+      - curl-dev
+      - flex
+      - linux-headers
+      - openssl-dev
+      - yaml-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluent/fluent-bit
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+        -DFLB_EXAMPLES=Off \
+        -DFLB_IN_EXEC=Off \
+        -DFLB_IN_SYSTEMD=Off \
+        -DFLB_JEMALLOC=Off \
+        -DFLB_LUAJIT=Off \
+        -DFLB_OUT_KAFKA=Off \
+        -DFLB_OUT_PGSQL=Off \
+        -DFLB_RELEASE=On \
+        -DFLB_SHARED_LIB=Off \
+        -DFLB_SYSTEMD=Off \
+        -DFLB_TLS=On
+      cmake --build build -j$(nproc)
+      DESTDIR="${{targets.destdir}}" cmake --install build
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf "${{targets.destdir}}/lib"
+      rm -rf "${{targets.destdir}}/usr/include"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: /usr/bin/fluent-bit --version | grep -F "Fluent Bit v${{package.version}}"
+    - runs: /usr/bin/fluent-bit --dry-run -c /etc/fluent-bit/fluent-bit.conf
+    - runs: test -f /usr/share/licenses/${{package.name}}/LICENSE
