@@ -22,7 +22,7 @@ trap cleanup EXIT HUP INT TERM
   || fail 'unexpected OCI user'
 
 docker run --rm --network none "$image" version 2>&1 \
-  | grep -F 'v1.32.5' >/dev/null \
+  | grep -F 'v1.33.5' >/dev/null \
   || fail 'contour version check failed'
 docker run --rm --network none "$image" serve --help >/dev/null \
   || fail 'contour serve help failed without cluster credentials'
