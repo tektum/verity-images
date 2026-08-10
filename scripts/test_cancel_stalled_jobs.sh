@@ -18,14 +18,11 @@ printf '\n' >> "$GH_LOG"
 if [[ "$1 $2" == "api -X" ]]; then
   exit 0
 elif [[ "$1" == api ]]; then
-  filter=.
-  for ((index = 1; index <= $#; index++)); do
-    if [[ ${!index} == --jq ]]; then
-      filter_index=$((index + 1))
-      filter=${!filter_index}
-    fi
-  done
-  jq -c --slurp "$filter" <<<"$JOBS_PAGE"
+  if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then
+    printf 'the `--slurp` option is not supported with `--jq` or `--template`\n' >&2
+    exit 1
+  fi
+  jq -c --slurp '.' <<<"$JOBS_PAGE"
 fi
 EOF
 chmod +x "$work/bin/gh"
@@ -34,10 +31,12 @@ export REPOSITORY=owner/repo
 export RUN_ID=123
 export STALL_MINUTES=20
 
-# One job never picked up a runner past the threshold: cancel it, then report done.
+# A job on the second API page never picked up a runner past the threshold:
+# flatten every page, cancel it, then report done.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$stalled_started" \
-  '{jobs: [{id: 1, name: "publish (haproxy-ingress, images/haproxy-ingress, desc)", status: "in_progress", started_at: $started, steps: []}]}')
+  '{jobs: [{id: 0, name: "build-gate", status: "in_progress", started_at: $started, steps: []}]},
+   {jobs: [{id: 1, name: "publish (haproxy-ingress, images/haproxy-ingress, desc)", status: "in_progress", started_at: $started, steps: []}]}')
 export JOBS_PAGE
 : > "$GH_LOG"
 output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh")
