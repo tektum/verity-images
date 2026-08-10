@@ -26,6 +26,27 @@ docker run --rm "$image" --version 2>&1 \
   | grep -F 'otelcol version 0.135.0' >/dev/null \
   || fail 'collector version check failed'
 
+wait_ready() {
+  i=0
+  until docker logs "$container" 2>&1 | grep -F 'Everything is ready. Begin running and processing data.' >/dev/null; do
+    [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || {
+      docker logs "$container" >&2
+      fail 'collector exited before becoming ready'
+    }
+    i=$((i + 1))
+    [ "$i" -lt 30 ] || {
+      docker logs "$container" >&2
+      fail 'collector did not become ready'
+    }
+    sleep 1
+  done
+}
+
+docker run --name "$container" -d --read-only "$image" >/dev/null
+wait_ready
+docker stop --time 10 "$container" >/dev/null
+docker rm "$container" >/dev/null
+
 cat >"$tmp/config.yaml" <<'EOF'
 receivers:
   nop:
@@ -41,21 +62,7 @@ EOF
 docker run --name "$container" -d --read-only \
   -v "$tmp/config.yaml:/tmp/config.yaml:ro" \
   "$image" --config /tmp/config.yaml >/dev/null
-
-i=0
-until docker logs "$container" 2>&1 | grep -F 'Everything is ready. Begin running and processing data.' >/dev/null; do
-  [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || {
-    docker logs "$container" >&2
-    fail 'collector exited before becoming ready'
-  }
-  i=$((i + 1))
-  [ "$i" -lt 30 ] || {
-    docker logs "$container" >&2
-    fail 'collector did not become ready'
-  }
-  sleep 1
-done
-
+wait_ready
 docker stop --time 10 "$container" >/dev/null
 docker rm "$container" >/dev/null
 
