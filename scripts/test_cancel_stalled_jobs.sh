@@ -18,7 +18,12 @@ printf '\n' >> "$GH_LOG"
 if [[ "$1 $2" == "api -X" ]]; then
   exit 0
 elif [[ "$1" == api ]]; then
-  if [[ " $* " == *" --slurp "* && " $* " == *" --jq "* ]]; then
+  args=" $* "
+  if [[ "$args" != *" --paginate "* || "$args" != *" --slurp "* ]]; then
+    printf 'the `--paginate` and `--slurp` options are required\n' >&2
+    exit 1
+  fi
+  if [[ "$args" == *" --jq "* || "$args" == *" --template "* ]]; then
     printf 'the `--slurp` option is not supported with `--jq` or `--template`\n' >&2
     exit 1
   fi
