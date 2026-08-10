@@ -1,0 +1,21 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-contour-1.32@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /bin/contour
+
+cmd: serve
+
+environment:
+  PATH: /usr/bin:/bin
