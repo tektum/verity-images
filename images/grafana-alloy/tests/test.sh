@@ -29,6 +29,7 @@ docker run --rm --cpus 4 "$image" --version 2>&1 | grep -F 'v1.10.2' >/dev/null 
 docker run --name "$container" -d --read-only --cpus 4 \
   --tmpfs /var/lib/alloy/data:uid=473,gid=473,mode=0770 \
   -p 127.0.0.1::12345 "$image" \
+  run /etc/alloy/config.alloy --storage.path=/var/lib/alloy/data \
   --server.http.listen-addr=0.0.0.0:12345 >/dev/null
 port=$(docker port "$container" 12345/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || fail 'Alloy HTTP port was not published'
