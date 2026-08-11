@@ -17,6 +17,22 @@ from typing import Final
 
 IDENTITY: Final = "https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main"
 ISSUER: Final = "https://token.actions.githubusercontent.com"
+CATEGORIES: Final = (
+    "Languages & Build Tools",
+    "Web Servers & Proxies",
+    "Databases & Caching",
+    "Messaging & Streaming",
+    "Kubernetes & Orchestration",
+    "Service Mesh & Networking",
+    "Monitoring & Observability",
+    "Logging",
+    "CI/CD & GitOps",
+    "Security & Identity",
+    "Policy & Compliance",
+    "Cert Management",
+    "Data & ML",
+    "Base & Utilities",
+)
 FILTER: Final = r"""
 .report.images |= map(
   .tags = (.tags | split(",")) |
@@ -105,6 +121,9 @@ def main() -> None:
             or not isinstance(scan, dict)
         ):
             raise SystemExit(f"invalid build report: {report}: image fields are invalid")
+        category = image.get("category")
+        if category is not None and (not isinstance(category, str) or category not in CATEGORIES):
+            raise SystemExit(f"invalid build report: {report}: image category is invalid")
         artifact = scans / f"scan-{name}-{version}"
         scan_files = tuple(artifact.glob("scan-*.json")) if artifact.is_dir() else ()
         if not scan_files and len(report_document["images"]) == 1:
