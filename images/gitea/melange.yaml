@@ -1,0 +1,71 @@
+package:
+  name: gitea-1.24
+  version: "1.24.7"
+  epoch: 0
+  description: Self-hosted Git service
+  copyright:
+    - license: MIT
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.24
+      - nodejs-22
+      - npm
+  accounts:
+    run-as: ""
+    users:
+      - username: build
+        uid: 1000
+        gid: 1000
+        shell: ""
+        homedir: /home/build
+    groups:
+      - groupname: build
+        gid: 1000
+        members:
+          - build
+  environment:
+    CGO_ENABLED: "1"
+    GOMODCACHE: /var/cache/melange/gomodcache
+    GOTOOLCHAIN: local
+    HOME: /home/build
+    MAKEFLAGS: -j4
+    npm_config_cache: /var/cache/melange/npm
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/go-gitea/gitea
+      tag: v${{package.version}}
+      expected-commit: 99053ce4fa2b45f1bca5837418c0c57f793ca824
+  - runs: |
+      make build TAGS="bindata sqlite sqlite_unlock_notify"
+      install -m755 -D gitea "${{targets.destdir}}/usr/bin/gitea"
+      install -m644 -D LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: gitea-1.24-build-metadata
+    description: Resolved Go module metadata for the Gitea build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/gitea-1.24-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/gitea-1.24-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        gitea --version | grep -F "Gitea version ${{package.version}}"
+        grep -F "MIT License" "/usr/share/licenses/${{package.name}}/LICENSE"
