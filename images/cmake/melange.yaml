@@ -1,0 +1,61 @@
+package:
+  name: verity-cmake-4.1
+  version: "4.1.6"
+  epoch: 0
+  description: Cross-platform build system
+  copyright:
+    - license: BSD-3-Clause
+  resources:
+    cpu: "4"
+    memory: 9Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - curl-dev
+      - expat-dev
+      - jsoncpp-dev
+      - libarchive-dev
+      - libuv-dev
+      - ncurses-dev
+      - nghttp2-dev
+      - openssl-hardened-dev
+      - rhash-dev
+      - samurai
+      - wolfi-base
+      - xz-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://gitlab.kitware.com/cmake/cmake
+      tag: v${{package.version}}
+      expected-commit: 14d9bf456f5b307889c999e422278da1fdf7480c
+  - runs: |
+      ./bootstrap \
+        --prefix=/usr \
+        --mandir=/share/man \
+        --datadir=/share/cmake \
+        --docdir=/share/doc/cmake \
+        --system-libs \
+        --no-system-cppdap \
+        --generator=Ninja \
+        --parallel=4
+  - runs: ninja -j4
+  - runs: DESTDIR="${{targets.destdir}}" ninja -j4 install
+  - runs: install -Dm644 LICENSE.rst "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.rst"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: cmake --version | grep -F "cmake version ${{package.version}}"
+    - runs: test -f /usr/share/licenses/${{package.name}}/LICENSE.rst
