@@ -141,6 +141,7 @@ def workflow_modes() -> None:
     assert "github.event_name == 'push'" in workflow
     assert "      - packages/repository-state.json\n" in workflow
     assert "      - packages/repository-state.pin.json\n" in workflow
+    assert "      - site/**\n" in workflow
     assert "        options: [images, packages, combined]\n" in workflow
     assert "      - name: Select publication mode\n" in workflow
     assert "mode=images" in workflow
@@ -150,6 +151,7 @@ def workflow_modes() -> None:
     assert "Package-only publication requires the current catalog" in workflow
     assert "No changed images in build run" in workflow
     assert "mkdir pages" in workflow
+    assert "cp -R site/. pages/" in workflow
     assert "cp catalog.json pages/catalog.json" in workflow
     assert "cp docs/catalog.schema.json pages/catalog.schema.json" in workflow
     assert workflow.count("actions/upload-pages-artifact@") == 1
