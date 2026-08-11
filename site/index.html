@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Verity Images - Signed container image catalog</title>
+    <meta
+      name="description"
+      content="Browse Verity container images with immutable pull references, vulnerability policy, signatures, SBOMs, and provenance verification."
+    />
+    <meta name="theme-color" content="#060d12" />
+    <meta property="og:title" content="Verity Images catalog" />
+    <meta
+      property="og:description"
+      content="Container images with zero fixable findings, signed artifacts, SBOMs, and provenance."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tektum.github.io/verity-images/" />
+    <link rel="canonical" href="https://tektum.github.io/verity-images/" />
+    <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="app.js" defer></script>
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        "name": "Verity Images catalog",
+        "url": "https://tektum.github.io/verity-images/",
+        "description": "Signed container images with published vulnerability and provenance evidence."
+      }
+    </script>
+  </head>
+  <body>
+    <a class="skip-link" href="#catalog">Skip to catalog</a>
+    <header class="site-nav">
+      <nav class="shell nav-inner" aria-label="Primary navigation">
+        <a class="brand" href="./" aria-label="Verity Images home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>VERITY</span><span class="brand-slash">/</span><span>IMAGES</span>
+        </a>
+        <div class="nav-links">
+          <a href="trust.html">TRUST</a>
+          <a href="catalog.json">RAW JSON</a>
+          <a href="catalog.schema.json">SCHEMA</a>
+          <a href="https://github.com/tektum/verity-images">GITHUB</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section class="shell hero" aria-labelledby="hero-title">
+        <div class="hero-copy">
+          <p class="overline">PUBLIC CATALOG · CONTINUOUSLY VERIFIED</p>
+          <h1 id="hero-title">CONTAINER IMAGES.<br /><span>EVIDENCE INCLUDED.</span></h1>
+          <p class="hero-lead">
+            Minimal Wolfi images and compatible patched upstreams, served from
+            <code>verity.supply</code> with immutable digests, signatures, SPDX SBOMs, and build
+            provenance.
+          </p>
+          <a class="primary-action" href="#catalog">BROWSE CATALOG <span aria-hidden="true">→</span></a>
+        </div>
+
+        <aside class="evidence-panel" aria-labelledby="evidence-title">
+          <div class="evidence-heading">
+            <span class="status-light" aria-hidden="true"></span>
+            <h2 id="evidence-title">PUBLICATION EVIDENCE</h2>
+          </div>
+          <dl class="evidence-list">
+            <div><dt>REGISTRY</dt><dd><code>verity.supply</code></dd></div>
+            <div><dt>POLICY</dt><dd>0 FIXABLE FINDINGS</dd></div>
+            <div><dt>SBOM</dt><dd id="policy-sbom">SPDX-JSON</dd></div>
+            <div><dt>PUBLISHED</dt><dd><time id="published-at">LOADING</time></dd></div>
+            <div><dt>SOURCE</dt><dd><a id="source-link" href="https://github.com/tektum/verity-images">MAIN</a></dd></div>
+          </dl>
+        </aside>
+      </section>
+
+      <section class="metrics-band" aria-label="Catalog summary">
+        <div class="shell metrics">
+          <div><strong id="metric-images">--</strong><span>IMAGE RECORDS</span></div>
+          <div><strong id="metric-wolfi">--</strong><span>WOLFI</span></div>
+          <div><strong id="metric-patched">--</strong><span>PATCHED</span></div>
+          <div><strong>0</strong><span>FIXABLE ALLOWED</span></div>
+        </div>
+      </section>
+
+      <section id="catalog" class="shell catalog-section" aria-labelledby="catalog-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">SELECT · INSPECT · VERIFY</p>
+            <h2 id="catalog-title">IMAGE CATALOG</h2>
+          </div>
+          <p>Every row links a runnable image to the evidence used to trust it.</p>
+        </div>
+
+        <div class="catalog-controls">
+          <label class="search-field" for="catalog-search">
+            <span>SEARCH</span>
+            <input id="catalog-search" type="search" inputmode="search" autocomplete="off" placeholder="name, version, tag..." />
+            <kbd>/</kbd>
+          </label>
+          <div class="track-filters" role="group" aria-label="Filter by image track">
+            <button type="button" data-track="all" aria-pressed="true">ALL <span id="count-all">0</span></button>
+            <button type="button" data-track="wolfi" aria-pressed="false">WOLFI <span id="count-wolfi">0</span></button>
+            <button type="button" data-track="patched" aria-pressed="false">PATCHED <span id="count-patched">0</span></button>
+          </div>
+          <label class="sort-field" for="catalog-sort">
+            <span>SORT</span>
+            <select id="catalog-sort">
+              <option value="name">NAME</option>
+              <option value="newest">NEWEST</option>
+              <option value="recent">RECENTLY REBUILT</option>
+            </select>
+          </label>
+        </div>
+
+        <p id="result-status" class="result-status" role="status" aria-live="polite">Loading catalog...</p>
+        <div class="list-legend" aria-hidden="true">
+          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>SCAN</span><span></span>
+        </div>
+        <div id="catalog-list" class="catalog-list" aria-busy="true"></div>
+        <div id="empty-state" class="state-panel" hidden>
+          <p>NO MATCHING IMAGES</p>
+          <button id="clear-filters" type="button">CLEAR FILTERS</button>
+        </div>
+        <div id="error-state" class="state-panel error-panel" role="alert" hidden>
+          <p>THE CATALOG COULD NOT BE LOADED.</p>
+          <a href="catalog.json">OPEN RAW JSON</a>
+        </div>
+        <noscript>
+          <p class="state-panel">JavaScript is required for search and filtering. The raw catalog remains available.</p>
+        </noscript>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <span>VERITY IMAGES</span>
+        <span>DATA, SCHEMA, AND VERIFICATION COMMANDS ARE PUBLIC.</span>
+      </div>
+    </footer>
+
+    <template id="image-row-template">
+      <details class="image-row">
+        <summary>
+          <span class="row-name">
+            <span class="name-text"></span>
+            <span class="row-variants" hidden></span>
+          </span>
+          <span class="row-track"></span>
+          <span class="row-version">
+            <span class="version-text"></span>
+            <span class="fips-marker" hidden>FIPS</span>
+          </span>
+          <code class="row-digest"></code>
+          <time class="row-freshness"></time>
+          <span class="row-findings"></span>
+          <button type="button" class="copy-button">COPY</button>
+        </summary>
+        <div class="row-detail"></div>
+      </details>
+    </template>
+
+    <template id="image-variant-template">
+      <div class="variant-block">
+        <div class="variant-heading">
+          <span class="variant-version"></span>
+          <span class="fips-marker" hidden>FIPS</span>
+          <code class="variant-digest"></code>
+          <time class="variant-built"></time>
+          <span class="variant-findings"></span>
+        </div>
+        <p class="description"></p>
+        <div class="verify-row">
+          <span>SCAN</span>
+          <div class="severity-breakdown" aria-label="Findings by severity in the published scan"></div>
+        </div>
+        <div class="verify-row">
+          <span>TAGS</span>
+          <div class="tags" aria-label="Published tags. Copies the tagged pull command."></div>
+        </div>
+        <div class="command-row"><code class="pull-command"></code></div>
+        <details class="verification-disclosure">
+          <summary>VERIFY IMAGE <span>3 COMMANDS</span></summary>
+          <div class="verification-commands"></div>
+        </details>
+      </div>
+    </template>
+  </body>
+</html>
