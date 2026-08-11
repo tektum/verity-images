@@ -55,7 +55,7 @@ docker volume create "$volume" >/dev/null
 start() {
   docker run --name "$container" -d --read-only \
     -v "$volume:/loki" -v "$config:/etc/loki/verity.yaml:ro" \
-    -p 127.0.0.1::3100 "$image" -config.file=/etc/loki/verity.yaml >/dev/null
+    -p 127.0.0.1::3100 "$image" "$@" >/dev/null
   port=$(docker port "$container" 3100/tcp | awk -F: 'NR == 1 { print $2 }')
   test -n "$port" || fail 'Loki port 3100 was not published'
 
@@ -75,6 +75,11 @@ query_log() {
 
 start
 
+docker stop --time 30 "$container" >/dev/null
+test "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 0 || fail 'Loki default config did not stop cleanly'
+docker rm "$container" >/dev/null
+start -config.file=/etc/loki/verity.yaml
+
 timestamp="$(date +%s)000000000"
 curl --fail --silent --show-error -H 'Content-Type: application/json' \
   -X POST "http://127.0.0.1:$port/loki/api/v1/push" \
@@ -84,7 +89,7 @@ query_log || fail 'Loki push/query roundtrip failed'
 docker stop --time 30 "$container" >/dev/null
 test "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 0 || fail 'Loki did not stop cleanly'
 docker rm "$container" >/dev/null
-start
+start -config.file=/etc/loki/verity.yaml
 query_log || fail 'Loki log did not survive restart'
 
 if missing=$(docker run --rm "$image" -config.file=/tmp/missing.yaml -verify-config 2>&1); then
