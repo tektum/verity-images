@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import platform
 import shutil
 import subprocess
 import tarfile
@@ -126,19 +127,22 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
 
     build = root / "build"
     recipe = Path(__file__).resolve().parents[1] / "packages/openssl-fips-provider/melange.yaml"
+    native_architecture = platform.machine()
+    melange_architecture = {"aarch64": "arm64", "x86_64": "amd64"}[native_architecture]
+    other_architecture = "x86_64" if native_architecture == "aarch64" else "aarch64"
     subprocess.run(
-        ["melange", "build", str(recipe), "--arch", "x86_64", "--runner", "docker", "--out-dir", str(build / "packages"), "--cache-dir", str(build / "cache")],
+        ["melange", "build", str(recipe), "--arch", melange_architecture, "--runner", "bubblewrap", "--out-dir", str(build / "packages"), "--cache-dir", str(build / "cache")],
         check=True,
     )
     packages = root / "packages"
-    package = packages / "x86_64" / "openssl-fips-provider-3.1.2-r3.apk"
+    package = packages / native_architecture / "openssl-fips-provider-3.1.2-r3.apk"
     package.parent.mkdir(parents=True)
     shutil.copy2(next((build / "packages").rglob(package.name)), package)
     assert len(apk_archive.gzip_members(package.read_bytes(), 2)) == 2
 
-    other = packages / "aarch64" / package.name
+    other = packages / other_architecture / package.name
     other.parent.mkdir()
-    write_unsigned(other, "aarch64", payload("aarch64"))
+    write_unsigned(other, other_architecture, payload(other_architecture))
     for archive in (package, other):
         assert len(apk_archive.gzip_members(archive.read_bytes(), 2)) == 2
         sign(archive, key)
@@ -153,8 +157,8 @@ def real_repository(root: Path) -> tuple[Path, Path, str]:
     metadata.write_text(json.dumps({"schemaVersion": 2, "architectures": ["aarch64", "x86_64"], "fingerprint": fingerprint, "packages": entries}, sort_keys=True), encoding="utf-8")
     repository = root / "repository"
     subprocess.run([str(ASSEMBLE), str(packages), str(metadata), str(repository), str(root / "repository.tar.zst"), str(key), fingerprint], check=True)
-    package = repository / "x86_64" / package.name
-    index = repository / "x86_64" / "APKINDEX.tar.gz"
+    package = repository / native_architecture / package.name
+    index = repository / native_architecture / "APKINDEX.tar.gz"
     apk_repository_policy.verify(package, keys)
     apk_repository_policy.verify(index, keys)
     return package, keys, hashlib.sha256((repository / "manifest.json").read_bytes()).hexdigest()
@@ -304,7 +308,7 @@ def real_melange_tests() -> None:
         package, keys, digest = real_repository(root)
         repository = root / "repository"
         apk_repository_policy.verify(package, keys)
-        assert apk_archive.package_info(package.read_bytes(), "x86_64").version == "3.1.2-r3"
+        assert apk_archive.package_info(package.read_bytes(), platform.machine()).version == "3.1.2-r3"
         apk_repository_policy.validate(repository, keys, digest)
         renamed = package.with_name("fixture.apk")
         package.rename(renamed)

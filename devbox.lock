@@ -49,6 +49,42 @@
         }
       }
     },
+    "bubblewrap@latest": {
+      "last_modified": "2026-08-01T16:34:20Z",
+      "resolved": "github:NixOS/nixpkgs/a5cbcfe954791221bfffe2307f7d1a1bf61a871e#bubblewrap",
+      "source": "devbox-search",
+      "version": "0.11.2",
+      "systems": {
+        "aarch64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/yigcc7rb02pwxx5p6svn41fz0nkmcnlw-bubblewrap-0.11.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/1cpmkzhmy96pf5pvm9l0cim2v9xlzap4-bubblewrap-0.11.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/yigcc7rb02pwxx5p6svn41fz0nkmcnlw-bubblewrap-0.11.2"
+        },
+        "x86_64-linux": {
+          "outputs": [
+            {
+              "name": "out",
+              "path": "/nix/store/x4m5ja2330if46sw08lgwwa57bqw9adm-bubblewrap-0.11.2",
+              "default": true
+            },
+            {
+              "name": "dev",
+              "path": "/nix/store/1nmsc65mwdi8zs9kb0zvcjfihn05inc8-bubblewrap-0.11.2-dev"
+            }
+          ],
+          "store_path": "/nix/store/x4m5ja2330if46sw08lgwwa57bqw9adm-bubblewrap-0.11.2"
+        }
+      }
+    },
     "check-jsonschema@0.37.4": {
       "last_modified": "2026-07-23T05:10:05Z",
       "resolved": "github:NixOS/nixpkgs/7525d999cd850b9a488817abc89c75dc733acf17#check-jsonschema",
