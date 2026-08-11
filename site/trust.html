@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Trust and verification - Verity Images</title>
+    <meta
+      name="description"
+      content="How Verity Images images are gated, signed, and verified: the zero-fixable vulnerability policy, cosign keyless signing, SPDX SBOMs, and SLSA build provenance, with a worked verification example."
+    />
+    <meta name="theme-color" content="#060d12" />
+    <meta property="og:title" content="Verity Images - Trust and verification" />
+    <meta
+      property="og:description"
+      content="The security model behind the Verity Images catalog: publication gate, signing identity, SBOM format, and build provenance, with runnable verification commands."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://tektum.github.io/verity-images/trust.html" />
+    <link rel="canonical" href="https://tektum.github.io/verity-images/trust.html" />
+    <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body class="trust-page">
+    <a class="skip-link" href="#trust-content">Skip to content</a>
+    <header class="site-nav">
+      <nav class="shell nav-inner" aria-label="Primary navigation">
+        <a class="brand" href="./" aria-label="Verity Images home">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span>VERITY</span><span class="brand-slash">/</span><span>IMAGES</span>
+        </a>
+        <div class="nav-links">
+          <a href="./">CATALOG</a>
+          <a href="catalog.json">RAW JSON</a>
+          <a href="catalog.schema.json">SCHEMA</a>
+          <a href="https://github.com/tektum/verity-images">GITHUB</a>
+        </div>
+      </nav>
+    </header>
+
+    <main>
+      <section id="trust-content" class="shell" aria-labelledby="trust-title">
+        <p class="overline">TRUST AND VERIFICATION</p>
+        <h1 id="trust-title">HOW TO VERIFY A VERITY IMAGE</h1>
+        <p>
+          This page is for the person who has to decide whether to trust an image pulled from
+          <code>verity.supply</code>. It describes what the publication gate actually checks, how
+          images are signed, how the SBOM and build provenance are produced, and gives runnable
+          commands to verify all three yourself. Every claim below comes from
+          <code>docs/POLICY.md</code>, <code>docs/COMPLIANCE_AUDIT.md</code>, and
+          <code>docs/catalog.schema.json</code> in this repository. Where this page and the raw
+          data disagree, trust the raw data at <a href="catalog.json">catalog.json</a>.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="gate-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">PUBLICATION GATE</p>
+            <h2 id="gate-title">ZERO FIXABLE FINDINGS, NOT ZERO FINDINGS</h2>
+          </div>
+          <p>The number on a catalog row and the pass/fail decision are two different things.</p>
+        </div>
+        <p>
+          Grype scans every build candidate before it is pushed to a registry and records every
+          known candidate vulnerability it finds, at any severity, on any track. Unfixed findings
+          are not discarded: they remain in the scan report and in the published catalog entry.
+          The gate itself only inspects one number, the count of findings that have a fix
+          available. An image fails if that count is anything other than zero. A patched image
+          may publish only when its final scan also shows zero fixable findings; wolfi images are
+          held to the same zero-fixable bar. No image is admitted on the basis of improvement
+          alone: a lower vulnerability count than the upstream base is evidence for diagnosis, not
+          an exception to the gate.
+        </p>
+        <p>
+          That is why a catalog row can legitimately show a nonzero finding count and still have
+          passed the gate. The row's status reads <code>CLEAN</code> when the recorded scan
+          contains no findings of any kind, and <code>N OBSERVED</code> when Grype detected N
+          vulnerabilities in total. Every published image, <code>CLEAN</code> or
+          <code>N OBSERVED</code>, satisfies the same rule: zero of its reported findings have an
+          available fix. An <code>N OBSERVED</code> row is not a failed image and is not a weaker
+          guarantee than a <code>CLEAN</code> one; it means N vulnerabilities were detected and
+          none of them were fixable at scan time, so none of them blocked the release. Reading
+          "observed" as "unfixed" or "vulnerable" is the mistake this page exists to head off.
+        </p>
+        <p>
+          Two scopes are worth separating too. The gate is evaluated once, against the Grype
+          vulnerability database as it existed at scan time, immediately before publication. After
+          publication, a separate monitoring workflow stores each platform SBOM once and compares
+          its components against incremental OSV updates; if a fix later becomes available for
+          something already published, that workflow opens or updates a tracking issue for the
+          affected image version. It does not pull image layers, rescan the image, rebuild it, or
+          alter the published catalog entry. A <code>CLEAN</code> or <code>N OBSERVED</code> count
+          in the catalog is therefore a statement about the scan performed at publish time, not a
+          live, continuously reevaluated guarantee.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="signing-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">SIGNING</p>
+            <h2 id="signing-title">KEYLESS COSIGN SIGNATURES</h2>
+          </div>
+          <p>Every image index is signed by digest. There is no long-lived private key to steal.</p>
+        </div>
+        <p>
+          Signing uses cosign's keyless flow: the build workflow authenticates to Fulcio with
+          GitHub's short-lived OIDC identity and signs with a certificate that expires almost
+          immediately, rather than a stored private key. The workflow's only credential is the
+          ambient <code>GITHUB_TOKEN</code>; it requires no personal access token and no stored
+          signing secret. Verification checks the certificate's identity and issuer instead of a
+          public key.
+        </p>
+        <aside class="evidence-panel" aria-labelledby="signing-evidence-title">
+          <div class="evidence-heading">
+            <span class="status-light" aria-hidden="true"></span>
+            <h3 id="signing-evidence-title">EXPECTED CERTIFICATE</h3>
+          </div>
+          <dl class="evidence-list">
+            <div>
+              <dt>CERTIFICATE IDENTITY</dt>
+              <dd><code>https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main</code></dd>
+            </div>
+            <div>
+              <dt>CERTIFICATE OIDC ISSUER</dt>
+              <dd><code>https://token.actions.githubusercontent.com</code></dd>
+            </div>
+            <div>
+              <dt>MINIMUM COSIGN VERSION</dt>
+              <dd><code>3.0.6</code></dd>
+            </div>
+          </dl>
+        </aside>
+        <p>
+          Use Cosign 3.0.6 or newer. Older verifiers, including 2.6.1, fail against these
+          signatures and attestations because of an OCI storage-format difference, not because the
+          artifacts are missing.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="sbom-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">SBOM</p>
+            <h2 id="sbom-title">SPDX JSON, ONE PER PLATFORM</h2>
+          </div>
+          <p>Every published digest carries a software bill of materials in a single format.</p>
+        </div>
+        <p>
+          SPDX JSON is the only SBOM format the catalog produces; there is no CycloneDX
+          equivalent. Wolfi images use apko's native SPDX output. Patched images use Syft, run
+          against the final patched image rather than the pinned upstream. Trivy is used only to
+          produce the Copacetic patch report for patched images and never generates an SBOM. One
+          complete SBOM is attached to each platform's image digest as an OCI attestation, signed
+          the same way the image itself is signed, and can be verified or downloaded directly from
+          the registry. Melange-backed Wolfi images additionally retain package-level provenance
+          and a metadata subpackage containing the resolved <code>go.mod</code> and
+          <code>go.sum</code> used by the build.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="provenance-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">BUILD PROVENANCE</p>
+            <h2 id="provenance-title">SLSA PROVENANCE FOR EVERY DIGEST</h2>
+          </div>
+          <p>Provenance ties a published digest back to the workflow run that built it.</p>
+        </div>
+        <p>
+          Every pushed digest receives SLSA build provenance from
+          <code>actions/attest-build-provenance</code> plus a GitHub artifact attestation. Wolfi
+          builds use and upload the reviewed, checked-in apko lock as a build input. Melange-backed
+          builds are the exception: because their package signature is ephemeral, each run
+          produces a build-specific lock, which is uploaded together with the recipe, package
+          provenance, and resolved dependency metadata. Patched builds instead use the checked-in
+          source digest and record it in immutable build metadata. In every case, upstream or Wolfi
+          package updates require a pull request that changes the pin, recipe, or lock, so the
+          inputs behind a given provenance statement were reviewed before the build ran.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="worked-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">WORKED EXAMPLE</p>
+            <h2 id="worked-title">VERIFY AN IMAGE IN THREE COMMANDS</h2>
+          </div>
+          <p>Substitute the digest from the catalog row you actually pulled.</p>
+        </div>
+        <p>
+          Every row in the catalog exposes these same three commands, already filled in with that
+          row's registry reference. The example below uses <code>caddy</code>, one of the images in
+          the Wolfi track, pulled from <code>verity.supply</code> instead of a mutable tag:
+        </p>
+        <div class="command-row"><code class="pull-command">docker pull verity.supply/caddy@sha256:DIGEST</code></div>
+        <div class="verification-commands">
+          <div class="verify-row">
+            <span>SIGNATURE</span>
+            <code>cosign verify --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
+          </div>
+          <div class="verify-row">
+            <span>SBOM</span>
+            <code>cosign verify-attestation --type spdxjson --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
+          </div>
+          <div class="verify-row">
+            <span>PROVENANCE</span>
+            <code>gh attestation verify oci://verity.supply/caddy@sha256:DIGEST --repo tektum/verity-images</code>
+          </div>
+        </div>
+        <p>
+          The signature command fails closed if the certificate identity or issuer does not match
+          exactly, so a signature produced by any workflow other than
+          <code>build.yaml</code> on <code>refs/heads/main</code> is rejected rather than silently
+          accepted. Pin the digest, not the tag: tags such as <code>:latest</code> or
+          <code>:&lt;version&gt;</code> are mutable discovery aids and can move.
+        </p>
+      </section>
+
+      <section class="shell" aria-labelledby="raw-data-title">
+        <div class="section-heading">
+          <div>
+            <p class="overline">SOURCE OF TRUTH</p>
+            <h2 id="raw-data-title">WHERE THE RAW DATA LIVES</h2>
+          </div>
+          <p>The catalog UI is a rendering of these two files. Nothing on this site is authoritative on its own.</p>
+        </div>
+        <div class="state-panel">
+          <p>CATALOG.JSON HOLDS EVERY IMAGE, DIGEST, SCAN RESULT, AND VERIFICATION COMMAND.</p>
+          <p>CATALOG.SCHEMA.JSON DEFINES THE SHAPE EVERY ENTRY MUST MATCH, INCLUDING THE ZERO-FIXABLE POLICY, SBOM FORMAT, AND SIGNING IDENTITY.</p>
+          <a href="catalog.json">OPEN CATALOG.JSON</a>
+          <a href="catalog.schema.json">OPEN CATALOG.SCHEMA.JSON</a>
+        </div>
+        <p>
+          The schema fixes several values as constants rather than free text:
+          <code>schemaVersion</code> is <code>2</code>, <code>policy.fixableVulnerabilitiesAllowed</code>
+          is <code>0</code>, <code>policy.sbomFormat</code> is <code>SPDX-JSON</code>,
+          <code>policy.cosignMinimumVersion</code> is <code>3.0.6</code>, and every per-image
+          <code>scan</code> object must report exactly <code>0</code> fixable findings, whatever its
+          total finding count is. Each image entry also carries its own
+          <code>verification.signature</code>, <code>verification.sbom</code>, and
+          <code>verification.provenance</code> commands, generated directly from that image's
+          registry reference rather than typed by hand.
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <span>VERITY IMAGES</span>
+        <span>DATA, SCHEMA, AND VERIFICATION COMMANDS ARE PUBLIC.</span>
+      </div>
+    </footer>
+  </body>
+</html>
