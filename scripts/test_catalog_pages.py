@@ -151,7 +151,10 @@ def workflow_modes() -> None:
     assert "Package-only publication requires the current catalog" in workflow
     assert "No changed images in build run" in workflow
     assert "mkdir pages" in workflow
-    assert "cp -R site/. pages/" in workflow
+    stage_site = workflow.index('cp -R site "$RUNNER_TEMP/site"')
+    checkout_source = workflow.index('git checkout --detach "$SOURCE_SHA"')
+    copy_site = workflow.index('cp -R "$RUNNER_TEMP/site/." pages/')
+    assert stage_site < checkout_source < copy_site
     assert "cp catalog.json pages/catalog.json" in workflow
     assert "cp docs/catalog.schema.json pages/catalog.schema.json" in workflow
     assert workflow.count("actions/upload-pages-artifact@") == 1

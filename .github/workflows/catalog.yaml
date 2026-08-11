@@ -121,6 +121,9 @@ jobs:
             printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Stage site assets
+        run: cp -R site "$RUNNER_TEMP/site"
+
       - name: Check out source revision
         if: steps.mode.outputs.value != 'packages'
         env:
@@ -272,7 +275,7 @@ jobs:
             exit 1
           fi
           mkdir pages
-          cp -R site/. pages/
+          cp -R "$RUNNER_TEMP/site/." pages/
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json
           devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
