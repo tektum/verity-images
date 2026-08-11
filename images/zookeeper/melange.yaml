@@ -1,0 +1,90 @@
+package:
+  name: verity-zookeeper-3.9
+  version: "3.9.5"
+  epoch: 0
+  description: Apache ZooKeeper distributed coordination service
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - gosu
+      - grep
+      - glibc-locale-en
+      - netcat-openbsd
+      - openjdk-17-default-jvm
+      - procps
+      - sed
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - maven
+      - openjdk-17-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/zookeeper
+      tag: release-${{package.version}}
+      expected-commit: 293c895a8d966a3ecb92872be4a1daf87d725da2
+  - runs: |
+      mvn -T 4 -DskipTests install \
+        -Djackson.version=2.18.9 \
+        -Djline.version=4.2.1 \
+        -Dlogback-version=1.5.34 \
+        -Dnetty.version=4.1.136.Final
+      tar -xzf zookeeper-assembly/target/apache-zookeeper-${{package.version}}-bin.tar.gz
+      root=apache-zookeeper-${{package.version}}-bin
+      # ponytail: omit Jetty while the safe default disables the admin server.
+      rm -f "$root"/lib/jetty-*.jar
+      install -d "${{targets.destdir}}/usr/share/java/zookeeper" \
+        "${{targets.destdir}}/apache-zookeeper-${{package.version}}-bin" \
+        "${{targets.destdir}}/licenses"
+      mv "$root/bin" "$root/lib" "${{targets.destdir}}/usr/share/java/zookeeper/"
+      mv "$root/conf" "${{targets.destdir}}/conf"
+      ln -s /usr/share/java/zookeeper/bin \
+        "${{targets.destdir}}/apache-zookeeper-${{package.version}}-bin/bin"
+      ln -s /usr/share/java/zookeeper/lib \
+        "${{targets.destdir}}/apache-zookeeper-${{package.version}}-bin/lib"
+      ln -s /conf "${{targets.destdir}}/apache-zookeeper-${{package.version}}-bin/conf"
+      install -m644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"
+      install -m644 NOTICE.txt "${{targets.destdir}}/licenses/NOTICE.txt"
+      entrypoint_url=https://raw.githubusercontent.com/31z4/zookeeper-docker/
+      entrypoint_url="${entrypoint_url}3f6430f695fceae0858824d716654c7e2b38bad3/3.9.5/docker-entrypoint.sh"
+      curl -fsSL "$entrypoint_url" -o docker-entrypoint.sh
+      printf '%s  %s\n' \
+        a9bd5fcc67dd97c05df12f4f24ddcb1cdf091d7a1bbb7a3bdbb40ba7456cc684 \
+        docker-entrypoint.sh | sha256sum -c
+      install -Dm755 docker-entrypoint.sh "${{targets.destdir}}/docker-entrypoint.sh"
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-17-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+      ZOOCFGDIR: /conf
+  pipeline:
+    - runs: /usr/share/java/zookeeper/bin/zkServer.sh version
+
+update:
+  enabled: true
+  github:
+    identifier: apache/zookeeper
+    use-tag: true
+    tag-filter-prefix: release-3.9
+    strip-prefix: release-
