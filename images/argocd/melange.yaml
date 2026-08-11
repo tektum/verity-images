@@ -160,6 +160,7 @@ pipeline:
       printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
       printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
       "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
+      rm -rf third_party/helm
 
   - uses: strip
 
