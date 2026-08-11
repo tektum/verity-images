@@ -74,6 +74,7 @@ class Metadata:
     major: str
     owner: str
     enabled: bool
+    category: str
 
 
 class MetadataError(ValueError):
@@ -108,7 +109,9 @@ def parse_metadata(path: Path) -> Metadata:
         values[key] = parse_scalar(raw)
 
     missing = REQUIRED_FIELDS - values.keys()
-    unknown = values.keys() - (REQUIRED_FIELDS | {"flavors", "major", "owner"})
+    # "category" is an optional catalog taxonomy field consumed by the published catalog
+    # (see docs/catalog.schema.json and scripts/build_catalog.py), not by the build matrix.
+    unknown = values.keys() - (REQUIRED_FIELDS | {"flavors", "major", "owner", "category"})
     if missing or unknown:
         raise MetadataError(f"{path}: missing={sorted(missing)} unknown={sorted(unknown)}")
 
@@ -142,6 +145,7 @@ def parse_metadata(path: Path) -> Metadata:
         major=major,
         owner=str(values.get("owner", "tektum")),
         enabled=enabled,
+        category=str(values.get("category", "")),
     )
 
 
@@ -260,6 +264,7 @@ def generate(base_ref: str | None) -> Matrix:
                     "context": relative,
                     "platforms": platforms,
                     "description": metadata.description,
+                    "category": metadata.category,
                     "upstream": metadata.upstream,
                     "version": metadata.versions[0],
                     "tag_version": (

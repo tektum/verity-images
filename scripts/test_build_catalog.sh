@@ -37,6 +37,10 @@ rejects_report "$work/malformed-report.json" 'invalid JSON in build report'
 printf '%s\n' '{"images":[{"name":"image","version":"1"}]}' > "$work/invalid-fields-report.json"
 rejects_report "$work/invalid-fields-report.json" 'invalid build report'
 
+printf '%s\n' '{"images":[{"name":"image","version":"1","track":"wolfi","description":"Image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0},"category":"Not A Real Category"}]}' \
+  > "$work/invalid-category-report.json"
+rejects_report "$work/invalid-category-report.json" 'image category is invalid'
+
 mkdir "$work/single-scan"
 printf '%s\n' '{}' > "$work/single-scan/scan-single-amd64.json"
 cat > "$work/single-report.json" <<'EOF'
@@ -46,6 +50,19 @@ python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/singl
   "$work/single-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
   0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
 jq -e '.images | map([.name, .version]) == [["single", "1"]]' "$work/single-catalog.json" >/dev/null
+jq -e '.images[0] | has("category") | not' "$work/single-catalog.json" >/dev/null
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/single-catalog.json"
+
+mkdir "$work/categorized-scan"
+printf '%s\n' '{}' > "$work/categorized-scan/scan-categorized-amd64.json"
+cat > "$work/categorized-report.json" <<'EOF'
+{"images":[{"name":"categorized","version":"1","track":"wolfi","description":"Categorized image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0},"category":"Base & Utilities"}]}
+EOF
+python3 "$root/scripts/build_catalog.py" "$work/categorized-report.json" "$work/categorized-scan" "" \
+  "$work/categorized-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
+  0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
+jq -e '.images[0].category == "Base & Utilities"' "$work/categorized-catalog.json" >/dev/null
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/categorized-catalog.json"
 mv "$work/single-scan/scan-single-amd64.json" "$work/single-scan/scan-wrong-amd64.json"
 if python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
   "$work/rejected.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
