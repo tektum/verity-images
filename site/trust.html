@@ -77,9 +77,9 @@
           findings of any kind. Otherwise it shows the worst recorded severity and total count,
           such as <code>HIGH 6</code>; expanding the row reveals the full <code>ALL FINDINGS</code>
           breakdown by severity. Every published image satisfies the same rule: zero reported
-          findings have an available fix. A nonzero count is not a failed image or a weaker
-          guarantee; it means vulnerabilities were detected but none were fixable at scan time,
-          so none blocked the release.
+          findings have an available fix. A nonzero count does not fail this publication gate; it
+          means vulnerabilities were detected but none were fixable at scan time, so none blocked
+          the release. The image is not free of known vulnerabilities.
         </p>
         <p>
           Two scopes are worth separating too. The gate is evaluated once, against the Grype
