@@ -1,5 +1,5 @@
 package:
-  name: verity-grafana-alloy-1.10
+  name: grafana-alloy
   version: "1.10.2"
   epoch: 0
   description: OpenTelemetry Collector distribution with Prometheus pipelines.
@@ -44,35 +44,6 @@ pipeline:
       repository: https://github.com/grafana/alloy
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - uses: go/bump
-    with:
-      deps: |-
-        github.com/antchfx/xpath@v1.3.6
-        github.com/apache/thrift@v0.23.0
-        github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8
-        github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.65.0
-        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3
-        github.com/cloudflare/circl@v1.6.3
-        github.com/docker/docker@v29.3.1+incompatible
-        github.com/dvsekhvalnov/jose2go@v1.7.0
-        github.com/expr-lang/expr@v1.17.7
-        github.com/go-git/go-billy/v5@v5.9.0
-        github.com/go-git/go-git/v5@v5.19.2
-        github.com/go-jose/go-jose/v4@v4.1.4
-        github.com/go-viper/mapstructure/v2@v2.4.0
-        github.com/grafana/loki/v3@v3.6.4
-        github.com/opencontainers/runc@v1.3.6
-        github.com/opencontainers/selinux@v1.13.0
-        github.com/ulikunitz/xz@v0.5.15
-        go.mongodb.org/mongo-driver@v1.17.7
-        go.opentelemetry.io/otel@v1.43.0
-        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
-        go.opentelemetry.io/otel/sdk@v1.43.0
-        golang.org/x/crypto@v0.52.0
-        golang.org/x/net@v0.55.0
-        golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
   - runs: |
       cd internal/web/ui
       yarn --network-timeout=1200000
