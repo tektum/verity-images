@@ -152,7 +152,7 @@ fi
 mariadb="$root/patched/mariadb-12.3-ubi10/post-patch.Dockerfile"
 [[ -f "$mariadb" ]]
 grep -Fq 'post-patch.Dockerfile' "$script"
-grep -Fq 'microdnf update -y p11-kit p11-kit-trust perl-DBI' "$mariadb"
+grep -Fq 'microdnf update -y libarchive p11-kit p11-kit-trust perl-DBI' "$mariadb"
 grep -Fxq 'USER mysql' "$mariadb"
 
 grep -Fq "docker image history \"\$image\"" "$script"
