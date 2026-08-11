@@ -62,9 +62,9 @@ and `--space-9` 96px.
 
 - Maximum content width: 1152px, matching the live reference.
 - Page gutters: 16px through tablet, 24px above 768px.
-- Breakpoints: 640px and 960px.
+- Breakpoints: 640px, 768px, 960px, and 1024px.
 - Hero: single column on narrow screens, asymmetric 7/5 split above 960px.
-- Catalog: one column on narrow screens, two equal columns above 768px.
+- Catalog: a single-column row list. Rows hide digests below 1024px and reflow below 640px.
 - Long references wrap inside their card. The page must never gain horizontal overflow at 375px.
 
 ## 5. Components
@@ -90,10 +90,11 @@ and `--space-9` 96px.
 - **Accessibility**: `aria-pressed` expresses filter state; results announce through a polite live region.
 - **Motion**: the pressed fill changes over 180ms. No decorative movement.
 
-### Image card
+### Image row
 
-- **Structure**: name, version, track and policy badges, description, tags, immutable pull command,
-  verification disclosure.
+- **Structure**: a native details row with a summary for name, track, version, digest, freshness,
+  findings, and copy action; expanded variants contain descriptions, tags, immutable pull commands,
+  and verification disclosures.
 - **Variants**: Wolfi and patched.
 - **States**: default, hover, focus-within, row open, verification commands open.
 - **Accessibility**: an article heading names each record; disclosure uses native `<details>`.

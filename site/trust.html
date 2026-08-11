@@ -73,14 +73,13 @@
         </p>
         <p>
           That is why a catalog row can legitimately show a nonzero finding count and still have
-          passed the gate. The row's status reads <code>CLEAN</code> when the recorded scan
-          contains no findings of any kind, and <code>N OBSERVED</code> when Grype detected N
-          vulnerabilities in total. Every published image, <code>CLEAN</code> or
-          <code>N OBSERVED</code>, satisfies the same rule: zero of its reported findings have an
-          available fix. An <code>N OBSERVED</code> row is not a failed image and is not a weaker
-          guarantee than a <code>CLEAN</code> one; it means N vulnerabilities were detected and
-          none of them were fixable at scan time, so none of them blocked the release. Reading
-          "observed" as "unfixed" or "vulnerable" is the mistake this page exists to head off.
+          passed the gate. A row reads <code>0 FINDINGS</code> when the recorded scan contains no
+          findings of any kind. Otherwise it shows the worst recorded severity and total count,
+          such as <code>HIGH 6</code>; expanding the row reveals the full <code>ALL FINDINGS</code>
+          breakdown by severity. Every published image satisfies the same rule: zero reported
+          findings have an available fix. A nonzero count is not a failed image or a weaker
+          guarantee; it means vulnerabilities were detected but none were fixable at scan time,
+          so none blocked the release.
         </p>
         <p>
           Two scopes are worth separating too. The gate is evaluated once, against the Grype
@@ -89,9 +88,8 @@
           its components against incremental OSV updates; if a fix later becomes available for
           something already published, that workflow opens or updates a tracking issue for the
           affected image version. It does not pull image layers, rescan the image, rebuild it, or
-          alter the published catalog entry. A <code>CLEAN</code> or <code>N OBSERVED</code> count
-          in the catalog is therefore a statement about the scan performed at publish time, not a
-          live, continuously reevaluated guarantee.
+          alter the published catalog entry. The count in the catalog is therefore a statement
+          about the scan performed at publish time, not a live, continuously reevaluated guarantee.
         </p>
       </section>
 
