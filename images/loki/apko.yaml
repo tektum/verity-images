@@ -1,0 +1,50 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - loki-3.6@local
+
+accounts:
+  groups:
+    - groupname: loki
+      gid: 10001
+  users:
+    - username: loki
+      uid: 10001
+      gid: 10001
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/loki
+
+cmd: -config.file=/etc/loki/local-config.yaml
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/loki
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+  - path: /loki
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+  - path: /loki/rules
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+  - path: /loki/rules-temp
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
