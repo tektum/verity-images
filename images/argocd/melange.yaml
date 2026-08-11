@@ -12,7 +12,6 @@ package:
       - git
       - git-lfs
       - gnupg
-      - helm-3
       - kustomize
       - openssh-client
       - tini
@@ -37,7 +36,7 @@ environment:
       - yarn
   environment:
     CGO_ENABLED: "0"
-    GOFLAGS: -p=4
+    GOFLAGS: -p=4 -buildvcs=false
     GOMAXPROCS: "4"
     GOTOOLCHAIN: local
     NODE_OPTIONS: --max_old_space_size=8192
@@ -49,10 +48,41 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 5d001b80990d14c0fc9b2cbee1eac25fc288da15
 
+  - uses: git-checkout
+    with:
+      repository: https://github.com/helm/helm
+      tag: v3.21.3
+      expected-commit: 1ad6e68924fdf6fb0c7dcef8e9e1dfc0f36eaed6
+      destination: third_party/helm
+
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/cloudflare/circl@v1.6.3
+        github.com/go-git/go-billy/v5@v5.9.0
+        github.com/go-git/go-git/v5@v5.19.2
+        github.com/go-jose/go-jose/v4@v4.1.4
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+        k8s.io/kubernetes@v1.33.6
+        oras.land/oras-go/v2@v2.6.2
+
   - name: Build UI and binaries
     runs: |
       source_commit=$(git rev-parse HEAD)
       build_date=$(git show -s --format=%cI HEAD)
+
+      summary=ui/src/app/applications/components/application-summary/application-summary.tsx
+      sed -i "/import {services}/a import {isValidURL} from '../../../shared/utils';" \
+        "$summary"
+      safe_filter='.filter(parts => isValidURL(parts.length > 1 ? parts[1] : parts[0]))'
+      sed -i "/\.map(item => item.split('|'))/a\\                        $safe_filter" \
+        "$summary"
+      grep -F "isValidURL(parts.length > 1 ? parts[1] : parts[0])" "$summary"
 
       yarn --cwd ui install --frozen-lockfile --network-timeout 200000
       HOST_ARCH=$(go env GOARCH) \
@@ -62,16 +92,25 @@ pipeline:
 
       GIT_COMMIT="$source_commit" \
         GIT_TAG="v${{package.version}}" \
-        GIT_TREE_STATE=clean \
+        GIT_TREE_STATE=dirty \
         BUILD_DATE="$build_date" \
         GOOS=linux \
         GOARCH=$(go env GOARCH) \
         make argocd-all
 
+      helm_commit=$(git -C third_party/helm rev-parse HEAD)
+      make -C third_party/helm build \
+        VERSION=v3.21.3 \
+        GIT_COMMIT="$helm_commit" \
+        GIT_DIRTY=clean \
+        GOFLAGS="-p=4 -buildvcs=false"
+
   - name: Package
     runs: |
       install -Dm755 dist/argocd \
         "${{targets.destdir}}/usr/local/bin/argocd"
+      install -Dm755 third_party/helm/bin/helm \
+        "${{targets.destdir}}/usr/bin/helm"
       for name in \
         argocd-server \
         argocd-repo-server \
@@ -105,10 +144,14 @@ pipeline:
         "${{targets.destdir}}/etc/ssh/ssh_known_hosts"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 third_party/helm/LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/HELM-LICENSE"
 
       version_output=$("${{targets.destdir}}/usr/local/bin/argocd" version --client)
       printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
       printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
+      printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
+      "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
 
   - uses: strip
 
@@ -117,9 +160,11 @@ test:
     - runs: |
         version_output=$(/usr/local/bin/argocd version --client)
         printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
+        printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
         test -L /usr/local/bin/argocd-server
         test -x /usr/local/bin/entrypoint.sh
         test -s /usr/share/licenses/${{package.name}}/LICENSE
+        /usr/bin/helm version --short | grep -F 'v3.21.3+'
 
 update:
   enabled: true

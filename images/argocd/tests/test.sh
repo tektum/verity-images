@@ -22,6 +22,8 @@ printf '%s\n' "$version_output" | grep -F 'argocd: v3.1.16+' >/dev/null \
 printf '%s\n' "$version_output" | grep -F \
   'GitCommit: 5d001b80990d14c0fc9b2cbee1eac25fc288da15' >/dev/null \
   || fail 'argocd source commit check failed'
+printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
+  || fail 'argocd did not disclose the security-remediated build'
 
 help_output=$(docker run --rm --cpus=4 --network none \
   "$image" argocd-server --help 2>&1)
@@ -34,7 +36,7 @@ docker run --rm --cpus=4 --network none "$image" sh -c '
   test -d /app/config/tls
   test -d /app/config/gpg/source
   test -w /app/config/gpg/keys
-  helm version --short
+  helm version --short | grep -F v3.21.3+
   kustomize version
   git --version
   gpg --version >/dev/null
