@@ -90,7 +90,7 @@
             <p class="overline">SELECT · INSPECT · VERIFY</p>
             <h2 id="catalog-title">IMAGE CATALOG</h2>
           </div>
-          <p>Every row links a runnable image to the evidence used to trust it.</p>
+          <p>Severity counts include CVEs without an available fix; every published image has 0 fixable findings.</p>
         </div>
 
         <div class="catalog-controls">
@@ -116,7 +116,7 @@
 
         <p id="result-status" class="result-status" role="status" aria-live="polite">Loading catalog...</p>
         <div class="list-legend" aria-hidden="true">
-          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>SCAN</span><span></span>
+          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>ALL FINDINGS</span><span></span>
         </div>
         <div id="catalog-list" class="catalog-list" aria-busy="true"></div>
         <div id="empty-state" class="state-panel" hidden>
@@ -172,7 +172,7 @@
         </div>
         <p class="description"></p>
         <div class="verify-row">
-          <span>SCAN</span>
+          <span>ALL FINDINGS</span>
           <div class="severity-breakdown" aria-label="Findings by severity in the published scan"></div>
         </div>
         <div class="verify-row">

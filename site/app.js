@@ -85,20 +85,20 @@ function fillFindings(element, image) {
   element.replaceChildren();
   const present = presentSeverities(image);
   if (present.length === 0) {
-    element.append(severityBadge("none", undefined, "CLEAN"));
-    element.title = "No findings recorded in the published scan";
+    element.append(severityBadge("none", undefined, "0 FINDINGS"));
+    element.title = "No findings recorded; 0 fixable findings";
     return;
   }
   const total = observedFindings(image);
   element.append(severityBadge(present[0].severity, total));
-  element.title = present.map(({ severity, count }) => `${severity}: ${count}`).join(", ");
+  element.title = `${present.map(({ severity, count }) => `${severity}: ${count}`).join(", ")}; 0 fixable findings`;
 }
 
 function fillSeverityBreakdown(container, image) {
   const present = presentSeverities(image);
   container.replaceChildren();
   if (present.length === 0) {
-    container.append(severityBadge("none", undefined, "CLEAN"));
+    container.append(severityBadge("none", undefined, "0 FINDINGS"));
     return;
   }
   for (const { severity, count } of present) {
