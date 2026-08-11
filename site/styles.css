@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Share+Tech+Mono&display=swap");
+@import "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Share+Tech+Mono&display=swap";
 
 :root {
   --void: #060d12;
@@ -59,6 +59,7 @@
   --duration-swap: 200ms;
   --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1);
   --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+
   color-scheme: dark;
 }
 
@@ -183,7 +184,7 @@ input:focus, select:focus { border-color: var(--nucleus); box-shadow: var(--shad
 .track-filters button:last-child { border-right: 1px solid var(--border); }
 .track-filters button:hover { color: var(--text); border-color: var(--border-strong); }
 .track-filters button[aria-pressed="true"] { background: var(--nucleus); color: var(--accent-ink); border-color: var(--nucleus); }
-.track-filters span { opacity: 0.72; }
+.track-filters span { opacity: 0.8; }
 .result-status { margin: var(--space-5) 0; color: var(--text-muted); font-size: var(--type-small); }
 
 /* One scannable line per image; evidence stays one disclosure away. */
@@ -215,7 +216,7 @@ input:focus, select:focus { border-color: var(--nucleus); box-shadow: var(--shad
   min-width: 0;
   align-items: center;
   gap: var(--space-2);
-  border: 1px solid currentColor;
+  border: 1px solid currentcolor;
   border-radius: 2px;
   padding: 0.2rem var(--space-2);
   font-size: var(--type-label);
@@ -223,7 +224,7 @@ input:focus, select:focus { border-color: var(--nucleus); box-shadow: var(--shad
   line-height: 1;
   white-space: nowrap;
 }
-.sev-dot { width: 0.35rem; height: 0.35rem; flex: none; border-radius: 50%; background: currentColor; }
+.sev-dot { width: 0.35rem; height: 0.35rem; flex: none; border-radius: 50%; background: currentcolor; }
 .sev-count { font-variant-numeric: tabular-nums; opacity: 0.85; }
 .sev-badge[data-severity="critical"] { color: var(--sev-critical); background: var(--sev-critical-bg); }
 .sev-badge[data-severity="high"] { color: var(--sev-high); background: var(--sev-high-bg); }
@@ -250,7 +251,7 @@ input:focus, select:focus { border-color: var(--nucleus); box-shadow: var(--shad
 .tag-button[data-state="copied"] { color: var(--nucleus); border-color: var(--nucleus); }
 .tag-button[data-state="error"] { color: var(--error); border-color: var(--error); }
 .command-row { border: 1px solid var(--border); background: var(--void); }
-code { font-family: "JetBrains Mono", "SFMono-Regular", monospace; font-size: var(--type-label); }
+code { font-family: "JetBrains Mono", SFMono-Regular, monospace; font-size: var(--type-label); }
 .pull-command { display: block; min-width: 0; overflow-wrap: anywhere; padding: var(--space-3); color: var(--text); white-space: normal; }
 .copy-button { min-height: 2.75rem; border: 1px solid var(--border-strong); background: transparent; color: var(--text-secondary); font-size: var(--type-label); letter-spacing: 0.1em; cursor: pointer; transition: color var(--duration-swap), filter var(--duration-swap), border-color var(--duration-fast); }
 .copy-button:hover { color: var(--nucleus); border-color: var(--nucleus); }
