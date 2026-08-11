@@ -8,6 +8,7 @@ trap 'rm -rf "$work_dir"' EXIT HUP INT TERM
 repository=$work_dir/repository
 mkdir -p "$repository/scripts" "$repository/packages/openssl-fips-provider" "$work_dir/bin" "$work_dir/tmp"
 export TMPDIR=$work_dir/tmp
+export PACKAGE_POLICY_RECORD=$work_dir/package-policy
 cp "$script" "$repository/scripts/"
 cp "$root/packages/openssl-fips-provider/melange.yaml" "$repository/packages/openssl-fips-provider/"
 cat > "$repository/scripts/test_fips_runtime.sh" <<'EOF'
@@ -90,6 +91,14 @@ esac
 EOF
 chmod +x "$work_dir/bin/melange"
 
+cat > "$work_dir/bin/python3" <<'EOF'
+#!/bin/sh
+set -eu
+cat >/dev/null
+printf '%s\n' "$*" > "${PACKAGE_POLICY_RECORD:?}"
+EOF
+chmod +x "$work_dir/bin/python3"
+
 cat > "$work_dir/bin/mv" <<'EOF'
 #!/bin/bash
 set -euo pipefail
@@ -145,6 +154,7 @@ jq -e --arg architecture "$native" --arg source_sha "$source_sha" \
   }
 ' "$repository/artifact/metadata.json" >/dev/null
 test -s "$work_dir/runtime"
+grep -Fq "openssl-fips-provider-3.1.2-r3.apk $native openssl-fips-provider 3.1.2-r3" "$PACKAGE_POLICY_RECORD"
 test -z "$(find "$TMPDIR" -mindepth 1 -print -quit)"
 first_metadata=$(sha256sum "$repository/artifact/metadata.json")
 run_build openssl-fips-provider "$native"
