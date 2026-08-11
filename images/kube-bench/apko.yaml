@@ -6,7 +6,7 @@ contents:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     - "@LOCAL_KEY@"
   packages:
-    - kube-bench@local
+    - verity-kube-bench-0.11@local
 
 entrypoint:
   command: /usr/bin/kube-bench
