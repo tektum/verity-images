@@ -1,0 +1,15 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - kube-bench@local
+
+entrypoint:
+  command: /usr/bin/kube-bench
+
+environment:
+  PATH: /usr/local/mount-from-host/bin:/usr/bin:/bin
