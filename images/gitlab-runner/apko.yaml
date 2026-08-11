@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - gitlab-runner@local
+
+entrypoint:
+  command: /usr/bin/dumb-init -- /usr/bin/gitlab-runner-entrypoint
+
+cmd: run
+
+environment:
+  CONFIG_FILE: /etc/gitlab-runner/config.toml
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/gitlab-runner
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
