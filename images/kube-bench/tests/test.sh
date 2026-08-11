@@ -8,7 +8,8 @@ trap 'rm -rf "$work"' EXIT
 test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/kube-bench"]'
-docker run --rm --network none "$image" version | grep -Fx 'v0.11.2' >/dev/null
+version=$(docker run --rm --network none "$image" version)
+test "$version" = 'v0.11.2'
 
 docker run --rm --network none "$image" run \
   --benchmark cis-1.24 --targets node --check 4.1.2 \
