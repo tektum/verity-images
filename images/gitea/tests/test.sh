@@ -87,6 +87,8 @@ docker run --name "$container" -d --cpus=4 --network none --read-only \
 sleep 3
 test "$(docker inspect --format '{{.State.Running}}' "$container")" = false ||
   fail 'Gitea accepted a missing writable data path'
+test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" -ne 0 ||
+  fail 'Gitea did not report startup failure for a missing writable data path'
 docker rm -f "$container" >/dev/null
 
 printf '%s\n' '[server' >"$work/invalid.ini"
@@ -97,5 +99,7 @@ docker run --name "$container" -d --cpus=4 --network none \
 sleep 3
 test "$(docker inspect --format '{{.State.Running}}' "$container")" = false ||
   fail 'Gitea accepted an invalid config'
+test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" -ne 0 ||
+  fail 'Gitea did not report startup failure for an invalid config'
 
 printf 'SMOKE PASS image=%s\n' "$image"
