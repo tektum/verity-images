@@ -154,6 +154,7 @@ pipeline:
       install -Dm644 third_party/helm/LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/HELM-LICENSE"
 
+      source_commit=$(git rev-parse HEAD)
       version_output=$("${{targets.destdir}}/usr/local/bin/argocd" version --client)
       printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
       printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
