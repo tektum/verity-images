@@ -25,7 +25,6 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
-      - libcap-utils
   environment:
     CGO_ENABLED: "0"
     GOTOOLCHAIN: local
@@ -47,19 +46,13 @@ pipeline:
       go build -mod=readonly -trimpath -buildvcs=false \
         -ldflags="$flags" \
         -o "${{targets.destdir}}/speaker" ./speaker
-      setcap cap_net_raw=+ep "${{targets.destdir}}/speaker"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 test:
-  environment:
-    contents:
-      packages:
-        - libcap-utils
   pipeline:
     - runs: |
         /speaker --help 2>&1 | grep -F -- '-node-name string'
-        getcap /speaker | grep -F cap_net_raw
         test -f /usr/share/licenses/${{package.name}}/LICENSE
 
 update:
