@@ -9,7 +9,7 @@ fail() {
 }
 
 user=$(docker image inspect --format '{{.Config.User}}' "$image")
-[ -z "$user" ] || [ "$user" = 0 ] || fail "unexpected image user: $user"
+[ "$user" = 65532 ] || fail "unexpected image user: $user"
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/bin/external-dns"]' ] \
   || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = null ] \
@@ -17,6 +17,8 @@ user=$(docker image inspect --format '{{.Config.User}}' "$image")
 
 docker run --rm "$image" --help 2>&1 | grep -F -- '--provider=provider' >/dev/null \
   || fail 'help did not list the required provider flag'
+docker run --rm "$image" --source=fake --provider=inmemory --registry=noop --once >/dev/null 2>&1 \
+  || fail 'valid one-shot controller run failed'
 
 if output=$(docker run --rm "$image" --provider=not-a-provider 2>&1); then
   fail 'unknown provider unexpectedly succeeded'

@@ -9,6 +9,9 @@ contents:
     - ca-certificates-bundle
     - verity-external-dns-0.19@local
 
+accounts:
+  run-as: 65532
+
 entrypoint:
   command: /bin/external-dns
 
