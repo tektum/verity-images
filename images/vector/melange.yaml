@@ -46,7 +46,7 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 44c8f1cfd64bdedb924034c946f639d09890fc53
   - runs: |
-      export CFLAGS="$CFLAGS -std=gnu17"
+      export CC=clang CXX=clang++
       cargo auditable build --release --locked --no-default-features --features default-cmake
       install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
   - uses: strip
