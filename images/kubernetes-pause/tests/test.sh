@@ -10,6 +10,10 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 platform=$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image")
+[ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65535 ] || {
+  printf 'unexpected OCI user\n' >&2
+  exit 1
+}
 version=$(docker run --rm --platform "$platform" "$image" -v)
 case "$version" in
   'pause.c v3.10'*) ;;
