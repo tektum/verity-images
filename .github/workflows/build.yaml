@@ -357,11 +357,13 @@ jobs:
               (.[0].track == "wolfi" or .[0].track == "patched") and
               (.[0].description | type == "string" and length > 0) and
               (.[0].scan | type == "object") and
-              (((.[0] | keys) | sort == ["description", "digest", "name", "scan", "tags", "track", "version"]) and
+              (((.[0] | del(.category) | keys) | sort ==
+                ["description", "digest", "name", "scan", "tags", "track", "version"]) and
                 (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
                 (.[0].tags | type == "string" and length > 0) or
                ($event == "pull_request" and
-                ((.[0] | keys) | sort == ["description", "digest", "name", "scan", "track", "version"]) and
+                ((.[0] | del(.category) | keys) | sort ==
+                  ["description", "digest", "name", "scan", "track", "version"]) and
                 .[0].digest == "local"))
             ' "$report" >/dev/null
           done

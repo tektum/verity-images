@@ -362,6 +362,11 @@ def main() -> None:
     assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
     assert '$event == "pull_request"' in workflow
     assert ".[0].digest == \"local\"" in workflow
+    published_report_validation, pull_request_report_validation = workflow.split(
+        '               ($event == "pull_request" and\n', maxsplit=1
+    )
+    assert published_report_validation.count(".[0] | del(.category) | keys") == 1
+    assert pull_request_report_validation.count(".[0] | del(.category) | keys") == 1
     assert "reports/report-*.json > build-report.json" in workflow
     assert (
         "      github.event_name != 'merge_group' &&\n"
