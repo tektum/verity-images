@@ -1,8 +1,8 @@
 name: k8s-sidecar
 track: patched
-description: Kiwigrid sidecar that syncs labeled ConfigMaps and Secrets to files and calls a webhook.
+description: Kiwigrid sidecar disabled until Python 3.15.0 passes zero-fixable scans and smoke tests on amd64/arm64.
 category: Kubernetes & Orchestration
 upstream: docker.io/kiwigrid/k8s-sidecar:2.10.1
 versions: [2.10.1]
 owner: tektum
-enabled: true
+enabled: false
