@@ -14,8 +14,8 @@ fail() {
   exit 1
 }
 
-[ -z "$(docker image inspect --format '{{.Config.User}}' "$image")" ] \
-  || fail 'image must run as root for executor compatibility'
+user=$(docker image inspect --format '{{.Config.User}}' "$image")
+[ -z "$user" ] || [ "$user" = 0 ] || fail 'image must run as root for executor compatibility'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/dumb-init","--","/usr/bin/gitlab-runner-entrypoint"]' ] \
   || fail 'unexpected image entrypoint'
