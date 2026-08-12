@@ -63,6 +63,7 @@ pipeline:
         github.com/go-git/go-billy/v5@v5.9.0
         github.com/go-git/go-git/v5@v5.19.2
         github.com/go-jose/go-jose/v4@v4.1.4
+        github.com/moby/spdystream@v0.5.1
         go.opentelemetry.io/otel@v1.44.0
         go.opentelemetry.io/otel/sdk@v1.44.0
         golang.org/x/crypto@v0.53.0
@@ -72,9 +73,15 @@ pipeline:
         k8s.io/kubernetes@v1.33.6
         oras.land/oras-go/v2@v2.6.2
 
+  - uses: go/bump
+    with:
+      deps: golang.org/x/text@v0.39.0
+      modroot: third_party/helm
+
   - name: Build UI and binaries
     runs: |
       source_commit=$(git rev-parse HEAD)
+      printf '%s\n' "$source_commit" >.verity-source-commit
       build_date=$(git show -s --format=%cI HEAD)
 
       summary=ui/src/app/applications/components/application-summary/application-summary.tsx
@@ -97,6 +104,7 @@ pipeline:
         NODE_ONLINE_ENV=online \
         yarn --cwd ui build
 
+      rm -rf .git
       GIT_COMMIT="$source_commit" \
         GIT_TAG="v${{package.version}}" \
         GIT_TREE_STATE=dirty \
@@ -154,13 +162,13 @@ pipeline:
       install -Dm644 third_party/helm/LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/HELM-LICENSE"
 
-      source_commit=$(git rev-parse HEAD)
+      source_commit=$(cat .verity-source-commit)
       version_output=$("${{targets.destdir}}/usr/local/bin/argocd" version --client)
       printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
       printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
       printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
       "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
-      rm -rf third_party/helm
+      rm -rf .verity-source-commit third_party/helm
 
   - uses: strip
 
