@@ -65,7 +65,7 @@ test:
         - apk-tools
   pipeline:
     - runs: |
-        /bin/operator --version | grep -F 'version 0.93.0'
+        /bin/operator --version | grep -F "version ${{package.version}}"
         /bin/operator crds | grep -F 'kind: CustomResourceDefinition'
         apk info --who-owns /usr/bin/operator \
           | grep -F "${{package.name}}-${{package.full-version}}"
