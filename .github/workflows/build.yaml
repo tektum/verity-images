@@ -133,6 +133,7 @@ jobs:
       - name: Write build report
         shell: bash
         env:
+          CATEGORY: ${{ matrix.category }}
           DESCRIPTION: ${{ matrix.description }}
           DIGEST: local
           NAME: ${{ matrix.name }}
@@ -142,7 +143,9 @@ jobs:
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --argjson scan "$SCAN" \
-            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,scan:$scan}' \
+            --arg category "$CATEGORY" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,scan:$scan}
+             + (if $category == "" then {} else {category:$category} end)' \
             > "report-${NAME}-${VERSION}.json"
 
       - name: Upload build report
@@ -264,6 +267,7 @@ jobs:
       - name: Write build report
         shell: bash
         env:
+          CATEGORY: ${{ matrix.category }}
           DESCRIPTION: ${{ matrix.description }}
           DIGEST: ${{ steps.publish.outputs.digest }}
           NAME: ${{ matrix.name }}
@@ -274,7 +278,9 @@ jobs:
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --arg tags "$TAGS" --argjson scan "$SCAN" \
-            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,tags:$tags,scan:$scan}' \
+            --arg category "$CATEGORY" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,tags:$tags,scan:$scan}
+             + (if $category == "" then {} else {category:$category} end)' \
             > "report-${NAME}-${VERSION}.json"
 
       - name: Upload build report

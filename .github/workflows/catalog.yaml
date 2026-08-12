@@ -19,6 +19,7 @@ on:
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
       - scripts/validate_repository_state.py
+      - site/**
   workflow_dispatch:
     inputs:
       mode:
@@ -119,6 +120,9 @@ jobs:
             printf 'source-event=%s\n' "$(jq -r .event <<<"$metadata")"
             printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
           } >> "$GITHUB_OUTPUT"
+
+      - name: Stage site assets
+        run: cp -R site "$RUNNER_TEMP/site"
 
       - name: Check out source revision
         if: steps.mode.outputs.value != 'packages'
@@ -271,6 +275,7 @@ jobs:
             exit 1
           fi
           mkdir pages
+          cp -R "$RUNNER_TEMP/site/." pages/
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json
           devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
@@ -294,8 +299,8 @@ jobs:
       pages: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}catalog.json
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy catalog JSON
+      - name: Deploy catalog site
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0

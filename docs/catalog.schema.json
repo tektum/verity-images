@@ -88,6 +88,24 @@
         "additionalProperties": false,
         "required": ["description", "digest", "name", "reference", "registry", "scan", "scanArtifact", "tags", "track", "verification", "version"],
         "properties": {
+          "category": {
+            "enum": [
+              "Languages & Build Tools",
+              "Web Servers & Proxies",
+              "Databases & Caching",
+              "Messaging & Streaming",
+              "Kubernetes & Orchestration",
+              "Service Mesh & Networking",
+              "Monitoring & Observability",
+              "Logging",
+              "CI/CD & GitOps",
+              "Security & Identity",
+              "Policy & Compliance",
+              "Cert Management",
+              "Data & ML",
+              "Base & Utilities"
+            ]
+          },
           "description": {"type": "string", "minLength": 1},
           "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
           "name": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
