@@ -9,9 +9,6 @@ contents:
     - ca-certificates-bundle
     - verity-metallb-speaker@local
 
-accounts:
-  run-as: 65534
-
 entrypoint:
   command: /speaker
 

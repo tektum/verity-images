@@ -17,7 +17,7 @@ fail() {
 }
 
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/speaker"]'
-test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65534
+test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
 
 docker run --rm --network none --read-only --user 65534:65534 \
   --cap-drop ALL --security-opt no-new-privileges \
@@ -52,7 +52,7 @@ users:
     user:
       token: smoke
 EOF
-  docker run --name "$container" -d --network host --read-only --user 65534:65534 \
+  docker run --name "$container" -d --network host --read-only \
     --cap-drop ALL --cap-add NET_RAW --security-opt no-new-privileges \
     -e KUBECONFIG=/tmp/kubeconfig -v "$tmp/kubeconfig:/tmp/kubeconfig:ro" \
     "$image" --namespace smoke --node-name smoke --port=0 >/dev/null
