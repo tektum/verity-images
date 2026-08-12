@@ -1,0 +1,71 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-zookeeper-3.9@local
+
+accounts:
+  groups:
+    - groupname: zookeeper
+      gid: 1000
+  users:
+    - username: zookeeper
+      uid: 1000
+      gid: 1000
+  run-as: 1000
+
+entrypoint:
+  command: /docker-entrypoint.sh
+
+cmd: zkServer.sh start-foreground
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+  LANG: en_US.UTF-8
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/apache-zookeeper-3.9.5-bin/bin
+  ZOOCFGDIR: /conf
+  ZOO_ADMINSERVER_ENABLED: "false"
+  ZOO_AUTOPURGE_PURGEINTERVAL: "0"
+  ZOO_AUTOPURGE_SNAPRETAINCOUNT: "3"
+  ZOO_CONF_DIR: /conf
+  ZOO_DATA_DIR: /data
+  ZOO_DATA_LOG_DIR: /datalog
+  ZOO_INIT_LIMIT: "5"
+  ZOO_LOG_DIR: /logs
+  ZOO_MAX_CLIENT_CNXNS: "60"
+  ZOO_STANDALONE_ENABLED: "true"
+  ZOO_SYNC_LIMIT: "2"
+  ZOO_TICK_TIME: "2000"
+
+paths:
+  - path: /conf
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /data
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /datalog
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /logs
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+
+volumes:
+  - /data
+  - /datalog
+  - /logs
+
+work-dir: /apache-zookeeper-3.9.5-bin

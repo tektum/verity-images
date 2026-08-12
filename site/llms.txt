@@ -1,0 +1,56 @@
+# Verity Images
+
+> Signed container images with zero fixable vulnerabilities, SBOMs, and provenance.
+
+## About the catalog
+
+Verity Images publishes minimal Wolfi-built and patched upstream container images with immutable digests, cosign signatures, SPDX SBOMs, and build provenance. All images enforce zero fixable vulnerabilities before publication.
+
+## Machine-readable catalog
+
+- [catalog.json](catalog.json) - Image records with digests, tags, and scan results
+- [catalog.schema.json](catalog.schema.json) - JSON Schema for catalog structure
+
+## Pulling images
+
+All images are digest-pinned and immutable:
+
+```sh
+docker pull verity.supply/IMAGE@sha256:DIGEST
+```
+
+## Verifying signatures and provenance
+
+Verify keyless cosign signature (requires cosign 3.0.6+):
+
+```sh
+cosign verify \
+  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  verity.supply/IMAGE@sha256:DIGEST
+```
+
+Verify the SPDX JSON SBOM attestation:
+
+```sh
+cosign verify-attestation --type spdxjson \
+  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+  verity.supply/IMAGE@sha256:DIGEST
+```
+
+Verify the build provenance attestation:
+
+```sh
+gh attestation verify oci://verity.supply/IMAGE@sha256:DIGEST --repo tektum/verity-images
+```
+
+Every catalog record carries these three commands prefilled with its own digest,
+under the `verification` key in catalog.json.
+
+## Links
+
+- [Image catalog](index.html)
+- [Trust and verification](trust.html)
+- [GitHub repository](https://github.com/tektum/verity-images)
+- [Publication policy](https://github.com/tektum/verity-images/blob/main/docs/POLICY.md)

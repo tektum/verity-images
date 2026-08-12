@@ -6,8 +6,8 @@ run_id=${RUN_ID:?RUN_ID is required}
 stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 now=$(date -u +%s)
 
-jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" \
-  --jq '[.[].jobs[]] | map(select(.name | test("^(validate|publish) \\(")))')
+jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
+  jq '[.[].jobs[]] | map(select(.name | test("^(validate|publish) \\(")))')
 
 # The caller only starts this script once matrix has produced at least one
 # image, so an empty result here means the API hasn't caught up with the
