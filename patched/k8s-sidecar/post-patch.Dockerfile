@@ -1,22 +1,25 @@
 # Rebuild the interpreter to remediate fixable CVEs in the vendored Python
 # 3.15.0b2 (CVE-2026-0864, CVE-2026-9669, CVE-2026-11940, CVE-2026-11972,
-# CVE-2026-12003, and CVE-2026-6879; fixed upstream by 3.15.0rc1). Alpine
-# has no apk package for this from-source interpreter, so Copa cannot patch it; this mirrors the
+# CVE-2026-12003; fixed upstream in 3.15.0b4). Alpine has no apk package for
+# this from-source interpreter, so Copa cannot patch it; this mirrors the
 # official docker-library/python 3.15-rc/alpine3.22 build recipe with only
 # PYTHON_VERSION/PYTHON_SHA256 bumped, built directly on top of the pinned
 # candidate ($BASE) rather than a freshly pulled alpine:3.22 (which floats to
 # a newer Alpine patch release), so the new interpreter links against the
 # exact runtime libraries already present in the image.
 #
-# The current scanner reports 3.15.0rc1 as the first 3.15 release fixing
-# CVE-2026-6879; publication requires zero findings with an available fix.
+# 3.15.0rc1 (released 2026-08-04) was evaluated instead but rejected: the
+# pinned Grype 0.116.1 DB flags CVE-2026-15308 (html.parser DoS) against
+# 3.15.0rc1 with a fix only in the unreleased final 3.15.0 -- swapping in
+# rc1 trades 5 fixed CVEs for 1 new unfixable one. 3.15.0b4 is verified
+# zero-fixable against the same DB.
 ARG BASE=scratch
 
 FROM ${BASE}
 USER 0
 
-ENV PYTHON_VERSION=3.15.0rc1
-ENV PYTHON_SHA256=f84dad680ab2147417d2739355c2678f0f9acffe4ae8ef77895de1454b384b07
+ENV PYTHON_VERSION=3.15.0b4
+ENV PYTHON_SHA256=93efb9c88d7b6633368e7f7b8f8db6e98988f7f761c09b77849447262841ce3a
 
 RUN set -eux; \
 	apk add --no-cache --virtual .build-deps \
@@ -103,6 +106,6 @@ RUN set -eux; \
 	apk del --no-network .build-deps; \
 	\
 	export PYTHONDONTWRITEBYTECODE=1; \
-	python3 --version | grep -qx 'Python 3.15.0rc1'
+	python3 --version | grep -qx 'Python 3.15.0b4'
 
 USER 65534:65534
