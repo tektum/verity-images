@@ -1,0 +1,68 @@
+package:
+  name: verity-kube-bench-0.11
+  version: "0.11.2"
+  epoch: 0
+  description: Checks Kubernetes deployments against CIS benchmarks
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - findutils
+      - jq
+      - kubectl
+      - openssl
+      - procps
+  resources:
+    cpu: "4"
+    memory: 6Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aquasecurity/kube-bench
+      tag: v${{package.version}}
+      expected-commit: a02030bd5102b849b27784787a2b566a994a0c27
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/jackc/pgx/v5@v5.9.2
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        github.com/go-viper/mapstructure/v2@v2.4.0
+  - uses: go/build
+    with:
+      packages: .
+      output: kube-bench
+      go-package: go-1.26
+      ldflags: |
+        -X github.com/aquasecurity/kube-bench/cmd.cfgDir=/etc/kube-bench/cfg
+        -X github.com/aquasecurity/kube-bench/cmd.KubeBenchVersion=v${{package.version}}
+  - runs: |
+      mkdir -p "${{targets.destdir}}/etc/kube-bench"
+      cp -r cfg "${{targets.destdir}}/etc/kube-bench/"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: verity-kube-bench-0.11-build-metadata
+    description: Resolved Go module metadata for the kube-bench build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod \
+            "${{targets.subpkgdir}}/usr/share/kube-bench-build/go.mod"
+          install -m644 -D go.sum \
+            "${{targets.subpkgdir}}/usr/share/kube-bench-build/go.sum"

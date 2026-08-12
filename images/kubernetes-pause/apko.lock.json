@@ -1,0 +1,108 @@
+{
+  "version": "v1",
+  "config": {
+    "name": "apko.yaml",
+    "checksum": "sha256-9LkEZu40iz4lzi5dlTNUdwf6RWw/h1TkYar1NHWm2Dw="
+  },
+  "contents": {
+    "keyring": [
+      {
+        "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5qQUHmzqX9oa/RS3OSgL\nYTYB1mzvVmnWC0JXsAafdgRkavJ9xRhsXMKXWPKMghZw6UnkxuxQCZlB9UhaFqed\nX7SWfQ8qRgECFmdGUjoeV7P3VUkg17RU0mUKsXZZF/2mU+jCGyk5eweKcLWrk6bn\nlNNF1vBJ9EXbHdfvbQsA5GfLku5tJhqRJ4FVQAGCw+1JoSKu+o3q+6xP7z6kMfR9\ncp54FSj48rTJUibbAv+cPtZ3AnbpjdyarV7SYMfxp14Q/KR0CJYDihG3CFoU+TaM\ndr7LUrgXaYw7m7g8hA2PY1jF8aqDqVFjVu/csPKnKVQSqNHfm4C4gljwT6TDVhPe\n6xKSGKfAUNvHx2RIqSsZJCh68Af+VnfuimbHMYzGhzV4/efihpJlYsDnOXJj/PeY\nSbEIYG2yoI3AYvDFyFX2OAOtQ9d4TPs4zS4aDg4R3UseXLib46FX3ZTfIi1/W0IO\neC3AFU5mK+02jq+7swcGbgzem30dFA/B3n8NQExJjF2WlGNJxFw2WnJQqKIkIh0s\nkm5jaxJ28xYgik+bEgxy1LsilKTowdkbEPRKv36JGdap4dOEGR+LwZsM+ontF1AO\nwY6tvwtZKJWhgj7ES3BdtiC1GA2htFnP90lA7KnKbSMOxwWtSCH8spitdPdzgI8G\nSxrOb0SZs6ZFAxYYe3GlvS0CAwEAAQ==\n-----END PUBLIC KEY-----\n"
+      }
+    ],
+    "build_repositories": [],
+    "runtime_repositories": [],
+    "repositories": [
+      {
+        "name": "packages.wolfi.dev/os/x86_64",
+        "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
+        "name": "packages.wolfi.dev/os/aarch64",
+        "url": "https://packages.wolfi.dev/os/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
+      }
+    ],
+    "packages": [
+      {
+        "name": "kubernetes-pause-1.36",
+        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-1.36-1.36.3-r2.apk",
+        "version": "1.36.3-r2",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13352",
+          "checksum": "sha1-B4ZZKmfE6o9XVHUTBqO8vs3ZdgM="
+        },
+        "data": {
+          "range": "bytes=13353-1569249",
+          "checksum": "sha256-UsYycz9HWjMNhyTpZHtq8744ZZSRTT3Alart6CqSYPo="
+        },
+        "checksum": "Q1B4ZZKmfE6o9XVHUTBqO8vs3ZdgM="
+      },
+      {
+        "name": "kubernetes-pause-compat-1.36",
+        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-compat-1.36-1.36.3-r2.apk",
+        "version": "1.36.3-r2",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13349",
+          "checksum": "sha1-epag+bv9sFD6IjeZlUr8M/Onun0="
+        },
+        "data": {
+          "range": "bytes=13350-14869",
+          "checksum": "sha256-jHGV2oiygSIPBy16IfW3kPqrS1nDGH5L8oHAFaTD6Ds="
+        },
+        "checksum": "Q1epag+bv9sFD6IjeZlUr8M/Onun0="
+      },
+      {
+        "name": "kubernetes-pause-1.36",
+        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-1.36-1.36.3-r2.apk",
+        "version": "1.36.3-r2",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13377",
+          "checksum": "sha1-9K/EaOrh0qpPVjKRvghv2tHltek="
+        },
+        "data": {
+          "range": "bytes=13378-1420498",
+          "checksum": "sha256-4dR+nSFXSY0ksXncOhTmPmu9Bz9yHBKuBf2N/tmzyoY="
+        },
+        "checksum": "Q19K/EaOrh0qpPVjKRvghv2tHltek="
+      },
+      {
+        "name": "kubernetes-pause-compat-1.36",
+        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-compat-1.36-1.36.3-r2.apk",
+        "version": "1.36.3-r2",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-13378",
+          "checksum": "sha1-Yc96yLFSfpIQAvZAw0skHZ5e1hw="
+        },
+        "data": {
+          "range": "bytes=13379-14895",
+          "checksum": "sha256-dq28CxoEMi/X+9NaxyBcNsdaIDZ78bRyf4aJL2JtmCE="
+        },
+        "checksum": "Q1Yc96yLFSfpIQAvZAw0skHZ5e1hw="
+      }
+    ]
+  }
+}
