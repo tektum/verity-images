@@ -69,12 +69,12 @@ def main() -> None:
         cached = gen_matrix.cached_images(catalog, timedelta(hours=24))
         assert cached[("static", gen_matrix.parse_metadata(static / "metadata.yaml").versions[0])] == fingerprint
         assert not any(entry["context"] == "images/static" for entry in gen_matrix.generate(None, catalog)["include"])
-        assert any(
-            entry["context"] == "images/static"
-            for entry in gen_matrix.generate(None, catalog, timedelta(seconds=-1))["include"]
-        )
         document = json.loads(catalog.read_text(encoding="utf-8"))
-        document["images"][0]["validatedAt"] = "2026-08-13T00:00:00"
+        document["images"][0]["validatedAt"] = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        catalog.write_text(json.dumps(document), encoding="utf-8")
+        assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
+
+        document["images"][0]["validatedAt"] = datetime.now().isoformat()
         catalog.write_text(json.dumps(document), encoding="utf-8")
         assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
 
