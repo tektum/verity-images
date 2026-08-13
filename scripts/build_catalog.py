@@ -55,7 +55,7 @@ if $previous != "" then
 else
   .report.images |= sort_by(.name, .version)
 end |
-.report.images |= (if ($expected | length) == 0 then . else map(. as $image | select($expected | index([$image.name, $image.version]))) end) |
+.report.images |= (if ($expected | length) == 0 then . else map(. as $image | select(any($expected[]; . == [$image.name, $image.version]))) end) |
 {
   schemaVersion: 2,
   publishedAt: $publishedAt,
