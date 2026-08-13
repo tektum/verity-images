@@ -47,6 +47,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      - name: Download receipt cache
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          status=$(curl --silent --show-error --location --output catalog.json \
+            --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json) || status=000
+          [[ "$status" == 200 ]] || rm -f catalog.json
       - name: Generate matrix
         id: generate
         shell: bash
@@ -57,7 +63,9 @@ jobs:
             github.event.merge_group.base_sha || github.event.before }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
+          if [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then
+            matrix=$(python3 scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24)
+          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
           else
             matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")
@@ -135,6 +143,7 @@ jobs:
         env:
           CATEGORY: ${{ matrix.category }}
           DESCRIPTION: ${{ matrix.description }}
+          INPUT_DIGEST: ${{ matrix.input_digest }}
           DIGEST: local
           NAME: ${{ matrix.name }}
           SCAN: ${{ steps.publish.outputs.scan-summary }}
@@ -143,8 +152,9 @@ jobs:
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --argjson scan "$SCAN" \
-            --arg category "$CATEGORY" \
-            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,scan:$scan}
+            --arg category "$CATEGORY" --arg inputDigest "$INPUT_DIGEST" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,scan:$scan,
+              inputDigest:$inputDigest}
              + (if $category == "" then {} else {category:$category} end)' \
             > "report-${NAME}-${VERSION}.json"
 
@@ -269,6 +279,11 @@ jobs:
         env:
           CATEGORY: ${{ matrix.category }}
           DESCRIPTION: ${{ matrix.description }}
+          INPUT_DIGEST: ${{ matrix.input_digest }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SOURCE_COMMIT: ${{ github.sha }}
+          VALIDATED_AT: ${{ github.event.repository.updated_at }}
           DIGEST: ${{ steps.publish.outputs.digest }}
           NAME: ${{ matrix.name }}
           SCAN: ${{ steps.publish.outputs.scan-summary }}
@@ -278,8 +293,12 @@ jobs:
         run: |
           jq -n -c --arg name "$NAME" --arg version "$VERSION" --arg track "$TRACK" \
             --arg description "$DESCRIPTION" --arg digest "$DIGEST" --arg tags "$TAGS" --argjson scan "$SCAN" \
-            --arg category "$CATEGORY" \
-            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,tags:$tags,scan:$scan}
+            --arg category "$CATEGORY" --arg inputDigest "$INPUT_DIGEST" --arg runId "$RUN_ID" \
+            --arg runUrl "$RUN_URL" --arg sourceCommit "$SOURCE_COMMIT" \
+            --arg validatedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{name:$name,version:$version,track:$track,description:$description,digest:$digest,tags:$tags,
+              scan:$scan,inputDigest:$inputDigest,runId:$runId,runUrl:$runUrl,sourceCommit:$sourceCommit,
+              validatedAt:$validatedAt}
              + (if $category == "" then {} else {category:$category} end)' \
             > "report-${NAME}-${VERSION}.json"
 
@@ -326,12 +345,14 @@ jobs:
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
           if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
-          else
-            [[ "$PUBLISH_RESULT" == success ]]
+          elif [[ "$PUBLISH_RESULT" != success ]]; then
+            printf '::warning title=Partial image publication::Successful image receipts remain publishable.\n'
           fi
 
       - name: Download image reports
-        if: github.event_name != 'merge_group' && fromJSON(needs.matrix.outputs.images).include[0] != null
+        if: >-
+          always() && github.event_name != 'merge_group' &&
+          fromJSON(needs.matrix.outputs.images).include[0] != null
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
         with:
           pattern: report-*
@@ -339,7 +360,9 @@ jobs:
           merge-multiple: true
 
       - name: Combine reports
-        if: github.event_name != 'merge_group' && fromJSON(needs.matrix.outputs.images).include[0] != null
+        if: >-
+          always() && github.event_name != 'merge_group' &&
+          fromJSON(needs.matrix.outputs.images).include[0] != null && hashFiles('reports/report-*.json') != ''
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
@@ -358,12 +381,16 @@ jobs:
               (.[0].description | type == "string" and length > 0) and
               (.[0].scan | type == "object") and
               (((.[0] | del(.category) | keys) | sort ==
-                ["description", "digest", "name", "scan", "tags", "track", "version"]) and
+                ["description", "digest", "inputDigest", "name", "runId", "runUrl", "scan", "sourceCommit",
+                 "tags", "track", "validatedAt", "version"]) and
                 (.[0].digest | test("^sha256:[0-9a-f]{64}$")) and
+                (.[0].inputDigest | test("^sha256:[0-9a-f]{64}$")) and
+                (.[0].runId | test("^[0-9]+$")) and
+                (.[0].sourceCommit | test("^[0-9a-f]{40}$")) and
                 (.[0].tags | type == "string" and length > 0) or
                ($event == "pull_request" and
                 ((.[0] | del(.category) | keys) | sort ==
-                  ["description", "digest", "name", "scan", "track", "version"]) and
+                  ["description", "digest", "inputDigest", "name", "scan", "track", "version"]) and
                 .[0].digest == "local"))
             ' "$report" >/dev/null
           done
@@ -375,7 +402,9 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload combined report
-        if: github.event_name != 'merge_group' && fromJSON(needs.matrix.outputs.images).include[0] != null
+        if: >-
+          always() && github.event_name != 'merge_group' &&
+          fromJSON(needs.matrix.outputs.images).include[0] != null && hashFiles('build-report.json') != ''
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: build-report

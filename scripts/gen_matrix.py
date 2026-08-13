@@ -9,9 +9,11 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
+from datetime import UTC, datetime, timedelta
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final, Literal, TypedDict
@@ -19,12 +21,14 @@ from typing import Final, Literal, TypedDict
 ROOT: Final = Path(__file__).resolve().parents[1]
 GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
+    ".github/workflows/build.yaml",
     "scripts/build_candidate.sh",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
 }
+FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 OPENSSL_FIPS_PATHS: Final = {
     "packages/keys/verity-apk-2026.rsa.pub",
     "packages/repository-state.json",
@@ -57,6 +61,7 @@ class MatrixEntry(TypedDict):
     latest: bool
     owner: str
     evidence_file: str
+    input_digest: str
 
 
 class Matrix(TypedDict):
@@ -194,11 +199,59 @@ def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
 
+def input_digest(directory: Path, flavor: str) -> str:
+    digest = hashlib.sha256()
+    digest.update(FINGERPRINT_VERSION.encode())
+    digest.update(b"\0")
+    digest.update(flavor.encode())
+    shared_paths = GLOBAL_PATHS | (OPENSSL_FIPS_PATHS if uses_openssl_fips_provider(directory, flavor) else set())
+    paths = sorted(
+        {
+            *(relative for relative in shared_paths if (ROOT / relative).is_file()),
+            *(path.relative_to(ROOT).as_posix() for path in directory.rglob("*") if path.is_file()),
+        }
+    )
+    for relative in paths:
+        digest.update(b"\0")
+        digest.update(relative.encode())
+        digest.update(b"\0")
+        digest.update((ROOT / relative).read_bytes())
+    return f"sha256:{digest.hexdigest()}"
 
-def generate(base_ref: str | None) -> Matrix:
-    changed: set[str] = changed_paths(base_ref) if base_ref else set()
+
+def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str], str]:
+    if path is None:
+        return {}
+    document = json.loads(path.read_text(encoding="utf-8"))
+    images = document.get("images")
+    if not isinstance(images, list):
+        raise MetadataError(f"{path}: catalog images must be an array")
+    cutoff = datetime.now(UTC) - max_age
+    cached: dict[tuple[str, str], str] = {}
+    for image in images:
+        if not isinstance(image, dict):
+            continue
+        try:
+            validated_at = datetime.fromisoformat(str(image["validatedAt"]).replace("Z", "+00:00"))
+        except (KeyError, ValueError):
+            continue
+        if validated_at.tzinfo is None or validated_at.utcoffset() is None:
+            continue
+        if validated_at < cutoff:
+            continue
+        name, version, fingerprint = image.get("name"), image.get("version"), image.get("inputDigest")
+        if isinstance(name, str) and isinstance(version, str) and isinstance(fingerprint, str):
+            cached[(name, version)] = fingerprint
+    return cached
+
+
+def generate(
+    base_ref: str | None, catalog_path: Path | None = None, max_age: timedelta = timedelta(hours=24)
+) -> Matrix:
+    changed: set[str] = changed_paths(base_ref) if base_ref and catalog_path is None else set()
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
+    cached = cached_images(catalog_path, max_age)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     samples = {
         (metadata.track, flavor): (
@@ -249,10 +302,14 @@ def generate(base_ref: str | None) -> Matrix:
                 and metadata.track == "wolfi"
                 and uses_openssl_fips_provider(directory, flavor)
             )
-            if base_ref and not directly_changed and (
+            if catalog_path is None and base_ref and not directly_changed and (
                 not provider_changed
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
+                continue
+            fingerprint = input_digest(directory, flavor)
+            tag_version = metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
+            if cached.get((metadata.name, tag_version)) == fingerprint:
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
             entries.append(
@@ -278,20 +335,34 @@ def generate(base_ref: str | None) -> Matrix:
                         if metadata.track == "wolfi"
                         else f"dist/{build_name}/source-resolved.json"
                     ),
+                    "input_digest": fingerprint,
                 }
             )
     return {"include": entries}
 
 
 def main() -> None:
-    match sys.argv[1:]:
+    catalog_path: Path | None = None
+    max_age = timedelta(hours=24)
+    arguments = sys.argv[1:]
+    while len(arguments) >= 2 and arguments[-2] in {"--catalog", "--max-age-hours"}:
+        option, value = arguments[-2:]
+        arguments = arguments[:-2]
+        if option == "--catalog":
+            catalog_path = Path(value)
+        else:
+            max_age = timedelta(hours=int(value))
+    match arguments:
         case ["--all"]:
             base_ref = None
         case ["--changed", base_ref] if base_ref:
             pass
         case _:
-            raise SystemExit("usage: gen_matrix.py --all | --changed BASE_REF")
-    print(json.dumps(generate(base_ref), separators=(",", ":"), sort_keys=True))
+            raise SystemExit(
+                "usage: gen_matrix.py --all | --changed BASE_REF "
+                "[--catalog CATALOG] [--max-age-hours HOURS]"
+            )
+    print(json.dumps(generate(base_ref, catalog_path, max_age), separators=(",", ":"), sort_keys=True))
 
 
 if __name__ == "__main__":

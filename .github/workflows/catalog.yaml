@@ -99,9 +99,9 @@ jobs:
           fi
           metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")
           conclusion=$(jq -r .conclusion <<<"$metadata")
-          if [[ "$conclusion" != success ]]; then
-            printf '::error title=Catalog not updated::Run %s (id %s) concluded "%s"; catalog unchanged.\n' \
-              "$(jq -r .html_url <<<"$metadata")" "$run_id" "$conclusion"
+          if [[ "$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled ]]; then
+            printf '::error title=Catalog not updated::Run %s (id %s) is not terminal; catalog unchanged.\n' \
+              "$(jq -r .html_url <<<"$metadata")" "$run_id"
             exit 1
           fi
           jq -e --arg repository "$REPOSITORY" '
@@ -145,7 +145,7 @@ jobs:
             exit 0
           fi
           count=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-            --jq '[.artifacts[] | select(.name == "build-report")] | length')
+            --jq '[.artifacts[] | select(.name == "build-report" and .expired == false)] | length')
           if [[ "$count" -eq 0 ]]; then
             if [[ "$EVENT" == workflow_dispatch ]]; then
               printf '::error title=Build report unavailable::Run %s has no build-report artifact.\n' "$RUN_ID"
@@ -187,8 +187,13 @@ jobs:
               (.version | type == "string" and length > 0) and
               (.track == "wolfi" or .track == "patched") and
               (.digest | test("^sha256:[0-9a-f]{64}$")) and
+              (.inputDigest | test("^sha256:[0-9a-f]{64}$")) and
+              (.runId | test("^[0-9]+$")) and
+              (.runUrl | test("^https://github.com/tektum/verity-images/actions/runs/")) and
+              (.sourceCommit | test("^[0-9a-f]{40}$")) and
+              (.validatedAt | fromdateiso8601 > 0) and
               (.tags | type == "string" and length > 0) and
-              (.scan | type == "object")
+              (.scan.fixable == 0)
             )
           ' input/report/build-report.json >/dev/null
 

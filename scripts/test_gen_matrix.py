@@ -7,6 +7,8 @@
 #   uv run scripts/test_gen_matrix.py
 
 from pathlib import Path
+import json
+from datetime import UTC, datetime, timedelta
 from tempfile import TemporaryDirectory
 from typing import Final
 
@@ -42,6 +44,39 @@ def main() -> None:
         accepted = {registry for registry in REGISTRIES if source_is_valid(source, registry)}
         assert accepted == set(REGISTRIES), accepted
         assert all(not source_is_valid(source, registry) for registry in REJECTED_REGISTRIES)
+
+        static = gen_matrix.ROOT / "images/static"
+        fingerprint = gen_matrix.input_digest(static, "plain")
+        assert fingerprint == gen_matrix.input_digest(static, "plain")
+        assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
+
+        catalog = Path(temporary_directory) / "catalog.json"
+        catalog.write_text(
+            json.dumps(
+                {
+                    "images": [
+                        {
+                            "name": "static",
+                            "version": gen_matrix.parse_metadata(static / "metadata.yaml").versions[0],
+                            "inputDigest": fingerprint,
+                            "validatedAt": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        cached = gen_matrix.cached_images(catalog, timedelta(hours=24))
+        assert cached[("static", gen_matrix.parse_metadata(static / "metadata.yaml").versions[0])] == fingerprint
+        assert not any(entry["context"] == "images/static" for entry in gen_matrix.generate(None, catalog)["include"])
+        document = json.loads(catalog.read_text(encoding="utf-8"))
+        document["images"][0]["validatedAt"] = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
+        catalog.write_text(json.dumps(document), encoding="utf-8")
+        assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
+
+        document["images"][0]["validatedAt"] = datetime.now().isoformat()
+        catalog.write_text(json.dumps(document), encoding="utf-8")
+        assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
 
 
 if __name__ == "__main__":
