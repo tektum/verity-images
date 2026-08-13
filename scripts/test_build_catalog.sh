@@ -4,6 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+cd "$work"
 for image in preserved-1 replaced-1 added-1; do
   mkdir -p "$work/scans/scan-$image"
   printf '%s\n' '{}' > "$work/scans/scan-$image/scan-amd64.json"
@@ -94,6 +95,12 @@ jq -e '
   ([.images[] | select(.name == "replaced")] | length) == 1 and
   (.images[] | select(.name == "preserved").digest) == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
   (.images[] | select(.name == "replaced").digest) == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+' "$work/catalog.json" >/dev/null
+jq -e '
+  (.images[] | select(.name == "replaced") | .inputDigest) ==
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" and
+  (.images[] | select(.name == "replaced") | .runId) == "2" and
+  (.images[] | select(.name == "preserved") | .runId) == "1"
 ' "$work/catalog.json" >/dev/null
 
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"

@@ -108,11 +108,15 @@
           },
           "description": {"type": "string", "minLength": 1},
           "digest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
+          "inputDigest": {"type": "string", "pattern": "^sha256:[0-9a-f]{64}$"},
           "name": {"type": "string", "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"},
           "reference": {"type": "string", "pattern": "^ghcr.io/tektum/[a-z0-9._-]+@sha256:[0-9a-f]{64}$"},
           "registry": {"type": "string", "pattern": "^ghcr.io/tektum/[a-z0-9._-]+$"},
+          "runId": {"type": "string", "pattern": "^[0-9]+$"},
+          "runUrl": {"type": "string", "format": "uri", "pattern": "^https://github.com/tektum/verity-images/actions/runs/"},
           "scan": {"$ref": "#/$defs/scan"},
           "scanArtifact": {"type": "string", "pattern": "^scan-[a-z0-9._-]+-[a-zA-Z0-9._-]+$"},
+          "sourceCommit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
           "tags": {"type": "array", "minItems": 2, "uniqueItems": true, "items": {"type": "string", "minLength": 1}},
           "track": {"enum": ["wolfi", "patched"]},
           "verification": {
@@ -125,6 +129,7 @@
               "provenance": {"type": "string", "minLength": 1}
             }
           },
+          "validatedAt": {"type": "string", "format": "date-time"},
           "version": {"type": "string", "minLength": 1}
         }
       }

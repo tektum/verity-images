@@ -137,7 +137,7 @@ def main() -> None:
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
-    assert ".github/workflows/build.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert ".github/workflows/build.yaml" in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
     with patch.object(
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
@@ -188,10 +188,9 @@ def main() -> None:
         "            github.event.merge_group.base_sha || github.event.before }}\n"
         in workflow
     )
-    assert (
-        '          if [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n'
-        in workflow
-    )
+    assert '          if [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then\n' in workflow
+    assert "scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24" in workflow
+    assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
     assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
     assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
 
@@ -320,13 +319,9 @@ def main() -> None:
         "\n      - name: Check out source revision\n",
     )
     assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in source_step
-    assert (
-        '          if [[ "$conclusion" != success ]]; then\n'
-        "            printf '::error title=Catalog not updated::"
-        'Run %s (id %s) concluded "%s"; catalog unchanged.\\n\' \\\n'
-        in source_step
-    )
-    assert '.conclusion == "success" and' not in source_step
+    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in source_step
+    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in source_step
+    assert 'select(.name == "build-report" and .expired == false)' in catalog
 
     catalog_step = between(
         catalog,
@@ -362,21 +357,17 @@ def main() -> None:
     assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
     assert '$event == "pull_request"' in workflow
     assert ".[0].digest == \"local\"" in workflow
-    published_report_validation, pull_request_report_validation = workflow.split(
-        '               ($event == "pull_request" and\n', maxsplit=1
-    )
-    assert published_report_validation.count(".[0] | del(.category) | keys") == 1
-    assert pull_request_report_validation.count(".[0] | del(.category) | keys") == 1
+    assert '"inputDigest", "name", "runId", "runUrl", "scan", "sourceCommit"' in workflow
+    assert 'hashFiles(\'reports/report-*.json\') != \'\'' in build_gate_job
+    assert 'hashFiles(\'build-report.json\') != \'\'' in build_gate_job
     assert "reports/report-*.json > build-report.json" in workflow
     assert (
         "      github.event_name != 'merge_group' &&\n"
         "      github.ref != 'refs/heads/main' &&\n"
         "      fromJSON(needs.matrix.outputs.images).include[0] != null\n"
     ) in validate_job
-    assert build_gate_job.count(
-        "github.event_name != 'merge_group' && "
-        "fromJSON(needs.matrix.outputs.images).include[0] != null"
-    ) == 3
+    assert build_gate_job.count("github.event_name != 'merge_group'") == 3
+    assert build_gate_job.count("fromJSON(needs.matrix.outputs.images).include[0] != null") == 3
 
     build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
         "\n\n      - name:", maxsplit=1
@@ -395,7 +386,7 @@ def main() -> None:
         ("push", "refs/heads/main", '{"include":[{}]}', "success", "success", 0),
         ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
-        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 1),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 0),
         ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
     ):
         result = subprocess.run(
