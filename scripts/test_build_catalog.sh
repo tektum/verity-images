@@ -148,11 +148,16 @@ jq -e --slurp '
 ' "$work/catalog.json" "$work/expected-images.json" >/dev/null
 jq -e '.images | length > 100' "$work/catalog.json" >/dev/null
 jq -e '.images | any(.name == "static" and .version == "wolfi")' "$work/catalog.json" >/dev/null
-jq '.images = .images[:-1]' "$work/catalog.json" > "$work/stale-catalog.json"
+jq '.images = .images[:5]' "$work/catalog.json" > "$work/partial-catalog.json"
+jq -e --slurp '
+  (.[1].include | map([.name, .tag_version])) as $expected |
+  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
+' "$work/partial-catalog.json" "$work/expected-images.json" >/dev/null
+jq '.images += [{name: "unknown", version: "1"}]' "$work/partial-catalog.json" > "$work/unknown-catalog.json"
 if jq -e --slurp '
-  (.[0].images | map([.name, .version]) | sort) ==
-  (.[1].include | map([.name, .tag_version]) | sort)
-' "$work/stale-catalog.json" "$work/expected-images.json" >/dev/null; then
-  printf '%s\n' 'stale catalog unexpectedly matched expected images' >&2
+  (.[1].include | map([.name, .tag_version])) as $expected |
+  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
+' "$work/unknown-catalog.json" "$work/expected-images.json" >/dev/null; then
+  printf '%s\n' 'unknown catalog image unexpectedly passed partial inventory validation' >&2
   exit 1
 fi

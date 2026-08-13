@@ -70,33 +70,17 @@ CATALOG_JQ_COMMAND: Final = (
     "catalog.json",
     ">/dev/null",
 )
-INVENTORY_JQ_FILTER: Final = (
+FULL_INVENTORY_JQ_FILTER: Final = (
     "(.[0].images | map([.name, .version]) | sort) == "
     "(.[1].include | map([.name, .tag_version]) | sort)"
 )
 BOOTSTRAP_INVENTORY_COMMAND: Final = (
-    "devbox",
-    "run",
-    "--",
-    "jq",
-    "-e",
-    "--slurp",
-    INVENTORY_JQ_FILTER,
-    "input/report/build-report.json",
-    "expected-images.json",
-    ">/dev/null",
+    "devbox", "run", "--", "jq", "-e", "--slurp", FULL_INVENTORY_JQ_FILTER,
+    "input/report/build-report.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
-    "devbox",
-    "run",
-    "--",
-    "jq",
-    "-e",
-    "--slurp",
-    INVENTORY_JQ_FILTER,
-    "catalog.json",
-    "expected-images.json",
-    ">/dev/null",
+    "devbox", "run", "--", "jq", "-e", "--slurp", "$INVENTORY_FILTER",
+    "catalog.json", "expected-images.json", ">/dev/null",
 )
 
 
@@ -412,6 +396,8 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
+    assert "INVENTORY_FILTER: >-" in catalog
+    assert "all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))" in catalog
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
 

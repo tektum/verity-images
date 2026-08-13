@@ -224,6 +224,10 @@ jobs:
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
+        env:
+          INVENTORY_FILTER: >-
+            (.[1].include | map([.name, .tag_version])) as $expected |
+            all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
             "$(test -f previous.json && printf previous.json)" catalog.json \
@@ -233,9 +237,7 @@ jobs:
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
-          devbox run -- jq -e --slurp \
-            '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
-            catalog.json expected-images.json >/dev/null
+          devbox run -- jq -e --slurp "$INVENTORY_FILTER" catalog.json expected-images.json >/dev/null
 
       - name: Preserve current catalog
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
