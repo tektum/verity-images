@@ -79,7 +79,7 @@ BOOTSTRAP_INVENTORY_COMMAND: Final = (
     "input/report/build-report.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
-    "devbox", "run", "--", "jq", "-e", "--slurp", "$INVENTORY_FILTER",
+    "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "inventory-filter.jq",
     "catalog.json", "expected-images.json", ">/dev/null",
 )
 
@@ -396,7 +396,7 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
-    assert "INVENTORY_FILTER: >-" in catalog
+    assert "cat > inventory-filter.jq <<'EOF'" in catalog
     assert "all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))" in catalog
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
