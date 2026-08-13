@@ -51,7 +51,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           status=$(curl --silent --show-error --location --output catalog.json \
-            --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
+            --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json) || status=000
           [[ "$status" == 200 ]] || rm -f catalog.json
       - name: Generate matrix
         id: generate

@@ -73,6 +73,10 @@ def main() -> None:
             entry["context"] == "images/static"
             for entry in gen_matrix.generate(None, catalog, timedelta(seconds=-1))["include"]
         )
+        document = json.loads(catalog.read_text(encoding="utf-8"))
+        document["images"][0]["validatedAt"] = "2026-08-13T00:00:00"
+        catalog.write_text(json.dumps(document), encoding="utf-8")
+        assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
 
 
 if __name__ == "__main__":

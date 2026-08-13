@@ -193,6 +193,7 @@ def main() -> None:
     assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
     assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
     assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
+    assert ") || status=000\n" in workflow
 
     verify_step = between(
         action,

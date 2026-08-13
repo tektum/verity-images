@@ -235,6 +235,8 @@ def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str]
             validated_at = datetime.fromisoformat(str(image["validatedAt"]).replace("Z", "+00:00"))
         except (KeyError, ValueError):
             continue
+        if validated_at.tzinfo is None or validated_at.utcoffset() is None:
+            continue
         if validated_at < cutoff:
             continue
         name, version, fingerprint = image.get("name"), image.get("version"), image.get("inputDigest")
