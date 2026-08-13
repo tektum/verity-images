@@ -146,6 +146,8 @@ jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
   (.[1].include | map([.name, .tag_version]) | sort)
 ' "$work/catalog.json" "$work/expected-images.json" >/dev/null
+jq -e '.images | length > 100' "$work/catalog.json" >/dev/null
+jq -e '.images | any(.name == "static" and .version == "wolfi")' "$work/catalog.json" >/dev/null
 jq '.images = .images[:-1]' "$work/catalog.json" > "$work/stale-catalog.json"
 if jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
