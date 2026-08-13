@@ -124,11 +124,6 @@ jobs:
       - name: Stage site assets
         run: cp -R site "$RUNNER_TEMP/site"
 
-      - name: Check out source revision
-        if: steps.mode.outputs.value != 'packages'
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
-        run: git checkout --detach "$SOURCE_SHA"
 
       - name: Check source artifacts
         id: artifacts
