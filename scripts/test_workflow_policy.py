@@ -74,10 +74,6 @@ FULL_INVENTORY_JQ_FILTER: Final = (
     "(.[0].images | map([.name, .version]) | sort) == "
     "(.[1].include | map([.name, .tag_version]) | sort)"
 )
-PARTIAL_INVENTORY_JQ_FILTER: Final = (
-    "(.[1].include | map([.name, .tag_version])) as $expected | "
-    "all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))"
-)
 BOOTSTRAP_INVENTORY_COMMAND: Final = (
     "devbox", "run", "--", "jq", "-e", "--slurp", FULL_INVENTORY_JQ_FILTER,
     "input/report/build-report.json", "expected-images.json", ">/dev/null",
