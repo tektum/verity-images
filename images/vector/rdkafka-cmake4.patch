@@ -1,8 +1,0 @@
-diff --git a/build.rs b/build.rs
---- a/build.rs
-+++ b/build.rs
-@@ -216 +216,3 @@
--        .define("CMAKE_INSTALL_LIBDIR", "lib");
-+        .define("CMAKE_INSTALL_LIBDIR", "lib")
-+        // CMake 4.0 drops support for the policy floor used by librdkafka 2.3.0.
-+        .define("CMAKE_POLICY_VERSION_MINIMUM", "3.5");

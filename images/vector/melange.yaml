@@ -1,6 +1,6 @@
 package:
   name: vector
-  version: "0.51.1"
+  version: "0.57.0"
   epoch: 0
   description: High-performance observability data pipeline
   copyright:
@@ -38,23 +38,20 @@ environment:
       - protobuf-dev
       - protoc
       - python3
-      - rust-1.90
+      - rust-1.95
 
 pipeline:
   - uses: git-checkout
     with:
       repository: https://github.com/vectordotdev/vector
       tag: v${{package.version}}
-      expected-commit: 44c8f1cfd64bdedb924034c946f639d09890fc53
+      expected-commit: 8832452f57afb536ea0de53a093f9fd1b669ccec
   - runs: |
       export CFLAGS="$CFLAGS -std=gnu17"
       cargo fetch --locked
       set -- "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/krb5-src-0.3.2+1.19.2
       [ "$#" -eq 1 ] && [ -d "$1" ]
       patch -d "$1" -p1 --fuzz=0 < krb5-c23-strchr.patch
-      set -- "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/rdkafka-sys-4.8.0+2.3.0
-      [ "$#" -eq 1 ] && [ -d "$1" ]
-      patch -d "$1" -p1 --fuzz=0 < rdkafka-cmake4.patch
       cargo auditable build --release --locked --no-default-features --features default-cmake
       install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
   - uses: strip
