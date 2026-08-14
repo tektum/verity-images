@@ -84,6 +84,13 @@ pipeline:
       deps: golang.org/x/text@v0.39.0
       modroot: third_party/helm
 
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+      modroot: third_party/git-lfs
+
   - name: Build UI and binaries
     runs: |
       source_commit=$(git rev-parse HEAD)
