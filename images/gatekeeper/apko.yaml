@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-gatekeeper-3.19@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /manager
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /manager
+    type: symlink
+    source: /usr/bin/manager
+    uid: 0
+    gid: 0
+  - path: /usr/bin/manager
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
