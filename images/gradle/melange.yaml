@@ -1,0 +1,66 @@
+package:
+  name: verity-gradle-9
+  version: "9.7.0"
+  epoch: 0
+  description: Gradle 9 build system
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - openjdk-21
+    provides:
+      - gradle=${{package.full-version}}
+  resources:
+    cpu: "4"
+    memory: 4Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wolfi-baselayout
+      - zip
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://services.gradle.org/distributions/gradle-${{package.version}}-bin.zip
+      expected-sha256: 84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae
+      extract: false
+  - runs: unzip gradle-${{package.version}}-bin.zip
+  - runs: |
+      lib=gradle-${{package.version}}/lib
+      maven=https://repo1.maven.org/maven2
+      wget -q "$maven/com/fasterxml/jackson/core/jackson-databind/2.22.1/jackson-databind-2.22.1.jar" \
+        -O "$lib/jackson-databind-2.22.1.jar"
+      printf '%s  %s\n' \
+        7dcd7e53bec1f56c7ad278bd1ca0840bebcc595d61ce44d6a8439abb75b965b2 \
+        "$lib/jackson-databind-2.22.1.jar" | sha256sum -c
+      rm "$lib/jackson-databind-2.22.0.jar"
+      sed -i 's/2\.22\.0/2.22.1/g' "$lib/jackson-databind.properties"
+      wget -q "$maven/org/jsoup/jsoup/1.23.1/jsoup-1.23.1.jar" \
+        -O "$lib/jsoup-1.23.1.jar"
+      printf '%s  %s\n' \
+        8b15e2b28eeb1e0a88a9b7dab4dc0c23524491c56959785dea22f7846897b668 \
+        "$lib/jsoup-1.23.1.jar" | sha256sum -c
+      rm "$lib/jsoup-1.22.2.jar"
+      sed -i 's/1\.22\.2/1.23.1/g' "$lib/jsoup.properties"
+  - runs: |
+      cd gradle-${{package.version}}
+      mkdir -p "${{targets.destdir}}/usr/share/java/gradle" \
+        "${{targets.destdir}}/usr/share/licenses/gradle" \
+        "${{targets.destdir}}/usr/bin"
+      cp -R bin lib "${{targets.destdir}}/usr/share/java/gradle/"
+      cp LICENSE NOTICE "${{targets.destdir}}/usr/share/licenses/gradle/"
+      ln -s /usr/share/java/gradle/bin/gradle "${{targets.destdir}}/usr/bin/gradle"
+
+test:
+  pipeline:
+    - runs: gradle --version | grep -q '^Gradle 9.7.0$'

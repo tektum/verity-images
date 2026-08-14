@@ -70,33 +70,17 @@ CATALOG_JQ_COMMAND: Final = (
     "catalog.json",
     ">/dev/null",
 )
-INVENTORY_JQ_FILTER: Final = (
+FULL_INVENTORY_JQ_FILTER: Final = (
     "(.[0].images | map([.name, .version]) | sort) == "
     "(.[1].include | map([.name, .tag_version]) | sort)"
 )
 BOOTSTRAP_INVENTORY_COMMAND: Final = (
-    "devbox",
-    "run",
-    "--",
-    "jq",
-    "-e",
-    "--slurp",
-    INVENTORY_JQ_FILTER,
-    "input/report/build-report.json",
-    "expected-images.json",
-    ">/dev/null",
+    "devbox", "run", "--", "jq", "-e", "--slurp", FULL_INVENTORY_JQ_FILTER,
+    "input/report/build-report.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
-    "devbox",
-    "run",
-    "--",
-    "jq",
-    "-e",
-    "--slurp",
-    INVENTORY_JQ_FILTER,
-    "catalog.json",
-    "expected-images.json",
-    ">/dev/null",
+    "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "inventory-filter.jq",
+    "catalog.json", "expected-images.json", ">/dev/null",
 )
 
 
@@ -137,7 +121,7 @@ def main() -> None:
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
-    assert ".github/workflows/build.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert ".github/workflows/build.yaml" in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
     with patch.object(
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
@@ -188,12 +172,12 @@ def main() -> None:
         "            github.event.merge_group.base_sha || github.event.before }}\n"
         in workflow
     )
-    assert (
-        '          if [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n'
-        in workflow
-    )
+    assert '          if [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then\n' in workflow
+    assert "scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24" in workflow
+    assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
     assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
     assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
+    assert ") || status=000\n" in workflow
 
     verify_step = between(
         action,
@@ -317,16 +301,12 @@ def main() -> None:
     source_step = between(
         catalog,
         "      - name: Select source run\n",
-        "\n      - name: Check out source revision\n",
+        "\n      - name: Stage site assets\n",
     )
     assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in source_step
-    assert (
-        '          if [[ "$conclusion" != success ]]; then\n'
-        "            printf '::error title=Catalog not updated::"
-        'Run %s (id %s) concluded "%s"; catalog unchanged.\\n\' \\\n'
-        in source_step
-    )
-    assert '.conclusion == "success" and' not in source_step
+    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in source_step
+    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in source_step
+    assert 'select(.name == "build-report" and .expired == false)' in catalog
 
     catalog_step = between(
         catalog,
@@ -340,19 +320,11 @@ def main() -> None:
     )
     assert "https://tektum.github.io/verity-images/catalog.json" in catalog
     assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
-    assert (
-        "      - name: Check out source revision\n"
-        "        if: steps.mode.outputs.value != 'packages'\n"
-        "        env:\n"
-        "          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}\n"
-        '        run: git checkout --detach "$SOURCE_SHA"\n'
-        in catalog
-    )
+    assert "      - name: Check out source revision\n" not in catalog
     assert catalog.index("      - name: Select source run\n") < catalog.index(
-        "      - name: Check out source revision\n"
-    ) < catalog.index("      - name: Check source artifacts\n") < catalog.index(
-        "      - name: Generate expected images\n"
-    )
+        "      - name: Check source artifacts\n"
+    ) < catalog.index("      - name: Generate expected images\n")
+    assert 'git merge-base --is-ancestor "$source_sha" HEAD' in source_step
     assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
         "      - name: Download current catalog\n"
     )
@@ -362,16 +334,17 @@ def main() -> None:
     assert "(.[0].name + \"-\" + .[0].version == $expected)" in workflow
     assert '$event == "pull_request"' in workflow
     assert ".[0].digest == \"local\"" in workflow
+    assert '"inputDigest", "name", "runId", "runUrl", "scan", "sourceCommit"' in workflow
+    assert 'hashFiles(\'reports/report-*.json\') != \'\'' in build_gate_job
+    assert 'hashFiles(\'build-report.json\') != \'\'' in build_gate_job
     assert "reports/report-*.json > build-report.json" in workflow
     assert (
         "      github.event_name != 'merge_group' &&\n"
         "      github.ref != 'refs/heads/main' &&\n"
         "      fromJSON(needs.matrix.outputs.images).include[0] != null\n"
     ) in validate_job
-    assert build_gate_job.count(
-        "github.event_name != 'merge_group' && "
-        "fromJSON(needs.matrix.outputs.images).include[0] != null"
-    ) == 3
+    assert build_gate_job.count("github.event_name != 'merge_group'") == 3
+    assert build_gate_job.count("fromJSON(needs.matrix.outputs.images).include[0] != null") == 3
 
     build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
         "\n\n      - name:", maxsplit=1
@@ -390,7 +363,7 @@ def main() -> None:
         ("push", "refs/heads/main", '{"include":[{}]}', "success", "success", 0),
         ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
-        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 1),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 0),
         ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
     ):
         result = subprocess.run(
@@ -423,6 +396,8 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
+    assert "cat > inventory-filter.jq <<'EOF'" in catalog
+    assert "all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))" in catalog
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
 

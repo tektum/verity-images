@@ -1,0 +1,61 @@
+package:
+  name: verity-tidb
+  version: "9.0.0_beta1"
+  epoch: 0
+  description: Distributed SQL database compatible with the MySQL protocol.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - glibc
+      - libgcc
+  resources:
+    cpu: "4"
+    memory: 32Gi
+
+vars:
+  upstream-version: 9.0.0-beta.1
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+  environment:
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/pingcap/tidb
+      tag: v${{vars.upstream-version}}
+      expected-commit: 7aff918dcbfa6facf2adef9ade9961c40f217421
+
+  - runs: |
+      make -j4 server
+      install -Dm755 bin/tidb-server "${{targets.destdir}}/usr/bin/tidb-server"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      version_output=$("${{targets.destdir}}/usr/bin/tidb-server" -V 2>&1)
+      printf '%s\n' "$version_output" | grep -F 'Release Version: v${{vars.upstream-version}}'
+      printf '%s\n' "$version_output" | grep -F 'Git Commit Hash: 7aff918dcbfa6facf2adef9ade9961c40f217421'
+
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        version_output=$(/usr/bin/tidb-server -V 2>&1)
+        printf '%s\n' "$version_output" | grep -F 'Release Version: v${{vars.upstream-version}}'
+        printf '%s\n' "$version_output" | grep -F 'Git Commit Hash: 7aff918dcbfa6facf2adef9ade9961c40f217421'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE

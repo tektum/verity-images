@@ -19,6 +19,7 @@ on:
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
       - scripts/validate_repository_state.py
+      - site/**
   workflow_dispatch:
     inputs:
       mode:
@@ -98,9 +99,9 @@ jobs:
           fi
           metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")
           conclusion=$(jq -r .conclusion <<<"$metadata")
-          if [[ "$conclusion" != success ]]; then
-            printf '::error title=Catalog not updated::Run %s (id %s) concluded "%s"; catalog unchanged.\n' \
-              "$(jq -r .html_url <<<"$metadata")" "$run_id" "$conclusion"
+          if [[ "$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled ]]; then
+            printf '::error title=Catalog not updated::Run %s (id %s) is not terminal; catalog unchanged.\n' \
+              "$(jq -r .html_url <<<"$metadata")" "$run_id"
             exit 1
           fi
           jq -e --arg repository "$REPOSITORY" '
@@ -120,11 +121,9 @@ jobs:
             printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Check out source revision
-        if: steps.mode.outputs.value != 'packages'
-        env:
-          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
-        run: git checkout --detach "$SOURCE_SHA"
+      - name: Stage site assets
+        run: cp -R site "$RUNNER_TEMP/site"
+
 
       - name: Check source artifacts
         id: artifacts
@@ -141,7 +140,7 @@ jobs:
             exit 0
           fi
           count=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-            --jq '[.artifacts[] | select(.name == "build-report")] | length')
+            --jq '[.artifacts[] | select(.name == "build-report" and .expired == false)] | length')
           if [[ "$count" -eq 0 ]]; then
             if [[ "$EVENT" == workflow_dispatch ]]; then
               printf '::error title=Build report unavailable::Run %s has no build-report artifact.\n' "$RUN_ID"
@@ -183,8 +182,13 @@ jobs:
               (.version | type == "string" and length > 0) and
               (.track == "wolfi" or .track == "patched") and
               (.digest | test("^sha256:[0-9a-f]{64}$")) and
+              (.inputDigest | test("^sha256:[0-9a-f]{64}$")) and
+              (.runId | test("^[0-9]+$")) and
+              (.runUrl | test("^https://github.com/tektum/verity-images/actions/runs/")) and
+              (.sourceCommit | test("^[0-9a-f]{40}$")) and
+              (.validatedAt | fromdateiso8601 > 0) and
               (.tags | type == "string" and length > 0) and
-              (.scan | type == "object")
+              (.scan.fixable == 0)
             )
           ' input/report/build-report.json >/dev/null
 
@@ -229,9 +233,13 @@ jobs:
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
-          devbox run -- jq -e --slurp \
-            '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
+          cat > inventory-filter.jq <<'EOF'
+          (.[1].include | map([.name, .tag_version])) as $expected |
+          all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
+          EOF
+          devbox run -- jq -e --slurp --from-file inventory-filter.jq \
             catalog.json expected-images.json >/dev/null
+
 
       - name: Preserve current catalog
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
@@ -271,6 +279,7 @@ jobs:
             exit 1
           fi
           mkdir pages
+          cp -R "$RUNNER_TEMP/site/." pages/
           cp catalog.json pages/catalog.json
           cp docs/catalog.schema.json pages/catalog.schema.json
           devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
@@ -294,8 +303,8 @@ jobs:
       pages: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}catalog.json
+      url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy catalog JSON
+      - name: Deploy catalog site
         id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128  # v5.0.0

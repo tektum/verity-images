@@ -1,0 +1,24 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - kubernetes-pause-1.36
+    - kubernetes-pause-compat-1.36
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65535
+  users:
+    - username: nonroot
+      uid: 65535
+      gid: 65535
+  run-as: 65535
+
+entrypoint:
+  command: /pause
+
+environment:
+  PATH: /usr/bin:/bin
