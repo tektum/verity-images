@@ -47,6 +47,7 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 44c8f1cfd64bdedb924034c946f639d09890fc53
   - runs: |
+      export CFLAGS="$CFLAGS -std=gnu17"
       cargo fetch --locked
       set -- "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/krb5-src-0.3.2+1.19.2
       [ "$#" -eq 1 ] && [ -d "$1" ]
