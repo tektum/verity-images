@@ -1,0 +1,70 @@
+package:
+  name: verity-source-controller
+  version: "1.6.2"
+  epoch: 0
+  description: Kubernetes controller for Flux source artifacts.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 254ef2ec92b4855d2a09bf61a1a6e8b1ac34d4a5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://github.com/fluxcd/source-controller/archive/${{vars.source-commit}}.tar.gz
+      expected-sha256: 3359acd2c9b13ee726e6140f01682acd343d7f5ba76c58ea982c3bfe561987c1
+  - uses: go/bump
+    with:
+      go-version: "1.26.5"
+      deps: >-
+        helm.sh/helm/v3@v3.18.6
+        github.com/sigstore/cosign/v2@v2.6.3
+        github.com/sigstore/rekor@v1.5.2
+        github.com/in-toto/in-toto-golang@v0.11.0
+        github.com/sigstore/sigstore-go@v1.2.1
+        github.com/go-git/go-git/v5@v5.19.2
+        github.com/sigstore/fulcio@v1.8.6
+        go.opentelemetry.io/otel/sdk/log@v0.20.0
+        github.com/Azure/go-ntlmssp@v0.1.1
+        github.com/containerd/containerd@v1.7.33
+        github.com/moby/spdystream@v0.5.1
+        google.golang.org/grpc@v1.82.1
+        oras.land/oras-go/v2@v2.6.1
+  - runs: |
+      go build -trimpath -a -ldflags "-s -w" \
+        -tags netgo,osusergo,static_build -o manager main.go
+      install -Dm755 manager "${{targets.destdir}}/manager"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        status=0
+        output=$(/manager --help 2>&1) || status=$?
+        test "$status" -eq 0 || test "$status" -eq 2
+        printf '%s\n' "$output" | grep -F 'Usage of /manager:'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
