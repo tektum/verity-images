@@ -3,9 +3,12 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
+repo=$(docker volume create)
+helper=docker.io/library/busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
 
 cleanup() {
-  rm -rf "$work" 2>/dev/null || true
+  docker volume rm -f "$repo" >/dev/null
+  rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
 
@@ -25,15 +28,16 @@ fail() {
 version=$(docker run --rm --network none "$image" version)
 printf '%s\n' "$version" | grep -Fq 'restic 0.18.1' || fail 'unexpected Restic version'
 
-mkdir -p "$work/input" "$work/repo" "$work/restore"
+mkdir "$work/input"
 printf 'restic smoke test\n' > "$work/input/file.txt"
-chmod -R 777 "$work"
+chmod 755 "$work" "$work/input"
+docker run --rm --network none --user 0:0 --entrypoint sh \
+  -v "$repo:/data" "$helper" -c 'chown 65532:65532 /data'
 
 run_restic() {
   docker run --rm --network none \
     -e RESTIC_PASSWORD=restic-smoke-password \
-    -v "$work/repo:/data/repo" -v "$work/input:/data/input:ro" \
-    -v "$work/restore:/data/restore" \
+    -v "$repo:/data" -v "$work/input:/data/input:ro" \
     "$image" --no-cache -r /data/repo "$@"
 }
 
@@ -42,7 +46,9 @@ run_restic backup /data/input >/dev/null || fail 'backup failed'
 snapshots=$(run_restic snapshots)
 printf '%s\n' "$snapshots" | grep -Fq '/data/input' || fail 'snapshot does not contain the input path'
 run_restic restore latest --target /data/restore >/dev/null || fail 'restore failed'
-cmp "$work/input/file.txt" "$work/restore/data/input/file.txt" || fail 'restored content differs'
+docker run --rm --network none -v "$repo:/data" -v "$work/input:/input:ro" \
+  "$helper" cmp /input/file.txt /data/restore/data/input/file.txt ||
+  fail 'restored content differs'
 
 set +e
 missing=$(docker run --rm --network none \
