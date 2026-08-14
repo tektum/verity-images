@@ -3,10 +3,8 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
-repo=$(docker volume create)
 
 cleanup() {
-  docker volume rm -f "$repo" >/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -34,7 +32,7 @@ chmod -R 777 "$work"
 run_restic() {
   docker run --rm --network none \
     -e RESTIC_PASSWORD=restic-smoke-password \
-    -v "$repo:/data/repo" -v "$work/input:/data/input:ro" \
+    -v "$work/repo:/data/repo" -v "$work/input:/data/input:ro" \
     -v "$work/restore:/data/restore" \
     "$image" --no-cache -r /data/repo "$@"
 }
