@@ -41,6 +41,19 @@ docker run --rm --cpus=4 --network none "$image" sh -c '
   kustomize version
   git --version
   gpg --version >/dev/null
+
+  tmp=$(mktemp -d)
+  trap "rm -rf \"$tmp\"" EXIT
+  git init -q "$tmp"
+  git -C "$tmp" lfs install --local >/dev/null
+  git -C "$tmp" lfs track "*.bin" >/dev/null
+  printf "lfs-smoke\n" >"$tmp/blob.bin"
+  git -C "$tmp" add .gitattributes blob.bin
+  git -C "$tmp" -c user.name=CI -c user.email=ci@example.invalid commit -qm smoke
+  git -C "$tmp" show HEAD:blob.bin | grep -F "version https://git-lfs.github.com/spec/v1"
+  rm "$tmp/blob.bin"
+  git -C "$tmp" checkout -- blob.bin
+  grep -Fx lfs-smoke "$tmp/blob.bin"
 ' >/dev/null || fail 'runtime helper or writable path check failed'
 
 if output=$(docker run --rm --cpus=4 --network none \

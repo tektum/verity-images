@@ -183,7 +183,12 @@ pipeline:
       printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
       "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
       "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1'
-      go version -m "${{targets.destdir}}/usr/bin/git-lfs" | grep -F 'go1.26.6'
+      git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
+      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.6'
+      printf '%s\n' "$git_lfs_build_info" | \
+        grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.56.0'
+      printf '%s\n' "$git_lfs_build_info" | \
+        grep -E 'dep[[:space:]]+golang.org/x/text[[:space:]]+v0.39.0'
       rm -rf .verity-source-commit third_party/helm third_party/git-lfs
 
   - uses: strip
