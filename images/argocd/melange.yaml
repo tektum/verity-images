@@ -183,7 +183,7 @@ pipeline:
       printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
       "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
       "${{targets.destdir}}/usr/bin/helm" version | grep -F 'GitTreeState:"dirty"'
-      "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1'
+      "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1 ('
       git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
       printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.6'
       printf '%s\n' "$git_lfs_build_info" | \
@@ -205,7 +205,7 @@ test:
         test -s /usr/share/licenses/${{package.name}}/LICENSE
         /usr/bin/helm version --short | grep -F 'v3.21.3+'
         /usr/bin/helm version | grep -F 'GitTreeState:"dirty"'
-        /usr/bin/git-lfs version | grep -F 'git-lfs/3.7.1'
+        /usr/bin/git-lfs version | grep -F 'git-lfs/3.7.1 ('
 
 update:
   enabled: true

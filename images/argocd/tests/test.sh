@@ -31,14 +31,16 @@ printf '%s\n' "$help_output" | grep -F 'The API server is a gRPC/REST server' >/
   || fail 'argocd-server help check failed'
 
 docker run --rm --cpus=4 --network none "$image" sh -c '
+  set -eu
+
   test -w /home/argocd
-  test -d /app/config/ssh
-  test -d /app/config/tls
-  test -d /app/config/gpg/source
+  test -w /app/config/ssh
+  test -w /app/config/tls
+  test -w /app/config/gpg/source
   test -w /app/config/gpg/keys
   helm version --short | grep -F v3.21.3+
   helm version | grep -F "GitTreeState:\"dirty\""
-  git-lfs version | grep -F git-lfs/3.7.1
+  git-lfs version | grep -F "git-lfs/3.7.1 ("
   kustomize version
   git --version
   gpg --version >/dev/null
