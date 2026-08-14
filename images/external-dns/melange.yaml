@@ -1,0 +1,72 @@
+package:
+  name: verity-external-dns-0.19
+  version: "0.19.0"
+  epoch: 0
+  description: Kubernetes DNS record controller
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: eafce22825a6565c5f228e49bcfc117b128786a9
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/external-dns
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/openshift/api@v0.0.0-20251015095338-264e80a2b6e7
+        github.com/openshift/client-go@v0.0.0-20251015124057-db0dee36e235
+        github.com/projectcontour/contour@v1.33.5
+        go.opentelemetry.io/otel@v1.41.0
+        golang.org/x/net@v0.55.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+        sigs.k8s.io/gateway-api@v1.4.0
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w \
+          -X sigs.k8s.io/external-dns/pkg/apis/externaldns.Version=v${{package.version}} \
+          -X sigs.k8s.io/external-dns/pkg/apis/externaldns.GitCommit=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/external-dns" .
+      install -Dm644 LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.md"
+      "${{targets.destdir}}/usr/bin/external-dns" --help >/dev/null
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        /bin/external-dns --help | grep -F -- "--provider=provider"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE.md
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/external-dns
+    strip-prefix: v
+    tag-filter: v0.19.
+    use-tag: true
