@@ -23,14 +23,14 @@ fail() {
   fail 'unexpected OCI working directory'
 
 version=$(docker run --rm --network none "$image" version)
-printf '%s\n' "$version" | grep -Fq 'restic 0.18.0' || fail 'unexpected Restic version'
+printf '%s\n' "$version" | grep -Fq 'restic 0.18.1' || fail 'unexpected Restic version'
 
 mkdir -p "$work/input" "$work/repo" "$work/restore"
 printf 'restic smoke test\n' > "$work/input/file.txt"
 chmod -R 777 "$work"
 
 run_restic() {
-  docker run --rm --network none --user "$(id -u):$(id -g)" \
+  docker run --rm --network none \
     -e RESTIC_PASSWORD=restic-smoke-password \
     -v "$work:/data" "$image" --no-cache -r /data/repo "$@"
 }
@@ -43,7 +43,7 @@ run_restic restore latest --target /data/restore >/dev/null || fail 'restore fai
 cmp "$work/input/file.txt" "$work/restore/data/input/file.txt" || fail 'restored content differs'
 
 set +e
-missing=$(docker run --rm --network none --user "$(id -u):$(id -g)" \
+missing=$(docker run --rm --network none \
   -e RESTIC_PASSWORD=restic-smoke-password \
   -v "$work:/data" "$image" --no-cache -r /data/missing cat config 2>&1)
 status=$?
