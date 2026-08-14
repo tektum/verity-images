@@ -4,6 +4,7 @@ set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
+cd "$work"
 for image in preserved-1 replaced-1 added-1; do
   mkdir -p "$work/scans/scan-$image"
   printf '%s\n' '{}' > "$work/scans/scan-$image/scan-amd64.json"
@@ -37,6 +38,10 @@ rejects_report "$work/malformed-report.json" 'invalid JSON in build report'
 printf '%s\n' '{"images":[{"name":"image","version":"1"}]}' > "$work/invalid-fields-report.json"
 rejects_report "$work/invalid-fields-report.json" 'invalid build report'
 
+printf '%s\n' '{"images":[{"name":"image","version":"1","track":"wolfi","description":"Image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0},"category":"Not A Real Category"}]}' \
+  > "$work/invalid-category-report.json"
+rejects_report "$work/invalid-category-report.json" 'image category is invalid'
+
 mkdir "$work/single-scan"
 printf '%s\n' '{}' > "$work/single-scan/scan-single-amd64.json"
 cat > "$work/single-report.json" <<'EOF'
@@ -46,6 +51,19 @@ python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/singl
   "$work/single-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
   0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
 jq -e '.images | map([.name, .version]) == [["single", "1"]]' "$work/single-catalog.json" >/dev/null
+jq -e '.images[0] | has("category") | not' "$work/single-catalog.json" >/dev/null
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/single-catalog.json"
+
+mkdir "$work/categorized-scan"
+printf '%s\n' '{}' > "$work/categorized-scan/scan-categorized-amd64.json"
+cat > "$work/categorized-report.json" <<'EOF'
+{"images":[{"name":"categorized","version":"1","track":"wolfi","description":"Categorized image.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0},"category":"Base & Utilities"}]}
+EOF
+python3 "$root/scripts/build_catalog.py" "$work/categorized-report.json" "$work/categorized-scan" "" \
+  "$work/categorized-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
+  0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
+jq -e '.images[0].category == "Base & Utilities"' "$work/categorized-catalog.json" >/dev/null
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/categorized-catalog.json"
 mv "$work/single-scan/scan-single-amd64.json" "$work/single-scan/scan-wrong-amd64.json"
 if python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
   "$work/rejected.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
@@ -77,6 +95,12 @@ jq -e '
   ([.images[] | select(.name == "replaced")] | length) == 1 and
   (.images[] | select(.name == "preserved").digest) == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
   (.images[] | select(.name == "replaced").digest) == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+' "$work/catalog.json" >/dev/null
+jq -e '
+  (.images[] | select(.name == "replaced") | .inputDigest) ==
+    "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" and
+  (.images[] | select(.name == "replaced") | .runId) == "2" and
+  (.images[] | select(.name == "preserved") | .runId) == "1"
 ' "$work/catalog.json" >/dev/null
 
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
@@ -122,11 +146,18 @@ jq -e --slurp '
   (.[0].images | map([.name, .version]) | sort) ==
   (.[1].include | map([.name, .tag_version]) | sort)
 ' "$work/catalog.json" "$work/expected-images.json" >/dev/null
-jq '.images = .images[:-1]' "$work/catalog.json" > "$work/stale-catalog.json"
+jq -e '.images | length > 100' "$work/catalog.json" >/dev/null
+jq -e '.images | any(.name == "static" and .version == "wolfi")' "$work/catalog.json" >/dev/null
+jq '.images = .images[:5]' "$work/catalog.json" > "$work/partial-catalog.json"
+jq -e --slurp '
+  (.[1].include | map([.name, .tag_version])) as $expected |
+  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
+' "$work/partial-catalog.json" "$work/expected-images.json" >/dev/null
+jq '.images += [{name: "unknown", version: "1"}]' "$work/partial-catalog.json" > "$work/unknown-catalog.json"
 if jq -e --slurp '
-  (.[0].images | map([.name, .version]) | sort) ==
-  (.[1].include | map([.name, .tag_version]) | sort)
-' "$work/stale-catalog.json" "$work/expected-images.json" >/dev/null; then
-  printf '%s\n' 'stale catalog unexpectedly matched expected images' >&2
+  (.[1].include | map([.name, .tag_version])) as $expected |
+  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
+' "$work/unknown-catalog.json" "$work/expected-images.json" >/dev/null; then
+  printf '%s\n' 'unknown catalog image unexpectedly passed partial inventory validation' >&2
   exit 1
 fi

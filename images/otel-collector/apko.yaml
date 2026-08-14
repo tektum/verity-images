@@ -1,0 +1,21 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-otel-collector@local
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /otelcol
+
+cmd: --config /etc/otelcol/config.yaml
+
+environment:
+  PATH: /usr/bin:/bin

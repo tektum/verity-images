@@ -43,6 +43,7 @@ environment:
           - build
   environment:
     GOMODCACHE: /var/cache/melange/gomodcache
+    GODEBUG: http2client=0
     GOTOOLCHAIN: local
     HOME: /home/build
     npm_config_cache: /var/cache/melange/npm

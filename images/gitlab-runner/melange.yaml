@@ -1,0 +1,122 @@
+package:
+  name: gitlab-runner
+  version: "18.3.0"
+  epoch: 0
+  description: GitLab Runner with the shell executor
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - dumb-init
+      - git
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/gitlabhq/gitlab-runner
+      tag: v${{package.version}}
+      expected-commit: 9ba718cdb6a9060dda9e3e5cd724fb5f97f27570
+  - runs: |
+      go get \
+        github.com/Azure/go-ntlmssp@v0.1.1 \
+        github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 \
+        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
+        github.com/go-jose/go-jose/v3@v3.0.5 \
+        github.com/go-viper/mapstructure/v2@v2.4.0 \
+        github.com/in-toto/in-toto-golang@v0.11.0 \
+        golang.org/x/text@v0.39.0 \
+        google.golang.org/grpc@v1.82.1
+      sed -i \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/custom/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/docker/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/instance/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/kubernetes/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/parallels/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/ssh/d' \
+        -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/virtualbox/d' \
+        main.go commands/register.go
+      sed -i '/gitlab.com\/gitlab-org\/gitlab-runner\/helpers\/docker"/d' common/config.go
+      sed -n '9,11p' helpers/docker/credentials.go > .docker-credentials.fields
+      awk '
+        /^[[:space:]]*docker\.Credentials$/ {
+          while ((getline line < ".docker-credentials.fields") > 0) print line
+          close(".docker-credentials.fields")
+          next
+        }
+        { print }
+      ' common/config.go > common/config.go.new
+      mv common/config.go.new common/config.go
+      rm .docker-credentials.fields
+      gofmt -w main.go commands/register.go common/config.go
+      if go list -deps . | grep -q '^github.com/docker/docker/'; then
+        printf '%s\n' 'shell-only build still includes github.com/docker/docker' >&2
+        exit 1
+      fi
+  - uses: go/build
+    with:
+      packages: .
+      output: gitlab-runner
+      ldflags: |-
+        -s -w
+        -X gitlab.com/gitlab-org/gitlab-runner/common.NAME=gitlab-runner
+        -X gitlab.com/gitlab-org/gitlab-runner/common.VERSION=${{package.version}}
+        -X gitlab.com/gitlab-org/gitlab-runner/common.REVISION=9ba718cd
+        -X gitlab.com/gitlab-org/gitlab-runner/common.BRANCH=18-3-stable
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/gitlab-runner/LICENSE"
+      install -d "${{targets.destdir}}/usr/bin"
+      cat > "${{targets.destdir}}/usr/bin/gitlab-runner-entrypoint" <<'EOF'
+      #!/bin/sh
+      set -eu
+
+      config=${CONFIG_FILE:-/etc/gitlab-runner/config.toml}
+      command=
+      config_value=
+      help=false
+      for arg do
+        if [ -n "$config_value" ]; then
+          config=$arg
+          config_value=
+          continue
+        fi
+        case $arg in
+          -c|--config) config_value=required ;;
+          -c=*|--config=*) config=${arg#*=} ;;
+          -h|--help) help=true ;;
+          -*) ;;
+          *) [ -n "$command" ] || command=$arg ;;
+        esac
+      done
+      [ -z "$config_value" ] || {
+        printf '%s\n' 'gitlab-runner: --config requires a path' >&2
+        exit 2
+      }
+      if [ "$command" = run ] && [ "$help" = false ] && [ ! -s "$config" ]; then
+        printf 'gitlab-runner: registration config is missing or empty: %s\n' "$config" >&2
+        exit 1
+      fi
+      exec /usr/bin/gitlab-runner "$@"
+      EOF
+      chmod 755 "${{targets.destdir}}/usr/bin/gitlab-runner-entrypoint"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/gitlab-runner --version
+        /usr/bin/gitlab-runner --help

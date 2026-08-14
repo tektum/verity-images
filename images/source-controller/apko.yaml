@@ -1,0 +1,19 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-source-controller@local
+
+accounts:
+  run-as: 65534
+
+entrypoint:
+  command: /manager
+
+environment:
+  PATH: /usr/bin:/bin

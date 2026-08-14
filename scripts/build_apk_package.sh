@@ -112,6 +112,16 @@ mkdir "$work_dir/repository"
 melange keygen "$work_dir/test.rsa"
 cp "${primary[0]}" "$work_dir/repository/$apk_name"
 melange sign --signing-key "$work_dir/test.rsa" "$work_dir/repository/$apk_name"
+PYTHONPATH=scripts python3 - "$work_dir/repository/$apk_name" "$architecture" "$package" "$primary_version" <<'PY'
+import sys
+from pathlib import Path
+
+import apk_repository_policy
+
+info = apk_repository_policy.checked_package(Path(sys.argv[1]), sys.argv[2])
+if (info.name, info.version) != (sys.argv[3], sys.argv[4]):
+    raise SystemExit("signed APK identity mismatch")
+PY
 melange index --arch "$architecture" --signing-key "$work_dir/test.rsa" \
   --output "$work_dir/repository/APKINDEX.tar.gz" \
   "$work_dir/repository/$apk_name"

@@ -25,24 +25,24 @@ rejects() {
 }
 
 cat > "$temporary/published.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1.0","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","runId":"1","runUrl":"https://github.com/tektum/verity-images/actions/runs/1","sourceCommit":"cccccccccccccccccccccccccccccccccccccccc","validatedAt":"2026-08-13T00:00:00Z","tags":"1.0","scan":{"fixable":0}}
 EOF
 cat > "$temporary/pull-request.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0}}
 EOF
 cat > "$temporary/unknown-key.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0},"unexpected":true}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0},"unexpected":true}
 EOF
 cat > "$temporary/invalid-content.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"","digest":"local","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0}}
 EOF
 cat > "$temporary/log-pollution.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0}}
 unexpected log output
 EOF
 cat > "$temporary/multiple-documents.json" <<'EOF'
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
-{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0}}
+{"name":"nginx","version":"1.0","track":"wolfi","description":"Nginx","digest":"local","inputDigest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","scan":{"fixable":0}}
 EOF
 
 accepts "$temporary/published.json" nginx-1.0 push

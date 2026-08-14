@@ -1,0 +1,22 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - bind-tools
+    - ca-certificates-bundle
+    - verity-coredns-1.14@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /coredns
+
+cmd: -conf /Corefile
+
+environment:
+  PATH: /usr/bin:/bin

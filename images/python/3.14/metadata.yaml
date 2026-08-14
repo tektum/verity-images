@@ -1,7 +1,8 @@
 name: python
 track: wolfi
-description: Python 3.14 runtime assembled from Wolfi packages.
+description: Python 3.14 candidate disabled until Wolfi publishes 3.14.7-r0 with zero fixable findings.
+category: Languages & Build Tools
 upstream: https://www.python.org/
 versions: [3.14]
 owner: tektum
-enabled: true
+enabled: false

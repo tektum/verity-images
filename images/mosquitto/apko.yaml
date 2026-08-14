@@ -1,0 +1,58 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - mosquitto=2.0.22-r5
+    - mosquitto-clients=2.0.22-r5
+    - mosquitto-compat=2.0.22-r5
+
+accounts:
+  groups:
+    - groupname: mosquitto
+      gid: 1883
+  users:
+    - username: mosquitto
+      uid: 1883
+      gid: 1883
+  run-as: 1883
+
+entrypoint:
+  command: /usr/bin/mosquitto
+
+cmd: -c /mosquitto/config/mosquitto.conf
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /mosquitto/config
+    type: directory
+    uid: 1883
+    gid: 1883
+    permissions: 0o755
+  - path: /mosquitto/config/mosquitto.conf
+    type: symlink
+    source: /mosquitto-no-auth.conf
+    uid: 1883
+    gid: 1883
+  - path: /mosquitto-no-auth.conf
+    type: permissions
+    uid: 1883
+    gid: 1883
+    permissions: 0o644
+  - path: /mosquitto/data
+    type: directory
+    uid: 1883
+    gid: 1883
+    permissions: 0o755
+  - path: /mosquitto/log
+    type: directory
+    uid: 1883
+    gid: 1883
+    permissions: 0o755
+
+volumes:
+  - /mosquitto/data
+  - /mosquitto/log

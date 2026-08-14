@@ -17,6 +17,22 @@ from typing import Final
 
 IDENTITY: Final = "https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main"
 ISSUER: Final = "https://token.actions.githubusercontent.com"
+CATEGORIES: Final = (
+    "Languages & Build Tools",
+    "Web Servers & Proxies",
+    "Databases & Caching",
+    "Messaging & Streaming",
+    "Kubernetes & Orchestration",
+    "Service Mesh & Networking",
+    "Monitoring & Observability",
+    "Logging",
+    "CI/CD & GitOps",
+    "Security & Identity",
+    "Policy & Compliance",
+    "Cert Management",
+    "Data & ML",
+    "Base & Utilities",
+)
 FILTER: Final = r"""
 .report.images |= map(
   .tags = (.tags | split(",")) |
@@ -39,6 +55,7 @@ if $previous != "" then
 else
   .report.images |= sort_by(.name, .version)
 end |
+.report.images |= (if ($expected | length) == 0 then . else map(. as $image | select(any($expected[]; . == [$image.name, $image.version]))) end) |
 {
   schemaVersion: 2,
   publishedAt: $publishedAt,
@@ -84,15 +101,27 @@ def main() -> None:
     output = Path(sys.argv[4])
     run_id, run_url, source_sha, published_at = sys.argv[5:]
     report_document = document(report, "build report")
-    previous_document = document(previous, "previous catalog") if previous else None
+    previous_document = document(previous, "previous catalog") if previous and previous.is_file() else None
+    for image in report_document["images"]:
+        if isinstance(image, dict):
+            image.setdefault("inputDigest", image.get("digest"))
+            image.setdefault("runId", run_id)
+            image.setdefault("runUrl", run_url)
+            image.setdefault("sourceCommit", source_sha)
+            image.setdefault("validatedAt", published_at)
     for image in report_document["images"]:
         if not isinstance(image, dict):
             raise SystemExit(f"invalid build report: {report}: images must contain objects")
         name = image.get("name")
         version = image.get("version")
         digest = image.get("digest")
-        tags = image.get("tags")
         scan = image.get("scan")
+        tags = image.get("tags")
+        input_digest = image.get("inputDigest")
+        image_run_id = image.get("runId")
+        image_run_url = image.get("runUrl")
+        image_source = image.get("sourceCommit")
+        validated_at = image.get("validatedAt")
         if (
             not isinstance(name, str)
             or not name
@@ -100,11 +129,25 @@ def main() -> None:
             or not version
             or not isinstance(digest, str)
             or not re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+            or not isinstance(input_digest, str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", input_digest)
+            or not isinstance(image_run_id, str)
+            or not image_run_id.isdecimal()
+            or not isinstance(image_run_url, str)
+            or not image_run_url.startswith("https://github.com/tektum/verity-images/actions/runs/")
+            or not isinstance(image_source, str)
+            or not re.fullmatch(r"[0-9a-f]{40}", image_source)
+            or not isinstance(validated_at, str)
+            or not validated_at
             or not isinstance(tags, str)
             or not tags
             or not isinstance(scan, dict)
+            or scan.get("fixable") != 0
         ):
             raise SystemExit(f"invalid build report: {report}: image fields are invalid")
+        category = image.get("category")
+        if category is not None and (not isinstance(category, str) or category not in CATEGORIES):
+            raise SystemExit(f"invalid build report: {report}: image category is invalid")
         artifact = scans / f"scan-{name}-{version}"
         scan_files = tuple(artifact.glob("scan-*.json")) if artifact.is_dir() else ()
         if not scan_files and len(report_document["images"]) == 1:
@@ -136,12 +179,21 @@ def main() -> None:
             "--arg",
             "previous",
             "present" if previous_document else "",
+            "--argjson",
+            "expected",
+            json.dumps(expected_images()),
             FILTER,
         ],
         json.dumps({"report": report_document, "previous": previous_document}),
     )
     _ = output.write_text(catalog, encoding="utf-8")
 
+
+def expected_images() -> list[list[str]]:
+    if not Path.cwd().is_relative_to(Path(__file__).resolve().parents[1]):
+        return []
+    matrix = json.loads(run([sys.executable, str(Path(__file__).with_name("gen_matrix.py")), "--all"]))
+    return [[image["name"], image["tag_version"]] for image in matrix["include"]]
 
 if __name__ == "__main__":
     main()

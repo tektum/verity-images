@@ -1,0 +1,86 @@
+package:
+  name: verity-perl-5.42
+  version: "5.42.2"
+  epoch: 0
+  description: Perl 5.42 runtime with upstream security fixes
+  copyright:
+    - license: Artistic-1.0-Perl OR GPL-1.0-or-later
+  dependencies:
+    provides:
+      - perl=${{package.full-version}}
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bison
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - wolfi-baselayout
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Perl/perl5.git
+      tag: v${{package.version}}
+      expected-commit: b62845c7186b0b6a8e4e83419e6b5ef64ceef3ed
+  - uses: patch
+    with:
+      patches: CVE-2026-8376.patch
+  - uses: patch
+    with:
+      patches: CVE-2026-13221.patch
+  - uses: patch
+    with:
+      patches: CVE-2026-57432-1.patch
+  - uses: patch
+    with:
+      patches: CVE-2026-57432-2.patch
+  - runs: |
+      rm -rf cpan/Compress-Raw-Zlib/zlib-src
+      rm -rf cpan/Compress-Raw-Bzip2/bzip2-src
+      sed -i '/\(bzip2\|zlib\)-src/d' MANIFEST
+  - runs: |
+      export BUILD_ZLIB=0 BUILD_BZIP2=0 BZIP2_LIB=/usr/lib BZIP2_INCLUDE=/usr/include
+      ./Configure -des \
+        -Dcc=gcc \
+        -Dcccdlflags='-fPIC' \
+        -Dccdlflags='-rdynamic' \
+        -Dprefix=/usr \
+        -Dprivlib=/usr/share/perl5/core_perl \
+        -Darchlib=/usr/lib/perl5/core_perl \
+        -Dvendorprefix=/usr \
+        -Dvendorlib=/usr/share/perl5/vendor_perl \
+        -Dvendorarch=/usr/lib/perl5/vendor_perl \
+        -Dsiteprefix=/usr/local \
+        -Dsitelib=/usr/local/share/perl5/site_perl \
+        -Dsitearch=/usr/local/lib/perl5/site_perl \
+        -Dlocincpth=' ' \
+        -Duselargefiles \
+        -Dusethreads \
+        -Duseshrplib \
+        -Dd_semctl_semun \
+        -Dcf_by='Verity Images' \
+        -Ud_csh
+      make depend
+      make -j4 libperl.so
+      make -j4
+  - uses: autoconf/make-install
+  - runs: |
+      find "${{targets.destdir}}" -name '.*' -delete
+      chmod -R +w "${{targets.destdir}}"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: perl -e 'die "unexpected Perl version $]" unless $] >= 5.042 && $] < 5.043'
+    - runs: perl -e 'print 6 * 7'

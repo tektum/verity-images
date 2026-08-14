@@ -73,6 +73,18 @@ Do not publish or waive a fixable finding. The gate proves only that the pinned
 Grype run reported zero findings with an available fix for the candidate digest
 and platforms; it is not a zero-CVE claim.
 
+- A candidate is admissible only with a remediation hypothesis and preflight
+  evidence for license and redistribution, an allowed registry, an immutable
+  source bound to the canonical publisher or verified upstream signatures and
+  checksums, exact amd64 and arm64 child manifests, likely zero-fixable
+  feasibility, a runtime contract with a negative test, and an expected
+  build-duration class.
+- Patched sources are currently limited by `scripts/gen_matrix.py` to `docker.io`,
+  `registry.k8s.io`, `docker.elastic.co`, and `ghcr.io`. Land any allowlist change
+  as a reviewed prerequisite before admitting a candidate.
+- Treat runner allocation and execution as separate budgets. Queue starvation is
+  not fixed by increasing build retries or execution timeouts.
+
 ### Runtime tests
 
 The smoke test must verify the behavior the image promises, including applicable
@@ -134,10 +146,21 @@ their reviewed `apko.lock.json` remains the update boundary.
   that confirms zero unresolved threads.
 - On pull requests, require `lint`, every affected image and APK validation,
   `build-gate`, and `apk-gate` to pass.
+- Classify auxiliary checks from branch protection. Do not treat every red check
+  as a required check.
+- If `main` advances during a long PR build and up-to-date protection requires a
+  new head, cancel the obsolete run, rebase once, and validate only the current
+  head.
 - The merge queue reruns `lint` and validates the changed-image and APK
   matrices, but intentionally skips artifact builds. `main` rebuilds and
   publishes affected images after merge.
 - Merge prerequisite pull requests before dependent image pull requests.
+- Completion requires the GHCR digest, signature, SBOM, and provenance, plus a
+  public catalog entry with the matching source SHA and `fixable=0`. For a stale
+  catalog, first rely on the automatic catch-up dispatched from the validated
+  live catalog source SHA after a failed `main` build. Catalog source-run failure
+  must remain loud. Use the documented manual delta recovery only when the
+  automatic path cannot complete.
 
 ## Recommended branch protection
 
