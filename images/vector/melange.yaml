@@ -52,6 +52,9 @@ pipeline:
       set -- "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/krb5-src-0.3.2+1.19.2
       [ "$#" -eq 1 ] && [ -d "$1" ]
       patch -d "$1" -p1 --fuzz=0 < krb5-c23-strchr.patch
+      set -- "${CARGO_HOME:-$HOME/.cargo}"/registry/src/*/rdkafka-sys-4.8.0+2.3.0
+      [ "$#" -eq 1 ] && [ -d "$1" ]
+      patch -d "$1" -p1 --fuzz=0 < rdkafka-cmake4.patch
       cargo auditable build --release --locked --no-default-features --features default-cmake
       install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
   - uses: strip
