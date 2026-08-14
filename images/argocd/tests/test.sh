@@ -27,7 +27,7 @@ printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
 
 help_output=$(docker run --rm --cpus=4 --network none \
   "$image" argocd-server --help 2>&1)
-printf '%s\n' "$help_output" | grep -F 'Run the Argo CD API server' >/dev/null \
+printf '%s\n' "$help_output" | grep -F 'Run the ArgoCD API server' >/dev/null \
   || fail 'argocd-server help check failed'
 
 docker run --rm --cpus=4 --network none "$image" sh -c '
