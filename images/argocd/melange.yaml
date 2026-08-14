@@ -1,6 +1,6 @@
 package:
   name: verity-argocd
-  version: "3.1.16"
+  version: "3.3.14"
   epoch: 0
   description: Declarative GitOps continuous delivery controller.
   copyright:
@@ -47,7 +47,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj/argo-cd
       tag: v${{package.version}}
-      expected-commit: 5d001b80990d14c0fc9b2cbee1eac25fc288da15
+      expected-commit: a0a99e187cb6126ef0f3be82d90705513d8f6f3e
 
   - uses: git-checkout
     with:
@@ -70,7 +70,7 @@ pipeline:
         golang.org/x/net@v0.56.0
         golang.org/x/text@v0.39.0
         google.golang.org/grpc@v1.82.1
-        k8s.io/kubernetes@v1.33.6
+        k8s.io/kubernetes@v1.34.2
         oras.land/oras-go/v2@v2.6.2
 
   - uses: go/bump
@@ -83,20 +83,6 @@ pipeline:
       source_commit=$(git rev-parse HEAD)
       printf '%s\n' "$source_commit" >.verity-source-commit
       build_date=$(git show -s --format=%cI HEAD)
-
-      summary=ui/src/app/applications/components/application-summary/application-summary.tsx
-      sed -i "/import {services}/a import {isValidURL} from '../../../shared/utils';" \
-        "$summary"
-      safe_filter='.filter(parts => isValidURL(parts.length > 1 ? parts[1] : parts[0]))'
-      sed -i "/\.map(item => item.split('|'))/a\\                        $safe_filter" \
-        "$summary"
-      grep -F "isValidURL(parts.length > 1 ? parts[1] : parts[0])" "$summary"
-
-      secure_mkdir=util/io/files/secure_mkdir_linux.go
-      sed -i '/securejoin "github.com\/cyphar\/filepath-securejoin"/a\
-      \tpathrs "github.com/cyphar/filepath-securejoin/pathrs-lite"' "$secure_mkdir"
-      sed -i 's/securejoin\.MkdirAll/pathrs.MkdirAll/' "$secure_mkdir"
-      grep -F 'pathrs.MkdirAll(root, unsafePath, mode)' "$secure_mkdir"
 
       yarn --cwd ui install --frozen-lockfile --network-timeout 200000
       HOST_ARCH=$(go env GOARCH) \
@@ -188,5 +174,5 @@ update:
   github:
     identifier: argoproj/argo-cd
     strip-prefix: v
-    tag-filter-prefix: v3.1.
+    tag-filter-prefix: v3.3.
     use-tag: true

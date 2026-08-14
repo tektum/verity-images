@@ -17,10 +17,10 @@ fail() {
 
 version_output=$(docker run --rm --cpus=4 --network none \
   "$image" argocd version --client 2>&1)
-printf '%s\n' "$version_output" | grep -F 'argocd: v3.1.16+' >/dev/null \
+printf '%s\n' "$version_output" | grep -F 'argocd: v3.3.14+' >/dev/null \
   || fail 'argocd version check failed'
 printf '%s\n' "$version_output" | grep -F \
-  'GitCommit: 5d001b80990d14c0fc9b2cbee1eac25fc288da15' >/dev/null \
+  'GitCommit: a0a99e187cb6126ef0f3be82d90705513d8f6f3e' >/dev/null \
   || fail 'argocd source commit check failed'
 printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
   || fail 'argocd did not disclose the security-remediated build'
