@@ -198,14 +198,17 @@ docker run -d --name "$container" --user 101 \
 
 healthz_port=$(docker port "$container" 10254/tcp | awk -F: 'NR == 1 { print $2 }')
 webhook_port=$(docker port "$container" 8443/tcp | awk -F: 'NR == 1 { print $2 }')
-[ -n "$healthz_port" ] && [ -n "$webhook_port" ] || fail 'expected ports were not published'
+if [ -z "$healthz_port" ] || [ -z "$webhook_port" ]; then
+  docker logs "$container" >&2 || :
+  fail 'expected ports were not published'
+fi
 
 attempts=0
 until curl --fail --silent --max-time 2 "http://127.0.0.1:$healthz_port/healthz" >/dev/null; do
   attempts=$((attempts + 1))
   if [ "$attempts" -ge 60 ]; then
     docker logs "$container" >&2 || :
-    fail '/healthz did not become ready within 60 seconds'
+    fail '/healthz did not become ready within 60 attempts'
   fi
   sleep 1
 done
@@ -235,8 +238,10 @@ done
 docker rm -f "$container" >/dev/null 2>&1 || true
 container=
 
-if docker run --rm --network none --user 101 "$image" /nginx-ingress-controller --not-a-real-flag >/dev/null 2>&1; then
+if invalid_flag_output=$(docker run --rm --network none --user 101 "$image" /nginx-ingress-controller --not-a-real-flag 2>&1); then
   fail 'invalid flag unexpectedly succeeded'
 fi
+printf '%s\n' "$invalid_flag_output" | grep -Fq 'unknown flag: --not-a-real-flag' || \
+  fail 'invalid flag did not produce the expected parsing error'
 
 printf 'SMOKE PASS image=%s\n' "$image"
