@@ -1,0 +1,216 @@
+package:
+  name: verity-argocd
+  version: "3.3.14"
+  epoch: 0
+  description: Declarative GitOps continuous delivery controller.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - gpg
+      - kustomize
+      - openssh-client
+      - tini
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - nodejs-23
+      - yarn
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4 -buildvcs=false
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+    NODE_OPTIONS: --max_old_space_size=8192
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj/argo-cd
+      tag: v${{package.version}}
+      expected-commit: a0a99e187cb6126ef0f3be82d90705513d8f6f3e
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/helm/helm
+      tag: v3.21.3
+      expected-commit: 1ad6e68924fdf6fb0c7dcef8e9e1dfc0f36eaed6
+      destination: third_party/helm
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/git-lfs/git-lfs
+      tag: v3.7.1
+      expected-commit: b84b33847fe6458f36ef521534dc0eac953cb379
+      destination: third_party/git-lfs
+
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/cloudflare/circl@v1.6.3
+        github.com/go-git/go-billy/v5@v5.9.0
+        github.com/go-git/go-git/v5@v5.19.2
+        github.com/go-jose/go-jose/v4@v4.1.4
+        github.com/moby/spdystream@v0.5.1
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        golang.org/x/crypto@v0.53.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+        k8s.io/kubernetes@v1.34.2
+        oras.land/oras-go/v2@v2.6.2
+
+  - uses: go/bump
+    with:
+      deps: golang.org/x/text@v0.39.0
+      modroot: third_party/helm
+
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+      modroot: third_party/git-lfs
+
+  - name: Build UI and binaries
+    runs: |
+      source_commit=$(git rev-parse HEAD)
+      printf '%s\n' "$source_commit" >.verity-source-commit
+      build_date=$(git show -s --format=%cI HEAD)
+
+      yarn --cwd ui install --frozen-lockfile --network-timeout 200000
+      HOST_ARCH=$(go env GOARCH) \
+        NODE_ENV=production \
+        NODE_ONLINE_ENV=online \
+        yarn --cwd ui build
+
+      rm -rf .git
+      GIT_COMMIT="$source_commit" \
+        GIT_TAG="v${{package.version}}" \
+        GIT_TREE_STATE=dirty \
+        BUILD_DATE="$build_date" \
+        GOOS=linux \
+        GOARCH=$(go env GOARCH) \
+        make argocd-all
+
+      helm_commit=$(git -C third_party/helm rev-parse HEAD)
+      make -C third_party/helm build \
+        VERSION=v3.21.3 \
+        GIT_COMMIT="$helm_commit" \
+        GIT_DIRTY=dirty \
+        GOFLAGS="-p=4 -buildvcs=false"
+
+      git_lfs_commit=$(git -C third_party/git-lfs rev-parse HEAD)
+      (
+        cd third_party/git-lfs
+        mkdir -p bin
+        GOOS=linux GOARCH=$(go env GOARCH) go build \
+          -trimpath \
+          -ldflags="-X github.com/git-lfs/git-lfs/v3/config.GitCommit=$git_lfs_commit -s -w" \
+          -o bin/git-lfs \
+          ./git-lfs.go
+      )
+
+  - name: Package
+    runs: |
+      install -Dm755 dist/argocd \
+        "${{targets.destdir}}/usr/local/bin/argocd"
+      install -Dm755 third_party/helm/bin/helm \
+        "${{targets.destdir}}/usr/bin/helm"
+      install -Dm755 third_party/git-lfs/bin/git-lfs \
+        "${{targets.destdir}}/usr/bin/git-lfs"
+      for name in \
+        argocd-server \
+        argocd-repo-server \
+        argocd-cmp-server \
+        argocd-application-controller \
+        argocd-dex \
+        argocd-notifications \
+        argocd-applicationset-controller \
+        argocd-k8s-auth \
+        argocd-commit-server; do
+        ln -s argocd "${{targets.destdir}}/usr/local/bin/$name"
+      done
+
+      install -Dm755 entrypoint.sh \
+        "${{targets.destdir}}/usr/local/bin/entrypoint.sh"
+      install -Dm755 hack/gpg-wrapper.sh \
+        "${{targets.destdir}}/usr/local/bin/gpg-wrapper.sh"
+      install -Dm755 hack/git-verify-wrapper.sh \
+        "${{targets.destdir}}/usr/local/bin/git-verify-wrapper.sh"
+      ln -s entrypoint.sh \
+        "${{targets.destdir}}/usr/local/bin/uid_entrypoint.sh"
+
+      install -d \
+        "${{targets.destdir}}/app/config/ssh" \
+        "${{targets.destdir}}/app/config/tls" \
+        "${{targets.destdir}}/app/config/gpg/source" \
+        "${{targets.destdir}}/app/config/gpg/keys" \
+        "${{targets.destdir}}/etc/ssh"
+      touch "${{targets.destdir}}/app/config/ssh/ssh_known_hosts"
+      ln -s /app/config/ssh/ssh_known_hosts \
+        "${{targets.destdir}}/etc/ssh/ssh_known_hosts"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 third_party/helm/LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/HELM-LICENSE"
+      install -Dm644 third_party/git-lfs/LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/GIT-LFS-LICENSE"
+
+      source_commit=$(cat .verity-source-commit)
+      version_output=$("${{targets.destdir}}/usr/local/bin/argocd" version --client)
+      printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
+      printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
+      printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
+      "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
+      "${{targets.destdir}}/usr/bin/helm" version | grep -F 'GitTreeState:"dirty"'
+      "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1 ('
+      git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
+      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.6'
+      printf '%s\n' "$git_lfs_build_info" | \
+        grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.56.0'
+      printf '%s\n' "$git_lfs_build_info" | \
+        grep -E 'dep[[:space:]]+golang.org/x/text[[:space:]]+v0.39.0'
+      rm -rf .verity-source-commit third_party/helm third_party/git-lfs
+
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        version_output=$(/usr/local/bin/argocd version --client)
+        printf '%s\n' "$version_output" | grep -F 'argocd: v${{package.version}}+'
+        printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
+        test -L /usr/local/bin/argocd-server
+        test -x /usr/local/bin/entrypoint.sh
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+        /usr/bin/helm version --short | grep -F 'v3.21.3+'
+        /usr/bin/helm version | grep -F 'GitTreeState:"dirty"'
+        /usr/bin/git-lfs version | grep -F 'git-lfs/3.7.1 ('
+
+update:
+  enabled: true
+  github:
+    identifier: argoproj/argo-cd
+    strip-prefix: v
+    tag-filter-prefix: v3.3.
+    use-tag: true

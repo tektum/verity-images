@@ -1,0 +1,62 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-argocd@local
+
+accounts:
+  groups:
+    - groupname: argocd
+      gid: 999
+  users:
+    - username: argocd
+      uid: 999
+      gid: 999
+  run-as: 999
+
+entrypoint:
+  command: /usr/bin/tini --
+
+work-dir: /home/argocd
+
+environment:
+  HOME: /home/argocd
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  USER: argocd
+
+paths:
+  - path: /home/argocd
+    type: directory
+    uid: 999
+    gid: 0
+    permissions: 0o775
+  - path: /app/config/ssh
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /app/config/tls
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /app/config/gpg/source
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /app/config/gpg/keys
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o700
+  - path: /tmp
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o1777
