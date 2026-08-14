@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
 
 cleanup() {
-  rm -rf "$work"
+  rm -rf "$work" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
