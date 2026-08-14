@@ -1,6 +1,6 @@
 package:
   name: grafana-alloy
-  version: "1.10.2"
+  version: "1.18.1"
   epoch: 0
   description: OpenTelemetry Collector distribution with Prometheus pipelines.
   copyright:
@@ -18,7 +18,7 @@ package:
     memory: 1Gi
 
 vars:
-  source-commit: b19f8c577aa79fd51de96ab292eedd7838336b09
+  source-commit: 6012ec4ac6a541ade720777ecec2f2b02b496def
 
 environment:
   contents:
@@ -54,7 +54,7 @@ pipeline:
       flags="$flags -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}"
       flags="$flags -X github.com/grafana/alloy/internal/build.Revision=${{vars.source-commit}}"
       flags="$flags -X github.com/grafana/alloy/internal/build.BuildUser=verity"
-      flags="$flags -X github.com/grafana/alloy/internal/build.BuildDate=2025-08-19T15:17:14Z"
+      flags="$flags -X github.com/grafana/alloy/internal/build.BuildDate=2026-08-06T13:11:14Z"
       go build -mod=readonly -trimpath \
         -tags "netgo builtinassets promtail_journal_enabled" \
         -ldflags "$flags" -o alloy .
@@ -78,5 +78,5 @@ update:
   github:
     identifier: grafana/alloy
     strip-prefix: v
-    tag-filter: v1.10.
+    tag-filter: v1.18.
     use-tag: true

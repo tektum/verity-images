@@ -23,7 +23,7 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = \
   '["run","/etc/alloy/config.alloy","--storage.path=/var/lib/alloy/data"]' ] ||
   fail 'unexpected image command'
-docker run --rm --cpus 4 "$image" --version 2>&1 | grep -F 'v1.10.2' >/dev/null ||
+docker run --rm --cpus 4 "$image" --version 2>&1 | grep -F 'v1.18.1' >/dev/null ||
   fail 'alloy version check failed'
 
 docker run --name "$container" -d --read-only --cpus 4 \
