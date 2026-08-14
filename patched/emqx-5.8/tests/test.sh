@@ -49,7 +49,7 @@ docker run --rm --entrypoint sh "$image" -c \
 
 wait_for_emqx() {
   attempts=0
-  while ! status=$(docker exec "$container" /opt/emqx/bin/emqx ctl status 2>/dev/null); do
+  while ! status=$(timeout 5 docker exec "$container" /opt/emqx/bin/emqx ctl status 2>/dev/null); do
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 90 ]; then
       docker logs "$container" >&2 || :
