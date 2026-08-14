@@ -49,7 +49,7 @@ docker run --rm --entrypoint sh "$image" -c \
 
 wait_for_emqx() {
   attempts=0
-  while ! status=$(timeout 5 docker exec "$container" /opt/emqx/bin/emqx ctl status 2>/dev/null); do
+  while ! status=$(timeout 5 docker exec "$container" /usr/bin/curl -fsS 'http://127.0.0.1:18083/status?format=json' 2>/dev/null); do
     attempts=$((attempts + 1))
     if [ "$attempts" -ge 90 ]; then
       docker logs "$container" >&2 || :
@@ -57,7 +57,9 @@ wait_for_emqx() {
     fi
     sleep 1
   done
-  printf '%s\n' "$status" | grep -Fq "Node '$node' 5.8.9 is started" || fail "unexpected version or node identity: $status"
+  printf '%s\n' "$status" | grep -Fq '"broker_status":"started"' || fail "broker is not ready: $status"
+  printf '%s\n' "$status" | grep -Fq '"rel_vsn":"v5.8.9"' || fail "unexpected version: $status"
+  printf '%s\n' "$status" | grep -Fq "\"node_name\":\"$node\"" || fail "unexpected node identity: $status"
 }
 
 docker volume create "$volume" >/dev/null
