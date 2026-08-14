@@ -37,6 +37,7 @@ docker run --rm --cpus=4 --network none "$image" sh -c '
   test -d /app/config/gpg/source
   test -w /app/config/gpg/keys
   helm version --short | grep -F v3.21.3+
+  git-lfs version | grep -F git-lfs/3.7.1
   kustomize version
   git --version
   gpg --version >/dev/null

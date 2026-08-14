@@ -10,7 +10,6 @@ package:
       - busybox
       - ca-certificates-bundle
       - git
-      - git-lfs
       - gnupg
       - kustomize
       - openssh-client
@@ -55,6 +54,13 @@ pipeline:
       tag: v3.21.3
       expected-commit: 1ad6e68924fdf6fb0c7dcef8e9e1dfc0f36eaed6
       destination: third_party/helm
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/git-lfs/git-lfs
+      tag: v3.7.1
+      expected-commit: b84b33847fe6458f36ef521534dc0eac953cb379
+      destination: third_party/git-lfs
 
   - uses: go/bump
     with:
@@ -106,12 +112,25 @@ pipeline:
         GIT_DIRTY=clean \
         GOFLAGS="-p=4 -buildvcs=false"
 
+      git_lfs_commit=$(git -C third_party/git-lfs rev-parse HEAD)
+      (
+        cd third_party/git-lfs
+        mkdir -p bin
+        GOOS=linux GOARCH=$(go env GOARCH) go build \
+          -trimpath \
+          -ldflags="-X github.com/git-lfs/git-lfs/v3/config.GitCommit=$git_lfs_commit -s -w" \
+          -o bin/git-lfs \
+          ./git-lfs.go
+      )
+
   - name: Package
     runs: |
       install -Dm755 dist/argocd \
         "${{targets.destdir}}/usr/local/bin/argocd"
       install -Dm755 third_party/helm/bin/helm \
         "${{targets.destdir}}/usr/bin/helm"
+      install -Dm755 third_party/git-lfs/bin/git-lfs \
+        "${{targets.destdir}}/usr/bin/git-lfs"
       for name in \
         argocd-server \
         argocd-repo-server \
@@ -147,6 +166,8 @@ pipeline:
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       install -Dm644 third_party/helm/LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/HELM-LICENSE"
+      install -Dm644 third_party/git-lfs/LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/GIT-LFS-LICENSE"
 
       source_commit=$(cat .verity-source-commit)
       version_output=$("${{targets.destdir}}/usr/local/bin/argocd" version --client)
@@ -154,7 +175,9 @@ pipeline:
       printf '%s\n' "$version_output" | grep -F "GitCommit: $source_commit"
       printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty'
       "${{targets.destdir}}/usr/bin/helm" version --short | grep -F 'v3.21.3+'
-      rm -rf .verity-source-commit third_party/helm
+      "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1'
+      go version -m "${{targets.destdir}}/usr/bin/git-lfs" | grep -F 'go1.26.6'
+      rm -rf .verity-source-commit third_party/helm third_party/git-lfs
 
   - uses: strip
 
@@ -168,6 +191,7 @@ test:
         test -x /usr/local/bin/entrypoint.sh
         test -s /usr/share/licenses/${{package.name}}/LICENSE
         /usr/bin/helm version --short | grep -F 'v3.21.3+'
+        /usr/bin/git-lfs version | grep -F 'git-lfs/3.7.1'
 
 update:
   enabled: true
