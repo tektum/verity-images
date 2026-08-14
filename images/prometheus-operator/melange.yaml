@@ -1,0 +1,72 @@
+package:
+  name: prometheus-operator
+  version: "0.93.0"
+  epoch: 0
+  description: Prometheus Operator creates and manages Prometheus clusters on Kubernetes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: f8fafd475f3d132e239432ae6172de60a6cb6516
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - make
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus-operator/prometheus-operator
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      make operator \
+        VERSION=${{package.version}} \
+        BUILD_REVISION=${{vars.source-commit}} \
+        BUILD_USER= BUILD_DATE= BUILD_BRANCH=
+      install -Dm755 operator "${{targets.destdir}}/usr/bin/operator"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: prometheus-operator-build-metadata
+    description: Resolved Go module metadata for the Prometheus Operator build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/prometheus-operator-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/prometheus-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        /bin/operator --version | grep -F "version ${{package.version}}"
+        /bin/operator crds | grep -F 'kind: CustomResourceDefinition'
+        apk info --who-owns /usr/bin/operator \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
