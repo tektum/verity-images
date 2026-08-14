@@ -3,8 +3,10 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
+repo=$(docker volume create)
 
 cleanup() {
+  docker volume rm -f "$repo" >/dev/null
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -32,7 +34,9 @@ chmod -R 777 "$work"
 run_restic() {
   docker run --rm --network none \
     -e RESTIC_PASSWORD=restic-smoke-password \
-    -v "$work:/data" "$image" --no-cache -r /data/repo "$@"
+    -v "$repo:/data/repo" -v "$work/input:/data/input:ro" \
+    -v "$work/restore:/data/restore" \
+    "$image" --no-cache -r /data/repo "$@"
 }
 
 run_restic init >/dev/null || fail 'repository initialization failed'
@@ -45,7 +49,7 @@ cmp "$work/input/file.txt" "$work/restore/data/input/file.txt" || fail 'restored
 set +e
 missing=$(docker run --rm --network none \
   -e RESTIC_PASSWORD=restic-smoke-password \
-  -v "$work:/data" "$image" --no-cache -r /data/missing cat config 2>&1)
+  "$image" --no-cache -r /data/missing cat config 2>&1)
 status=$?
 set -e
 [ "$status" -eq 10 ] || {
