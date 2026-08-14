@@ -1,0 +1,64 @@
+package:
+  name: verity-metallb-speaker
+  version: "0.15.3"
+  epoch: 0
+  description: MetalLB speaker for announcing load-balanced service addresses
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 85bfb4f0e0d35090c514e1e5e1a21a8bbd253518
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/metallb/metallb
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/bump
+    with:
+      deps: |-
+        golang.org/x/net@v0.55.0
+        golang.org/x/text@v0.39.0
+  - runs: |
+      flags="-s -w -X go.universe.tf/metallb/internal/version.gitCommit=${{vars.source-commit}}"
+      flags="$flags -X go.universe.tf/metallb/internal/version.gitBranch=v${{package.version}}"
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="$flags" \
+        -o "${{targets.destdir}}/speaker" ./speaker
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        /speaker --help 2>&1 | grep -F -- '-node-name string'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: metallb/metallb
+    strip-prefix: v
+    tag-filter: v0.15
+    use-tag: true
