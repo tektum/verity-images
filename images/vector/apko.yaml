@@ -1,13 +1,11 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
-    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
-    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - vector@local
+    - vector=0.56.0-r0
 
 accounts:
   run-as: 65532
