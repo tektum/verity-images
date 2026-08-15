@@ -1,0 +1,12 @@
+diff --git a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -221,4 +221,4 @@
+-tonic = { version = "0.11", default-features = false, features = ["transport", "codegen", "prost", "tls", "tls-roots", "gzip", "zstd"] }
+-tonic-build = { version = "0.11", default-features = false, features = ["transport", "prost"] }
+-tonic-health = { version = "0.11", default-features = false }
+-tonic-reflection = { version = "0.11", default-features = false, features = ["server"] }
++tonic = { version = "0.12", default-features = false, features = ["transport", "codegen", "prost", "tls", "tls-roots", "gzip", "zstd"] }
++tonic-build = { version = "0.12", default-features = false, features = ["transport", "prost"] }
++tonic-health = { version = "0.12", default-features = false }
++tonic-reflection = { version = "0.12", default-features = false, features = ["server"] }
