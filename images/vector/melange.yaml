@@ -19,9 +19,11 @@ environment:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - build-base
+      - busybox
       - ca-certificates-bundle
       - cargo-auditable
       - openssl-dev
+      - perl
       - pkgconf
       - rust-1.95
 
