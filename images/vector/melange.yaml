@@ -1,0 +1,41 @@
+package:
+  name: vector
+  version: "0.57.0"
+  epoch: 0
+  description: Minimal Vector stdin-to-console observability pipeline
+  copyright:
+    - license: MPL-2.0
+  resources:
+    cpu: "22"
+    memory: 36Gi
+  test-resources:
+    cpu: "1"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - ca-certificates-bundle
+      - cargo-auditable
+      - openssl-dev
+      - pkgconf
+      - rust-1.95
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/vectordotdev/vector
+      tag: v${{package.version}}
+      expected-commit: 8832452f57afb536ea0de53a093f9fd1b669ccec
+  - runs: |
+      cargo auditable build --release --locked --no-default-features --features sources-stdin,sinks-console
+      install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: /usr/bin/vector --version | grep -F "vector ${{package.version}}"
