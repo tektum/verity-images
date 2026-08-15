@@ -18,7 +18,7 @@ test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" =
   printf '%s\n' 'unexpected image entrypoint' >&2
   exit 1
 }
-docker run --rm --entrypoint /usr/bin/vector "$image" --version | grep -F 'vector 0.56.0' >/dev/null || {
+docker run --rm --entrypoint /usr/bin/vector "$image" --version | grep -F 'vector 0.57.0' >/dev/null || {
   printf '%s\n' 'unexpected Vector version' >&2
   exit 1
 }
