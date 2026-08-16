@@ -48,16 +48,20 @@ pipeline:
       cd internal/web/ui
       npm ci
       npm run build
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: alloy
+      tags: netgo builtinassets promtail_journal_enabled
+      ldflags: >-
+        -s -w
+        -X github.com/grafana/alloy/internal/build.Branch=HEAD
+        -X github.com/grafana/alloy/internal/build.Version=v${{package.version}}
+        -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}
+        -X github.com/grafana/alloy/internal/build.Revision=${{vars.source-commit}}
+        -X github.com/grafana/alloy/internal/build.BuildUser=verity
+        -X github.com/grafana/alloy/internal/build.BuildDate=2026-08-06T13:11:14Z
   - runs: |
-      flags="-s -w -X github.com/grafana/alloy/internal/build.Branch=HEAD"
-      flags="$flags -X github.com/grafana/alloy/internal/build.Version=v${{package.version}}"
-      flags="$flags -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}"
-      flags="$flags -X github.com/grafana/alloy/internal/build.Revision=${{vars.source-commit}}"
-      flags="$flags -X github.com/grafana/alloy/internal/build.BuildUser=verity"
-      flags="$flags -X github.com/grafana/alloy/internal/build.BuildDate=2026-08-06T13:11:14Z"
-      go build -mod=readonly -trimpath \
-        -tags "netgo builtinassets promtail_journal_enabled" \
-        -ldflags "$flags" -o alloy .
       install -Dm755 alloy "${{targets.destdir}}/usr/bin/alloy"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       install -d -m755 "${{targets.destdir}}/etc/alloy"
