@@ -56,9 +56,11 @@ pipeline:
       flags="$flags -X github.com/grafana/alloy/internal/build.Revision=${{vars.source-commit}}"
       flags="$flags -X github.com/grafana/alloy/internal/build.BuildUser=verity"
       flags="$flags -X github.com/grafana/alloy/internal/build.BuildDate=2026-08-06T13:11:14Z"
+      cd collector
       GOARCH="$goarch" go build -mod=readonly -trimpath \
         -tags "netgo builtinassets promtail_journal_enabled" \
-        -ldflags "$flags" -o alloy ./collector
+        -ldflags "$flags" -o ../alloy .
+      cd ..
       case "$goarch:$(readelf -h alloy | sed -n 's/^[[:space:]]*Machine:[[:space:]]*//p')" in
         'amd64:Advanced Micro Devices X86-64'|'arm64:AArch64') ;;
         *) printf 'alloy ELF architecture does not match %s\n' "$goarch" >&2; exit 1 ;;
