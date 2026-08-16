@@ -58,7 +58,7 @@ wait_for_emqx() {
     sleep 1
   done
   printf '%s\n' "$status" | grep -Fq '"broker_status":"started"' || fail "broker is not ready: $status"
-  printf '%s\n' "$status" | grep -Fq '"rel_vsn":"v5.8.9"' || fail "unexpected version: $status"
+  printf '%s\n' "$status" | grep -Fq '"rel_vsn":"v5.10.4"' || fail "unexpected version: $status"
   printf '%s\n' "$status" | grep -Fq "\"node_name\":\"$node\"" || fail "unexpected node identity: $status"
 }
 
