@@ -59,6 +59,10 @@ pipeline:
       GOARCH="$goarch" go build -mod=readonly -trimpath \
         -tags "netgo builtinassets promtail_journal_enabled" \
         -ldflags "$flags" -o alloy .
+      case "$goarch:$(readelf -h alloy | sed -n 's/^[[:space:]]*Machine:[[:space:]]*//p')" in
+        'amd64:Advanced Micro Devices X86-64'|'arm64:AArch64') ;;
+        *) printf 'alloy ELF architecture does not match %s\n' "$goarch" >&2; exit 1 ;;
+      esac
       install -Dm755 alloy "${{targets.destdir}}/usr/bin/alloy"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       install -d -m755 "${{targets.destdir}}/etc/alloy"
