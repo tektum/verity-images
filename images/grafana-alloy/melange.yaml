@@ -33,7 +33,6 @@ environment:
       - go-1.26
       - nodejs-24
       - systemd-dev
-      - yarn
   environment:
     CGO_ENABLED: "1"
     GOTOOLCHAIN: local
@@ -46,8 +45,8 @@ pipeline:
       expected-commit: ${{vars.source-commit}}
   - runs: |
       cd internal/web/ui
-      yarn --network-timeout=1200000
-      yarn run build
+      npm ci
+      npm run build
   - runs: |
       flags="-s -w -X github.com/grafana/alloy/internal/build.Branch=HEAD"
       flags="$flags -X github.com/grafana/alloy/internal/build.Version=v${{package.version}}"
