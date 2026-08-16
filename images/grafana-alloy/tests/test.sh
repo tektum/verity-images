@@ -4,6 +4,10 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 container="verity-grafana-alloy-test-$$"
 fixture=$(mktemp -d)
+case "$image" in
+  *-arm64) platform=linux/arm64 ;;
+  *) platform=linux/amd64 ;;
+esac
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -23,12 +27,12 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = \
   '["run","/etc/alloy/config.alloy","--storage.path=/var/lib/alloy/data"]' ] ||
   fail 'unexpected image command'
-version_output=$(docker run --rm --cpus 4 --entrypoint /usr/bin/alloy "$image" --version 2>&1) ||
+version_output=$(docker run --rm --platform "$platform" --cpus 4 --entrypoint /usr/bin/alloy "$image" --version 2>&1) ||
   fail "alloy version command failed: $version_output"
 printf '%s\n' "$version_output" | grep -F '1.18.1' >/dev/null ||
   fail "alloy version check failed: $version_output"
 
-docker run --name "$container" -d --read-only --cpus 4 \
+docker run --name "$container" -d --platform "$platform" --read-only --cpus 4 \
   --tmpfs /var/lib/alloy/data:uid=473,gid=473,mode=0770 \
   -p 127.0.0.1::12345 "$image" \
   run /etc/alloy/config.alloy --storage.path=/var/lib/alloy/data \
@@ -59,7 +63,7 @@ docker rm "$container" >/dev/null
 
 printf '%s\n' 'logging {' '  level = ' '}' >"$fixture/invalid.alloy"
 chmod 644 "$fixture/invalid.alloy"
-if output=$(docker run --rm --read-only --cpus 4 \
+if output=$(docker run --rm --platform "$platform" --read-only --cpus 4 \
   --tmpfs /var/lib/alloy/data:uid=473,gid=473,mode=0770 \
   -v "$fixture/invalid.alloy:/etc/alloy/config.alloy:ro" "$image" 2>&1); then
   fail 'invalid Alloy config unexpectedly succeeded'
