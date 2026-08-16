@@ -49,11 +49,7 @@ pipeline:
       npm ci
       npm run build
   - runs: |
-      case "${{build.arch}}" in
-        x86_64) goarch=amd64 ;;
-        aarch64) goarch=arm64 ;;
-        *) printf 'unsupported architecture: %s\n' "${{build.arch}}" >&2; exit 1 ;;
-      esac
+      goarch="${{build.goarch}}"
       flags="-s -w -X github.com/grafana/alloy/internal/build.Branch=HEAD"
       flags="$flags -X github.com/grafana/alloy/internal/build.Version=v${{package.version}}"
       flags="$flags -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}"
