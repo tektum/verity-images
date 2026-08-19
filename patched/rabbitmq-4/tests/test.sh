@@ -26,7 +26,8 @@ done
 
 env=$(docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$image")
 printf '%s\n' "$env" | grep -qx 'RABBITMQ_DATA_DIR=/var/lib/rabbitmq' || fail "missing RABBITMQ_DATA_DIR"
-printf '%s\n' "$env" | grep -qx 'RABBITMQ_VERSION=4.3.4' || fail "missing RABBITMQ_VERSION"
+image_rabbitmq_version=$(printf '%s\n' "$env" | sed -n 's/^RABBITMQ_VERSION=//p')
+case $image_rabbitmq_version in 4.3.*) ;; *) fail "unexpected RABBITMQ_VERSION $image_rabbitmq_version" ;; esac
 printf '%s\n' "$env" | grep -qx 'HOME=/var/lib/rabbitmq' || fail "missing HOME"
 docker run --rm --entrypoint sh "$image" -c '
   test "$(id -u rabbitmq)" = 999
@@ -196,9 +197,10 @@ openssl_version=$(docker exec "$container" erl -noshell -eval '
   io:format("~s", [Number]).
 ' -s init stop)
 version_at_least "$rabbitmq_version" 4.3.4 || fail "RabbitMQ $rabbitmq_version is below 4.3.4"
+[ "$rabbitmq_version" = "$image_rabbitmq_version" ] || fail "runtime RabbitMQ $rabbitmq_version does not match image version $image_rabbitmq_version"
 version_at_least "$otp_version" 27.3.4.15 || fail "OTP $otp_version is below 27.3.4.15"
 version_at_least "$otp_version" 28 && fail "OTP $otp_version must be below 28"
-version_at_least "$openssl_version" 3.5.7 || fail "OpenSSL $openssl_version is below 3.5.7"
+case $openssl_version in 3.5.8*) ;; *) fail "unexpected OpenSSL version $openssl_version" ;; esac
 crypto_library=$(docker exec "$container" erl -noshell -eval 'io:format("~s", [filename:join([code:priv_dir(crypto), "lib", "crypto.so"])]).' -s init stop)
 docker exec "$container" sh -c "ldd '$crypto_library' | grep -q '/opt/openssl'" || fail "Erlang crypto is not linked to /opt/openssl"
 install_quorum_client
