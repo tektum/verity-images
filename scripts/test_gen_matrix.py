@@ -40,17 +40,70 @@ def source_is_valid(path: Path, registry: str) -> bool:
 
 def main() -> None:
     with TemporaryDirectory() as temporary_directory:
-        source = Path(temporary_directory) / "source.yaml"
+        root = Path(temporary_directory)
+        source = root / "source.yaml"
         accepted = {registry for registry in REGISTRIES if source_is_valid(source, registry)}
         assert accepted == set(REGISTRIES), accepted
         assert all(not source_is_valid(source, registry) for registry in REJECTED_REGISTRIES)
+
+        for tag, expected in (
+            ("10.0.65", "10.0.65"),
+            ("v10.0.65", "10.0.65"),
+            ("12-slim", "12"),
+            ("12.3-ubi10", "12.3"),
+        ):
+            assert gen_matrix.source_version(f"docker.io/example/image:{tag}", source) == expected
+        try:
+            gen_matrix.source_version("docker.io/example/image:latest", source)
+        except gen_matrix.MetadataError:
+            pass
+        else:
+            raise AssertionError("non-version source tag was accepted")
+
+        patched = root / "patched"
+        patched.mkdir()
+        (patched / "source.yaml").write_text(
+            "image: docker.io/example/image:12.3-ubi10\n"
+            f"digest: sha256:{'0' * 64}\n"
+            "platforms: [linux/amd64, linux/arm64]\n",
+            encoding="utf-8",
+        )
+        metadata = patched / "metadata.yaml"
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: Example.\nenabled: true\n",
+            encoding="utf-8",
+        )
+        (patched / "source.yaml").unlink()
+        try:
+            gen_matrix.parse_metadata(metadata)
+        except gen_matrix.MetadataError as error:
+            assert str(error).endswith("missing source.yaml")
+        else:
+            raise AssertionError("missing patched source was accepted")
+        (patched / "source.yaml").write_text(
+            "image: docker.io/example/image:12.3-ubi10\n"
+            f"digest: sha256:{'0' * 64}\n"
+            "platforms: [linux/amd64, linux/arm64]\n",
+            encoding="utf-8",
+        )
+        parsed = gen_matrix.parse_metadata(metadata)
+        assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
+        assert parsed.versions == ("12.3",)
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: Example.\n"
+            "upstream: docker.io/example/stale:1\nversions: [1]\nenabled: true\n",
+            encoding="utf-8",
+        )
+        parsed = gen_matrix.parse_metadata(metadata)
+        assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
+        assert parsed.versions == ("12.3",)
 
         static = gen_matrix.ROOT / "images/static"
         fingerprint = gen_matrix.input_digest(static, "plain")
         assert fingerprint == gen_matrix.input_digest(static, "plain")
         assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
 
-        catalog = Path(temporary_directory) / "catalog.json"
+        catalog = root / "catalog.json"
         catalog.write_text(
             json.dumps(
                 {
@@ -77,7 +130,6 @@ def main() -> None:
         document["images"][0]["validatedAt"] = datetime.now().isoformat()
         catalog.write_text(json.dumps(document), encoding="utf-8")
         assert gen_matrix.cached_images(catalog, timedelta(hours=24)) == {}
-
 
 if __name__ == "__main__":
     main()

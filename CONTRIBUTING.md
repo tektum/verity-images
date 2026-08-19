@@ -12,7 +12,7 @@ as build evidence. The smoke test must run the built image and assert real
 behavior. Open a pull request; CI generates the affected matrix, builds the
 image, scans it, and runs the smoke test without publishing.
 
-Metadata uses this schema:
+Metadata uses this schema for Wolfi images:
 
 ```yaml
 name: example
@@ -23,6 +23,11 @@ versions: [1.0]
 owner: tektum
 enabled: true
 ```
+
+Patched images omit `upstream` and `versions`; the matrix derives both from the
+numeric version prefix in `source.yaml`'s image tag. Tags may have a leading `v`
+or a suffix such as `-slim`, but must begin with a numeric version after the
+optional `v`.
 
 Optional `flavors` expand one source definition into tag variants; `plain` has
 no suffix and other flavors use `-<flavor>`. Optional `major` adds a major tag.
@@ -114,6 +119,8 @@ requests:
 - A patched image must declare adjacent `image:` and `digest:` lines in
   `patched/<name>/source.yaml`. Keep the intended major version in the image
   tag; Renovate updates that stream and its digest but does not cross majors.
+  This file is authoritative for the upstream image and published version; do
+  not duplicate either field in `metadata.yaml`.
 - A source-built Wolfi image must keep `package.version`, the HTTPS GitHub
   `git-checkout.repository`, `tag: v${{package.version}}`, and the full
   `expected-commit` in `images/<name>/melange.yaml`. Renovate updates the tag

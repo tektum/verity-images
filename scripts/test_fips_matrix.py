@@ -48,8 +48,6 @@ def main() -> None:
             "name: patched-fixture\n"
             "track: patched\n"
             "description: fixture\n"
-            "upstream: docker.io/library/busybox:1\n"
-            "versions: [1]\n"
             "enabled: true\n",
             encoding="utf-8",
         )

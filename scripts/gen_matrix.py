@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
@@ -36,7 +37,8 @@ OPENSSL_FIPS_PATHS: Final = {
     "packages/repository-state.schema.json",
 }
 SOURCE_REGISTRIES: Final = frozenset({"docker.io", "registry.k8s.io", "docker.elastic.co", "ghcr.io"})
-REQUIRED_FIELDS: Final = {"name", "track", "description", "upstream", "versions", "enabled"}
+COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
+WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
 
 type Track = Literal["wolfi", "patched"]
 GLOBAL_SAMPLES: Final[dict[tuple[Track, str], str]] = {
@@ -113,23 +115,36 @@ def parse_metadata(path: Path) -> Metadata:
             raise MetadataError(f"{path}:{line_number}: invalid metadata entry")
         values[key] = parse_scalar(raw)
 
-    missing = REQUIRED_FIELDS - values.keys()
-    # "category" is an optional catalog taxonomy field consumed by the published catalog
-    # (see docs/catalog.schema.json and scripts/build_catalog.py), not by the build matrix.
-    unknown = values.keys() - (REQUIRED_FIELDS | {"flavors", "major", "owner", "category"})
+    match values.get("track"):
+        case "wolfi":
+            track: Track = "wolfi"
+            required = COMMON_REQUIRED_FIELDS | WOLFI_REQUIRED_FIELDS
+        case "patched":
+            track = "patched"
+            required = COMMON_REQUIRED_FIELDS
+        case _:
+            raise MetadataError(f"{path}: track must be wolfi or patched")
+    optional = {"flavors", "major", "owner", "category"}
+    allowed = required | optional | (WOLFI_REQUIRED_FIELDS if track == "patched" else set())
+    missing = required - values.keys()
+    unknown = values.keys() - allowed
     if missing or unknown:
         raise MetadataError(f"{path}: missing={sorted(missing)} unknown={sorted(unknown)}")
 
-    match values["track"]:
-        case "wolfi":
-            track: Track = "wolfi"
-        case "patched":
-            track = "patched"
-        case _:
-            raise MetadataError(f"{path}: track must be wolfi or patched")
-    versions = values["versions"]
-    if not isinstance(versions, tuple) or len(versions) != 1:
-        raise MetadataError(f"{path}: versions must contain exactly one version")
+    if track == "patched":
+        source_path = path.parent / "source.yaml"
+        if not source_path.is_file():
+            raise MetadataError(f"{path.parent}: missing source.yaml")
+        source = parse_source(source_path)
+        upstream = source.image
+        versions = (source_version(source.image, source_path),)
+    else:
+        upstream = values["upstream"]
+        versions = values["versions"]
+        if not isinstance(upstream, str):
+            raise MetadataError(f"{path}: upstream must be a string")
+        if not isinstance(versions, tuple) or len(versions) != 1:
+            raise MetadataError(f"{path}: versions must contain exactly one version")
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
@@ -144,7 +159,7 @@ def parse_metadata(path: Path) -> Metadata:
         name=str(values["name"]),
         track=track,
         description=str(values["description"]),
-        upstream=str(values["upstream"]),
+        upstream=upstream,
         versions=versions,
         flavors=flavors,
         major=major,
@@ -172,6 +187,14 @@ def parse_source(path: Path) -> Source:
     if not isinstance(platforms, tuple) or platforms != ("linux/amd64", "linux/arm64"):
         raise MetadataError(f"{path}: platforms must be [linux/amd64, linux/arm64]")
     return Source(image=image, digest=digest, platforms=platforms)
+
+
+def source_version(image: str, path: Path) -> str:
+    tag = image.rsplit(":", 1)[-1]
+    match = re.fullmatch(r"v?(\d+(?:\.\d+)*)(?:-.*)?", tag)
+    if match is None:
+        raise MetadataError(f"{path}: image tag must start with a numeric version")
+    return match.group(1)
 
 
 def changed_paths(base_ref: str) -> set[str]:
@@ -292,10 +315,7 @@ def generate(
             continue
         platforms = "linux/amd64,linux/arm64"
         if metadata.track == "patched":
-            source = parse_source(required)
-            if source.image != metadata.upstream:
-                raise MetadataError(f"{relative}: metadata upstream must match source image")
-            platforms = ",".join(source.platforms)
+            platforms = ",".join(parse_source(required).platforms)
         for flavor in metadata.flavors:
             provider_changed = (
                 openssl_fips_changed
