@@ -125,15 +125,19 @@ def parse_metadata(path: Path) -> Metadata:
         case _:
             raise MetadataError(f"{path}: track must be wolfi or patched")
     optional = {"flavors", "major", "owner", "category"}
+    allowed = required | optional | (WOLFI_REQUIRED_FIELDS if track == "patched" else set())
     missing = required - values.keys()
-    unknown = values.keys() - (required | optional)
+    unknown = values.keys() - allowed
     if missing or unknown:
         raise MetadataError(f"{path}: missing={sorted(missing)} unknown={sorted(unknown)}")
 
     if track == "patched":
-        source = parse_source(path.parent / "source.yaml")
+        source_path = path.parent / "source.yaml"
+        if not source_path.is_file():
+            raise MetadataError(f"{path.parent}: missing source.yaml")
+        source = parse_source(source_path)
         upstream = source.image
-        versions = (source_version(source.image, path.parent / "source.yaml"),)
+        versions = (source_version(source.image, source_path),)
     else:
         upstream = values["upstream"]
         versions = values["versions"]

@@ -1,6 +1,8 @@
 name: postgres-16-trixie
 track: patched
-description: PostgreSQL Trixie patched with Copacetic.
+description: PostgreSQL 16 Trixie patched with Copacetic.
 category: Databases & Caching
+upstream: docker.io/library/postgres:16-trixie
+versions: [16]
 owner: tektum
 enabled: true

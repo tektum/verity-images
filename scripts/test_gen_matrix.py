@@ -73,20 +73,30 @@ def main() -> None:
             "name: example\ntrack: patched\ndescription: Example.\nenabled: true\n",
             encoding="utf-8",
         )
+        (patched / "source.yaml").unlink()
+        try:
+            gen_matrix.parse_metadata(metadata)
+        except gen_matrix.MetadataError as error:
+            assert str(error).endswith("missing source.yaml")
+        else:
+            raise AssertionError("missing patched source was accepted")
+        (patched / "source.yaml").write_text(
+            "image: docker.io/example/image:12.3-ubi10\n"
+            f"digest: sha256:{'0' * 64}\n"
+            "platforms: [linux/amd64, linux/arm64]\n",
+            encoding="utf-8",
+        )
         parsed = gen_matrix.parse_metadata(metadata)
         assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
         assert parsed.versions == ("12.3",)
         metadata.write_text(
             "name: example\ntrack: patched\ndescription: Example.\n"
-            "upstream: docker.io/example/image:12.3-ubi10\nenabled: true\n",
+            "upstream: docker.io/example/stale:1\nversions: [1]\nenabled: true\n",
             encoding="utf-8",
         )
-        try:
-            gen_matrix.parse_metadata(metadata)
-        except gen_matrix.MetadataError:
-            pass
-        else:
-            raise AssertionError("redundant patched metadata upstream was accepted")
+        parsed = gen_matrix.parse_metadata(metadata)
+        assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
+        assert parsed.versions == ("12.3",)
 
         static = gen_matrix.ROOT / "images/static"
         fingerprint = gen_matrix.input_digest(static, "plain")
