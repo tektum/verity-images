@@ -253,6 +253,17 @@ def updater_requires_review() -> None:
     managers = renovate["customManagers"]
     rules = renovate["packageRules"]
     assert any("repository-state" in manager["managerFilePatterns"][0] for manager in managers)
+    source_managers = [
+        manager
+        for manager in managers
+        if manager["managerFilePatterns"][0].startswith("/^images/")
+    ]
+    assert source_managers
+    assert all(
+        "newValue" in manager["autoReplaceStringTemplate"]
+        and "newVersion" not in manager["autoReplaceStringTemplate"]
+        for manager in source_managers
+    )
     assert renovate["automerge"] is True
     assert renovate["platformAutomerge"] is True
     assert renovate["automergeType"] == "pr"

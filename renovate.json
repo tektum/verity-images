@@ -45,7 +45,7 @@
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
     },
     {
       "customType": "regex",
@@ -57,7 +57,7 @@
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^cassandra-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}{{{commitSuffix}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}{{{commitSuffix}}}"
     },
     {
       "customType": "regex",
@@ -69,7 +69,7 @@
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^cluster-autoscaler-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
     },
     {
       "customType": "regex",
@@ -81,7 +81,7 @@
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^v(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{replace '-beta\\.' '_beta' newVersion}}}{{{upstreamPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{replace '-beta\\.' '_beta' newValue}}}{{{upstreamPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
     },
     {
       "customType": "regex",
@@ -92,7 +92,7 @@
       "currentValueTemplate": "{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
     },
     {
       "customType": "regex",
@@ -104,7 +104,7 @@
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
       "extractVersionTemplate": "^release-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newVersion}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
     },
     {
       "customType": "regex",
