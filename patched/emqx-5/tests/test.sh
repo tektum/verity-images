@@ -59,7 +59,10 @@ wait_for_emqx() {
   done
   printf '%s\n' "$status" | grep -Fq '"broker_status":"started"' || fail "broker is not ready: $status"
   image_version=$(docker image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")
-  release_version=$(docker exec "$container" sh -c '. /opt/emqx/releases/emqx_vars; printf "%s" "$REL_VSN"')
+  [ -n "$image_version" ] && [ "$image_version" != '<no value>' ] || fail "image version label is unavailable"
+  release_version=$(docker exec "$container" sh -c \
+    '. /opt/emqx/releases/emqx_vars && [ -n "$REL_VSN" ] && printf "%s" "$REL_VSN"') || \
+    fail "runtime version is unavailable"
   [ "$release_version" = "$image_version" ] || \
     fail "runtime version $release_version does not match image version $image_version"
   printf '%s\n' "$status" | grep -Fq "\"node_name\":\"$node\"" || fail "unexpected node identity: $status"
