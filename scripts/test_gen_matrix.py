@@ -11,6 +11,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from tempfile import TemporaryDirectory
 from typing import Final
+from unittest.mock import patch
 
 import gen_matrix
 
@@ -98,8 +99,37 @@ def main() -> None:
         assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
         assert parsed.versions == ("12.3",)
 
+        assert gen_matrix.melange_version(gen_matrix.ROOT / "images/trivy/melange.yaml") == "0.73.0"
+        try:
+            gen_matrix.melange_version(metadata)
+        except gen_matrix.MetadataError as error:
+            assert str(error).endswith("missing package.version")
+        else:
+            raise AssertionError("metadata was accepted as a Melange recipe")
+
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/metadata.yaml"},
+        ):
+            assert gen_matrix.generate("base")["include"] == []
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/tests/test.sh"},
+        ):
+            changed = gen_matrix.generate("base")["include"]
+        assert len(changed) == 1
+        assert changed[0]["application_version"] == "0.73.0"
+
         static = gen_matrix.ROOT / "images/static"
         fingerprint = gen_matrix.input_digest(static, "plain")
+        metadata_contents = (gen_matrix.ROOT / "images/static/metadata.yaml").read_bytes()
+        (gen_matrix.ROOT / "images/static/metadata.yaml").write_bytes(metadata_contents + b"\n")
+        try:
+            assert fingerprint == gen_matrix.input_digest(static, "plain")
+        finally:
+            (gen_matrix.ROOT / "images/static/metadata.yaml").write_bytes(metadata_contents)
         assert fingerprint == gen_matrix.input_digest(static, "plain")
         assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
 

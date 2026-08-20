@@ -59,6 +59,7 @@ class MatrixEntry(TypedDict):
     upstream: str
     version: str
     tag_version: str
+    application_version: str
     major: str
     latest: bool
     owner: str
@@ -197,6 +198,13 @@ def source_version(image: str, path: Path) -> str:
     return match.group(1)
 
 
+def melange_version(path: Path) -> str:
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if match := re.fullmatch(r'  version: "([^"]+)"', line):
+            return match.group(1)
+    raise MetadataError(f"{path}: missing package.version")
+
+
 def changed_paths(base_ref: str) -> set[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
@@ -231,7 +239,11 @@ def input_digest(directory: Path, flavor: str) -> str:
     paths = sorted(
         {
             *(relative for relative in shared_paths if (ROOT / relative).is_file()),
-            *(path.relative_to(ROOT).as_posix() for path in directory.rglob("*") if path.is_file()),
+            *(
+                path.relative_to(ROOT).as_posix()
+                for path in directory.rglob("*")
+                if path.is_file() and path.name != "metadata.yaml"
+            ),
         }
     )
     for relative in paths:
@@ -271,7 +283,11 @@ def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str]
 def generate(
     base_ref: str | None, catalog_path: Path | None = None, max_age: timedelta = timedelta(hours=24)
 ) -> Matrix:
-    changed: set[str] = changed_paths(base_ref) if base_ref and catalog_path is None else set()
+    changed: set[str] = (
+        {path for path in changed_paths(base_ref) if not path.endswith("/metadata.yaml")}
+        if base_ref and catalog_path is None
+        else set()
+    )
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
     cached = cached_images(catalog_path, max_age)
@@ -328,6 +344,12 @@ def generate(
             ):
                 continue
             fingerprint = input_digest(directory, flavor)
+            recipe = directory / f"{flavor}.melange.yaml"
+            if not recipe.is_file():
+                recipe = directory / "melange.yaml"
+            application_version = (
+                melange_version(recipe) if recipe.is_file() else metadata.versions[0]
+            )
             tag_version = metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
             if cached.get((metadata.name, tag_version)) == fingerprint:
                 continue
@@ -344,6 +366,7 @@ def generate(
                     "category": metadata.category,
                     "upstream": metadata.upstream,
                     "version": metadata.versions[0],
+                    "application_version": application_version,
                     "tag_version": (
                         metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
                     ),

@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 flavor=${2:-plain}
 container=verity-zookeeper-$$
 invalid_container=$container-invalid
@@ -28,7 +29,7 @@ case $flavor in plain) ;; *) fail "unsupported flavor $flavor" ;; esac
   fail 'unexpected entrypoint'
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["zkServer.sh","start-foreground"]' ] ||
   fail 'unexpected command'
-[ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /apache-zookeeper-3.9.5-bin ] ||
+[ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = "/apache-zookeeper-${IMAGE_VERSION}-bin" ] ||
   fail 'unexpected working directory'
 [ "$(docker run --rm --entrypoint id "$image" -u)" = 1000 ] || fail 'runtime user is not 1000'
 [ "$(docker run --rm --entrypoint id "$image" -g)" = 1000 ] || fail 'runtime group is not 1000'
@@ -42,7 +43,7 @@ docker run --rm --entrypoint java "$image" -version >"$work/java.log" 2>&1 || fa
 grep -q 'version "17' "$work/java.log" || fail 'Java 17 is missing'
 docker run --rm --entrypoint zkServer.sh "$image" version >"$work/version.log" 2>&1 ||
   fail 'ZooKeeper version command failed'
-grep -q 'Apache ZooKeeper, version 3.9.5' "$work/version.log" || fail 'unexpected ZooKeeper version'
+grep -q "Apache ZooKeeper, version ${IMAGE_VERSION}" "$work/version.log" || fail 'unexpected ZooKeeper version'
 
 docker run --rm "$image" sh -c \
   'grep -qx "dataDir=/data" /conf/zoo.cfg &&

@@ -23,6 +23,9 @@ inputs:
   version:
     description: Version tag to publish.
     required: true
+  application-version:
+    description: Upstream application version expected by the smoke test.
+    required: true
   tag-version:
     description: Flavor-qualified version used in reports and artifacts.
     required: true
@@ -110,6 +113,7 @@ runs:
       env:
         CANDIDATE: ${{ inputs.candidate-image }}
         FLAVOR: ${{ inputs.flavor }}
+        IMAGE_VERSION: ${{ inputs.application-version }}
         TEST: ${{ inputs.context }}/tests/test.sh
       run: |
         for arch in amd64 arm64; do

@@ -129,6 +129,7 @@ jobs:
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
+          application-version: ${{ matrix.application_version }}
           tag-version: ${{ matrix.tag_version }}
           flavor: ${{ matrix.flavor }}
           major: ${{ matrix.major }}
@@ -262,6 +263,7 @@ jobs:
           target-repository: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}
           platforms: ${{ matrix.platforms }}
           version: ${{ matrix.version }}
+          application-version: ${{ matrix.application_version }}
           tag-version: ${{ matrix.tag_version }}
           flavor: ${{ matrix.flavor }}
           major: ${{ matrix.major }}

@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 tmp=$(mktemp -d)
 container="verity-otel-collector-test-$$"
 
@@ -23,7 +24,7 @@ trap cleanup EXIT HUP INT TERM
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["--config","/etc/otelcol/config.yaml"]' ] \
   || fail 'unexpected image command'
 docker run --rm "$image" --version 2>&1 \
-  | grep -F 'otelcol version 0.135.0' >/dev/null \
+  | grep -F "otelcol version ${IMAGE_VERSION}" >/dev/null \
   || fail 'collector version check failed'
 
 wait_ready() {

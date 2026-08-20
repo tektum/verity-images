@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -16,7 +17,7 @@ user=$(docker image inspect --format '{{.Config.User}}' "$image")
   || fail 'unexpected image entrypoint'
 
 version_output=$(docker run --rm --cpus=4 --network none "$image" version 2>&1)
-printf '%s\n' "$version_output" | grep -F 'argoexec: v3.7.17+' >/dev/null \
+printf '%s\n' "$version_output" | grep -F "argoexec: v${IMAGE_VERSION}+" >/dev/null \
   || fail 'argoexec version check failed'
 printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
   || fail 'argoexec did not disclose the dependency-remediated build'

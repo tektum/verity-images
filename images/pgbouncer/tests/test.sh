@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 postgres='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
 backend="verity-pgbouncer-postgres-$$"
 pooler="verity-pgbouncer-pooler-$$"
@@ -18,7 +19,7 @@ trap cleanup EXIT HUP INT TERM
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/pgbouncer","/etc/pgbouncer/pgbouncer.ini"]'
 docker run --rm --entrypoint /usr/bin/pgbouncer "$image" --version |
-  grep -F 'PgBouncer 1.25.2' >/dev/null
+  grep -F "PgBouncer ${IMAGE_VERSION}" >/dev/null
 
 cat >"$tmp/pgbouncer.ini" <<'EOF'
 [databases]

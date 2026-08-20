@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 work=$(mktemp -d)
 api_pid=
 
@@ -22,9 +23,9 @@ fail() {
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/controller"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
 docker run --rm --network none "$image" --version 2>&1 |
-  grep -Fx 'controller version: v0.38.4' >/dev/null || fail 'controller version mismatch'
+  grep -Fx "controller version: v${IMAGE_VERSION}" >/dev/null || fail 'controller version mismatch'
 docker run --rm --network none --entrypoint /usr/bin/kubeseal "$image" --version 2>&1 |
-  grep -Fx 'kubeseal version: v0.38.4' >/dev/null || fail 'kubeseal version mismatch'
+  grep -Fx "kubeseal version: v${IMAGE_VERSION}" >/dev/null || fail 'kubeseal version mismatch'
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=smoke \
   -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1

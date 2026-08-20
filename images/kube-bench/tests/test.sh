@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
@@ -9,7 +10,7 @@ test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/kube-bench"]'
 version=$(docker run --rm --network none "$image" version)
-test "$version" = 'v0.11.2'
+test "$version" = "v${IMAGE_VERSION}"
 
 docker run --rm --network none "$image" run \
   --benchmark cis-1.24 --targets node --check 4.1.2 \

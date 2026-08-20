@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 container="verity-blackbox-exporter-test-$$"
 fixture=$(mktemp -d)
 target_pid=
@@ -16,7 +17,7 @@ trap cleanup EXIT INT TERM
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/blackbox_exporter"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
 docker run --rm --entrypoint /usr/bin/blackbox_exporter "$image" --version 2>&1 |
-  grep -F 'blackbox_exporter, version 0.28.0'
+  grep -F "blackbox_exporter, version ${IMAGE_VERSION}"
 
 cat >"$fixture/target-server.py" <<'PY'
 import functools

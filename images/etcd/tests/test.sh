@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 container="verity-etcd-test-$$"
 volume="verity-etcd-data-$$"
 
@@ -30,7 +31,7 @@ docker run --rm --entrypoint /bin/sh "$image" -c '
   test -L /usr/local/bin/etcd
   [ "$(readlink /usr/local/bin/etcd)" = "../../bin/etcd" ]
   [ "$(stat -c "%u:%g:%a" /var/lib/etcd)" = "65532:65532:700" ]
-  /usr/local/bin/etcd --version | grep -F "etcd Version: 3.6.14"
+  /usr/local/bin/etcd --version | grep -F "etcd Version: ${IMAGE_VERSION}"
   # etcdutl-only subcommand: guards against etcdutl being built from the
   # etcdctl module (that regressed once; etcdctl has no hashkv).
   /usr/bin/etcdutl --help | grep -q hashkv

@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 work=$(mktemp -d)
 repo=$(docker volume create)
 helper=docker.io/library/busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
@@ -26,7 +27,7 @@ fail() {
   fail 'unexpected OCI working directory'
 
 version=$(docker run --rm --network none "$image" version)
-printf '%s\n' "$version" | grep -Fq 'restic 0.18.1' || fail 'unexpected Restic version'
+printf '%s\n' "$version" | grep -Fq "restic ${IMAGE_VERSION}" || fail 'unexpected Restic version'
 
 mkdir "$work/input"
 printf 'restic smoke test\n' > "$work/input/file.txt"
