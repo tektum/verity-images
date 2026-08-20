@@ -1,6 +1,6 @@
 package:
   name: verity-otel-collector
-  version: "0.135.0"
+  version: "0.159.0"
   epoch: 0
   description: OpenTelemetry Collector core distribution.
   copyright:
@@ -32,7 +32,7 @@ pipeline:
     with:
       repository: https://github.com/open-telemetry/opentelemetry-collector
       tag: v${{package.version}}
-      expected-commit: a56655d1b5a074f9cf01ca727e5db51da3e9ac8a
+      expected-commit: 69c0873044e80fe1f0647a0bc5afec6244bcad76
 
   - runs: |
       cd cmd/otelcorecol
