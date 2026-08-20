@@ -39,6 +39,7 @@ OPENSSL_FIPS_PATHS: Final = {
 SOURCE_REGISTRIES: Final = frozenset({"docker.io", "registry.k8s.io", "docker.elastic.co", "ghcr.io"})
 COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
 WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
+DESCRIPTION_VERSION: Final = re.compile(r"(?<![A-Za-z0-9])v?\d+(?:\.\d+)*(?![A-Za-z0-9])")
 
 type Track = Literal["wolfi", "patched"]
 GLOBAL_SAMPLES: Final[dict[tuple[Track, str], str]] = {
@@ -148,6 +149,9 @@ def parse_metadata(path: Path) -> Metadata:
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
+    description = str(values["description"])
+    if DESCRIPTION_VERSION.search(description):
+        raise MetadataError(f"{path}: description must not contain a version")
     flavors = values.get("flavors", ("plain",))
     if not isinstance(flavors, tuple) or not flavors or len(flavors) != len(set(flavors)):
         raise MetadataError(f"{path}: flavors must be a non-empty unique list")
@@ -158,7 +162,7 @@ def parse_metadata(path: Path) -> Metadata:
     return Metadata(
         name=str(values["name"]),
         track=track,
-        description=str(values["description"]),
+        description=description,
         upstream=upstream,
         versions=versions,
         flavors=flavors,
@@ -197,6 +201,8 @@ def source_version(image: str, path: Path) -> str:
     return match.group(1)
 
 
+
+
 def changed_paths(base_ref: str) -> set[str]:
     result = subprocess.run(
         ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
@@ -231,7 +237,11 @@ def input_digest(directory: Path, flavor: str) -> str:
     paths = sorted(
         {
             *(relative for relative in shared_paths if (ROOT / relative).is_file()),
-            *(path.relative_to(ROOT).as_posix() for path in directory.rglob("*") if path.is_file()),
+            *(
+                path.relative_to(ROOT).as_posix()
+                for path in directory.rglob("*")
+                if path.is_file() and path.name != "metadata.yaml"
+            ),
         }
     )
     for relative in paths:
@@ -271,7 +281,11 @@ def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str]
 def generate(
     base_ref: str | None, catalog_path: Path | None = None, max_age: timedelta = timedelta(hours=24)
 ) -> Matrix:
-    changed: set[str] = changed_paths(base_ref) if base_ref and catalog_path is None else set()
+    changed: set[str] = (
+        {path for path in changed_paths(base_ref) if not path.endswith("/metadata.yaml")}
+        if base_ref and catalog_path is None
+        else set()
+    )
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
     cached = cached_images(catalog_path, max_age)

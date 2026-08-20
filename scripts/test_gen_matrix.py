@@ -11,6 +11,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from tempfile import TemporaryDirectory
 from typing import Final
+from unittest.mock import patch
 
 import gen_matrix
 
@@ -97,9 +98,47 @@ def main() -> None:
         parsed = gen_matrix.parse_metadata(metadata)
         assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
         assert parsed.versions == ("12.3",)
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: Example 1.2.3.\n"
+            "enabled: true\n",
+            encoding="utf-8",
+        )
+        try:
+            gen_matrix.parse_metadata(metadata)
+        except gen_matrix.MetadataError as error:
+            assert str(error).endswith("description must not contain a version")
+        else:
+            raise AssertionError("version-bearing metadata description was accepted")
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: S3-compatible example.\n"
+            "enabled: true\n",
+            encoding="utf-8",
+        )
+
+
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/metadata.yaml"},
+        ):
+            assert gen_matrix.generate("base")["include"] == []
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/tests/test.sh"},
+        ):
+            changed = gen_matrix.generate("base")["include"]
+        assert len(changed) == 1
+        assert changed[0]["context"] == "images/trivy"
 
         static = gen_matrix.ROOT / "images/static"
         fingerprint = gen_matrix.input_digest(static, "plain")
+        metadata_contents = (gen_matrix.ROOT / "images/static/metadata.yaml").read_bytes()
+        (gen_matrix.ROOT / "images/static/metadata.yaml").write_bytes(metadata_contents + b"\n")
+        try:
+            assert fingerprint == gen_matrix.input_digest(static, "plain")
+        finally:
+            (gen_matrix.ROOT / "images/static/metadata.yaml").write_bytes(metadata_contents)
         assert fingerprint == gen_matrix.input_digest(static, "plain")
         assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
 
