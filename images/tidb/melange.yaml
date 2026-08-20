@@ -14,7 +14,7 @@ package:
     memory: 32Gi
 
 vars:
-  upstream-version: 9.0.0-beta.1
+  upstream-version: 9.0.0-beta.2.pre
 
 environment:
   contents:
@@ -38,7 +38,7 @@ pipeline:
     with:
       repository: https://github.com/pingcap/tidb
       tag: v${{vars.upstream-version}}
-      expected-commit: 7aff918dcbfa6facf2adef9ade9961c40f217421
+      expected-commit: f52d19273b447c08061632fde70e288f24b324ba
 
   - runs: |
       make -j4 server
