@@ -67,7 +67,7 @@
           </div>
           <dl class="evidence-list">
             <div><dt>REGISTRY</dt><dd><code>verity.supply</code></dd></div>
-            <div><dt>POLICY</dt><dd>0 FIXABLE FINDINGS</dd></div>
+            <div><dt>POLICY</dt><dd>0 FIXABLE VULNERABILITIES</dd></div>
             <div><dt>SBOM</dt><dd id="policy-sbom">SPDX-JSON</dd></div>
             <div><dt>PUBLISHED</dt><dd><time id="published-at">LOADING</time></dd></div>
             <div><dt>SOURCE</dt><dd><a id="source-link" href="https://github.com/tektum/verity-images">MAIN</a></dd></div>
@@ -80,7 +80,7 @@
           <div><strong id="metric-images">--</strong><span>IMAGE RECORDS</span></div>
           <div><strong id="metric-wolfi">--</strong><span>WOLFI</span></div>
           <div><strong id="metric-patched">--</strong><span>PATCHED</span></div>
-          <div><strong>0</strong><span>FIXABLE ALLOWED</span></div>
+          <div><strong>0</strong><span>FIXABLE VULNERABILITIES</span></div>
         </div>
       </section>
 
@@ -90,7 +90,7 @@
             <p class="overline">SELECT · INSPECT · VERIFY</p>
             <h2 id="catalog-title">IMAGE CATALOG</h2>
           </div>
-          <p>Severity counts include CVEs without an available fix; every published image has 0 fixable findings.</p>
+          <p>Every image has zero vulnerabilities with an available fix. Known findings awaiting an upstream fix remain visible in each image's details.</p>
         </div>
 
         <div class="catalog-controls">
@@ -116,7 +116,7 @@
 
         <p id="result-status" class="result-status" role="status" aria-live="polite">Loading catalog...</p>
         <div class="list-legend" aria-hidden="true">
-          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>ALL FINDINGS</span><span></span>
+          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>POLICY</span><span></span>
         </div>
         <div id="catalog-list" class="catalog-list" aria-busy="true"></div>
         <div id="empty-state" class="state-panel" hidden>
@@ -172,8 +172,8 @@
         </div>
         <p class="description"></p>
         <div class="verify-row">
-          <span>ALL FINDINGS</span>
-          <div class="severity-breakdown" aria-label="Findings by severity in the published scan"></div>
+          <span>KNOWN UNFIXABLE FINDINGS</span>
+          <div class="severity-breakdown" aria-label="Known findings without an available fix, by severity"></div>
         </div>
         <div class="verify-row">
           <span>TAGS</span>
