@@ -1,7 +1,7 @@
 package:
   name: sealed-secrets-0
   # renovate: datasource=github-tags depName=bitnami/sealed-secrets versioning=semver-coerced
-  version: "0.38.4"
+  version: "0.39.1"
   # First Verity-owned source build for the existing Sealed Secrets v0 family.
   epoch: 0
   description: Bitnami Sealed Secrets controller and kubeseal CLI
@@ -36,7 +36,7 @@ pipeline:
     with:
       repository: https://github.com/bitnami/sealed-secrets
       tag: v${{package.version}}
-      expected-commit: 0cc547ad0c3756726768dcc916e39de3ac5b101b
+      expected-commit: af17f829e4647765d5c576837261bf44863c96cc
 
   - uses: go/bump
     with:
