@@ -79,19 +79,17 @@ function severityBadge(severity, count, label) {
   return badge;
 }
 
-// Row summary leads with the worst severity and the total, so the column stays
-// one token wide; the full breakdown lives in the expanded detail.
+// Every published image passes the zero-fixable policy. Keep that actionable
+// status primary; the full unfixable severity breakdown stays in the detail.
 function fillFindings(element, image) {
-  element.replaceChildren();
+  element.replaceChildren(severityBadge("none", undefined, "0 FIXABLE"));
   const present = presentSeverities(image);
   if (present.length === 0) {
-    element.append(severityBadge("none", undefined, "0 FINDINGS"));
-    element.title = "No findings recorded; 0 fixable findings";
+    element.title = "No known vulnerabilities";
     return;
   }
   const total = observedFindings(image);
-  element.append(severityBadge(present[0].severity, total));
-  element.title = `${present.map(({ severity, count }) => `${severity}: ${count}`).join(", ")}; 0 fixable findings`;
+  element.title = `Policy passed: 0 fixable vulnerabilities; ${total} known ${total === 1 ? "finding" : "findings"} without an available fix`;
 }
 
 function fillSeverityBreakdown(container, image) {
