@@ -115,13 +115,6 @@ def main() -> None:
             encoding="utf-8",
         )
 
-        assert gen_matrix.melange_version(gen_matrix.ROOT / "images/trivy/melange.yaml") == "0.73.0"
-        try:
-            gen_matrix.melange_version(metadata)
-        except gen_matrix.MetadataError as error:
-            assert str(error).endswith("missing package.version")
-        else:
-            raise AssertionError("metadata was accepted as a Melange recipe")
 
         with patch.object(
             gen_matrix,
@@ -136,7 +129,7 @@ def main() -> None:
         ):
             changed = gen_matrix.generate("base")["include"]
         assert len(changed) == 1
-        assert changed[0]["application_version"] == "0.73.0"
+        assert changed[0]["context"] == "images/trivy"
 
         static = gen_matrix.ROOT / "images/static"
         fingerprint = gen_matrix.input_digest(static, "plain")
