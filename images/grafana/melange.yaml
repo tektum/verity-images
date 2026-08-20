@@ -1,6 +1,6 @@
 package:
   name: grafana
-  version: "12.4.6"
+  version: "12.4.9"
   epoch: 2
   description: The open and composable observability and data visualization platform.
   copyright:
@@ -58,7 +58,7 @@ pipeline:
     with:
       repository: https://github.com/grafana/grafana
       tag: v${{package.version}}
-      expected-commit: 16fbc24965a6dbeb7ed7facafb090062214ba33e
+      expected-commit: a895d1ba3d6f2c68af6665f694f6ae2f7c18caf1
   - uses: git-checkout
     with:
       repository: https://github.com/grafana/tempo
