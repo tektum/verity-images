@@ -1,6 +1,6 @@
 package:
   name: cassandra-5.0
-  version: "5.0.8"
+  version: "5.0.9"
   epoch: 13
   description: Open Source NoSQL Database
   copyright:
@@ -39,7 +39,7 @@ pipeline:
   - uses: git-checkout
     with:
       repository: https://github.com/apache/cassandra
-      expected-commit: 172227094626d50d4bc9a3d9de2e3659a7844386
+      expected-commit: b5f2a54210d541339c2e7c17a794195cac0e67c2
       tag: cassandra-${{package.version}}
   - runs: |
       python3 - <<'PY'
