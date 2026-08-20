@@ -55,6 +55,12 @@ GROUP_VERSIONS = {
         {"name": "volumeattachments", "singularName": "volumeattachment", "namespaced": False,
          "kind": "VolumeAttachment", "verbs": ["get", "list", "watch"]},
     ],
+    "karpenter.sh/v1": [
+        {"name": "nodeclaims", "singularName": "nodeclaim", "namespaced": False,
+         "kind": "NodeClaim", "verbs": ["get", "list", "watch"]},
+        {"name": "nodepools", "singularName": "nodepool", "namespaced": False,
+         "kind": "NodePool", "verbs": ["get", "list", "watch"]},
+    ],
 }
 GROUPS = [
     {
@@ -62,7 +68,7 @@ GROUPS = [
         "versions": [{"groupVersion": f"{group}/v1", "version": "v1"}],
         "preferredVersion": {"groupVersion": f"{group}/v1", "version": "v1"},
     }
-    for group in ("coordination.k8s.io", "storage.k8s.io")
+    for group in ("coordination.k8s.io", "storage.k8s.io", "karpenter.sh")
 ]
 
 

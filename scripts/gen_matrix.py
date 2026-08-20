@@ -213,6 +213,10 @@ def changed_paths(base_ref: str) -> set[str]:
     )
     return set(result.stdout.splitlines())
 
+def is_validation_path(path: str) -> bool:
+    return "/tests/" in f"/{path}"
+
+
 
 def image_directories() -> list[Path]:
     return sorted(path.parent for root in ("images", "patched") for path in (ROOT / root).glob("**/metadata.yaml"))
@@ -240,7 +244,9 @@ def input_digest(directory: Path, flavor: str) -> str:
             *(
                 path.relative_to(ROOT).as_posix()
                 for path in directory.rglob("*")
-                if path.is_file() and path.name != "metadata.yaml"
+                if path.is_file()
+                and path.name != "metadata.yaml"
+                and not is_validation_path(path.relative_to(directory).as_posix())
             ),
         }
     )
@@ -282,7 +288,11 @@ def generate(
     base_ref: str | None, catalog_path: Path | None = None, max_age: timedelta = timedelta(hours=24)
 ) -> Matrix:
     changed: set[str] = (
-        {path for path in changed_paths(base_ref) if not path.endswith("/metadata.yaml")}
+        {
+            path
+            for path in changed_paths(base_ref)
+            if not path.endswith("/metadata.yaml") and not is_validation_path(path)
+        }
         if base_ref and catalog_path is None
         else set()
     )

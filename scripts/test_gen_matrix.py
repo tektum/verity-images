@@ -127,6 +127,18 @@ def main() -> None:
             "changed_paths",
             return_value={"images/trivy/tests/test.sh"},
         ):
+            assert gen_matrix.generate("base")["include"] == []
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/tests/fixture.json"},
+        ):
+            assert gen_matrix.generate("base")["include"] == []
+        with patch.object(
+            gen_matrix,
+            "changed_paths",
+            return_value={"images/trivy/apko.yaml"},
+        ):
             changed = gen_matrix.generate("base")["include"]
         assert len(changed) == 1
         assert changed[0]["context"] == "images/trivy"
@@ -139,6 +151,14 @@ def main() -> None:
             assert fingerprint == gen_matrix.input_digest(static, "plain")
         finally:
             (gen_matrix.ROOT / "images/static/metadata.yaml").write_bytes(metadata_contents)
+        assert fingerprint == gen_matrix.input_digest(static, "plain")
+        smoke_test = static / "tests/test.sh"
+        smoke_contents = smoke_test.read_bytes()
+        smoke_test.write_bytes(smoke_contents + b"\n")
+        try:
+            assert fingerprint == gen_matrix.input_digest(static, "plain")
+        finally:
+            smoke_test.write_bytes(smoke_contents)
         assert fingerprint == gen_matrix.input_digest(static, "plain")
         assert fingerprint.startswith("sha256:") and len(fingerprint) == 71
 

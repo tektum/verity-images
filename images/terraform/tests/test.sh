@@ -4,6 +4,9 @@ set -eu
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
 [ "$flavor" = plain ] || { echo "unexpected flavor: $flavor" >&2; exit 1; }
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { echo 'package version not found' >&2; exit 1; }
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -19,7 +22,7 @@ fail() {
   fail 'unexpected OCI working directory'
 
 version=$(docker run --rm --network none "$image" version)
-printf '%s\n' "$version" | grep -Fq 'OpenTofu v1.12.4' || fail 'unexpected OpenTofu version'
+printf '%s\n' "$version" | grep -Fq "OpenTofu v$expected_version" || fail 'unexpected OpenTofu version'
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
