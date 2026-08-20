@@ -1,6 +1,6 @@
 package:
   name: gitlab-runner
-  version: "18.3.0"
+  version: "18.11.4"
   epoch: 0
   description: GitLab Runner with the shell executor
   copyright:
@@ -31,7 +31,7 @@ pipeline:
     with:
       repository: https://github.com/gitlabhq/gitlab-runner
       tag: v${{package.version}}
-      expected-commit: 9ba718cdb6a9060dda9e3e5cd724fb5f97f27570
+      expected-commit: 5b1ba4d9a0dec0a0a67ba4b88fa88e7f21b1060f
   - runs: |
       go get \
         github.com/Azure/go-ntlmssp@v0.1.1 \
