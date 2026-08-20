@@ -98,6 +98,22 @@ def main() -> None:
         parsed = gen_matrix.parse_metadata(metadata)
         assert parsed.upstream == "docker.io/example/image:12.3-ubi10"
         assert parsed.versions == ("12.3",)
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: Example 1.2.3.\n"
+            "enabled: true\n",
+            encoding="utf-8",
+        )
+        try:
+            gen_matrix.parse_metadata(metadata)
+        except gen_matrix.MetadataError as error:
+            assert str(error).endswith("description must not contain a version")
+        else:
+            raise AssertionError("version-bearing metadata description was accepted")
+        metadata.write_text(
+            "name: example\ntrack: patched\ndescription: S3-compatible example.\n"
+            "enabled: true\n",
+            encoding="utf-8",
+        )
 
         assert gen_matrix.melange_version(gen_matrix.ROOT / "images/trivy/melange.yaml") == "0.73.0"
         try:
