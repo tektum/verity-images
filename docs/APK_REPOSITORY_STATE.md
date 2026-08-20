@@ -7,12 +7,19 @@ identify one immutable release asset, the archive root and manifest, the active
 public key, and the package metadata for both supported architectures. A
 release update must deliberately update both files in the same reviewed PR.
 
-Validate the checked-in state with `scripts/devbox.sh run -- check-jsonschema` and
-`python3 scripts/validate_repository_state.py`. For a release update, run
-`python3 scripts/validate_repository_state.py --live`, download the candidate
-asset without modifying the release, and run the same command with
-`--archive PATH` to bind the independently computed archive and manifest
-digests.
+Validate the checked-in state with:
+
+```sh
+scripts/devbox.sh run -- check-jsonschema \
+  --schemafile packages/repository-state.schema.json \
+  packages/repository-state.json packages/repository-state.pin.json
+python3 scripts/validate_repository_state.py
+```
+
+For a release update, run `python3 scripts/validate_repository_state.py --live`,
+download the candidate asset without modifying the release, and run the same
+command with `--archive PATH` to bind the independently computed archive and
+manifest digests.
 
 Renovate may open a PR when a newer `apk-repo-vNNNN` release appears. It is
 globally configured to create PRs without Renovate or platform automerge. A
@@ -23,9 +30,9 @@ mutate repository state on `main`.
 ## Restore and rollback rehearsal
 
 Rollback restores a previous immutable release snapshot into a local staging
-tree. It is not a release rewrite: `apk-repo-v0001` and `apk-repo-v0002` remain
-immutable, and the current checked-in state remains `apk-repo-v0002` until an
-approved PR deliberately changes both state files.
+tree. It is not a release rewrite: historical releases remain immutable, and
+the active checked-in release remains the one named by both state files until
+an approved PR deliberately updates them together.
 
 The rehearsal downloads `apk-repo-v0001`, verifies its immutable release
 metadata, archive digest, manifest, allowed archive members, and APK signatures

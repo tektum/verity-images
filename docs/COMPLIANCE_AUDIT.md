@@ -37,9 +37,11 @@ retention, and operating-effectiveness records that are not present here.
   protection, and Dependabot security updates. Secret validity checks remain
   unavailable/disabled at the repository setting.
 
-Remaining findings below describe the reviewed baseline. The items above are fixed
-in the current worktree but still require a successful protected-main run before
-they become operating evidence.
+The findings below are retained as evidence of the reviewed 2026-07-30
+baseline, not as a description of current repository behavior. The remediation
+list above records fixes verified in source after that baseline. For current
+operational guarantees and consumer instructions, use `docs/POLICY.md`, the
+published catalog, and its schema.
 
 ## What is already good
 
