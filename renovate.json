@@ -39,72 +39,60 @@
       "customType": "regex",
       "managerFilePatterns": ["/^images/[^/]+/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/[^\\s]+)(?<commitPrefix>[\\s\\S]*?tag:\\s*v\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/[^\\s]+)[\\s\\S]*?tag:\\s*v\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
-      "currentValueTemplate": "v{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "extractVersionTemplate": "^v(?<version>.*)$"
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/cassandra/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/apache/cassandra)(?<commitPrefix>[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})(?<commitSuffix>[\\s\\S]*?tag:\\s*cassandra-\\$\\{\\{package\\.version\\}\\})"
+        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/apache/cassandra)[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})[\\s\\S]*?tag:\\s*cassandra-\\$\\{\\{package\\.version\\}\\}"
       ],
-      "currentValueTemplate": "{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^cassandra-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}{{{commitSuffix}}}"
+      "extractVersionTemplate": "^cassandra-(?<version>.*)$"
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/cluster-autoscaler/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/kubernetes/autoscaler)(?<commitPrefix>[\\s\\S]*?tag:\\s*cluster-autoscaler-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/kubernetes/autoscaler)[\\s\\S]*?tag:\\s*cluster-autoscaler-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
-      "currentValueTemplate": "{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^cluster-autoscaler-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "extractVersionTemplate": "^cluster-autoscaler-(?<version>.*)$"
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/tidb/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<upstreamPrefix>\"[\\s\\S]*?upstream-version:\\s*)(?<upstreamVersion>[^\\s]+)(?<versionSuffix>[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/pingcap/tidb)(?<commitPrefix>[\\s\\S]*?tag:\\s*v\\$\\{\\{vars\\.upstream-version\\}\\}[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+        "version:\\s*\"[^\"]+\"[\\s\\S]*?upstream-version:\\s*(?<currentValue>[^\\s]+)[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/pingcap/tidb)[\\s\\S]*?tag:\\s*v\\$\\{\\{vars\\.upstream-version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
-      "currentValueTemplate": "v{{{upstreamVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{replace '-beta\\.' '_beta' newValue}}}{{{upstreamPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "extractVersionTemplate": "^v(?<version>.*)$"
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/valkey/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/valkey-io/valkey)(?<commitPrefix>[\\s\\S]*?tag:\\s*\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/valkey-io/valkey)[\\s\\S]*?tag:\\s*\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
-      "currentValueTemplate": "{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/zookeeper/melange\\.yaml$/"],
       "matchStrings": [
-        "(?<versionPrefix>version:\\s*\")(?<currentVersion>[^\"]+)(?<versionSuffix>\"[\\s\\S]*?repository:\\s*)(?<packageName>https://github\\.com/apache/zookeeper)(?<commitPrefix>[\\s\\S]*?tag:\\s*release-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*)(?<currentDigest>[a-f0-9]{40})"
+        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/apache/zookeeper)[\\s\\S]*?tag:\\s*release-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
-      "currentValueTemplate": "{{{currentVersion}}}",
       "datasourceTemplate": "git-tags",
       "versioningTemplate": "semver",
-      "extractVersionTemplate": "^release-(?<version>.*)$",
-      "autoReplaceStringTemplate": "{{{versionPrefix}}}{{{newValue}}}{{{versionSuffix}}}{{{packageName}}}{{{commitPrefix}}}{{{newDigest}}}"
+      "extractVersionTemplate": "^release-(?<version>.*)$"
     },
     {
       "customType": "regex",
