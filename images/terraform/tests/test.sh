@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 flavor=${2:-plain}
 [ "$flavor" = plain ] || { echo "unexpected flavor: $flavor" >&2; exit 1; }
 
@@ -20,7 +19,7 @@ fail() {
   fail 'unexpected OCI working directory'
 
 version=$(docker run --rm --network none "$image" version)
-printf '%s\n' "$version" | grep -Fq "OpenTofu v${IMAGE_VERSION}" || fail 'unexpected OpenTofu version'
+printf '%s\n' "$version" | grep -Fq 'OpenTofu v1.12.4' || fail 'unexpected OpenTofu version'
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM

@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 container="verity-coredns-test-$$"
 config=$(mktemp)
 invalid=$(mktemp)
@@ -30,7 +29,7 @@ chmod 644 "$config" "$invalid"
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/coredns"]'
 test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["-conf","/Corefile"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
-docker run --rm --entrypoint /coredns "$image" -version | grep -Fq "CoreDNS-${IMAGE_VERSION}"
+docker run --rm --entrypoint /coredns "$image" -version | grep -Fq CoreDNS-1.14.6
 
 if docker run --rm "$image" >/dev/null 2>&1; then
   printf '%s\n' 'missing Corefile unexpectedly succeeded' >&2

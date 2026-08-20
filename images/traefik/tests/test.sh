@@ -2,9 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 flavor=${2:-plain}
-version=v${IMAGE_VERSION}
+version=v3.7.10
 container="verity-traefik-test-$$"
 created=
 binary=$(mktemp)

@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 container="verity-alertmanager-test-$$"
 config=$(mktemp)
 invalid_config=$(mktemp)
@@ -16,7 +15,7 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/alertmanager"]' ]
 case $(docker image inspect --format '{{json .Config.Cmd}}' "$image") in null|'[]') ;; *) exit 1;; esac
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ]
-docker run --rm "$image" --version | grep -Fq "version ${IMAGE_VERSION}"
+docker run --rm "$image" --version | grep -Fq 'version 0.33.1'
 
 cat >"$config" <<'EOF'
 route:

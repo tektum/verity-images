@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 fixture='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 container="verity-pushgateway-test-$$"
 volume="verity-pushgateway-data-$$"
@@ -24,7 +23,7 @@ curl_fixture() {
 
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/pushgateway"]' ] || fail 'unexpected image entrypoint'
-docker run --rm "$image" --version 2>&1 | grep -F "version ${IMAGE_VERSION}" >/dev/null || fail 'pushgateway version check failed'
+docker run --rm "$image" --version 2>&1 | grep -F 'version 1.11.3' >/dev/null || fail 'pushgateway version check failed'
 
 docker volume create "$volume" >/dev/null
 

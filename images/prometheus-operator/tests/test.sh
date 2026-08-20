@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
 
@@ -27,7 +26,7 @@ run() {
 }
 
 run --version >"$work/version"
-grep -F "prometheus-operator, version ${IMAGE_VERSION}" "$work/version" >/dev/null ||
+grep -F 'prometheus-operator, version 0.93.0' "$work/version" >/dev/null ||
   fail 'unexpected operator version'
 
 run crds >"$work/crds"

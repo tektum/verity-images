@@ -2,7 +2,6 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-: "${IMAGE_VERSION:?IMAGE_VERSION is required}"
 work=$(mktemp -d)
 
 cleanup() {
@@ -30,7 +29,7 @@ chmod -R a+rX "$work"
 chmod a+rwx "$work/build" "$work/invalid-build"
 
 version=$(docker run --rm "$image" --version)
-printf '%s\n' "$version" | grep -Fxq "cmake version ${IMAGE_VERSION}"
+printf '%s\n' "$version" | grep -Fxq 'cmake version 4.1.6'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/cmake"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
 
