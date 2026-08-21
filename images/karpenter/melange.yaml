@@ -1,8 +1,8 @@
 package:
   name: karpenter-1.11
-  version: "1.11.1"
+  version: "1.14.1"
   # Matches verity-org/verity's pinned revision, which supersedes the
-  # vulnerable public 1.11.1-r0 package for this same source commit.
+  # vulnerable public 1.14.1-r0 package for this same source commit.
   epoch: 7
   description: Karpenter is a Kubernetes Node Autoscaler built for flexibility, performance, and simplicity.
   copyright:
@@ -35,7 +35,7 @@ pipeline:
     with:
       repository: https://github.com/aws/karpenter-provider-aws
       tag: v${{package.version}}
-      expected-commit: 77c161351fbad4f23fae329412de22f1045ccb42
+      expected-commit: bde00654cd316fddb3dccfba3f5ac07039865429
   - uses: go/bump
     with:
       deps: |-
