@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 api_pid=
 
@@ -22,9 +25,9 @@ fail() {
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/controller"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
 docker run --rm --network none "$image" --version 2>&1 |
-  grep -Fx 'controller version: v0.38.4' >/dev/null || fail 'controller version mismatch'
+  grep -Fx "controller version: v$expected_version" >/dev/null || fail 'controller version mismatch'
 docker run --rm --network none --entrypoint /usr/bin/kubeseal "$image" --version 2>&1 |
-  grep -Fx 'kubeseal version: v0.38.4' >/dev/null || fail 'kubeseal version mismatch'
+  grep -Fx "kubeseal version: v$expected_version" >/dev/null || fail 'kubeseal version mismatch'
 
 openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=smoke \
   -keyout "$work/key.pem" -out "$work/cert.pem" >/dev/null 2>&1
