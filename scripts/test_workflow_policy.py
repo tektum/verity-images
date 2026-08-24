@@ -123,7 +123,14 @@ def main() -> None:
 
     assert ".github/workflows/build.yaml" in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
-    assert "pipelines/go/bump.yaml" in gen_matrix.GLOBAL_PATHS
+    assert "pipelines/go/bump.yaml" in gen_matrix.GO_BUMP_PATHS
+    with patch.object(
+        gen_matrix, "changed_paths", return_value={"pipelines/go/bump.yaml"}
+    ):
+        go_bump_samples = gen_matrix.generate("base")["include"]
+    assert {sample["context"] for sample in go_bump_samples} == {
+        gen_matrix.GO_BUMP_SAMPLE
+    }
     with patch.object(
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
     ):

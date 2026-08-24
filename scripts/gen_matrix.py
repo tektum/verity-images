@@ -24,12 +24,13 @@ GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
     ".github/workflows/build.yaml",
     "scripts/build_candidate.sh",
-    "pipelines/go/bump.yaml",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
 }
+GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml"}
+GO_BUMP_SAMPLE: Final = "images/kube-bench"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 OPENSSL_FIPS_PATHS: Final = {
     "packages/keys/verity-apk-2026.rsa.pub",
@@ -230,15 +231,24 @@ def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
     return config.is_file() and "openssl-fips-provider=3.1.2-r3" in config.read_text(encoding="utf-8")
 
 
+def uses_go_bump(directory: Path) -> bool:
+    return any("uses: go/bump" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
+
+
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
+
 
 def input_digest(directory: Path, flavor: str) -> str:
     digest = hashlib.sha256()
     digest.update(FINGERPRINT_VERSION.encode())
     digest.update(b"\0")
     digest.update(flavor.encode())
-    shared_paths = GLOBAL_PATHS | (OPENSSL_FIPS_PATHS if uses_openssl_fips_provider(directory, flavor) else set())
+    shared_paths = set(GLOBAL_PATHS)
+    if uses_openssl_fips_provider(directory, flavor):
+        shared_paths |= OPENSSL_FIPS_PATHS
+    if uses_go_bump(directory):
+        shared_paths |= GO_BUMP_PATHS
     paths = sorted(
         {
             *(relative for relative in shared_paths if (ROOT / relative).is_file()),
@@ -299,6 +309,7 @@ def generate(
     )
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
+    go_bump_changed = bool(changed & GO_BUMP_PATHS)
     cached = cached_images(catalog_path, max_age)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     samples = {
@@ -349,6 +360,7 @@ def generate(
             )
             if catalog_path is None and base_ref and not directly_changed and (
                 not provider_changed
+                and not (go_bump_changed and relative == GO_BUMP_SAMPLE)
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue
