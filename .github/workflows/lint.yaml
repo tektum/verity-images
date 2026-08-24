@@ -25,5 +25,26 @@ jobs:
       - name: Install locked lint environment
         uses: ./.github/actions/setup-devbox
 
+      # Scoped to this job on purpose. catalog.yaml publishes Pages artifacts
+      # and must not consume a restored store, so it keeps paying the full
+      # bootstrap cost.
+      - name: Restore the locked Devbox store
+        uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569  # v7.0.2
+        with:
+          primary-key: devbox-nix-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devbox.json', 'devbox.lock') }}
+          restore-prefixes-first-match: devbox-nix-${{ runner.os }}-${{ runner.arch }}-
+          paths: |
+            ~/.cache/nix
+          gc-max-store-size-linux: 2G
+
+      # Exact key only. A restored virtualenv whose interpreter no longer
+      # matches the store copy sends the Devbox python hook into an
+      # interactive prompt, so a lockfile change must miss and rebuild.
+      - name: Restore the locked Devbox virtualenv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: .devbox/virtenv
+          key: devbox-virtenv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devbox.json', 'devbox.lock') }}
+
       - name: Run locked lint suite
         run: devbox run lint

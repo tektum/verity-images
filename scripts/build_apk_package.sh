@@ -79,7 +79,9 @@ mapfile -d '' candidates < "$work_dir/candidates"
 primary=()
 primary_version=
 for candidate in "${candidates[@]}"; do
-  pkginfo=$(tar -xzOf "$candidate" .PKGINFO)
+  # Every member is read so that a second .PKGINFO still trips the duplicate
+  # identity checks below; only the pax keyword noise is suppressed.
+  pkginfo=$(tar -xzOf "$candidate" --warning=no-unknown-keyword .PKGINFO)
   candidate_name_count=$(awk -F ' = ' '$1 == "pkgname" {count++} END {print count + 0}' <<<"$pkginfo")
   candidate_version_count=$(awk -F ' = ' '$1 == "pkgver" {count++} END {print count + 0}' <<<"$pkginfo")
   candidate_architecture_count=$(awk -F ' = ' '$1 == "arch" {count++} END {print count + 0}' <<<"$pkginfo")
