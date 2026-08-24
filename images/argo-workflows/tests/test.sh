@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -16,7 +19,7 @@ user=$(docker image inspect --format '{{.Config.User}}' "$image")
   || fail 'unexpected image entrypoint'
 
 version_output=$(docker run --rm --cpus=4 --network none "$image" version 2>&1)
-printf '%s\n' "$version_output" | grep -F 'argoexec: v3.7.17+' >/dev/null \
+printf '%s\n' "$version_output" | grep -F "argoexec: v$expected_version+" >/dev/null \
   || fail 'argoexec version check failed'
 printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
   || fail 'argoexec did not disclose the dependency-remediated build'

@@ -24,6 +24,7 @@ GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
     ".github/workflows/build.yaml",
     "scripts/build_candidate.sh",
+    "pipelines/go/bump.yaml",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",

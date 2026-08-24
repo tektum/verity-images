@@ -123,6 +123,7 @@ def main() -> None:
 
     assert ".github/workflows/build.yaml" in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
+    assert "pipelines/go/bump.yaml" in gen_matrix.GLOBAL_PATHS
     with patch.object(
         gen_matrix, "changed_paths", return_value={"scripts/build_candidate.sh"}
     ):
