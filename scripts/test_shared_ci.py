@@ -27,8 +27,22 @@ def test_go_bump_cap(root: Path) -> None:
     log = root / "omnibump.log"
     executable(
         binaries / "go",
-        "#!/bin/sh\nif [ \"$1 $2\" = 'env GOVERSION' ]; then printf 'go1.26.7\\n'; "
-        "else printf '%s\\n' \"$*\" >>\"$OMNIBUMP_LOG\"; fi\n",
+        """#!/bin/sh
+set -eu
+if [ "$1 $2" = 'env GOVERSION' ]; then
+  printf 'go1.26.7\\n'
+elif [ "$1 $2 ${3:-}" = 'work edit -json' ]; then
+  printf '{"Use":[\n{"DiskPath":"one"},\n{"DiskPath":"two"}\n]}\n'
+elif [ "$1 $2" = 'work edit' ]; then
+  printf '%s %s\\n' "$1" "$2" >>"$OMNIBUMP_LOG"
+elif [ "$1" = -C ]; then
+  [ -f "$2/go.mod" ] || exit 1
+  printf '%s %s %s %s %s\\n' "$1" "$2" "$3" "$4" "$5" >>"$OMNIBUMP_LOG"
+else
+  [ -f go.mod ] || exit 1
+  printf '%s\\n' "$*" >>"$OMNIBUMP_LOG"
+fi
+""",
     )
     executable(
         binaries / "omnibump",
@@ -48,6 +62,7 @@ def test_go_bump_cap(root: Path) -> None:
         "PATH": f"{binaries}:{os.environ['PATH']}",
         "OMNIBUMP_LOG": str(log),
     }
+    module.joinpath("go.mod").write_text("module example.com/root\n", encoding="utf-8")
     for requested, expected in (("", "1.26.7"), ("1.27.0", "1.26.7"), ("1.25.0", "1.25.0")):
         log.write_text("", encoding="utf-8")
         rendered = script.replace("${{inputs.go-version}}", requested)
@@ -57,7 +72,23 @@ def test_go_bump_cap(root: Path) -> None:
         calls = log.read_text(encoding="utf-8")
         assert f"mod edit -go={expected}" in calls
         assert "--language go --dir . --packages example.com/module@v1.2.3" in calls
-        assert "gobump" not in pipeline
+
+    module.joinpath("go.mod").unlink()
+    for name in ("one", "two"):
+        child = module / name
+        child.mkdir()
+        child.joinpath("go.mod").write_text(f"module example.com/{name}\\n", encoding="utf-8")
+    module.joinpath("go.work").write_text("go 1.26\\nuse ./one\\nuse ./two\\n", encoding="utf-8")
+    log.write_text("", encoding="utf-8")
+    rendered = script.replace("${{inputs.go-version}}", "1.27.0")
+    for source, target in replacements.items():
+        rendered = rendered.replace(source, target)
+    subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
+    calls = log.read_text(encoding="utf-8")
+    assert "work edit\n" in calls
+    for name in ("one", "two"):
+        assert f"-C {name} mod edit -go=1.26.7" in calls
+    assert "gobump" not in pipeline
 
 
 def test_smoke_versions(root: Path) -> None:
