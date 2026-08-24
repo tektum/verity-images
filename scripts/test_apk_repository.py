@@ -81,13 +81,31 @@ def sign(path: Path, key: Path) -> None:
     subprocess.run(["melange", "sign", "--signing-key", str(key), str(path)], check=True)
 
 
+_KEYPAIR: tuple[bytes, bytes] | None = None
+
+
+def keypair() -> tuple[bytes, bytes]:
+    # melange keygen spends about half a second on a 4096 bit prime and the
+    # fixtures only need a well formed RSA key, so one keypair is generated per
+    # process and every repository reuses it under its own key name.
+    global _KEYPAIR
+    if _KEYPAIR is None:
+        with tempfile.TemporaryDirectory() as temporary:
+            key = Path(temporary) / "fixture.rsa"
+            subprocess.run(["melange", "keygen", str(key)], check=True)
+            _KEYPAIR = (key.read_bytes(), key.with_suffix(".rsa.pub").read_bytes())
+    return _KEYPAIR
+
+
 def repository(root: Path, key_name: str = "fixture.rsa") -> tuple[Path, Path, str]:
     shutil.rmtree(root, ignore_errors=True)
     root.mkdir()
     key = root / key_name
     keys = root / "keys"
     keys.mkdir()
-    subprocess.run(["melange", "keygen", str(key)], check=True)
+    private, public = keypair()
+    key.write_bytes(private)
+    key.with_suffix(".rsa.pub").write_bytes(public)
     shutil.copy2(key.with_suffix(".rsa.pub"), keys / key.with_suffix(".rsa.pub").name)
     packages: list[dict[str, str]] = []
     for architecture in sorted(apk_repository_policy.ARCHITECTURES):

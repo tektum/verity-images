@@ -95,8 +95,12 @@ sha256() {
 
 package_identity() {
   local package=$1 metadata recipe name version epoch
-  metadata=$(tar -xOf "$package" .PKGINFO)
-  recipe=$(tar -xOf "$package" .melange.yaml)
+  # An APK keeps .PKGINFO and .melange.yaml in the control segment ahead of the
+  # payload, so --occurrence=1 stops tar once it has the member instead of
+  # reading every data entry. The two members stay separate reads so that each
+  # field keeps coming from its own file.
+  metadata=$(tar -xOf "$package" --occurrence=1 --warning=no-unknown-keyword .PKGINFO)
+  recipe=$(tar -xOf "$package" --occurrence=1 --warning=no-unknown-keyword .melange.yaml)
   name=$(awk -F ' = ' '$1 == "pkgname" { print $2; exit }' <<<"$metadata")
   version=$(awk -F ' = ' '$1 == "pkgver" { print $2; exit }' <<<"$metadata")
   epoch=$(awk '/^  epoch: / { print $2; exit }' <<<"$recipe")
