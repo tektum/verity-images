@@ -51,7 +51,8 @@ if [[ "$track" == wolfi ]]; then
     mkdir -p "${output}/packages"
     melange keygen "$key"
     melange_args=(--runner docker --signing-key "$key" \
-      --out-dir "${output}/packages" --generate-provenance)
+      --out-dir "${output}/packages" --generate-provenance \
+      --pipeline-dir "$root/pipelines")
     for arch in amd64 arm64; do
       if [[ -f "${context}/${flavor}.env" ]]; then
         melange build "$recipe" --arch "$arch" "${melange_args[@]}" \

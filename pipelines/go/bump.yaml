@@ -1,0 +1,65 @@
+name: Bump Go dependencies to a certain version
+
+needs:
+  packages:
+    - git
+    - omnibump
+
+inputs:
+  deps:
+    description: The dependencies to bump, space separated
+    required: true
+  modroot:
+    description: The root of the module
+    default: .
+  go-version:
+    description: The Go version to set the go.mod syntax to
+    default: ""
+  replaces:
+    description: The replacements to add to the go.mod file
+  tidy:
+    default: true
+    description: Run go mod tidy before and after the bump
+  show-diff:
+    default: false
+    description: Show the difference between the original and updated go.mod files
+  tidy-compat:
+    description: Set the Go version with which go.mod and go.sum must be compatible
+    default: ""
+  work:
+    description: Retained for recipe compatibility; omnibump detects Go workspaces automatically
+    default: false
+
+pipeline:
+  - runs: |
+      cd "${{inputs.modroot}}"
+
+      local_go_version=$(go env GOVERSION)
+      local_go_version=${local_go_version#go}
+      requested_go_version="${{inputs.go-version}}"
+      go_version=$requested_go_version
+      if [ -z "$go_version" ] || awk -v requested="$requested_go_version" \
+        -v local="$local_go_version" 'BEGIN {
+          split(requested, r, "."); split(local, l, ".")
+          for (i = 1; i <= 3; i++) {
+            if ((r[i] + 0) < (l[i] + 0)) exit 1
+            if ((r[i] + 0) > (l[i] + 0)) exit 0
+          }
+          exit 1
+        }'; then
+        go_version=$local_go_version
+      fi
+      if [ -f go.work ]; then
+        go work edit -go="$go_version"
+        go work edit -json | awk -F'"' '/"DiskPath":/ { print $4 }' |
+          while IFS= read -r module; do
+            go -C "$module" mod edit -go="$go_version"
+          done
+      else
+        go mod edit -go="$go_version"
+      fi
+
+      omnibump --language go --dir . --packages "${{inputs.deps}}" \
+        --replaces "${{inputs.replaces}}" --tidy=${{inputs.tidy}} \
+        --show-diff=${{inputs.show-diff}} \
+        --tidy-compat=${{inputs.tidy-compat}}

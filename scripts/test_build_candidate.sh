@@ -88,6 +88,7 @@ grep -q '^variant: caddy$' "$APKO_LOG"
 grep -q '^godebug: fips140=only$' "$APKO_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch amd64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch arm64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
+grep -q -- "--pipeline-dir $root/pipelines" "$MELANGE_LOG"
 [[ $(grep -c "^start .*${work}/caddy/melange.yaml" "$MELANGE_LOG") -eq 2 ]]
 [[ $(grep -n "^end build $work/caddy/melange.yaml --arch amd64" "$MELANGE_LOG" | cut -d: -f1) -lt $(grep -n "^start build $work/caddy/melange.yaml --arch arm64" "$MELANGE_LOG" | cut -d: -f1) ]]
 [[ -d "$work/dist/caddy-fips/packages" ]]
@@ -129,6 +130,7 @@ grep -q 'https://tektum.github.io/verity-images/apk' "$APKO_LOG"
 grep -q 'openssl-fips-provider=3.1.2-r3' "$APKO_LOG"
 grep -q "start build $work/go/fips.melange.yaml --arch amd64" "$MELANGE_LOG"
 grep -q "start build $work/go/fips.melange.yaml --arch arm64" "$MELANGE_LOG"
+grep -q -- "--pipeline-dir $root/pipelines" "$MELANGE_LOG"
 [[ $(grep -c "^start .*${work}/go/fips.melange.yaml" "$MELANGE_LOG") -eq 2 ]]
 [[ $(grep -n "^end build $work/go/fips.melange.yaml --arch amd64" "$MELANGE_LOG" | cut -d: -f1) -lt $(grep -n "^start build $work/go/fips.melange.yaml --arch arm64" "$MELANGE_LOG" | cut -d: -f1) ]]
 if grep -q 'packages/openssl-fips-provider/melange.yaml' "$MELANGE_LOG"; then
