@@ -1,6 +1,6 @@
 package:
   name: rabbitmq-cluster-operator
-  version: "2.22.4"
+  version: "2.22.5"
   epoch: 1
   description: RabbitMQ Cluster Operator for Kubernetes
   copyright:
@@ -23,7 +23,7 @@ pipeline:
     with:
       repository: https://github.com/rabbitmq/cluster-operator
       tag: v${{package.version}}
-      expected-commit: 346a71c43af3fae21c544e5bc09f7b347ca286ee
+      expected-commit: 17dd297f71de40a722baf69167b8af511072175e
   - uses: go/bump
     with:
       deps: google.golang.org/grpc@v1.82.1
