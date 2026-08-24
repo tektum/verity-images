@@ -37,13 +37,17 @@ jobs:
             ~/.cache/nix
           gc-max-store-size-linux: 2G
 
-      # Exact key only. A restored virtualenv whose interpreter no longer
-      # matches the store copy sends the Devbox python hook into an
-      # interactive prompt, so a lockfile change must miss and rebuild.
+      # VENV_DIR is {{ .DevboxProjectDir }}/.venv per the Devbox python
+      # plugin, and the marker file lets its shell hook short-circuit instead
+      # of revalidating. Exact key only: the hook prompts interactively when a
+      # restored interpreter no longer matches the store copy, so a lockfile
+      # change must miss and rebuild.
       - name: Restore the locked Devbox virtualenv
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
-          path: .devbox/virtenv
+          path: |
+            .venv
+            .devbox/venv_check_completed
           key: devbox-virtenv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devbox.json', 'devbox.lock') }}
 
       - name: Run locked lint suite
