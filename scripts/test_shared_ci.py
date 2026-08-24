@@ -34,7 +34,7 @@ if [ "$1 $2" = 'env GOVERSION' ]; then
 elif [ "$1 $2 ${3:-}" = 'work edit -json' ]; then
   printf '{"Use":[\n{"DiskPath":"one"},\n{"DiskPath":"two"}\n]}\n'
 elif [ "$1 $2" = 'work edit' ]; then
-  printf '%s %s\\n' "$1" "$2" >>"$OMNIBUMP_LOG"
+  printf '%s %s %s\n' "$1" "$2" "$3" >>"$OMNIBUMP_LOG"
 elif [ "$1" = -C ]; then
   [ -f "$2/go.mod" ] || exit 1
   printf '%s %s %s %s %s\\n' "$1" "$2" "$3" "$4" "$5" >>"$OMNIBUMP_LOG"
@@ -85,7 +85,7 @@ fi
         rendered = rendered.replace(source, target)
     subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
     calls = log.read_text(encoding="utf-8")
-    assert "work edit\n" in calls
+    assert "work edit -go=1.26.7\n" in calls
     for name in ("one", "two"):
         assert f"-C {name} mod edit -go=1.26.7" in calls
     assert "gobump" not in pipeline
