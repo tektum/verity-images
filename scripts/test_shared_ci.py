@@ -24,11 +24,15 @@ def test_go_bump_cap(root: Path) -> None:
     binaries = root / "bin"
     module.mkdir()
     binaries.mkdir()
-    log = root / "gobump.log"
-    executable(binaries / "go", "#!/bin/sh\nprintf 'go1.26.7\\n'\n")
+    log = root / "omnibump.log"
     executable(
-        binaries / "gobump",
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >\"$GOBUMP_LOG\"\n",
+        binaries / "go",
+        "#!/bin/sh\nif [ \"$1 $2\" = 'env GOVERSION' ]; then printf 'go1.26.7\\n'; "
+        "else printf '%s\\n' \"$*\" >>\"$OMNIBUMP_LOG\"; fi\n",
+    )
+    executable(
+        binaries / "omnibump",
+        "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$OMNIBUMP_LOG\"\n",
     )
 
     replacements = {
@@ -42,14 +46,18 @@ def test_go_bump_cap(root: Path) -> None:
     }
     environment = os.environ | {
         "PATH": f"{binaries}:{os.environ['PATH']}",
-        "GOBUMP_LOG": str(log),
+        "OMNIBUMP_LOG": str(log),
     }
     for requested, expected in (("", "1.26.7"), ("1.27.0", "1.26.7"), ("1.25.0", "1.25.0")):
+        log.write_text("", encoding="utf-8")
         rendered = script.replace("${{inputs.go-version}}", requested)
         for source, target in replacements.items():
             rendered = rendered.replace(source, target)
         subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
-        assert f'--go-version={expected}' in log.read_text(encoding="utf-8")
+        calls = log.read_text(encoding="utf-8")
+        assert f"mod edit -go={expected}" in calls
+        assert "--language go --dir . --packages example.com/module@v1.2.3" in calls
+        assert "gobump" not in pipeline
 
 
 def test_smoke_versions(root: Path) -> None:

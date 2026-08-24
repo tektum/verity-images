@@ -3,7 +3,7 @@ name: Bump Go dependencies to a certain version
 needs:
   packages:
     - git
-    - gobump
+    - omnibump
 
 inputs:
   deps:
@@ -27,7 +27,7 @@ inputs:
     description: Set the Go version with which go.mod and go.sum must be compatible
     default: ""
   work:
-    description: Use go work vendor instead of go mod vendor
+    description: Retained for recipe compatibility; omnibump detects Go workspaces automatically
     default: false
 
 pipeline:
@@ -49,8 +49,9 @@ pipeline:
         }'; then
         go_version=$local_go_version
       fi
+      go mod edit -go="$go_version"
 
-      gobump --packages "${{inputs.deps}}" --replaces "${{inputs.replaces}}" \
-        --tidy=${{inputs.tidy}} --show-diff=${{inputs.show-diff}} \
-        --go-version="$go_version" --compat=${{inputs.tidy-compat}} \
-        --work=${{inputs.work}}
+      omnibump --language go --dir . --packages "${{inputs.deps}}" \
+        --replaces "${{inputs.replaces}}" --tidy=${{inputs.tidy}} \
+        --show-diff=${{inputs.show-diff}} \
+        --tidy-compat=${{inputs.tidy-compat}}
