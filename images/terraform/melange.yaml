@@ -1,6 +1,6 @@
 package:
   name: verity-opentofu-1.12
-  version: "1.12.4"
+  version: "1.12.6"
   epoch: 0
   description: OpenTofu, a Terraform-compatible infrastructure as code CLI.
   copyright:
@@ -26,7 +26,7 @@ pipeline:
     with:
       repository: https://github.com/opentofu/opentofu
       tag: v${{package.version}}
-      expected-commit: d5291190380d16aa5ef4590facbe0719d7fa165f
+      expected-commit: b4305e5a5dd2fb79a27897ae30784a181d3a26cb
   - uses: go/bump
     with:
       deps: |-
