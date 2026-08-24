@@ -23,13 +23,12 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 GLOBAL_PATHS: Final = {
     ".github/actions/publish-image/action.yaml",
     ".github/workflows/build.yaml",
-    "scripts/build_candidate.sh",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
 }
-GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml"}
+GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml", "scripts/build_candidate.sh"}
 GO_BUMP_SAMPLE: Final = "images/kube-bench"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 OPENSSL_FIPS_PATHS: Final = {
