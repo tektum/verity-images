@@ -1,6 +1,6 @@
 package:
   name: verity-kube-bench-0.11
-  version: "0.11.2"
+  version: "0.16.0"
   epoch: 0
   description: Checks Kubernetes deployments against CIS benchmarks
   copyright:
@@ -35,7 +35,7 @@ pipeline:
     with:
       repository: https://github.com/aquasecurity/kube-bench
       tag: v${{package.version}}
-      expected-commit: a02030bd5102b849b27784787a2b566a994a0c27
+      expected-commit: 5c6c22d51b926020e7414e1f1e051851d1a2feff
   - uses: go/bump
     with:
       deps: |-
