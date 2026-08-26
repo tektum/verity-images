@@ -64,8 +64,8 @@ pipeline:
         --replaces "${{inputs.replaces}}" --tidy=${{inputs.tidy}} \
         --show-diff=${{inputs.show-diff}} \
         --tidy-compat=${{inputs.tidy-compat}}
-
       tidy() {
+        [ "${{inputs.tidy}}" = true ] || return 0
         module=$1
         if [ -n "${{inputs.tidy-compat}}" ]; then
           go -C "$module" mod tidy -compat="${{inputs.tidy-compat}}"

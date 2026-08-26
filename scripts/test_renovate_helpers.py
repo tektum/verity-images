@@ -67,6 +67,13 @@ esac
     assert "mod vendor" in calls
 
     log.write_text("", encoding="utf-8")
+    untidy = rendered.replace("--tidy=true", "--tidy=false").replace('[ "true" = true ]', '[ "false" = true ]')
+    subprocess.run(["sh", "-eu", "-c", untidy], check=True, env=environment)
+    calls = log.read_text(encoding="utf-8")
+    assert "mod tidy" not in calls
+    assert "mod vendor" in calls
+
+    log.write_text("", encoding="utf-8")
     module.joinpath("go.mod").unlink()
     module.joinpath("vendor").rmdir()
     for child in ("one", "two"):
@@ -190,6 +197,10 @@ def test_renovate_configuration() -> None:
     deno = (ROOT / "images/deno/melange.yaml").read_text(encoding="utf-8")
     assert "cargo update -p rand@0.9 --precise" in deno
     assert "cargo update -p quinn-proto@0.11 --precise" in deno
+    go_get_manager = next(
+        manager for manager in managers if "argo-workflows|gitlab-runner" in manager["managerFilePatterns"][0]
+    )
+    assert go_get_manager["matchStrings"][0].startswith(r"go get [\\]\n")
 
 
 def main() -> None:
