@@ -130,7 +130,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^images/deno/melange\\.yaml$/"],
       "matchStrings": [
-        "cargo update -p (?<depName>[A-Za-z0-9_-]+) --precise (?<currentValue>[^\\s]+)"
+        "cargo update -p (?<depName>[A-Za-z0-9_-]+)(?:@[^\\s]+)? --precise (?<currentValue>[^\\s]+)"
       ],
       "datasourceTemplate": "crate",
       "versioningTemplate": "semver"

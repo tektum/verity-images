@@ -98,10 +98,11 @@ pipeline:
         const path = "ui/package.json";
         const contents = JSON.parse(fs.readFileSync(path, "utf8"));
         const yarn = contents.devDependencies?.yarn;
-        if (!/^1\.[0-9]+\.[0-9]+$/.test(yarn)) {
-          throw new Error("ui/package.json must pin a supported Yarn version");
+        const match = typeof yarn === "string" && yarn.match(/^\^?(1\.[0-9]+\.[0-9]+)$/);
+        if (!match) {
+          throw new Error("ui/package.json must declare a supported Yarn version");
         }
-        contents.packageManager = `yarn@${yarn}`;
+        contents.packageManager = `yarn@${match[1]}`;
         fs.writeFileSync(path, `${JSON.stringify(contents, null, 2)}\n`);
       '
   - uses: corepack/install

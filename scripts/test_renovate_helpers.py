@@ -187,6 +187,9 @@ def test_renovate_configuration() -> None:
         "python3 scripts/update_release_asset_checksum.py images/traefik/melange.yaml"
     ]
     assert "matchUpdateTypes" not in traefik_rule
+    deno = (ROOT / "images/deno/melange.yaml").read_text(encoding="utf-8")
+    assert "cargo update -p rand@0.9 --precise" in deno
+    assert "cargo update -p quinn-proto@0.11 --precise" in deno
 
 
 def main() -> None:
