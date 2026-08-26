@@ -164,10 +164,10 @@ def test_corepack_install(root: Path) -> None:
         executable(binaries / command, f"#!/bin/sh\nprintf '{command} %s\\n' \"$*\" >>\"$COREPACK_LOG\"\n")
     environment = os.environ | {"PATH": f"{binaries}:{os.environ['PATH']}", "COREPACK_LOG": str(log)}
     expected = {
-        "npm@11.0.0": "npm ci",
-        "pnpm@10.0.0": "pnpm install --frozen-lockfile",
-        "yarn@1.22.22": "yarn install --frozen-lockfile",
-        "yarn@4.9.2": "yarn install --immutable",
+        "npm@11.0.0": "corepack npm ci",
+        "pnpm@10.0.0": "corepack pnpm install --frozen-lockfile",
+        "yarn@1.22.22": "corepack yarn install --frozen-lockfile",
+        "yarn@4.9.2": "corepack yarn install --immutable",
     }
     for declaration, install in expected.items():
         ui.joinpath("package.json").write_text(json.dumps({"packageManager": declaration}), encoding="utf-8")

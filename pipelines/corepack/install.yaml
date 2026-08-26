@@ -38,12 +38,12 @@ pipeline:
       }
       corepack prepare "$package_manager" --activate
       case "$manager" in
-        npm) npm ci ;;
-        pnpm) pnpm install --frozen-lockfile ;;
+        npm) corepack npm ci ;;
+        pnpm) corepack pnpm install --frozen-lockfile ;;
         yarn)
           case "$version" in
-            0.*|1.*) yarn install --frozen-lockfile ;;
-            *) yarn install --immutable ;;
+            0.*|1.*) corepack yarn install --frozen-lockfile ;;
+            *) corepack yarn install --immutable ;;
           esac
           ;;
       esac
