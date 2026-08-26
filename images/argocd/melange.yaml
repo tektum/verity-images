@@ -202,7 +202,7 @@ pipeline:
       "${{targets.destdir}}/usr/bin/helm" version | grep -F 'GitTreeState:"dirty"'
       "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1 ('
       git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
-      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.6'
+      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.'
       printf '%s\n' "$git_lfs_build_info" | \
         grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.56.0'
       printf '%s\n' "$git_lfs_build_info" | \

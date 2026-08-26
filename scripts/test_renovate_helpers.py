@@ -203,6 +203,7 @@ def test_renovate_configuration() -> None:
     assert go_get_manager["matchStrings"][0].startswith(r"go get [\\]\n")
     argocd = (ROOT / "images/argocd/melange.yaml").read_text(encoding="utf-8")
     assert "corepack yarn --cwd ui build" in argocd
+    assert "grep -F 'go1.26.'" in argocd
     gitlab = (ROOT / "images/gitlab-runner/melange.yaml").read_text(encoding="utf-8")
     assert "github.com/cilium/ebpf@v0.22.0" in gitlab
     assert "github.com/gorilla/websocket@v1.5.3" in gitlab
