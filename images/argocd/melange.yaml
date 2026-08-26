@@ -118,7 +118,7 @@ pipeline:
       HOST_ARCH=$(go env GOARCH) \
         NODE_ENV=production \
         NODE_ONLINE_ENV=online \
-        yarn --cwd ui build
+        corepack yarn --cwd ui build
 
       rm -rf .git
       GIT_COMMIT="$source_commit" \
