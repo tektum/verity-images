@@ -1,0 +1,49 @@
+name: Install frontend dependencies with Corepack
+
+needs:
+  packages:
+    - corepack
+
+inputs:
+  directory:
+    description: Directory containing package.json and its lockfile
+    default: .
+
+pipeline:
+  - runs: |
+      cd "${{inputs.directory}}"
+      package_manager=$(node -e '
+        const fs = require("fs");
+        const value = JSON.parse(fs.readFileSync("package.json", "utf8")).packageManager;
+        const valid = typeof value === "string" &&
+          /^(npm|pnpm|yarn)@[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?$/.test(value);
+        if (!valid) process.exit(1);
+        process.stdout.write(value);
+      ') || {
+        printf '%s\n' 'package.json must declare packageManager' >&2
+        exit 1
+      }
+      case "$package_manager" in
+        npm@*|pnpm@*|yarn@*) ;;
+        *)
+          printf 'unsupported packageManager: %s\n' "$package_manager" >&2
+          exit 1
+          ;;
+      esac
+      manager=${package_manager%%@*}
+      version=${package_manager#*@}
+      [ -n "$version" ] || {
+        printf 'invalid packageManager version: %s\n' "$version" >&2
+        exit 1
+      }
+      corepack prepare "$package_manager" --activate
+      case "$manager" in
+        npm) npm ci ;;
+        pnpm) pnpm install --frozen-lockfile ;;
+        yarn)
+          case "$version" in
+            0.*|1.*) yarn install --frozen-lockfile ;;
+            *) yarn install --immutable ;;
+          esac
+          ;;
+      esac

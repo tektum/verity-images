@@ -101,6 +101,39 @@
       "depNameTemplate": "tektum/verity-images",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^apk-repo-v(?<major>[0-9]{4})$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/[^/]+(?:/[^/]+)?/melange\\.yaml$/"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "- uses: go/bump\\n\\s+with:\\n(?<bump>[\\s\\S]*?)(?=\\n\\s+- (?:uses|name|runs):)",
+        "(?:^|\\n)\\s+(?<depName>[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)+)@(?<currentValue>v[^\\s]+)"
+      ],
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^images/(?:argo-workflows|gitlab-runner|otel-collector|tekton-controller)/melange\\.yaml$/"
+      ],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "go get \\\\n(?<dependencies>(?:\\s+[A-Za-z0-9._~/-]+@v[^\\s]+(?: \\\\)?\\n)+)",
+        "(?:^|\\n)\\s+(?<depName>[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)+)@(?<currentValue>v[^\\s\\\\]+)"
+      ],
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/deno/melange\\.yaml$/"],
+      "matchStrings": [
+        "cargo update -p (?<depName>[A-Za-z0-9_-]+) --precise (?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "crate",
+      "versioningTemplate": "semver"
     }
   ],
   "packageRules": [
@@ -118,6 +151,16 @@
       "matchFileNames": ["packages/repository-state.json"],
       "automerge": false,
       "labels": ["apk-repository-state", "review-required"]
+    },
+    {
+      "matchFileNames": ["images/traefik/melange.yaml"],
+      "postUpgradeTasks": {
+        "commands": [
+          "python3 scripts/update_release_asset_checksum.py images/traefik/melange.yaml"
+        ],
+        "fileFilters": ["images/traefik/melange.yaml"],
+        "executionMode": "update"
+      }
     }
   ]
 }

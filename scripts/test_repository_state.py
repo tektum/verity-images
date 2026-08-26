@@ -259,7 +259,10 @@ def updater_requires_review() -> None:
         if manager["managerFilePatterns"][0].startswith("/^images/")
     ]
     assert source_managers
-    assert all("(?<currentValue>" in manager["matchStrings"][0] for manager in source_managers)
+    assert all(
+        any("(?<currentValue>" in match for match in manager["matchStrings"])
+        for manager in source_managers
+    )
     assert all("autoReplaceStringTemplate" not in manager for manager in source_managers)
     assert renovate["automerge"] is True
     assert renovate["platformAutomerge"] is True
