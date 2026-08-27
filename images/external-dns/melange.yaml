@@ -45,7 +45,7 @@ pipeline:
         golang.org/x/net@v0.55.0
         golang.org/x/text@v0.39.0
         google.golang.org/grpc@v1.82.1
-        sigs.k8s.io/gateway-api@v1.4.0
+        sigs.k8s.io/gateway-api@v1.6.1
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=false \
         -ldflags="-s -w \
