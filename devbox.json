@@ -16,7 +16,7 @@
   "shell": {
     "scripts": {
       "lint": [
-        "renovate-config-validator --strict renovate.json",
+        "renovate-config-validator --strict --no-global renovate.json",
         "actionlint",
         "yamllint .",
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
