@@ -98,7 +98,7 @@ pipeline:
   - uses: go/bump
     with:
       deps: |-
-        github.com/prometheus/prometheus@v0.311.3
+        github.com/prometheus/prometheus@v0.314.0
         github.com/google/cel-go@v0.29.0
         google.golang.org/grpc@v1.82.1
         github.com/getkin/kin-openapi@v0.144.0
