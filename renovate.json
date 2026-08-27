@@ -37,7 +37,7 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^images/[^/]+/melange\\.yaml$/"],
+      "managerFilePatterns": ["/^images/.+/melange\\.yaml$/"],
       "matchStrings": [
         "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/[^\\s]+)[\\s\\S]*?tag:\\s*v\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
       ],
@@ -138,6 +138,12 @@
   ],
   "packageRules": [
     {
+      "matchFileNames": ["images/**/melange.yaml"],
+      "groupName": "image {{packageFileDir}}",
+      "groupSlug": "{{packageFileDir}}",
+      "separateMajorMinor": false
+    },
+    {
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false
@@ -151,16 +157,6 @@
       "matchFileNames": ["packages/repository-state.json"],
       "automerge": false,
       "labels": ["apk-repository-state", "review-required"]
-    },
-    {
-      "matchFileNames": ["images/traefik/melange.yaml"],
-      "postUpgradeTasks": {
-        "commands": [
-          "python3 scripts/update_release_asset_checksum.py images/traefik/melange.yaml"
-        ],
-        "fileFilters": ["images/traefik/melange.yaml"],
-        "executionMode": "update"
-      }
     }
   ]
 }

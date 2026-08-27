@@ -1,0 +1,54 @@
+name: Update Renovate checksums
+
+# workflow_run is required so this trusted default-branch workflow can update an
+# in-repository Renovate branch. It never checks out or executes pull request code.
+on:  # zizmor: ignore[dangerous-triggers]
+  workflow_run:
+    workflows: [Build images]
+    types: [completed]
+
+permissions: {}
+
+concurrency:
+  group: renovate-checksum-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+jobs:
+  update:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'renovate[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out trusted updater
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Update canonical release asset checksum
+        env:
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+          GH_TOKEN: ${{ github.token }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          recipe=images/traefik/melange.yaml
+          response=$(gh api "repos/${REPOSITORY}/contents/${recipe}?ref=${HEAD_SHA}")
+          blob_sha=$(jq -er .sha <<<"$response")
+          jq -er .content <<<"$response" | base64 --decode > "$recipe"
+          before=$(sha256sum "$recipe" | cut -d' ' -f1)
+          python3 scripts/update_release_asset_checksum.py "$recipe"
+          after=$(sha256sum "$recipe" | cut -d' ' -f1)
+          if [[ "$before" == "$after" ]]; then
+            exit 0
+          fi
+          content=$(base64 -w0 "$recipe")
+          gh api --method PUT "repos/${REPOSITORY}/contents/${recipe}" \
+            -f message='chore(deps): update release asset checksum' \
+            -f content="$content" \
+            -f sha="$blob_sha" \
+            -f branch="$BRANCH"
