@@ -40,7 +40,7 @@ pipeline:
         golang.org/x/net@v0.55.0
         golang.org/x/text@v0.39.0
         google.golang.org/grpc@v1.82.1
-        software.sslmate.com/src/go-pkcs12@v0.7.2
+        software.sslmate.com/src/go-pkcs12@v0.7.3
   - uses: go/build
     with:
       go-package: go-1.26
