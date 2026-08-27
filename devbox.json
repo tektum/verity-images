@@ -10,11 +10,13 @@
     "shellcheck@0.11.0",
     "uv@0.11.28",
     "yamllint@1.37.1",
-    "ruff@0.15.22"
+    "ruff@0.15.22",
+    "renovate@44.37.1"
   ],
   "shell": {
     "scripts": {
       "lint": [
+        "renovate-config-validator --strict renovate.json",
         "actionlint",
         "yamllint .",
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
