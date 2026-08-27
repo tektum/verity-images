@@ -33,9 +33,9 @@ pipeline:
     with:
       deps: |-
         github.com/sirupsen/logrus@v1.10.2
-        golang.org/x/crypto@v0.52.0
-        golang.org/x/net@v0.55.0
-        golang.org/x/text@v0.39.0
+        golang.org/x/crypto@v0.55.0
+        golang.org/x/net@v0.58.0
+        golang.org/x/text@v0.41.0
 
   - uses: go/build
     with:
