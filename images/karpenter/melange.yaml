@@ -39,7 +39,7 @@ pipeline:
   - uses: go/bump
     with:
       deps: |-
-        golang.org/x/net@v0.56.0
+        golang.org/x/net@v0.58.0
         golang.org/x/text@v0.39.0
   - uses: go/build
     with:
