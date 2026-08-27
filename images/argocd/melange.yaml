@@ -1,6 +1,6 @@
 package:
   name: verity-argocd
-  version: "3.3.14"
+  version: "3.5.2"
   epoch: 0
   description: Declarative GitOps continuous delivery controller.
   copyright:
@@ -46,7 +46,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj/argo-cd
       tag: v${{package.version}}
-      expected-commit: a0a99e187cb6126ef0f3be82d90705513d8f6f3e
+      expected-commit: e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
 
   - uses: git-checkout
     with:
