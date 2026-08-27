@@ -38,7 +38,7 @@ pipeline:
     with:
       deps: |-
         golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
+        google.golang.org/grpc@v1.83.2
       modroot: cmd/controller
       tidy: false
   - runs: |

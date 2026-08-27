@@ -44,7 +44,7 @@ pipeline:
         go.opentelemetry.io/otel/trace@v1.43.0
         golang.org/x/net@v0.56.0
         golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
+        google.golang.org/grpc@v1.83.2
   - runs: |
       sed -i 's/UnversionedLib(ext.TwoVarComprehensions)/ext.TwoVarComprehensions()/' \
         vendor/k8s.io/apiserver/pkg/cel/environment/base.go
