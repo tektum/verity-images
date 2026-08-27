@@ -39,6 +39,7 @@ set -eu
 printf '%s\n' "$*" >>"$GO_LOG"
 case "$*" in
   'env GOVERSION') printf 'go1.26.7\n' ;;
+  'env GOWORK') printf '%s\n' "${GOWORK:-}" ;;
   'work edit -json') printf '{"Use":[\n{"DiskPath":"one"},\n{"DiskPath":"two"}\n]}\n' ;;
 esac
 """,
@@ -68,10 +69,16 @@ esac
     assert "mod vendor" in calls
 
     log.write_text("", encoding="utf-8")
-    untidy = rendered.replace("--tidy=true", "--tidy=false").replace('[ "true" = true ]', '[ "false" = true ]')
+    untidy = (
+        rendered.replace("--tidy=true", "--tidy=false")
+        .replace('[ "true" = true ]', '[ "false" = true ]')
+        .replace('[ "true" = false ]', '[ "false" = false ]')
+    )
     subprocess.run(["sh", "-eu", "-c", untidy], check=True, env=environment)
     calls = log.read_text(encoding="utf-8")
     assert "mod tidy" not in calls
+    assert calls.count("-C . list -mod=mod all") == 1, calls
+    assert calls.count("-C . list -mod=readonly all") == 1
     assert "mod vendor" in calls
 
     log.write_text("", encoding="utf-8")
@@ -88,6 +95,21 @@ esac
     assert "-C one mod tidy -compat=1.25" in calls
     assert "-C two mod tidy -compat=1.25" in calls
     assert "work vendor" in calls
+
+    log.write_text("", encoding="utf-8")
+    untidy_workspace = (
+        rendered.replace("--tidy=true", "--tidy=false")
+        .replace('[ "true" = true ]', '[ "false" = true ]')
+        .replace('[ "true" = false ]', '[ "false" = false ]')
+    )
+    subprocess.run(["sh", "-eu", "-c", untidy_workspace], check=True, env=environment)
+    calls = log.read_text(encoding="utf-8")
+    assert "mod tidy" not in calls
+    assert calls.count("-C one list -mod=mod all") == 1
+    assert calls.count("-C two list -mod=mod all") == 1
+    assert "work sync" in calls
+    assert "work vendor" in calls
+
 
 def test_go_reconciliation_completes_sums(root: Path) -> None:
     script = pipeline_script(ROOT / "pipelines/go/bump.yaml")

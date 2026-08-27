@@ -77,9 +77,9 @@ pipeline:
         module=$1
         tidy "$module"
         if [ "${{inputs.tidy}}" = false ]; then
-          go -C "$module" list -mod=mod all >/dev/null
+          GOWORK=off go -C "$module" list -mod=mod all >/dev/null
         fi
-        go -C "$module" list -mod=readonly all >/dev/null
+        GOWORK=off go -C "$module" list -mod=readonly all >/dev/null
       }
 
       if [ -f go.work ]; then
