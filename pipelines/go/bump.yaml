@@ -73,19 +73,29 @@ pipeline:
           go -C "$module" mod tidy
         fi
       }
+      reconcile() {
+        module=$1
+        tidy "$module"
+        if [ "${{inputs.tidy}}" = false ]; then
+          GOWORK=off go -C "$module" list -mod=mod all >/dev/null
+        fi
+        GOWORK=off go -C "$module" list -mod=readonly all >/dev/null
+      }
 
       if [ -f go.work ]; then
         go work edit -json | awk -F'"' '/"DiskPath":/ { print $4 }' |
           while IFS= read -r module; do
-            tidy "$module"
+            reconcile "$module"
           done
         go work sync
         if [ -d vendor ]; then
           go work vendor
+          go list -mod=vendor all >/dev/null
         fi
       else
-        tidy .
+        reconcile .
         if [ -d vendor ]; then
           go mod vendor
+          go list -mod=vendor all >/dev/null
         fi
       fi
