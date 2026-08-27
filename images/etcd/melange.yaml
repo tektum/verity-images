@@ -1,6 +1,6 @@
 package:
   name: etcd-3.6
-  version: "3.6.14"
+  version: "3.7.1"
   epoch: 1  # GHSA-9h8m-3fm2-qjrq
   description: A highly-available key value store for shared configuration and service discovery.
   copyright:
@@ -35,7 +35,7 @@ pipeline:
     with:
       repository: https://github.com/etcd-io/etcd
       tag: v${{package.version}}
-      expected-commit: fc04cf702b0a46c2fd85547a2be05705b100a496
+      expected-commit: 5e7fd0de9a57db03ecc11794dc40403a734c07bb
 
   - uses: go/bump
     with:
