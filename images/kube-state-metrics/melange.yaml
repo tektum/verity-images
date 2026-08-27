@@ -36,7 +36,7 @@ pipeline:
   - uses: go/bump
     with:
       deps: |-
-        github.com/google/cel-go@v0.29.0
+        github.com/google/cel-go@v0.32.0
         google.golang.org/grpc@v1.82.1
   - uses: go/build
     with:

@@ -35,7 +35,7 @@ pipeline:
   - uses: go/bump
     with:
       deps: |-
-        github.com/google/cel-go@v0.29.0
+        github.com/google/cel-go@v0.32.0
         go.opentelemetry.io/otel@v1.43.0
         go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0
         go.opentelemetry.io/otel/metric@v1.43.0
