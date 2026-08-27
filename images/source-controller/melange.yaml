@@ -52,7 +52,7 @@ pipeline:
         github.com/containerd/containerd@v1.7.34
         github.com/moby/spdystream@v0.5.1
         google.golang.org/grpc@v1.82.1
-        oras.land/oras-go/v2@v2.6.1
+        oras.land/oras-go/v2@v2.6.2
   - runs: |
       go build -trimpath -a -ldflags "-s -w" \
         -tags netgo,osusergo,static_build -o manager main.go
