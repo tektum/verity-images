@@ -74,7 +74,7 @@ pipeline:
         go.opentelemetry.io/otel/sdk@v1.44.0
         golang.org/x/crypto@v0.53.0
         golang.org/x/net@v0.56.0
-        golang.org/x/text@v0.39.0
+        golang.org/x/text@v0.41.0
         google.golang.org/grpc@v1.82.1
         k8s.io/kubernetes@v1.34.2
         oras.land/oras-go/v2@v2.6.2
@@ -88,7 +88,7 @@ pipeline:
     with:
       deps: |-
         golang.org/x/net@v0.56.0
-        golang.org/x/text@v0.39.0
+        golang.org/x/text@v0.41.0
       modroot: third_party/git-lfs
 
   - name: Declare upstream package manager

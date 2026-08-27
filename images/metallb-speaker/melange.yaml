@@ -39,7 +39,7 @@ pipeline:
     with:
       deps: |-
         golang.org/x/net@v0.55.0
-        golang.org/x/text@v0.39.0
+        golang.org/x/text@v0.41.0
   - runs: |
       flags="-s -w -X go.universe.tf/metallb/internal/version.gitCommit=${{vars.source-commit}}"
       flags="$flags -X go.universe.tf/metallb/internal/version.gitBranch=v${{package.version}}"

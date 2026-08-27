@@ -41,7 +41,7 @@ pipeline:
         github.com/google/cel-go@v0.29.0
         github.com/quic-go/quic-go@v0.59.1
         golang.org/x/net@v0.53.0
-        golang.org/x/text@v0.39.0
+        golang.org/x/text@v0.41.0
         google.golang.org/grpc@v1.79.3
   - runs: |
       flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
