@@ -38,10 +38,14 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 66e32e5cc367f223e2ecf4fbe852b95eaed83034
 
+  - uses: go/bump
+    with:
+      deps: github.com/go-git/go-git/v5@v5.19.2
+
   - runs: |
       source_commit=$(git rev-parse HEAD)
       build_date=$(git show -s --format=%cI HEAD)
-      go get github.com/go-git/go-git/v5@v5.19.2
+
       go build -trimpath \
         -ldflags="-s -w \
           -X github.com/argoproj/argo-workflows/v3.version=v${{package.version}} \

@@ -29,6 +29,8 @@ GLOBAL_PATHS: Final = {
     "scripts/install_image_tools.sh",
 }
 GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml", "scripts/build_candidate.sh"}
+COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}
+COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
 GO_BUMP_SAMPLE: Final = "images/kube-bench"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 OPENSSL_FIPS_PATHS: Final = {
@@ -234,6 +236,10 @@ def uses_go_bump(directory: Path) -> bool:
     return any("uses: go/bump" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
 
 
+def uses_corepack_install(directory: Path) -> bool:
+    return any("uses: corepack/install" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
+
+
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
 
@@ -248,6 +254,8 @@ def input_digest(directory: Path, flavor: str) -> str:
         shared_paths |= OPENSSL_FIPS_PATHS
     if uses_go_bump(directory):
         shared_paths |= GO_BUMP_PATHS
+    if uses_corepack_install(directory):
+        shared_paths |= COREPACK_INSTALL_PATHS
     paths = sorted(
         {
             *(relative for relative in shared_paths if (ROOT / relative).is_file()),
@@ -309,6 +317,7 @@ def generate(
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
     go_bump_changed = bool(changed & GO_BUMP_PATHS)
+    corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
     cached = cached_images(catalog_path, max_age)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     samples = {
@@ -360,6 +369,7 @@ def generate(
             if catalog_path is None and base_ref and not directly_changed and (
                 not provider_changed
                 and not (go_bump_changed and relative == GO_BUMP_SAMPLE)
+                and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue

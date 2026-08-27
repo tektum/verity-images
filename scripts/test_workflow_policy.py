@@ -130,9 +130,21 @@ def main() -> None:
     for changed_path in gen_matrix.GO_BUMP_PATHS:
         with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
             go_bump_samples = gen_matrix.generate("base")["include"]
-        assert {sample["context"] for sample in go_bump_samples} == {
-            gen_matrix.GO_BUMP_SAMPLE
-        }
+        expected = {gen_matrix.GO_BUMP_SAMPLE}
+        if changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
+            expected.add(gen_matrix.COREPACK_INSTALL_SAMPLE)
+        assert {sample["context"] for sample in go_bump_samples} == expected
+    assert gen_matrix.COREPACK_INSTALL_PATHS == {
+        "pipelines/corepack/install.yaml",
+        "scripts/build_candidate.sh",
+    }
+    for changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
+        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
+            corepack_samples = gen_matrix.generate("base")["include"]
+        expected = {gen_matrix.COREPACK_INSTALL_SAMPLE}
+        if changed_path in gen_matrix.GO_BUMP_PATHS:
+            expected.add(gen_matrix.GO_BUMP_SAMPLE)
+        assert {sample["context"] for sample in corepack_samples} == expected
     with patch.object(
         gen_matrix, "changed_paths", return_value={".github/workflows/build.yaml"}
     ):

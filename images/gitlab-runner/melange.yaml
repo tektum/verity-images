@@ -32,16 +32,22 @@ pipeline:
       repository: https://github.com/gitlabhq/gitlab-runner
       tag: v${{package.version}}
       expected-commit: 9ba718cdb6a9060dda9e3e5cd724fb5f97f27570
-  - runs: |
-      go get \
-        github.com/Azure/go-ntlmssp@v0.1.1 \
-        github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8 \
-        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3 \
-        github.com/go-jose/go-jose/v3@v3.0.5 \
-        github.com/go-viper/mapstructure/v2@v2.4.0 \
-        github.com/in-toto/in-toto-golang@v0.11.0 \
-        golang.org/x/text@v0.39.0 \
+  - uses: go/bump
+    with:
+      deps: |-
+        github.com/Azure/go-ntlmssp@v0.1.1
+        github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.8
+        github.com/aws/aws-sdk-go-v2/service/s3@v1.97.3
+        github.com/cilium/ebpf@v0.22.0
+        github.com/go-jose/go-jose/v3@v3.0.5
+        github.com/go-viper/mapstructure/v2@v2.4.0
+        github.com/gorilla/websocket@v1.5.3
+        github.com/in-toto/in-toto-golang@v0.11.0
+        golang.org/x/text@v0.39.0
         google.golang.org/grpc@v1.82.1
+
+  - runs: |
+
       sed -i \
         -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/custom/d' \
         -e '/gitlab.com\/gitlab-org\/gitlab-runner\/executors\/docker/d' \

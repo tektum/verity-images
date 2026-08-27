@@ -33,7 +33,7 @@ environment:
       - git
       - go-1.26
       - nodejs-23
-      - yarn
+      - corepack
   environment:
     CGO_ENABLED: "0"
     GOFLAGS: -p=4 -buildvcs=false
@@ -91,17 +91,34 @@ pipeline:
         golang.org/x/text@v0.39.0
       modroot: third_party/git-lfs
 
+  - name: Declare upstream package manager
+    runs: |
+      node -e '
+        const fs = require("fs");
+        const path = "ui/package.json";
+        const contents = JSON.parse(fs.readFileSync(path, "utf8"));
+        const yarn = contents.devDependencies?.yarn;
+        const match = typeof yarn === "string" && yarn.match(/^\^?(1\.[0-9]+\.[0-9]+)$/);
+        if (!match) {
+          throw new Error("ui/package.json must declare a supported Yarn version");
+        }
+        contents.packageManager = `yarn@${match[1]}`;
+        fs.writeFileSync(path, `${JSON.stringify(contents, null, 2)}\n`);
+      '
+  - uses: corepack/install
+    with:
+      directory: ui
+
   - name: Build UI and binaries
     runs: |
       source_commit=$(git rev-parse HEAD)
       printf '%s\n' "$source_commit" >.verity-source-commit
       build_date=$(git show -s --format=%cI HEAD)
 
-      yarn --cwd ui install --frozen-lockfile --network-timeout 200000
       HOST_ARCH=$(go env GOARCH) \
         NODE_ENV=production \
         NODE_ONLINE_ENV=online \
-        yarn --cwd ui build
+        corepack yarn --cwd ui build
 
       rm -rf .git
       GIT_COMMIT="$source_commit" \
@@ -185,7 +202,7 @@ pipeline:
       "${{targets.destdir}}/usr/bin/helm" version | grep -F 'GitTreeState:"dirty"'
       "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1 ('
       git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
-      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.6'
+      printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.'
       printf '%s\n' "$git_lfs_build_info" | \
         grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.56.0'
       printf '%s\n' "$git_lfs_build_info" | \

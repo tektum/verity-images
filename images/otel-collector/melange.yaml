@@ -34,6 +34,19 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: a56655d1b5a074f9cf01ca727e5db51da3e9ac8a
 
+  - uses: go/bump
+    with:
+      deps: |-
+        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.20.0
+        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.44.0
+        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0
+        go.opentelemetry.io/otel/sdk@v1.44.0
+        golang.org/x/net@v0.56.0
+        golang.org/x/text@v0.39.0
+        google.golang.org/grpc@v1.82.1
+      modroot: cmd/otelcorecol
+
   - runs: |
       cd cmd/otelcorecol
       sed -i \
@@ -41,15 +54,7 @@ pipeline:
         -e 's/Description: ".*testing only."/Description: "OpenTelemetry Collector"/' \
         -e 's/Version:     "0.135.0-dev"/Version:     "${{package.version}}"/' \
         main.go
-      go get \
-        go.opentelemetry.io/otel@v1.44.0 \
-        go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp@v0.20.0 \
-        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.44.0 \
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.44.0 \
-        go.opentelemetry.io/otel/sdk@v1.44.0 \
-        golang.org/x/net@v0.56.0 \
-        golang.org/x/text@v0.39.0 \
-        google.golang.org/grpc@v1.82.1
+
       go build -trimpath -tags grpcnotrace -ldflags="-s -w" -o otelcol .
 
       install -Dm755 otelcol "${{targets.destdir}}/otelcol"

@@ -33,6 +33,7 @@ inputs:
 pipeline:
   - runs: |
       cd "${{inputs.modroot}}"
+      export GOTOOLCHAIN=local
 
       local_go_version=$(go env GOVERSION)
       local_go_version=${local_go_version#go}
@@ -63,3 +64,28 @@ pipeline:
         --replaces "${{inputs.replaces}}" --tidy=${{inputs.tidy}} \
         --show-diff=${{inputs.show-diff}} \
         --tidy-compat=${{inputs.tidy-compat}}
+      tidy() {
+        [ "${{inputs.tidy}}" = true ] || return 0
+        module=$1
+        if [ -n "${{inputs.tidy-compat}}" ]; then
+          go -C "$module" mod tidy -compat="${{inputs.tidy-compat}}"
+        else
+          go -C "$module" mod tidy
+        fi
+      }
+
+      if [ -f go.work ]; then
+        go work edit -json | awk -F'"' '/"DiskPath":/ { print $4 }' |
+          while IFS= read -r module; do
+            tidy "$module"
+          done
+        go work sync
+        if [ -d vendor ]; then
+          go work vendor
+        fi
+      else
+        tidy .
+        if [ -d vendor ]; then
+          go mod vendor
+        fi
+      fi
