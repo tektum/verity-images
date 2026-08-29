@@ -259,7 +259,7 @@ def validate_lock(lock: dict[str, Any], capture: bytes | None = None) -> None:
     for update in lock["updates"]:
         fields = {
             "moduleRoot", "module", "oldVersion", "fixedVersion",
-            "sum", "goModSum", "vulnerabilityIds",
+            "artifacts", "vulnerabilityIds",
         }
         if not isinstance(update, dict) or set(update) != fields:
             raise LockError("invalid update")
@@ -269,9 +269,15 @@ def validate_lock(lock: dict[str, Any], capture: bytes | None = None) -> None:
             raise LockError("unsafe module update")
         if parse_version(str(update["oldVersion"])) >= parse_version(str(update["fixedVersion"])):
             raise LockError("module update does not advance the version")
-        module_sum = update["sum"]
-        if (module_sum is not None and H1.fullmatch(str(module_sum)) is None) or H1.fullmatch(str(update["goModSum"])) is None:
-            raise LockError("invalid module artifact identity")
+        artifacts = update["artifacts"]
+        if not isinstance(artifacts, list) or not artifacts:
+            raise LockError("module update lacks artifact closure")
+        validated = [validate_artifact(artifact) for artifact in artifacts]
+        if artifacts != sorted(artifacts, key=canonical) or len(validated) != len(set(validated)):
+            raise LockError("module artifact closure is not canonical")
+        direct = (update["module"], update["fixedVersion"])
+        if validated.count(direct) != 1:
+            raise LockError("module artifact closure does not bind fixed module")
         ids = update["vulnerabilityIds"]
         if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not all(isinstance(item, str) and item for item in ids):
             raise LockError("invalid update vulnerability IDs")
@@ -313,19 +319,73 @@ def run_go(
     return completed.stdout if output else ""
 
 
-def download_module(module: str, version: str, cwd: Path) -> dict[str, str | None]:
-    raw = run_go(["go", "mod", "download", "-json", f"{module}@{version}"], cwd, True, online=True)
-    value = json.loads(raw)
+def parse_json_stream(raw: str) -> list[Any]:
+    decoder = json.JSONDecoder()
+    values: list[Any] = []
+    offset = 0
+    while offset < len(raw):
+        while offset < len(raw) and raw[offset].isspace():
+            offset += 1
+        if offset < len(raw):
+            value, offset = decoder.raw_decode(raw, offset)
+            values.append(value)
+    return values
+
+
+def validate_artifact(artifact: Any) -> tuple[str, str]:
+    fields = {"module", "version", "sum", "goModSum"}
+    if not isinstance(artifact, dict) or set(artifact) != fields:
+        raise LockError("invalid module artifact")
+    module, version = artifact["module"], artifact["version"]
+    if not isinstance(module, str) or not isinstance(version, str) or not compatible(module, version):
+        raise LockError("invalid module artifact identity")
+    module_sum = artifact["sum"]
+    if (module_sum is not None and H1.fullmatch(str(module_sum)) is None) or H1.fullmatch(str(artifact["goModSum"])) is None:
+        raise LockError("invalid module artifact checksum")
+    return module, version
+
+
+def downloaded_artifact(value: Any, module: str, version: str) -> dict[str, Any]:
     if not isinstance(value, dict) or value.get("Path") != module or value.get("Version") != version or value.get("Error"):
         raise LockError(f"downloaded module identity mismatch for {module}@{version}")
     artifact = {
+        "module": module,
+        "version": version,
         "sum": value["Sum"] if "Sum" in value else None,
         "goModSum": value.get("GoModSum"),
     }
-    module_sum = artifact["sum"]
-    if (module_sum is not None and H1.fullmatch(str(module_sum)) is None) or H1.fullmatch(str(artifact["goModSum"])) is None:
-        raise LockError(f"downloaded module lacks a valid checksum identity for {module}@{version}")
+    try:
+        validate_artifact(artifact)
+    except LockError as error:
+        raise LockError(f"downloaded module lacks a valid checksum identity for {module}@{version}") from error
     return artifact
+
+
+def download_module(module: str, version: str, cwd: Path) -> dict[str, Any]:
+    raw = run_go(["go", "mod", "download", "-json", f"{module}@{version}"], cwd, True, online=True)
+    values = parse_json_stream(raw)
+    if len(values) != 1:
+        raise LockError(f"invalid download response for {module}@{version}")
+    return downloaded_artifact(values[0], module, version)
+
+
+def resolve_module_artifacts(module: str, version: str) -> list[dict[str, Any]]:
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        root.joinpath("go.mod").write_text(
+            f"module verity.local/remediation\ngo 1.25\nrequire {module} {version}\n",
+            encoding="utf-8",
+        )
+        raw = run_go(["go", "mod", "download", "-json", "all"], root, True, online=True)
+    artifacts: list[dict[str, Any]] = []
+    for value in parse_json_stream(raw):
+        if not isinstance(value, dict):
+            raise LockError("invalid module closure response")
+        artifacts.append(downloaded_artifact(value, str(value.get("Path", "")), str(value.get("Version", ""))))
+    artifacts.sort(key=canonical)
+    if sum(item["module"] == module and item["version"] == version for item in artifacts) != 1:
+        raise LockError(f"resolved module closure omits {module}@{version}")
+    return artifacts
 
 
 def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
@@ -334,12 +394,12 @@ def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
     module_root = safe_relative(str(scan["moduleRoot"]))
     capture_source = spec_path.parent / safe_relative(str(spec["capture"]))
     capture, updates, nonfixable = derive(capture_source.read_text(encoding="utf-8"), module_root)
-    artifacts: dict[tuple[str, str], dict[str, str | None]] = {}
+    artifacts: dict[tuple[str, str], list[dict[str, Any]]] = {}
     for update in updates:
         key = update["module"], update["fixedVersion"]
         if key not in artifacts:
-            artifacts[key] = download_module(*key, spec_path.parent)
-        update.update(artifacts[key])
+            artifacts[key] = resolve_module_artifacts(*key)
+        update["artifacts"] = artifacts[key]
     capture["database"] = spec["database"]
     capture_bytes = canonical(capture)
     capture_path = lock_path.with_suffix(".scan.json")
@@ -382,6 +442,9 @@ def resolve_module_root(root: Path, relative: str) -> Path:
 
 def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
+    if not isinstance(lock, dict):
+        raise LockError("invalid remediation lock")
+    validate_lock(lock)
     capture_path = lock_path.parent / safe_relative(str(lock.get("scan", {}).get("capture", "")))
     validate_lock(lock, capture_path.read_bytes())
     root = root.resolve()
@@ -401,30 +464,25 @@ def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
         expected[(relative, update["module"])] = update["fixedVersion"]
 
     staged: list[dict[str, Any]] = []
+    staged_keys: set[tuple[str, str, str]] = set()
     for update in required:
-        artifact = download_module(update["module"], update["fixedVersion"], roots[update["moduleRoot"]])
-        locked = {"sum": update["sum"], "goModSum": update["goModSum"]}
-        if artifact != locked:
-            raise LockError(f"downloaded module checksum mismatch for {update['module']}@{update['fixedVersion']}")
-        staged.append(
-            {
-                "moduleRoot": update["moduleRoot"],
-                "module": update["module"],
-                "version": update["fixedVersion"],
-                **artifact,
-            }
-        )
-
+        relative = update["moduleRoot"]
+        for locked in update["artifacts"]:
+            key = relative, locked["module"], locked["version"]
+            if key in staged_keys:
+                continue
+            artifact = download_module(locked["module"], locked["version"], roots[relative])
+            if artifact != locked:
+                raise LockError(f"downloaded module checksum mismatch for {locked['module']}@{locked['version']}")
+            staged_keys.add(key)
+            staged.append({"moduleRoot": relative, **artifact})
     for update in required:
         run_go(
             ["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"],
             roots[update["moduleRoot"]],
         )
-
-        run_go(
-            ["go", "mod", "download", f"{update['module']}@{update['fixedVersion']}"],
-            roots[update["moduleRoot"]],
-        )
+    for relative in sorted({update["moduleRoot"] for update in required}):
+        run_go(["go", "mod", "download", "all"], roots[relative])
     workspace = root / "go.work"
     if workspace.is_file():
         run_go(["go", "work", "sync"], root, workspace=workspace)
