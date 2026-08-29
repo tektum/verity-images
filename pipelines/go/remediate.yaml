@@ -1,280 +1,317 @@
-name: Apply locked Go vulnerability remediation
+name: Resolve Go vulnerabilities
 
 inputs:
-  lock:
-    description: Reviewed remediation lock relative to the build workspace
-    default: go-remediation.lock.json
   modroot:
-    description: Root containing the pinned upstream Go source
-    default: .
+    description: Go module root relative to the checked-out source
+    default: server
+  packages:
+    description: Space-separated package patterns to scan and validate
+    default: github.com/gorilla/websocket
 
 pipeline:
   - runs: |
       set -eu
+      workspace=$(pwd -P)
       root=$(realpath "${{inputs.modroot}}")
-      lock=$(realpath "${{inputs.lock}}")
-      tool="$root/.verity/apply-go-remediation.py"
-      evidence="$root/.verity/go-remediation-evidence.json"
-      install -d "$root/.verity"
-      cat >"$tool" <<'PYTHON'
-      import hashlib, json, os, re, subprocess, sys
+      case "$root/" in
+        "$workspace/"*) ;;
+        *) printf 'error: module root escapes workspace: %s\n' "$root" >&2; exit 1 ;;
+      esac
+      packages='${{inputs.packages}}'
+      set -f
+      set -- $packages
+      [ "$#" -gt 0 ] || { printf 'error: no Go package patterns configured\n' >&2; exit 1; }
+      tool_dir=$(mktemp -d)
+      trap 'rm -rf "$tool_dir"' EXIT
+      GOBIN="$tool_dir" GOTOOLCHAIN=local GOWORK=off \
+        go install golang.org/x/vuln/cmd/govulncheck@v1.7.0
+      cat >"$tool_dir/remediate.py" <<'PYTHON'
+      import json
+      import os
+      import re
+      import selectors
+      import shlex
+      import subprocess
+      import sys
       from pathlib import Path
 
-      SCHEMA_VERSION = 2
-      TOOL = {"module": "golang.org/x/vuln/cmd/govulncheck", "version": "v1.7.0", "protocol": "v1.0.0"}
+      TOOL_VERSION = "v1.7.0"
+      PROTOCOL_VERSION = "v1.0.0"
+      RESULT_EXIT_CODES = {0, 3}
+      MESSAGE_TYPES = {"config", "progress", "SBOM", "osv", "finding"}
+      MAX_OUTPUT_BYTES = 32 * 1024 * 1024
+      MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
       VERSION = re.compile(
           r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
           r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
       )
-      MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
-      SHA256 = re.compile(r"^sha256:[a-f0-9]{64}$")
-      H1 = re.compile(r"^h1:[A-Za-z0-9+/]{43}=$")
-      COMMIT = re.compile(r"^[a-f0-9]{40}$")
-      DEFAULT_GOPROXY = "https://proxy.golang.org"
-      DEFAULT_GOSUMDB = "sum.golang.org"
 
-      def canonical(value):
-          return (json.dumps(value, indent=2, sort_keys=True, separators=(",", ": ")) + "\n").encode()
+      class RemediationError(ValueError):
+          pass
 
-      def digest(value):
-          return "sha256:" + hashlib.sha256(value).hexdigest()
-
-      def version(value):
+      def version_key(value):
           match = VERSION.fullmatch(value)
           if match is None:
-              raise ValueError(f"invalid module version: {value!r}")
-          pre = match.group(4)
-          parts = tuple((0, f"{int(x):020d}") if x.isdecimal() else (1, x) for x in pre.split(".")) if pre else ()
-          return int(match[1]), int(match[2]), int(match[3]), 0 if pre else 1, parts
+              raise RemediationError(f"invalid module version: {value!r}")
+          prerelease = match.group(4)
+          identifiers = (
+              tuple((0, f"{int(part):020d}") if part.isdecimal() else (1, part) for part in prerelease.split("."))
+              if prerelease else ()
+          )
+          return int(match.group(1)), int(match.group(2)), int(match.group(3)), 0 if prerelease else 1, identifiers
 
-      def compatible(module, value):
+      def compatible(module, version):
           if MODULE.fullmatch(module) is None:
-              raise ValueError(f"invalid module path: {module!r}")
-          major = version(value)[0]
+              return False
+          major = version_key(version)[0]
           suffix = re.search(r"/v([0-9]+)$", module)
           if module.startswith("gopkg.in/"):
               suffix = re.search(r"\.v([0-9]+)$", module)
               if suffix is None:
                   return False
-          expected = int(suffix[1]) if suffix else None
+          expected = int(suffix.group(1)) if suffix else None
           return (expected is None and major < 2) or expected == major
 
-      def relative(value):
-          path = Path(value)
-          if not value or path.is_absolute() or ".." in path.parts:
-              raise ValueError(f"unsafe relative path: {value!r}")
-          return path.as_posix()
+      def parse_stream(raw):
+          decoder = json.JSONDecoder()
+          messages = []
+          offset = 0
+          while offset < len(raw):
+              while offset < len(raw) and raw[offset].isspace():
+                  offset += 1
+              if offset == len(raw):
+                  break
+              try:
+                  value, offset = decoder.raw_decode(raw, offset)
+              except json.JSONDecodeError as error:
+                  raise RemediationError(f"malformed govulncheck JSON: {error}") from error
+              if (
+                  not isinstance(value, dict)
+                  or len(value) != 1
+                  or next(iter(value)) not in MESSAGE_TYPES
+                  or not isinstance(next(iter(value.values())), dict)
+                  or ("config" in value and messages)
+              ):
+                  raise RemediationError("invalid govulncheck message")
+              messages.append(value)
+          if not messages:
+              raise RemediationError("empty govulncheck output")
+          config = messages[0].get("config")
+          if not isinstance(config, dict):
+              raise RemediationError("govulncheck output must begin with config")
+          if config.get("protocol_version") != PROTOCOL_VERSION or config.get("scanner_name") != "govulncheck":
+              raise RemediationError("unsupported govulncheck protocol")
+          if config.get("scanner_version") != TOOL_VERSION:
+              raise RemediationError("unexpected govulncheck version")
+          return messages
 
-      def module_root(root, value):
-          candidate = (root / relative(value)).resolve()
-          try:
-              candidate.relative_to(root)
-          except ValueError as error:
-              raise ValueError(f"module root escapes workspace: {value!r}") from error
-          if not candidate.is_dir():
-              raise ValueError(f"module root is not a directory: {value!r}")
-          return candidate
-
-      def run(arguments, cwd, output=False, workspace=None, online=False):
+      def scan(binary, root, packages, workspace=None):
           environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
-          if online:
-              environment["GOPROXY"] = os.environ.get("GOPROXY", DEFAULT_GOPROXY)
-              environment["GOSUMDB"] = os.environ.get("GOSUMDB", DEFAULT_GOSUMDB)
-          else:
-              environment.update(GOPROXY="off", GOSUMDB="off")
-          completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
-          return completed.stdout if output else ""
-
-      def validate_artifact(artifact):
-          fields = {"module", "version", "sum", "goModSum"}
-          if not isinstance(artifact, dict) or set(artifact) != fields:
-              raise ValueError("invalid module artifact")
-          module, selected_version = artifact["module"], artifact["version"]
-          if not isinstance(module, str) or not isinstance(selected_version, str):
-              raise ValueError("invalid module artifact identity")
-          if not compatible(module, selected_version):
-              raise ValueError("invalid module artifact identity")
-          module_sum = artifact["sum"]
-          valid_sum = module_sum is None or H1.fullmatch(str(module_sum)) is not None
-          if not valid_sum or H1.fullmatch(str(artifact["goModSum"])) is None:
-              raise ValueError("invalid module artifact checksum")
-          return module, selected_version
-
-      def download_module(module, selected_version, cwd):
-          raw = run(["go", "mod", "download", "-json", f"{module}@{selected_version}"], cwd, True, online=True)
-          value = json.loads(raw)
-          if not isinstance(value, dict):
-              raise ValueError(f"downloaded module identity mismatch for {module}@{selected_version}")
-          if value.get("Path") != module or value.get("Version") != selected_version or value.get("Error"):
-              raise ValueError(f"downloaded module identity mismatch for {module}@{selected_version}")
-          artifact = {
-              "module": module, "version": selected_version,
-              "sum": value["Sum"] if "Sum" in value else None,
-              "goModSum": value.get("GoModSum"),
-          }
+          environment.setdefault("GOVULNDB", "https://vuln.go.dev")
+          with subprocess.Popen(
+              [str(binary), "-json", *packages], cwd=root, env=environment,
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+          ) as process:
+              if process.stdout is None or process.stderr is None:
+                  raise RemediationError("failed to capture govulncheck output")
+              streams = {process.stdout: ("stdout", bytearray()), process.stderr: ("stderr", bytearray())}
+              selector = selectors.DefaultSelector()
+              try:
+                  for stream in streams:
+                      selector.register(stream, selectors.EVENT_READ)
+                  while selector.get_map():
+                      for key, _ in selector.select():
+                          stream = key.fileobj
+                          chunk = os.read(stream.fileno(), 64 * 1024)
+                          if not chunk:
+                              selector.unregister(stream)
+                              continue
+                          name, buffer = streams[stream]
+                          buffer.extend(chunk)
+                          if len(buffer) > MAX_OUTPUT_BYTES:
+                              process.kill()
+                              raise RemediationError(f"govulncheck {name} exceeds 32 MiB")
+              finally:
+                  selector.close()
+                  if process.poll() is None:
+                      process.kill()
+              returncode = process.wait()
+              stdout = bytes(streams[process.stdout][1])
+              stderr = bytes(streams[process.stderr][1]).decode(errors="replace").strip()
+          if returncode not in RESULT_EXIT_CODES:
+              raise RemediationError(f"unexpected govulncheck exit status {returncode}: {stderr or 'no stderr'}")
           try:
-              validate_artifact(artifact)
-          except ValueError as error:
-              message = f"downloaded module lacks a valid checksum identity for {module}@{selected_version}"
-              raise ValueError(message) from error
-          return artifact
+              messages = parse_stream(stdout.decode())
+          except UnicodeDecodeError as error:
+              raise RemediationError("malformed govulncheck UTF-8 output") from error
+          if returncode == 3 and not any("finding" in message for message in messages):
+              raise RemediationError("govulncheck findings exit contains no findings")
+          return messages
 
-      def validate(lock, capture):
-          required = {"schemaVersion", "source", "tool", "database", "scan", "updates", "nonFixable", "contentHash"}
-          if not isinstance(lock, dict) or set(lock) != required:
-              raise ValueError("invalid remediation lock")
-          source, database, scan = lock["source"], lock["database"], lock["scan"]
-          if lock["schemaVersion"] != SCHEMA_VERSION or lock["tool"] != TOOL:
-              raise ValueError("invalid remediation lock")
-          if not isinstance(source, dict) or not isinstance(database, dict) or not isinstance(scan, dict):
-              raise ValueError("invalid remediation lock")
-          if COMMIT.fullmatch(str(source.get("commit", ""))) is None or not source.get("version"):
-              raise ValueError("invalid source")
-          provenance = all(isinstance(database.get(k), str) and database[k] for k in ("source", "revision"))
-          if not provenance or SHA256.fullmatch(str(database.get("sha256", ""))) is None:
-              raise ValueError("invalid database provenance")
-          valid_scan = scan.get("phase") in {"source", "post-generation"}
-          if SHA256.fullmatch(str(scan.get("captureSha256", ""))) is None or not valid_scan:
-              raise ValueError("invalid scan")
-          relative(scan.get("moduleRoot", "")); relative(scan.get("capture", ""))
-          patterns = scan.get("packages")
-          if not isinstance(patterns, list) or not patterns:
-              raise ValueError("invalid package patterns")
-          if not all(isinstance(x, str) and x and not x.startswith("-") for x in patterns):
-              raise ValueError("invalid package patterns")
-          if not isinstance(lock["updates"], list) or not isinstance(lock["nonFixable"], list):
-              raise ValueError("invalid remediation records")
-          for update in lock["updates"]:
-              fields = {"moduleRoot", "module", "oldVersion", "fixedVersion", "artifacts", "vulnerabilityIds"}
-              if not isinstance(update, dict) or set(update) != fields:
-                  raise ValueError("invalid update")
-              if relative(update["moduleRoot"]) != scan["moduleRoot"]:
-                  raise ValueError("update module root differs from trusted scan root")
-              if not compatible(update["module"], update["fixedVersion"]):
-                  raise ValueError("unsafe module update")
-              if version(update["oldVersion"]) >= version(update["fixedVersion"]):
-                  raise ValueError("module update does not advance the version")
-              artifacts = update["artifacts"]
-              if not isinstance(artifacts, list) or not artifacts:
-                  raise ValueError("module update lacks artifact closure")
-              validated = [validate_artifact(artifact) for artifact in artifacts]
-              if artifacts != sorted(artifacts, key=canonical) or len(validated) != len(set(validated)):
-                  raise ValueError("module artifact closure is not canonical")
-              if validated.count((update["module"], update["fixedVersion"])) != 1:
-                  raise ValueError("module artifact closure does not bind fixed module")
-              ids = update["vulnerabilityIds"]
-              if not isinstance(ids, list) or not ids or ids != sorted(set(ids)):
-                  raise ValueError("invalid update vulnerability IDs")
-              if not all(isinstance(x, str) and x for x in ids):
-                  raise ValueError("invalid update vulnerability IDs")
-          for record in lock["nonFixable"]:
-              if not isinstance(record, dict) or record.get("status") not in {"no-fix", "no-compatible-fix"}:
-                  raise ValueError("invalid non-fixable record")
-              if relative(record.get("moduleRoot", "")) != scan["moduleRoot"]:
-                  raise ValueError("non-fixable module root differs from trusted scan root")
-              if MODULE.fullmatch(str(record.get("module", ""))) is None:
-                  raise ValueError("invalid non-fixable module")
-              version(record.get("version", ""))
-              ids = record.get("vulnerabilityIds")
-              if not isinstance(ids, list) or not ids or ids != sorted(set(ids)):
-                  raise ValueError("invalid non-fixable vulnerability IDs")
-              if not all(isinstance(x, str) and x for x in ids):
-                  raise ValueError("invalid non-fixable vulnerability IDs")
-          unhashed = dict(lock)
-          unhashed.pop("contentHash")
-          if lock["contentHash"] != digest(canonical(unhashed)) or scan["captureSha256"] != digest(capture):
-              raise ValueError("lock integrity mismatch")
-          captured = json.loads(capture)
-          if not isinstance(captured, dict):
-              raise ValueError("capture provenance mismatch")
-          capture_matches = captured.get("schemaVersion") == SCHEMA_VERSION and captured.get("tool") == TOOL
-          if not capture_matches or captured.get("database") != database:
-              raise ValueError("capture provenance mismatch")
-
-      def file_hash(path):
-          return digest(path.read_bytes()) if path.is_file() else None
-
-      lock_path, root, evidence_path = map(Path, sys.argv[1:])
-      root = root.resolve()
-      lock = json.loads(lock_path.read_text(encoding="utf-8"))
-      if not isinstance(lock, dict) or not isinstance(lock.get("scan"), dict):
-          raise ValueError("invalid remediation lock")
-      capture = (lock_path.parent / relative(lock.get("scan", {}).get("capture", ""))).read_bytes()
-      validate(lock, capture)
-      relative_roots = {lock["scan"]["moduleRoot"], *(x["moduleRoot"] for x in lock["updates"])}
-      roots = {name: module_root(root, name) for name in relative_roots}
-      expected, required = {}, []
-      for update in lock["updates"]:
-          key = update["moduleRoot"], update["module"]
-          current = run(
-              ["go", "list", "-m", "-f", "{{.Version}}", update["module"]],
-              roots[key[0]], True, online=True,
-          ).strip()
-          if version(current) >= version(update["fixedVersion"]):
-              expected[key] = current
-          elif current != update["oldVersion"]:
-              raise ValueError(f"selected version drift for {update['module']}: {current}")
-          else:
-              required.append(update)
-              expected[key] = update["fixedVersion"]
-
-      staged, staged_keys = [], set()
-      for update in required:
-          relative_root = update["moduleRoot"]
-          for locked in update["artifacts"]:
-              key = relative_root, locked["module"], locked["version"]
-              if key in staged_keys:
+      def minimum_fix(entry, module, current):
+          candidates = []
+          affected = entry.get("affected")
+          if not isinstance(affected, list):
+              raise RemediationError("invalid OSV affected records")
+          for record in affected:
+              if not isinstance(record, dict):
+                  raise RemediationError("invalid OSV affected record")
+              package = record.get("package")
+              if not isinstance(package, dict) or not isinstance(package.get("name"), str):
+                  raise RemediationError("invalid OSV package")
+              if package["name"] != module:
                   continue
-              artifact = download_module(locked["module"], locked["version"], roots[relative_root])
-              if artifact != locked:
-                  message = f"downloaded module checksum mismatch for {locked['module']}@{locked['version']}"
-                  raise ValueError(message)
-              staged_keys.add(key)
-              staged.append({"moduleRoot": relative_root, **artifact})
-      for update in required:
-          module_version = f"{update['module']}@{update['fixedVersion']}"
-          update_root = roots[update["moduleRoot"]]
-          run(["go", "mod", "edit", f"-require={module_version}"], update_root)
-      for relative_root in sorted({update["moduleRoot"] for update in required}):
-          run(["go", "mod", "download", "all"], roots[relative_root])
-      workspace = root / "go.work"
-      if workspace.is_file():
-          run(["go", "work", "sync"], root, workspace=workspace)
-      selected = {}
-      for name, module in sorted(roots.items()):
-          packages = lock["scan"]["packages"] if name == lock["scan"]["moduleRoot"] else ["./..."]
-          run(["go", "list", "-mod=readonly", *packages], module)
-          listing = run(["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"], module, True)
-          modules = (line.split(" ", 1) for line in listing.splitlines() if " " in line)
-          selected.update(((name, path), selected_version) for path, selected_version in modules)
-          if (module / "vendor").is_dir():
-              run(["go", "mod", "vendor"], module)
-              run(["go", "list", "-mod=vendor", *packages], module)
-      if workspace.is_file() and (root / "vendor").is_dir():
-          run(["go", "work", "vendor"], root, workspace=workspace)
-          scan_root = roots[lock["scan"]["moduleRoot"]]
-          run(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], scan_root, workspace=workspace)
-      for key, selected_version in expected.items():
-          if selected.get(key) != selected_version:
-              raise ValueError(f"selected version mismatch for {key[1]} in {key[0]}")
-      evidence = {
-          "schemaVersion": SCHEMA_VERSION,
-          "lockContentHash": lock["contentHash"],
-          "source": lock["source"], "tool": lock["tool"], "database": lock["database"],
-          "scan": lock["scan"], "updates": lock["updates"], "nonFixable": lock["nonFixable"],
-          "staged": sorted(staged, key=canonical),
-          "selected": [{"moduleRoot": r, "module": m, "version": v} for (r, m), v in sorted(expected.items())],
-          "manifests": {
-              name: {
-                  "go.mod": file_hash(module / "go.mod"),
-                  "go.sum": file_hash(module / "go.sum"),
-                  "vendor/modules.txt": file_hash(module / "vendor/modules.txt"),
-              }
-              for name, module in sorted(roots.items())
-          },
-      }
-      evidence_path.write_bytes(canonical(evidence))
+              ranges = record.get("ranges", [])
+              if not isinstance(ranges, list):
+                  raise RemediationError("invalid OSV ranges")
+              for interval in ranges:
+                  if not isinstance(interval, dict):
+                      raise RemediationError("invalid OSV range")
+                  if interval.get("type") != "SEMVER":
+                      continue
+                  events = interval.get("events")
+                  if not isinstance(events, list):
+                      raise RemediationError("invalid OSV events")
+                  active = False
+                  for event in events:
+                      if not isinstance(event, dict):
+                          raise RemediationError("invalid OSV event")
+                      if "introduced" in event:
+                          introduced = event["introduced"]
+                          if not isinstance(introduced, str):
+                              raise RemediationError("invalid introduced version")
+                          active = introduced == "0" or (
+                              version_key("v" + introduced.removeprefix("v")) <= version_key(current)
+                          )
+                      elif "fixed" in event:
+                          fixed = event["fixed"]
+                          if not isinstance(fixed, str):
+                              raise RemediationError("invalid fixed version")
+                          candidate = "v" + fixed.removeprefix("v")
+                          if active and version_key(current) < version_key(candidate):
+                              candidates.append(candidate)
+                          active = False
+                      else:
+                          raise RemediationError("OSV event has no boundary")
+          compatible_fixes = [candidate for candidate in candidates if compatible(module, candidate)]
+          if compatible_fixes:
+              return min(compatible_fixes, key=version_key), ""
+          return "", "no-compatible-fix" if candidates else "no-fix"
+
+      def run_go(arguments, cwd, capture=False, workspace=None):
+          command = shlex.join(arguments)
+          print("+ " + command, flush=True)
+          environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
+          completed = subprocess.run(arguments, cwd=cwd, env=environment, check=False, text=True, capture_output=True)
+          if completed.returncode:
+              detail = completed.stderr.strip() or completed.stdout.strip() or "no output"
+              raise RemediationError(f"command failed ({completed.returncode}): {command}: {detail}")
+          return completed.stdout if capture else ""
+
+      def selected_modules(root, workspace=None):
+          return {
+              fields[0]: fields[1]
+              for line in run_go(
+                  ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"],
+                  root,
+                  capture=True,
+                  workspace=workspace,
+              ).splitlines()
+              if len(fields := line.split()) == 2
+          }
+
+      def derive_fixes(messages, selected):
+          osvs = {}
+          findings = []
+          for message in messages[1:]:
+              if "osv" in message:
+                  entry = message["osv"]
+                  if not isinstance(entry.get("id"), str):
+                      raise RemediationError("invalid OSV record")
+                  osvs[entry["id"]] = entry
+              elif "finding" in message:
+                  findings.append(message["finding"])
+          updates = {}
+          unresolved = set()
+          detected = set()
+          fixable = set()
+          for finding in findings:
+              osv_id = finding.get("osv")
+              trace = finding.get("trace")
+              if not isinstance(osv_id, str) or osv_id not in osvs or not isinstance(trace, list) or not trace:
+                  raise RemediationError("finding cannot be correlated with OSV data")
+              frame = trace[0]
+              if not isinstance(frame, dict) or not isinstance(frame.get("module"), str):
+                  raise RemediationError("finding lacks module identity")
+              module = frame["module"]
+              detected.add((osv_id, module))
+              current = selected.get(module)
+              if current is None or not compatible(module, current):
+                  unresolved.add((osv_id, module, current or "unknown", "no-compatible-fix"))
+                  continue
+              fixed, reason = minimum_fix(osvs[osv_id], module, current)
+              if not fixed:
+                  unresolved.add((osv_id, module, current, reason))
+                  continue
+              fixable.add((osv_id, module))
+              previous = updates.get(module)
+              if previous is None or version_key(previous) < version_key(fixed):
+                  updates[module] = fixed
+          return updates, sorted(unresolved), detected, fixable
+
+      def reconcile(workspace_root, root, packages, workspace):
+          module_vendor = root.joinpath("vendor").is_dir()
+          workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
+          run_go(["go", "mod", "tidy"], root, workspace=workspace)
+          if workspace:
+              run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
+          if module_vendor:
+              run_go(["go", "mod", "vendor"], root)
+          if workspace_vendor:
+              run_go(["go", "work", "vendor"], workspace_root, workspace=workspace)
+          mode = "vendor" if workspace_vendor or (module_vendor and workspace is None) else "readonly"
+          run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
+          run_go(["go", "build", f"-mod={mode}", *packages], root, workspace=workspace)
+
+      def main():
+          binary, workspace_arg, root_arg, *packages = sys.argv[1:]
+          workspace_root = Path(workspace_arg).resolve()
+          root = Path(root_arg).resolve()
+          if not packages or any(not package or package.startswith("-") for package in packages):
+              raise RemediationError("invalid Go package patterns")
+          try:
+              root.relative_to(workspace_root)
+          except ValueError as error:
+              raise RemediationError("module root escapes workspace") from error
+          workspace = workspace_root / "go.work" if workspace_root.joinpath("go.work").is_file() else None
+          before = scan(Path(binary), root, packages, workspace)
+          selected = selected_modules(root, workspace)
+          updates, _, _, expected_fixed = derive_fixes(before, selected)
+          requested = [
+              f"{module}@{fixed}"
+              for module, fixed in sorted(updates.items())
+              if version_key(selected[module]) < version_key(fixed)
+          ]
+          if requested:
+              print("go remediation: applying " + " ".join(requested), flush=True)
+              run_go(["go", "get", *requested], root, workspace=workspace)
+          reconcile(workspace_root, root, packages, workspace)
+          after = scan(Path(binary), root, packages, workspace)
+          remaining, unresolved, detected, _ = derive_fixes(after, selected_modules(root, workspace))
+          persisted = expected_fixed & detected
+          if remaining or persisted:
+              details = " ".join(f"{module}@{version}" for module, version in sorted(remaining.items()))
+              if persisted:
+                  details = " ".join(f"{osv_id}:{module}" for osv_id, module in sorted(persisted))
+              raise RemediationError(f"compatible vulnerability fixes remain after remediation: {details}")
+          for osv_id, module, current, reason in unresolved:
+              print(f"go remediation: continuing with {osv_id} in {module}@{current} ({reason})", flush=True)
+
+      if __name__ == "__main__":
+          try:
+              main()
+          except (OSError, RemediationError) as error:
+              print(f"error: {error}", file=sys.stderr)
+              raise SystemExit(1)
       PYTHON
-      python3 "$tool" "$lock" "$root" "$evidence"
-      install -Dm644 "$evidence" \
-        "${{targets.destdir}}/usr/share/${{package.name}}/go-remediation-evidence.json"
+      python3 "$tool_dir/remediate.py" "$tool_dir/govulncheck" "$workspace" "$root" "$@"
