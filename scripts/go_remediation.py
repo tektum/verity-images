@@ -201,7 +201,7 @@ def derive(raw: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[st
         "schemaVersion": SCHEMA_VERSION,
         "tool": TOOL,
         "osvs": [osvs[key] for key in sorted(osvs)],
-        "findings": sorted(findings, key=lambda item: canonical(item)),
+        "findings": sorted(findings, key=canonical),
     }
     return capture, [updates[key] for key in sorted(updates)], [nonfixable[key] for key in sorted(nonfixable)]
 
