@@ -9,6 +9,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import sys
 from pathlib import Path
 from typing import Any
@@ -422,32 +423,72 @@ def capture_artifact(root: Path, output: Path, repository: str, pr: str, run: st
         source, database, scan = spec.get("source"), spec.get("database"), spec.get("scan")
         if not isinstance(source, dict) or not isinstance(database, dict) or not isinstance(scan, dict):
             raise LockError(f"invalid scan specification: {spec_path}")
+        source_url = source.get("repository")
+        source_commit = str(source.get("commit", ""))
+        if not isinstance(source_url, str) or not source_url.startswith("https://") or COMMIT.fullmatch(source_commit) is None:
+            raise LockError(f"invalid immutable source: {spec_path}")
+        if (
+            not isinstance(database.get("source"), str)
+            or not database["source"].startswith("https://")
+            or not isinstance(database.get("revision"), str)
+            or not database["revision"]
+            or SHA256.fullmatch(str(database.get("sha256", ""))) is None
+        ):
+            raise LockError(f"invalid vulnerability database provenance: {spec_path}")
         module_root = safe_relative(str(scan.get("moduleRoot", "")))
         packages = scan.get("packages")
         if scan.get("phase") not in {"source", "post-generation"} or not isinstance(packages, list) or not packages:
             raise LockError(f"unsupported scan specification: {spec_path}")
-        workdir = (root / module_root).resolve()
-        try:
-            workdir.relative_to(root.resolve())
-        except ValueError as error:
-            raise LockError(f"scan module root escapes repository: {module_root!r}") from error
-        if scan["phase"] == "post-generation":
+        with tempfile.TemporaryDirectory() as temporary:
+            checkout = Path(temporary) / "source"
             subprocess.run(
-                ["go", "generate", "./..."],
-                cwd=workdir,
-                env=dict(os.environ, GOTOOLCHAIN="local", GOWORK="off"),
+                ["git", "clone", "--filter=blob:none", "--no-checkout", source_url, str(checkout)],
                 check=True,
                 text=True,
                 capture_output=True,
             )
-        raw = subprocess.run(
-            ["go", "run", f"{TOOL['module']}@{TOOL['version']}", "-json", *packages],
-            cwd=workdir,
-            env=dict(os.environ, GOTOOLCHAIN="local", GOWORK="off"),
-            check=True,
-            text=True,
-            capture_output=True,
-        ).stdout.encode()
+            subprocess.run(
+                ["git", "-c", "advice.detachedHead=false", "checkout", "--detach", source_commit],
+                cwd=checkout,
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+            actual = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=checkout, check=True, text=True, capture_output=True
+            ).stdout.strip()
+            if actual != source_commit:
+                raise LockError("source checkout does not match declared commit")
+            workdir = (checkout / module_root).resolve()
+            try:
+                workdir.relative_to(checkout.resolve())
+            except ValueError as error:
+                raise LockError(f"scan module root escapes source: {module_root!r}") from error
+            environment = dict(
+                os.environ,
+                GOTOOLCHAIN="local",
+                GOWORK="off",
+                GOVULNDB=database["source"],
+            )
+            if scan["phase"] == "post-generation":
+                subprocess.run(
+                    ["go", "generate", "./..."],
+                    cwd=workdir,
+                    env=environment,
+                    check=True,
+                    text=True,
+                    capture_output=True,
+                )
+            raw = subprocess.run(
+                ["go", "run", f"{TOOL['module']}@{TOOL['version']}", "-json", *packages],
+                cwd=workdir,
+                env=environment,
+                check=True,
+                text=True,
+                capture_output=True,
+            ).stdout.encode()
+        if len(raw) > 32 * 1024 * 1024:
+            raise LockError("raw vulnerability capture exceeds 32 MiB")
         message_stream(raw.decode())
         relative_spec = spec_path.relative_to(root).as_posix()
         raw_path = f"raw/{relative_spec.removesuffix('.json')}.jsonl"
