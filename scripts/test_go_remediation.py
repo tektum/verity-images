@@ -118,10 +118,18 @@ def test_fix_selection(module) -> None:
     assert unresolved == [("GO-4", dependency, "v1.3.0", "no-fix")]
 
 
-def add_proxy_module(proxy: Path, module: str, version: str) -> None:
+def add_proxy_module(
+    proxy: Path,
+    module: str,
+    version: str,
+    requirements: dict[str, str] | None = None,
+) -> None:
     directory = proxy / module / "@v"
     directory.mkdir(parents=True, exist_ok=True)
     mod = f"module {module}\n\ngo 1.25\n"
+    if requirements:
+        required = "".join(f"\t{name} {required_version}\n" for name, required_version in sorted(requirements.items()))
+        mod += f"\nrequire (\n{required})\n"
     directory.joinpath(f"{version}.mod").write_text(mod, encoding="utf-8")
     directory.joinpath(f"{version}.info").write_text(json.dumps({"Version": version, "Time": "2026-01-01T00:00:00Z"}), encoding="utf-8")
     prefix = f"{module}@{version}/"
@@ -162,7 +170,7 @@ def prepare_project(root: Path, workspace: bool, vendor: bool) -> tuple[Path, Pa
 def sequence_scanner(
     root: Path,
     outputs: list[tuple[str, int]],
-    package: str = "example.com/dependency",
+    package: str = ".",
     expected_gowork: str = "off",
 ) -> Path:
     scanner = root / "scanner"
@@ -193,7 +201,7 @@ def sequence_scanner(
     return scanner
 
 
-def run_resolver(module, root: Path, workspace: bool = False, vendor: bool = False, after: str | None = None, package: str = "example.com/dependency") -> tuple[Path, Path, str]:
+def run_resolver(module, root: Path, workspace: bool = False, vendor: bool = False, after: str | None = None, package: str = ".") -> tuple[Path, Path, str]:
     workspace_root, module_root, environment = prepare_project(root, workspace, vendor)
     vulnerable = stream(osv("GO-1", "example.com/dependency", "v1.2.0"), finding("GO-1", "example.com/dependency", "v1.0.0"))
     expected_gowork = str(workspace_root / "go.work") if workspace else "off"
@@ -240,8 +248,7 @@ def test_reconciliation_modes(module, root: Path) -> None:
         assert commands.count("get example.com/dependency@v1.2.0") == 1
         assert all(" -u" not in f" {command}" for command in commands)
         assert "mod tidy" in commands
-        assert f"list -deps -mod={expected_mode} example.com/dependency" in commands
-        assert f"build -mod={expected_mode} example.com/dependency" in commands
+        assert any(command.startswith(f"build -mod={expected_mode} -o ") and command.endswith(" .") for command in commands)
         if workspace:
             assert "work sync" in commands
             assert workspace_root.joinpath("vendor/modules.txt").is_file()
@@ -259,7 +266,7 @@ def test_no_compatible_fix_continues(module, root: Path) -> None:
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "example.com/dependency"]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "."]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
@@ -300,9 +307,83 @@ def test_package_graph_and_post_scan_failures(module, root: Path) -> None:
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "example.com/dependency"]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "."]
     try:
         assert_raises(module.RemediationError, "command failed", module.main)
+    finally:
+        sys.argv = previous_argv
+        os.environ.clear()
+        os.environ.update(previous_environ)
+
+
+def test_interdependent_fixes(module, root: Path) -> None:
+    proxy = root / "proxy"
+    for version in ("v1.0.0", "v1.2.0", "v1.3.0"):
+        add_proxy_module(proxy, "example.com/low", version)
+    add_proxy_module(proxy, "example.com/high", "v1.0.0")
+    add_proxy_module(proxy, "example.com/high", "v1.2.0", {"example.com/low": "v1.3.0"})
+    workspace_root = root / "checkout"
+    workspace_root.mkdir()
+    workspace_root.joinpath("go.mod").write_text(
+        "module example.com/app\n\ngo 1.25\n\nrequire (\n\texample.com/high v1.0.0\n\texample.com/low v1.0.0\n)\n",
+        encoding="utf-8",
+    )
+    workspace_root.joinpath("main.go").write_text(
+        'package main\nimport high "example.com/high"\nimport low "example.com/low"\nfunc main() { _, _ = high.Value(), low.Value() }\n',
+        encoding="utf-8",
+    )
+    environment = dict(os.environ, GOPROXY=proxy.resolve().as_uri(), GOSUMDB="off", GOMODCACHE=str(root / "cache"), GOTOOLCHAIN="local", GOWORK="off")
+    subprocess.run(["go", "mod", "tidy"], cwd=workspace_root, env=environment, check=True, capture_output=True)
+    vulnerable = stream(
+        osv("GO-HIGH", "example.com/high", "v1.2.0"),
+        finding("GO-HIGH", "example.com/high", "v1.0.0"),
+        osv("GO-LOW", "example.com/low", "v1.2.0"),
+        finding("GO-LOW", "example.com/low", "v1.0.0"),
+    )
+    scanner = sequence_scanner(root, [(vulnerable, 3), (stream(), 0)], package="./...")
+    real_go = shutil.which("go")
+    assert real_go
+    binary_dir = root / "bin"
+    binary_dir.mkdir()
+    log = root / "go.log"
+    wrapper = binary_dir / "go"
+    wrapper.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GO_LOG\"\nexec \"$REAL_GO\" \"$@\"\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    previous_environ = os.environ.copy()
+    previous_argv = sys.argv
+    os.environ.update(environment, PATH=f"{binary_dir}:{os.environ['PATH']}", REAL_GO=real_go, GO_LOG=str(log))
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "./..."]
+    try:
+        module.main()
+    finally:
+        sys.argv = previous_argv
+        os.environ.clear()
+        os.environ.update(previous_environ)
+    go_mod = workspace_root.joinpath("go.mod").read_text(encoding="utf-8")
+    assert "example.com/high v1.2.0" in go_mod
+    assert "example.com/low v1.3.0" in go_mod
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert "get example.com/high@v1.2.0" in commands
+    assert "get example.com/low@v1.2.0" not in commands
+
+
+def test_package_inputs(module, root: Path) -> None:
+    glob = root / "glob"
+    glob.mkdir()
+    _, _, _ = run_resolver(module, glob, package="./...")
+    commands = glob.joinpath("go.log").read_text(encoding="utf-8").splitlines()
+    assert "list -deps -mod=readonly ./..." in commands
+    assert any(command.startswith("build -mod=readonly -o ") and command.endswith(" ./...") for command in commands)
+
+    option = root / "option"
+    option.mkdir()
+    workspace_root, module_root, environment = prepare_project(option, False, False)
+    previous_environ = os.environ.copy()
+    previous_argv = sys.argv
+    os.environ.update(environment)
+    sys.argv = ["remediate.py", str(option / "missing-scanner"), str(workspace_root), str(module_root), "-test"]
+    try:
+        assert_raises(module.RemediationError, "invalid Go package patterns", module.main)
     finally:
         sys.argv = previous_argv
         os.environ.clear()
@@ -314,6 +395,8 @@ def test_pipeline_contract() -> None:
     assert pipeline.count("go install golang.org/x/vuln/cmd/govulncheck@v1.7.0") == 1
     assert "@latest" not in pipeline and "go run golang.org/x/vuln" not in pipeline
     assert "go-remediation-evidence" not in pipeline and "lockContentHash" not in pipeline
+    assert "default: ./..." in pipeline and "github.com/gorilla/websocket" not in pipeline
+    assert "set -f" in pipeline and 'package.startswith("-")' in pipeline
     assert "- uses: go/remediate" in ROOT.joinpath("images/etcd/melange.yaml").read_text(encoding="utf-8")
 
 
@@ -335,6 +418,14 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_package_graph_and_post_scan_failures(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_package_inputs(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_interdependent_fixes(module, root)
     test_pipeline_contract()
     print("passed scripts/test_go_remediation.py")
 
