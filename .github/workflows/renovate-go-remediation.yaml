@@ -74,7 +74,7 @@ jobs:
           print("\n".join(sorted(selected)))
           PYTHON
           )
-          declare -A original_blobs raw_captures
+          declare -A original_blobs
           for spec in "${specs[@]}"; do
             directory=${spec%/*}
             lock="$directory/go-remediation.lock.json"
@@ -86,17 +86,24 @@ jobs:
               jq -er .content <<<"$payload" | base64 --decode >"$trusted/$path"
               original_blobs["$path"]=$(jq -er .sha <<<"$payload")
             done
-            raw=${raw_captures[$spec]:-}
-            [[ -n "$raw" ]] || { echo "missing raw capture for $spec" >&2; exit 1; }
-            capture=$(jq -er .capture "$trusted/$spec")
-            mkdir -p "$trusted/$directory/$(dirname "$capture")"
-            cp "$artifact/$raw" "$trusted/$directory/$capture"
           done
           verify=(python3 scripts/go_remediation.py verify-capture "$artifact" \
             --root "$trusted" --repository "$REPOSITORY" --pr "$PR_NUMBER" \
             --run "$RUN_ID" --base "$BASE_SHA" --head "$HEAD_SHA")
           for spec in "${specs[@]}"; do verify+=(--spec "$spec"); done
           "${verify[@]}"
+          declare -A raw_captures
+          while IFS=$'\t' read -r spec raw; do
+            raw_captures["$spec"]=$raw
+          done < <(jq -r '.captures[] | [.spec, .raw] | @tsv' "$artifact/manifest.json")
+          for spec in "${specs[@]}"; do
+            directory=${spec%/*}
+            raw=${raw_captures[$spec]:-}
+            [[ -n "$raw" ]] || { echo "missing raw capture for $spec" >&2; exit 1; }
+            capture=$(jq -er .capture "$trusted/$spec")
+            mkdir -p "$trusted/$directory/$(dirname "$capture")"
+            cp "$artifact/$raw" "$trusted/$directory/$capture"
+          done
           ((${#specs[@]})) || exit 0
           changed_paths=()
           for spec in "${specs[@]}"; do

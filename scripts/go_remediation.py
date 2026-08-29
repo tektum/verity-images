@@ -14,7 +14,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 TOOL = {
     "module": "golang.org/x/vuln/cmd/govulncheck",
     "version": "v1.7.0",
@@ -23,6 +23,9 @@ TOOL = {
 MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
 VERSION = re.compile(r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$")
 SHA256 = re.compile(r"^sha256:[a-f0-9]{64}$")
+H1 = re.compile(r"^h1:[A-Za-z0-9+/]{43}=$")
+DEFAULT_GOPROXY = "https://proxy.golang.org"
+DEFAULT_GOSUMDB = "sum.golang.org"
 COMMIT = re.compile(r"^[a-f0-9]{40}$")
 
 
@@ -145,7 +148,8 @@ def fixed_version(entry: dict[str, Any], module: str, current: str) -> tuple[str
     return "", "no-compatible-fix" if incompatible else "no-fix"
 
 
-def derive(raw: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+def derive(raw: str, module_root: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    module_root = safe_relative(module_root)
     stream = message_stream(raw)
     osvs: dict[str, dict[str, Any]] = {}
     findings: list[dict[str, Any]] = []
@@ -159,6 +163,8 @@ def derive(raw: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[st
             finding = message["finding"]
             if not isinstance(finding, dict):
                 raise LockError("invalid finding")
+            if "module_root" in finding:
+                raise LockError("finding invents module root")
             findings.append(finding)
     updates: dict[tuple[str, str], dict[str, Any]] = {}
     nonfixable: dict[tuple[str, str, str], dict[str, Any]] = {}
@@ -172,8 +178,6 @@ def derive(raw: str) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[st
         module, current = frame.get("module"), frame.get("version")
         if not isinstance(module, str) or not isinstance(current, str) or not module or not current:
             raise LockError("finding lacks module identity")
-        module_root = str(finding.get("module_root", "."))
-        safe_relative(module_root)
         fixed, reason = fixed_version(osvs[osv_id], module, current)
         if not fixed:
             nonfixable[(module_root, module, osv_id)] = {
@@ -253,20 +257,29 @@ def validate_lock(lock: dict[str, Any], capture: bytes | None = None) -> None:
         if not isinstance(lock[collection], list):
             raise LockError(f"invalid {collection}")
     for update in lock["updates"]:
-        if not isinstance(update, dict) or set(update) != {"moduleRoot", "module", "oldVersion", "fixedVersion", "vulnerabilityIds"}:
+        fields = {
+            "moduleRoot", "module", "oldVersion", "fixedVersion",
+            "sum", "goModSum", "vulnerabilityIds",
+        }
+        if not isinstance(update, dict) or set(update) != fields:
             raise LockError("invalid update")
-        safe_relative(str(update["moduleRoot"]))
+        if safe_relative(str(update["moduleRoot"])) != scan["moduleRoot"]:
+            raise LockError("update module root differs from trusted scan root")
         if not compatible(str(update["module"]), str(update["fixedVersion"])):
             raise LockError("unsafe module update")
         if parse_version(str(update["oldVersion"])) >= parse_version(str(update["fixedVersion"])):
             raise LockError("module update does not advance the version")
+        module_sum = update["sum"]
+        if (module_sum is not None and H1.fullmatch(str(module_sum)) is None) or H1.fullmatch(str(update["goModSum"])) is None:
+            raise LockError("invalid module artifact identity")
         ids = update["vulnerabilityIds"]
         if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not all(isinstance(item, str) and item for item in ids):
             raise LockError("invalid update vulnerability IDs")
     for record in lock["nonFixable"]:
         if not isinstance(record, dict) or record.get("status") not in {"no-fix", "no-compatible-fix"}:
             raise LockError("invalid non-fixable record")
-        safe_relative(str(record.get("moduleRoot", "")))
+        if safe_relative(str(record.get("moduleRoot", ""))) != scan["moduleRoot"]:
+            raise LockError("non-fixable module root differs from trusted scan root")
         if MODULE.fullmatch(str(record.get("module", ""))) is None:
             raise LockError("invalid non-fixable module")
         parse_version(str(record.get("version", "")))
@@ -283,22 +296,61 @@ def validate_lock(lock: dict[str, Any], capture: bytes | None = None) -> None:
             raise LockError("captured scan provenance mismatch")
 
 
+def run_go(
+    arguments: list[str],
+    cwd: Path,
+    output: bool = False,
+    workspace: Path | None = None,
+    online: bool = False,
+) -> str:
+    environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
+    if online:
+        environment["GOPROXY"] = os.environ.get("GOPROXY", DEFAULT_GOPROXY)
+        environment["GOSUMDB"] = os.environ.get("GOSUMDB", DEFAULT_GOSUMDB)
+    else:
+        environment.update(GOPROXY="off", GOSUMDB="off")
+    completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
+    return completed.stdout if output else ""
+
+
+def download_module(module: str, version: str, cwd: Path) -> dict[str, str | None]:
+    raw = run_go(["go", "mod", "download", "-json", f"{module}@{version}"], cwd, True, online=True)
+    value = json.loads(raw)
+    if not isinstance(value, dict) or value.get("Path") != module or value.get("Version") != version or value.get("Error"):
+        raise LockError(f"downloaded module identity mismatch for {module}@{version}")
+    artifact = {
+        "sum": value["Sum"] if "Sum" in value else None,
+        "goModSum": value.get("GoModSum"),
+    }
+    module_sum = artifact["sum"]
+    if (module_sum is not None and H1.fullmatch(str(module_sum)) is None) or H1.fullmatch(str(artifact["goModSum"])) is None:
+        raise LockError(f"downloaded module lacks a valid checksum identity for {module}@{version}")
+    return artifact
+
+
 def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
     spec = json.loads(spec_path.read_text(encoding="utf-8"))
+    scan = spec["scan"]
+    module_root = safe_relative(str(scan["moduleRoot"]))
     capture_source = spec_path.parent / safe_relative(str(spec["capture"]))
-    capture, updates, nonfixable = derive(capture_source.read_text(encoding="utf-8"))
+    capture, updates, nonfixable = derive(capture_source.read_text(encoding="utf-8"), module_root)
+    artifacts: dict[tuple[str, str], dict[str, str | None]] = {}
+    for update in updates:
+        key = update["module"], update["fixedVersion"]
+        if key not in artifacts:
+            artifacts[key] = download_module(*key, spec_path.parent)
+        update.update(artifacts[key])
     capture["database"] = spec["database"]
     capture_bytes = canonical(capture)
     capture_path = lock_path.with_suffix(".scan.json")
     capture_path.write_bytes(capture_bytes)
-    scan = spec["scan"]
     lock = {
         "schemaVersion": SCHEMA_VERSION,
         "source": spec["source"],
         "tool": TOOL,
         "database": spec["database"],
         "scan": {
-            "moduleRoot": safe_relative(str(scan["moduleRoot"])),
+            "moduleRoot": module_root,
             "packages": scan["packages"],
             "phase": scan["phase"],
             "capture": capture_path.name,
@@ -311,13 +363,6 @@ def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
     validate_lock(lock, capture_bytes)
     lock_path.write_bytes(canonical(lock))
     return lock
-
-
-def run_go(arguments: list[str], cwd: Path, output: bool = False, workspace: Path | None = None) -> str:
-    gowork = str(workspace) if workspace is not None else "off"
-    environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=gowork, GOPROXY="off", GOSUMDB="off")
-    completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
-    return completed.stdout if output else ""
 
 
 def file_hash(path: Path) -> str | None:
@@ -343,16 +388,47 @@ def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
     relatives = {lock["scan"]["moduleRoot"], *(update["moduleRoot"] for update in lock["updates"])}
     roots = {relative: resolve_module_root(root, relative) for relative in relatives}
     expected: dict[tuple[str, str], str] = {}
+    required: list[dict[str, Any]] = []
     for update in lock["updates"]:
         relative = update["moduleRoot"]
-        current = run_go(["go", "list", "-m", "-f", "{{.Version}}", update["module"]], roots[relative], True).strip()
+        current = run_go(["go", "list", "-m", "-f", "{{.Version}}", update["module"]], roots[relative], True, online=True).strip()
         if parse_version(current) >= parse_version(update["fixedVersion"]):
             expected[(relative, update["module"])] = current
             continue
         if current != update["oldVersion"]:
             raise LockError(f"selected version drift for {update['module']}: {current}")
-        run_go(["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"], roots[relative])
+        required.append(update)
         expected[(relative, update["module"])] = update["fixedVersion"]
+
+    staged: list[dict[str, Any]] = []
+    for update in required:
+        artifact = download_module(update["module"], update["fixedVersion"], roots[update["moduleRoot"]])
+        locked = {"sum": update["sum"], "goModSum": update["goModSum"]}
+        if artifact != locked:
+            raise LockError(f"downloaded module checksum mismatch for {update['module']}@{update['fixedVersion']}")
+        staged.append(
+            {
+                "moduleRoot": update["moduleRoot"],
+                "module": update["module"],
+                "version": update["fixedVersion"],
+                **artifact,
+            }
+        )
+
+    for update in required:
+        run_go(
+            ["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"],
+            roots[update["moduleRoot"]],
+        )
+
+        run_go(
+            ["go", "mod", "download", f"{update['module']}@{update['fixedVersion']}"],
+            roots[update["moduleRoot"]],
+        )
+    workspace = root / "go.work"
+    if workspace.is_file():
+        run_go(["go", "work", "sync"], root, workspace=workspace)
+
     selected: dict[tuple[str, str], str] = {}
     for relative, module in sorted(roots.items()):
         patterns = lock["scan"]["packages"] if relative == lock["scan"]["moduleRoot"] else ["./..."]
@@ -360,13 +436,14 @@ def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
         listing = run_go(["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"], module, True)
         selected.update(((relative, path), version) for path, version in (line.split(" ", 1) for line in listing.splitlines() if " " in line))
         if (module / "vendor").is_dir():
+            run_go(["go", "mod", "vendor"], module)
             run_go(["go", "list", "-mod=vendor", *patterns], module)
-    workspace = root / "go.work"
-    if workspace.is_file():
-        run_go(["go", "work", "sync"], root, workspace=workspace)
-        if (root / "vendor").is_dir():
-            scan_root = roots[lock["scan"]["moduleRoot"]]
-            run_go(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], scan_root, workspace=workspace)
+
+    if workspace.is_file() and (root / "vendor").is_dir():
+        run_go(["go", "work", "vendor"], root, workspace=workspace)
+        scan_root = roots[lock["scan"]["moduleRoot"]]
+        run_go(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], scan_root, workspace=workspace)
+
     for key, version in expected.items():
         if selected.get(key) != version:
             raise LockError(f"selected version mismatch for {key[1]} in {key[0]}")
@@ -379,6 +456,7 @@ def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
         "scan": lock["scan"],
         "updates": lock["updates"],
         "nonFixable": lock["nonFixable"],
+        "staged": sorted(staged, key=canonical),
         "selected": [{"moduleRoot": root_key, "module": module, "version": version} for (root_key, module), version in sorted(expected.items())],
         "manifests": {
             relative: {"go.mod": file_hash(module / "go.mod"), "go.sum": file_hash(module / "go.sum"), "vendor/modules.txt": file_hash(module / "vendor/modules.txt")}

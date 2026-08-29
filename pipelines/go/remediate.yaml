@@ -20,6 +20,7 @@ pipeline:
       import hashlib, json, os, re, subprocess, sys
       from pathlib import Path
 
+      SCHEMA_VERSION = 2
       TOOL = {"module": "golang.org/x/vuln/cmd/govulncheck", "version": "v1.7.0", "protocol": "v1.0.0"}
       VERSION = re.compile(
           r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -27,7 +28,10 @@ pipeline:
       )
       MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
       SHA256 = re.compile(r"^sha256:[a-f0-9]{64}$")
+      H1 = re.compile(r"^h1:[A-Za-z0-9+/]{43}=$")
       COMMIT = re.compile(r"^[a-f0-9]{40}$")
+      DEFAULT_GOPROXY = "https://proxy.golang.org"
+      DEFAULT_GOSUMDB = "sum.golang.org"
 
       def canonical(value):
           return (json.dumps(value, indent=2, sort_keys=True, separators=(",", ": ")) + "\n").encode()
@@ -71,75 +75,91 @@ pipeline:
               raise ValueError(f"module root is not a directory: {value!r}")
           return candidate
 
-      def run(arguments, cwd, output=False, workspace=None):
-          environment = dict(
-              os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off",
-              GOPROXY="off", GOSUMDB="off",
-          )
+      def run(arguments, cwd, output=False, workspace=None, online=False):
+          environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
+          if online:
+              environment["GOPROXY"] = os.environ.get("GOPROXY", DEFAULT_GOPROXY)
+              environment["GOSUMDB"] = os.environ.get("GOSUMDB", DEFAULT_GOSUMDB)
+          else:
+              environment.update(GOPROXY="off", GOSUMDB="off")
           completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
           return completed.stdout if output else ""
 
+      def download_module(module, selected_version, cwd):
+          raw = run(["go", "mod", "download", "-json", f"{module}@{selected_version}"], cwd, True, online=True)
+          value = json.loads(raw)
+          identity_matches = value.get("Path") == module and value.get("Version") == selected_version
+          if not isinstance(value, dict) or not identity_matches or value.get("Error"):
+              raise ValueError(f"downloaded module identity mismatch for {module}@{selected_version}")
+          artifact = {"sum": value["Sum"] if "Sum" in value else None, "goModSum": value.get("GoModSum")}
+          module_sum = artifact["sum"]
+          valid_sum = module_sum is None or H1.fullmatch(str(module_sum)) is not None
+          if not valid_sum or H1.fullmatch(str(artifact["goModSum"])) is None:
+              raise ValueError(f"downloaded module lacks a valid checksum identity for {module}@{selected_version}")
+          return artifact
+
       def validate(lock, capture):
           required = {"schemaVersion", "source", "tool", "database", "scan", "updates", "nonFixable", "contentHash"}
-          if not isinstance(lock, dict) or set(lock) != required or lock["schemaVersion"] != 1 or lock["tool"] != TOOL:
+          identity_matches = lock.get("schemaVersion") == SCHEMA_VERSION and lock.get("tool") == TOOL
+          if not isinstance(lock, dict) or set(lock) != required or not identity_matches:
               raise ValueError("invalid remediation lock")
           if COMMIT.fullmatch(str(lock["source"].get("commit", ""))) is None or not lock["source"].get("version"):
               raise ValueError("invalid source")
           database, scan = lock["database"], lock["scan"]
-          provenance = all(
-              isinstance(database.get(k), str) and database[k]
-              for k in ("source", "revision")
-          )
+          provenance = all(isinstance(database.get(k), str) and database[k] for k in ("source", "revision"))
           if not provenance or SHA256.fullmatch(str(database.get("sha256", ""))) is None:
               raise ValueError("invalid database provenance")
-          if (
-              SHA256.fullmatch(str(scan.get("captureSha256", ""))) is None
-              or scan.get("phase") not in {"source", "post-generation"}
-          ):
+          valid_scan = scan.get("phase") in {"source", "post-generation"}
+          if SHA256.fullmatch(str(scan.get("captureSha256", ""))) is None or not valid_scan:
               raise ValueError("invalid scan")
           relative(scan.get("moduleRoot", "")); relative(scan.get("capture", ""))
           patterns = scan.get("packages")
-          if (
-              not isinstance(patterns, list) or not patterns
-              or not all(isinstance(x, str) and x and not x.startswith("-") for x in patterns)
-          ):
+          valid_patterns = all(isinstance(x, str) and x and not x.startswith("-") for x in patterns)
+          if not isinstance(patterns, list) or not patterns or not valid_patterns:
               raise ValueError("invalid package patterns")
           if not isinstance(lock["updates"], list) or not isinstance(lock["nonFixable"], list):
               raise ValueError("invalid remediation records")
           for update in lock["updates"]:
-              fields = {"moduleRoot", "module", "oldVersion", "fixedVersion", "vulnerabilityIds"}
+              fields = {"moduleRoot", "module", "oldVersion", "fixedVersion", "sum", "goModSum", "vulnerabilityIds"}
               if not isinstance(update, dict) or set(update) != fields:
                   raise ValueError("invalid update")
-              relative(update["moduleRoot"])
+              if relative(update["moduleRoot"]) != scan["moduleRoot"]:
+                  raise ValueError("update module root differs from trusted scan root")
               if not compatible(update["module"], update["fixedVersion"]):
                   raise ValueError("unsafe module update")
               if version(update["oldVersion"]) >= version(update["fixedVersion"]):
                   raise ValueError("module update does not advance the version")
+              module_sum = update["sum"]
+              valid_sum = module_sum is None or H1.fullmatch(str(module_sum)) is not None
+              if not valid_sum or H1.fullmatch(str(update["goModSum"])) is None:
+                  raise ValueError("invalid module artifact identity")
               ids = update["vulnerabilityIds"]
-              if (
-                  not isinstance(ids, list) or not ids or ids != sorted(set(ids))
-                  or not all(isinstance(x, str) and x for x in ids)
-              ):
+              valid_ids = all(isinstance(x, str) and x for x in ids)
+              if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not valid_ids:
                   raise ValueError("invalid update vulnerability IDs")
           for record in lock["nonFixable"]:
               if not isinstance(record, dict) or record.get("status") not in {"no-fix", "no-compatible-fix"}:
                   raise ValueError("invalid non-fixable record")
-              relative(record.get("moduleRoot", "")); version(record.get("version", ""))
+              if relative(record.get("moduleRoot", "")) != scan["moduleRoot"]:
+                  raise ValueError("non-fixable module root differs from trusted scan root")
               if MODULE.fullmatch(str(record.get("module", ""))) is None:
                   raise ValueError("invalid non-fixable module")
+              version(record.get("version", ""))
               ids = record.get("vulnerabilityIds")
-              if (
-                  not isinstance(ids, list) or not ids or ids != sorted(set(ids))
-                  or not all(isinstance(x, str) and x for x in ids)
-              ):
+              valid_ids = all(isinstance(x, str) and x for x in ids)
+              if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not valid_ids:
                   raise ValueError("invalid non-fixable vulnerability IDs")
           unhashed = dict(lock)
           unhashed.pop("contentHash")
           if lock["contentHash"] != digest(canonical(unhashed)) or scan["captureSha256"] != digest(capture):
               raise ValueError("lock integrity mismatch")
           captured = json.loads(capture)
-          if captured.get("schemaVersion") != 1 or captured.get("tool") != TOOL or captured.get("database") != database:
+          capture_matches = captured.get("schemaVersion") == SCHEMA_VERSION and captured.get("tool") == TOOL
+          if not capture_matches or captured.get("database") != database:
               raise ValueError("capture provenance mismatch")
+
+      def file_hash(path):
+          return digest(path.read_bytes()) if path.is_file() else None
 
       lock_path, root, evidence_path = map(Path, sys.argv[1:])
       root = root.resolve()
@@ -148,48 +168,72 @@ pipeline:
       validate(lock, capture)
       relative_roots = {lock["scan"]["moduleRoot"], *(x["moduleRoot"] for x in lock["updates"])}
       roots = {name: module_root(root, name) for name in relative_roots}
-      expected = {}
+      expected, required = {}, []
       for update in lock["updates"]:
           key = update["moduleRoot"], update["module"]
-          current = run(["go", "list", "-m", "-f", "{{.Version}}", update["module"]], roots[key[0]], True).strip()
+          current = run(
+              ["go", "list", "-m", "-f", "{{.Version}}", update["module"]],
+              roots[key[0]], True, online=True,
+          ).strip()
           if version(current) >= version(update["fixedVersion"]):
               expected[key] = current
           elif current != update["oldVersion"]:
               raise ValueError(f"selected version drift for {update['module']}: {current}")
           else:
-              run(["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"], roots[key[0]])
+              required.append(update)
               expected[key] = update["fixedVersion"]
+
+      staged = []
+      for update in required:
+          artifact = download_module(update["module"], update["fixedVersion"], roots[update["moduleRoot"]])
+          if artifact != {"sum": update["sum"], "goModSum": update["goModSum"]}:
+              raise ValueError(f"downloaded module checksum mismatch for {update['module']}@{update['fixedVersion']}")
+          staged.append({
+              "moduleRoot": update["moduleRoot"], "module": update["module"],
+              "version": update["fixedVersion"], **artifact,
+          })
+      for update in required:
+          module_version = f"{update['module']}@{update['fixedVersion']}"
+          update_root = roots[update["moduleRoot"]]
+          run(["go", "mod", "edit", f"-require={module_version}"], update_root)
+          run(["go", "mod", "download", module_version], update_root)
+
+      workspace = root / "go.work"
+      if workspace.is_file():
+          run(["go", "work", "sync"], root, workspace=workspace)
       selected = {}
       for name, module in sorted(roots.items()):
           packages = lock["scan"]["packages"] if name == lock["scan"]["moduleRoot"] else ["./..."]
           run(["go", "list", "-mod=readonly", *packages], module)
-          command = ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"]
-          listing = run(command, module, True)
-          lines = (line.split(" ", 1) for line in listing.splitlines() if " " in line)
-          selected.update(((name, path), selected_version) for path, selected_version in lines)
+          listing = run(["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"], module, True)
+          modules = (line.split(" ", 1) for line in listing.splitlines() if " " in line)
+          selected.update(((name, path), selected_version) for path, selected_version in modules)
           if (module / "vendor").is_dir():
+              run(["go", "mod", "vendor"], module)
               run(["go", "list", "-mod=vendor", *packages], module)
-      workspace = root / "go.work"
-      if workspace.is_file():
-          run(["go", "work", "sync"], root, workspace=workspace)
-          if (root / "vendor").is_dir():
-              scan_root = roots[lock["scan"]["moduleRoot"]]
-              run(
-                  ["go", "list", "-mod=vendor", *lock["scan"]["packages"]],
-                  scan_root, workspace=workspace,
-              )
+      if workspace.is_file() and (root / "vendor").is_dir():
+          run(["go", "work", "vendor"], root, workspace=workspace)
+          scan_root = roots[lock["scan"]["moduleRoot"]]
+          run(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], scan_root, workspace=workspace)
       for key, selected_version in expected.items():
           if selected.get(key) != selected_version:
               raise ValueError(f"selected version mismatch for {key[1]} in {key[0]}")
-      evidence_keys = (
-          "schemaVersion", "contentHash", "source", "tool", "database",
-          "scan", "updates", "nonFixable",
-      )
-      evidence = {key: lock[key] for key in evidence_keys}
-      evidence["selected"] = [
-          {"moduleRoot": r, "module": m, "version": v}
-          for (r, m), v in sorted(expected.items())
-      ]
+      evidence = {
+          "schemaVersion": SCHEMA_VERSION,
+          "lockContentHash": lock["contentHash"],
+          "source": lock["source"], "tool": lock["tool"], "database": lock["database"],
+          "scan": lock["scan"], "updates": lock["updates"], "nonFixable": lock["nonFixable"],
+          "staged": sorted(staged, key=canonical),
+          "selected": [{"moduleRoot": r, "module": m, "version": v} for (r, m), v in sorted(expected.items())],
+          "manifests": {
+              name: {
+                  "go.mod": file_hash(module / "go.mod"),
+                  "go.sum": file_hash(module / "go.sum"),
+                  "vendor/modules.txt": file_hash(module / "vendor/modules.txt"),
+              }
+              for name, module in sorted(roots.items())
+          },
+      }
       evidence_path.write_bytes(canonical(evidence))
       PYTHON
       python3 "$tool" "$lock" "$root" "$evidence"

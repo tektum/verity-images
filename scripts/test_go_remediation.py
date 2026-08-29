@@ -4,10 +4,15 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shutil
+import subprocess
 import tempfile
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+SUM_A = "h1:" + "A" * 43 + "="
+SUM_B = "h1:" + "B" * 43 + "="
 
 
 def load():
@@ -31,19 +36,31 @@ def osv(identifier: str, module: str, fixed: str | None) -> dict:
     return {"osv": {"id": identifier, "affected": [{"package": {"name": module, "ecosystem": "Go"}, "ranges": [{"type": "SEMVER", "events": events}]}]}}
 
 
-def finding(identifier: str, module: str, version: str, module_root: str = ".") -> dict:
-    return {"finding": {"osv": identifier, "module_root": module_root, "trace": [{"module": module, "version": version, "package": module + "/pkg"}]}}
+def finding(identifier: str, module: str, version: str, module_root: str | None = None) -> dict:
+    value = {"osv": identifier, "trace": [{"module": module, "version": version, "package": module + "/pkg"}]}
+    if module_root is not None:
+        value["module_root"] = module_root
+    return {"finding": value}
 
 
-def spec(root: Path, raw: str, database_hash: str = "1" * 64) -> tuple[Path, Path]:
+def make_spec(root: Path, raw: str, module_root: str = ".") -> tuple[Path, Path]:
     capture = root / "input.json"
     capture.write_text(raw, encoding="utf-8")
     spec_path = root / "spec.json"
-    spec_path.write_text(json.dumps({"capture": capture.name, "source": {"version": "1.2.3", "commit": "a" * 40}, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + database_hash}, "scan": {"moduleRoot": ".", "packages": ["."], "phase": "post-generation"}}), encoding="utf-8")
+    spec_path.write_text(json.dumps({"capture": capture.name, "source": {"version": "1.2.3", "commit": "a" * 40}, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": module_root, "packages": ["."], "phase": "post-generation"}}), encoding="utf-8")
     return spec_path, root / "go-remediation.lock.json"
 
+
+def update(module_root: str = ".", old: str = "v1.0.0", fixed: str = "v1.2.3", module_sum: str | None = SUM_A, go_mod_sum: str = SUM_B) -> dict:
+    return {"moduleRoot": module_root, "module": "example.com/dependency", "oldVersion": old, "fixedVersion": fixed, "sum": module_sum, "goModSum": go_mod_sum, "vulnerabilityIds": ["GO-1"]}
+
+
+def lock_data(module, module_root: str = ".", updates: list[dict] | None = None) -> dict:
+    return {"schemaVersion": module.SCHEMA_VERSION, "source": {"version": "1.0.0", "commit": "a" * 40}, "tool": module.TOOL, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": module_root, "packages": ["."], "phase": "source", "capture": "scan.json", "captureSha256": ""}, "updates": updates or [], "nonFixable": []}
+
+
 def write_lock(module, path: Path, lock: dict) -> None:
-    capture = {"schemaVersion": 1, "tool": module.TOOL, "database": lock["database"], "osvs": [], "findings": []}
+    capture = {"schemaVersion": module.SCHEMA_VERSION, "tool": module.TOOL, "database": lock["database"], "osvs": [], "findings": []}
     capture_bytes = module.canonical(capture)
     lock["scan"]["captureSha256"] = module.digest(capture_bytes)
     lock["contentHash"] = module.lock_hash(lock)
@@ -51,224 +68,248 @@ def write_lock(module, path: Path, lock: dict) -> None:
     path.parent.joinpath(lock["scan"]["capture"]).write_bytes(capture_bytes)
 
 
-def test_prerelease_ordering(module) -> None:
-    assert module.parse_version("v1.5.1-0.20240101120000-abcdef") < module.parse_version("v1.5.1")
+def assert_raises(error_type, message: str, action) -> None:
+    try:
+        action()
+    except error_type as error:
+        assert message in str(error), str(error)
+    else:
+        raise AssertionError(f"expected {error_type.__name__}: {message}")
+
+
+def patched_artifacts(module):
+    original = module.download_module
+    module.download_module = lambda _module, _version, _cwd: {"sum": SUM_A, "goModSum": SUM_B}
+    return original
+
+
+def test_root_binding_and_deterministic_generation(module, root: Path) -> None:
     raw = stream(
-        osv("GO-PRE", "example.com/dependency", "v1.5.1"),
-        finding("GO-PRE", "example.com/dependency", "v1.5.1-0.20240101120000-abcdef"),
+        osv("GO-1", "example.com/dependency", "v1.2.3"),
+        finding("GO-1", "example.com/dependency", "v1.0.0"),
+        osv("GO-2", "example.com/other", None),
+        finding("GO-2", "example.com/other", "v1.0.0"),
     )
-    _, updates, nonfixable = module.derive(raw)
-    assert updates[0]["fixedVersion"] == "v1.5.1"
-    assert not nonfixable
-
-
-def test_generation(module, root: Path) -> None:
-    raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0"))
-    spec_path, lock_path = spec(root, raw)
-    first = module.generate(spec_path, lock_path)
-    first_bytes = lock_path.read_bytes()
-    module.generate(spec_path, lock_path)
-    assert lock_path.read_bytes() == first_bytes
-    assert first["updates"] == [{"moduleRoot": ".", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}]
-    module.validate_lock(first, lock_path.with_suffix(".scan.json").read_bytes())
-    lock_path.with_suffix(".scan.json").write_text("{}\n", encoding="utf-8")
+    spec_path, lock_path = make_spec(root, raw, "server")
+    original = patched_artifacts(module)
     try:
-        module.validate_lock(first, lock_path.with_suffix(".scan.json").read_bytes())
-    except module.LockError as error:
-        assert "captured scan hash mismatch" in str(error)
-    else:
-        raise AssertionError("stale capture was accepted")
-
-
-def test_malformed_and_no_fix(module, root: Path) -> None:
-    spec_path, lock_path = spec(root, "not json\n")
-    try:
+        first = module.generate(spec_path, lock_path)
+        first_bytes = lock_path.read_bytes()
         module.generate(spec_path, lock_path)
-    except module.LockError as error:
-        assert "malformed" in str(error)
-    else:
-        raise AssertionError("malformed scan was accepted")
-    raw = stream(osv("GO-2", "example.com/dependency", None), finding("GO-2", "example.com/dependency", "v1.0.0"))
-    spec_path, lock_path = spec(root, raw)
-    lock = module.generate(spec_path, lock_path)
-    assert lock["updates"] == []
-    assert lock["nonFixable"][0]["status"] == "no-fix"
+    finally:
+        module.download_module = original
+    assert lock_path.read_bytes() == first_bytes
+    assert first["updates"] == [{"moduleRoot": "server", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "sum": SUM_A, "goModSum": SUM_B, "vulnerabilityIds": ["GO-1"]}]
+    assert first["nonFixable"] == [{"moduleRoot": "server", "module": "example.com/other", "version": "v1.0.0", "status": "no-fix", "vulnerabilityIds": ["GO-2"]}]
+    module.validate_lock(first, lock_path.with_suffix(".scan.json").read_bytes())
 
 
-def test_path_major(module, root: Path) -> None:
+def test_finding_cannot_redirect_root(module) -> None:
+    raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0", "."))
+    assert_raises(module.LockError, "invents module root", lambda: module.derive(raw, "server"))
+
+
+def test_version_and_path_major(module) -> None:
+    assert module.parse_version("v1.5.1-0.20240101120000-abcdef") < module.parse_version("v1.5.1")
     raw = stream(osv("GO-3", "example.com/dependency", "v2.0.0"), finding("GO-3", "example.com/dependency", "v1.0.0"))
-    spec_path, lock_path = spec(root, raw)
-    lock = module.generate(spec_path, lock_path)
-    assert lock["updates"] == []
-    assert lock["nonFixable"][0]["status"] == "no-compatible-fix"
+    _, updates, nonfixable = module.derive(raw, "nested")
+    assert updates == []
+    assert nonfixable[0]["moduleRoot"] == "nested"
+    assert nonfixable[0]["status"] == "no-compatible-fix"
 
 
-def executable(path: Path, content: str) -> None:
-    path.write_text(content, encoding="utf-8")
-    path.chmod(0o755)
+def test_lock_artifact_shape_and_root_validation(module, root: Path) -> None:
+    path = root / "lock.json"
+    accepted = lock_data(module, "server", [update("server", module_sum=None)])
+    write_lock(module, path, accepted)
+    module.validate_lock(accepted, path.parent.joinpath("scan.json").read_bytes())
+    for field, value, message in (
+        ("sum", "", "artifact identity"),
+        ("goModSum", None, "artifact identity"),
+        ("moduleRoot", ".", "trusted scan root"),
+    ):
+        candidate = json.loads(json.dumps(accepted))
+        candidate["updates"][0][field] = value
+        candidate["contentHash"] = module.lock_hash(candidate)
+        assert_raises(module.LockError, message, lambda candidate=candidate: module.validate_lock(candidate))
 
 
-def test_offline_apply(module, root: Path) -> None:
-    project = root / "project"
-    project.mkdir()
-    project.joinpath("go.mod").write_text("module example.com/app\ngo 1.25\nrequire example.com/dependency v1.0.0\n", encoding="utf-8")
-    lock = {"schemaVersion": 1, "source": {"version": "1.0.0", "commit": "a" * 40}, "tool": module.TOOL, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": ".", "packages": ["."], "phase": "source", "capture": "go-remediation.scan.json", "captureSha256": "sha256:" + "2" * 64}, "updates": [{"moduleRoot": ".", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}], "nonFixable": []}
-    lock_path = project / "go-remediation.lock.json"
-    write_lock(module, lock_path, lock)
-    binaries = root / "bin"
-    binaries.mkdir()
-    log = root / "go.log"
-    executable(binaries / "go", "#!/bin/sh\nset -eu\nprintf '%s|%s|%s|%s\\n' \"${GOPROXY:-}\" \"${GOSUMDB:-}\" \"${GOWORK:-}\" \"$*\" >>\"$GO_LOG\"\ncase \"$*\" in\n  'list -m -f {{.Version}} example.com/dependency') sed -n 's/.*example.com\\/dependency \\(v[^ ]*\\).*/\\1/p' go.mod ;;\n  'mod edit -require=example.com/dependency@v1.2.3') sed -i 's/v1.0.0/v1.2.3/' go.mod ;;\n  'list -mod=readonly -m -f {{.Path}} {{.Version}} all') printf 'example.com/dependency v1.2.3\\n' ;;\nesac\n")
+def fake_download_response(module, root: Path) -> None:
+    original = module.run_go
+    base = {"Path": "example.com/dependency", "Version": "v1.2.3", "Sum": SUM_A, "GoModSum": SUM_B}
+    cases = [
+        ({**base, "Path": "example.com/other"}, "identity mismatch"),
+        ({**base, "Version": "v1.2.4"}, "identity mismatch"),
+        ({**base, "Sum": "h1:bad"}, "valid checksum identity"),
+        ({**base, "GoModSum": "h1:bad"}, "valid checksum identity"),
+    ]
+    try:
+        for response, message in cases:
+            module.run_go = lambda *_args, response=response, **_kwargs: json.dumps(response)
+            assert_raises(module.LockError, message, lambda: module.download_module("example.com/dependency", "v1.2.3", root))
+        without_zip = dict(base)
+        without_zip.pop("Sum")
+        module.run_go = lambda *_args, **_kwargs: json.dumps(without_zip)
+        assert module.download_module("example.com/dependency", "v1.2.3", root) == {"sum": None, "goModSum": SUM_B}
+    finally:
+        module.run_go = original
+
+
+def add_proxy_module(proxy: Path, module: str, version: str, source: str) -> None:
+    directory = proxy / module / "@v"
+    directory.mkdir(parents=True, exist_ok=True)
+    directory.joinpath(version + ".info").write_text(json.dumps({"Version": version, "Time": "2026-01-01T00:00:00Z"}), encoding="utf-8")
+    directory.joinpath(version + ".mod").write_text(f"module {module}\ngo 1.25\n", encoding="utf-8")
+    with zipfile.ZipFile(directory / (version + ".zip"), "w") as archive:
+        prefix = f"{module}@{version}/"
+        for name, content in (("go.mod", f"module {module}\ngo 1.25\n"), ("dependency.go", source)):
+            entry = zipfile.ZipInfo(prefix + name)
+            entry.date_time = (1980, 1, 1, 0, 0, 0)
+            entry.external_attr = 0o100644 << 16
+            archive.writestr(entry, content)
+
+
+def set_go_environment(proxy: Path, cache: Path) -> dict[str, str]:
     previous = os.environ.copy()
-    os.environ.update({"PATH": f"{binaries}:{os.environ['PATH']}", "GO_LOG": str(log)})
-    try:
-        evidence = root / "evidence.json"
-        module.apply(lock_path, project, evidence)
-    finally:
-        os.environ.clear()
-        os.environ.update(previous)
-    assert evidence.is_file()
-    calls = log.read_text(encoding="utf-8")
-    assert all(line.startswith("off|off|off|") for line in calls.splitlines())
-    assert "v1.2.3" in project.joinpath("go.mod").read_text(encoding="utf-8")
+    os.environ.update({"GOPROXY": proxy.resolve().as_uri(), "GOSUMDB": "off", "GOMODCACHE": str(cache), "GOTOOLCHAIN": "local"})
+    return previous
 
 
-def test_workspace_vendor_apply(module, root: Path) -> None:
-    project = root / "workspace"
-    child = project / "child"
-    child.mkdir(parents=True)
-    child.joinpath("go.mod").write_text(
-        "module example.com/child\ngo 1.25\nrequire example.com/dependency v1.0.0\n",
-        encoding="utf-8",
-    )
-    project.joinpath("go.work").write_text("go 1.25\nuse ./child\n", encoding="utf-8")
-    project.joinpath("vendor").mkdir()
-    lock = {
-        "schemaVersion": 1,
-        "source": {"version": "1.0.0", "commit": "a" * 40},
-        "tool": module.TOOL,
-        "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64},
-        "scan": {"moduleRoot": "child", "packages": ["."], "phase": "post-generation", "capture": "scan.json", "captureSha256": "sha256:" + "2" * 64},
-        "updates": [{"moduleRoot": "child", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}],
-        "nonFixable": [],
-    }
-    lock_path = project / "lock.json"
-    write_lock(module, lock_path, lock)
-    calls = []
-    original = module.run_go
-    module.run_go = lambda arguments, cwd, output=False, workspace=None: (
-        calls.append((arguments, cwd, workspace))
-        or ("v1.0.0\n" if arguments[1:3] == ["list", "-m"] else "example.com/dependency v1.2.3\n" if "-m" in arguments else "")
-    )
-    try:
-        module.apply(lock_path, project, root / "workspace-evidence.json")
-    finally:
-        module.run_go = original
-    assert (["go", "work", "sync"], project.resolve(), project.resolve() / "go.work") in calls
-    assert (["go", "list", "-mod=vendor", "."], child.resolve(), project.resolve() / "go.work") in calls
+def restore_environment(previous: dict[str, str]) -> None:
+    os.environ.clear()
+    os.environ.update(previous)
 
 
-def test_apply_rejects_escape_and_preserves_newer(module, root: Path) -> None:
+def prepare_workspace(root: Path, proxy: Path) -> tuple[Path, Path]:
     project = root / "project"
-    project.mkdir()
-    outside = root / "outside"
-    outside.mkdir()
-    project.joinpath("escape").symlink_to(outside, target_is_directory=True)
-    lock = {"schemaVersion": 1, "source": {"version": "1.0.0", "commit": "a" * 40}, "tool": module.TOOL, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": "escape", "packages": ["."], "phase": "source", "capture": "scan.json", "captureSha256": ""}, "updates": [], "nonFixable": []}
-    path = project / "lock.json"
-    write_lock(module, path, lock)
+    server = project / "server"
+    server.mkdir(parents=True)
+    server.joinpath("go.mod").write_text("module example.com/app\ngo 1.25\nrequire example.com/dependency v1.0.0\n", encoding="utf-8")
+    server.joinpath("main.go").write_text('package main\nimport "example.com/dependency"\nfunc main() { dependency.Value() }\n', encoding="utf-8")
+    project.joinpath("go.work").write_text("go 1.25\nuse ./server\n", encoding="utf-8")
+    previous = set_go_environment(proxy, root / "setup-cache")
     try:
-        module.apply(path, project, root / "evidence.json")
-    except module.LockError as error:
-        assert "escapes workspace" in str(error)
-    else:
-        raise AssertionError("symlinked module root escaped workspace")
-
-    lock["scan"]["moduleRoot"] = "."
-    lock["updates"] = [{"moduleRoot": ".", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}]
-    write_lock(module, path, lock)
-    calls = []
-    original = module.run_go
-    module.run_go = lambda arguments, cwd, output=False, workspace=None: (
-        calls.append(arguments)
-        or ("v1.3.0\n" if arguments[1:3] == ["list", "-m"] else "example.com/dependency v1.3.0\n" if "-m" in arguments else "")
-    )
-    try:
-        module.apply(path, project, root / "evidence.json")
+        subprocess.run(["go", "mod", "download", "example.com/dependency@v1.0.0"], cwd=server, check=True)
+        subprocess.run(["go", "work", "vendor"], cwd=project, check=True)
     finally:
-        module.run_go = original
-    assert not any(arguments[1:3] == ["mod", "edit"] for arguments in calls)
+        restore_environment(previous)
+    return project, server
 
 
-def test_selected_versions_are_per_root(module, root: Path) -> None:
-    project = root / "project"
-    for name in ("a", "b"):
-        project.joinpath(name).mkdir(parents=True)
-    lock = {"schemaVersion": 1, "source": {"version": "1.0.0", "commit": "a" * 40}, "tool": module.TOOL, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": "a", "packages": ["."], "phase": "source", "capture": "scan.json", "captureSha256": ""}, "updates": [{"moduleRoot": "a", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}, {"moduleRoot": "b", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}], "nonFixable": []}
-    path = project / "lock.json"
-    write_lock(module, path, lock)
-    original = module.run_go
-    def fake(arguments, cwd, output=False, workspace=None):
-        if arguments[1:3] == ["list", "-m"]:
-            return "v1.0.0\n"
-        if "-m" in arguments:
-            return f"example.com/dependency {'v1.0.0' if cwd.name == 'a' else 'v1.2.3'}\n"
-        return ""
-    module.run_go = fake
-    try:
-        try:
-            module.apply(path, project, root / "evidence.json")
-        except module.LockError as error:
-            assert "in a" in str(error)
-        else:
-            raise AssertionError("per-root selected-version mismatch was hidden")
-    finally:
-        module.run_go = original
-
-
-def test_pipeline_and_workflow_contracts(module, root: Path) -> None:
+def extract_pipeline(root: Path) -> Path:
     pipeline = ROOT.joinpath("pipelines/go/remediate.yaml").read_text(encoding="utf-8")
     script = pipeline.split("      cat >\"$tool\" <<'PYTHON'\n", 1)[1].split("      PYTHON\n", 1)[0]
     script = "\n".join(line.removeprefix("      ") for line in script.splitlines()) + "\n"
-    assert "capture provenance mismatch" in script
-    assert "module root escapes workspace" in script
-    assert 'GOWORK=str(workspace) if workspace else "off"' in script
-    assert "selected.update(((name, path), selected_version)" in script
-    assert "version(current) >= version(update[\"fixedVersion\"])" in script
+    path = root / "pipeline-apply.py"
+    path.write_text(script, encoding="utf-8")
+    return path
 
-    workflow = ROOT.joinpath(".github/workflows/renovate-go-remediation.yaml").read_text(encoding="utf-8")
-    assert workflow.count("git/refs/heads/${BRANCH}") == 1
-    assert "git/trees" in workflow and "git/commits" in workflow
 
-    project = root / "pipeline"
-    project.mkdir()
-    project.joinpath("go.mod").write_text(
-        "module example.com/app\ngo 1.25\nrequire example.com/dependency v1.3.0\n",
-        encoding="utf-8",
-    )
-    lock = {"schemaVersion": 1, "source": {"version": "1.0.0", "commit": "a" * 40}, "tool": module.TOOL, "database": {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}, "scan": {"moduleRoot": ".", "packages": ["."], "phase": "source", "capture": "scan.json", "captureSha256": ""}, "updates": [{"moduleRoot": ".", "module": "example.com/dependency", "oldVersion": "v1.0.0", "fixedVersion": "v1.2.3", "vulnerabilityIds": ["GO-1"]}], "nonFixable": []}
-    lock_path = project / "lock.json"
-    write_lock(module, lock_path, lock)
-    tool = project / "apply.py"
-    tool.write_text(script, encoding="utf-8")
-    binaries = root / "pipeline-bin"
-    binaries.mkdir()
-    log = root / "pipeline-go.log"
-    executable(binaries / "go", "#!/bin/sh\nset -eu\nprintf '%s|%s|%s|%s\\n' \"${GOPROXY:-}\" \"${GOSUMDB:-}\" \"${GOWORK:-}\" \"$*\" >>\"$GO_LOG\"\ncase \"$*\" in\n  'list -m -f {{.Version}} example.com/dependency') printf 'v1.3.0\\n' ;;\n  'list -mod=readonly -m -f {{.Path}} {{.Version}} all') printf 'example.com/dependency v1.3.0\\n' ;;\nesac\n")
-    previous = os.environ.copy()
-    os.environ.update({"PATH": f"{binaries}:{os.environ['PATH']}", "GO_LOG": str(log)})
+def test_clean_cache_offline_workspace_and_evidence(module, root: Path) -> None:
+    proxy = root / "proxy"
+    add_proxy_module(proxy, "example.com/dependency", "v1.0.0", "package dependency\nfunc Value() int { return 1 }\n")
+    add_proxy_module(proxy, "example.com/dependency", "v1.2.3", "package dependency\nfunc Value() int { return 2 }\n")
+    project, _ = prepare_workspace(root, proxy)
+    raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0"))
+    spec_path, lock_path = make_spec(project, raw, "server")
+    previous = set_go_environment(proxy, root / "generation-cache")
     try:
-        result = module.subprocess.run(
-            ["python3", str(tool), str(lock_path), str(project), str(project / "evidence.json")],
-            check=True,
-        )
-        assert result.returncode == 0
+        lock = module.generate(spec_path, lock_path)
     finally:
-        os.environ.clear()
-        os.environ.update(previous)
-    calls = log.read_text(encoding="utf-8")
-    assert "mod edit" not in calls
-    assert all(line.startswith("off|off|off|") for line in calls.splitlines())
+        restore_environment(previous)
+    assert lock["updates"][0]["sum"].startswith("h1:")
+    assert lock["updates"][0]["goModSum"].startswith("h1:")
+
+    source_project = root / "source-apply"
+    pipeline_project = root / "pipeline-apply"
+    shutil.copytree(project, source_project)
+    shutil.copytree(project, pipeline_project)
+    source_evidence = source_project / "evidence.json"
+    pipeline_evidence = pipeline_project / "evidence.json"
+    previous = set_go_environment(proxy, root / "clean-source-cache")
+    try:
+        module.apply(source_project / lock_path.name, source_project, source_evidence)
+    finally:
+        restore_environment(previous)
+    previous = set_go_environment(proxy, root / "clean-pipeline-cache")
+    try:
+        subprocess.run(["python3", str(extract_pipeline(root)), str(pipeline_project / lock_path.name), str(pipeline_project), str(pipeline_evidence)], check=True)
+    finally:
+        restore_environment(previous)
+
+    source = json.loads(source_evidence.read_text(encoding="utf-8"))
+    pipeline = json.loads(pipeline_evidence.read_text(encoding="utf-8"))
+    assert source == pipeline
+    assert source["staged"] == [{"moduleRoot": "server", "module": "example.com/dependency", "version": "v1.2.3", "sum": lock["updates"][0]["sum"], "goModSum": lock["updates"][0]["goModSum"]}]
+    assert source["selected"] == [{"moduleRoot": "server", "module": "example.com/dependency", "version": "v1.2.3"}]
+    assert "v1.2.3" in source_project.joinpath("server/go.mod").read_text(encoding="utf-8")
+    assert "example.com/dependency v1.2.3" in source_project.joinpath("vendor/modules.txt").read_text(encoding="utf-8")
+
+    repeat_project = root / "repeat-apply"
+    shutil.copytree(project, repeat_project)
+    previous = set_go_environment(proxy, root / "clean-repeat-cache")
+    try:
+        module.apply(repeat_project / lock_path.name, repeat_project, repeat_project / "evidence.json")
+    finally:
+        restore_environment(previous)
+    assert repeat_project.joinpath("evidence.json").read_bytes() == source_evidence.read_bytes()
+
+
+def test_network_disabled_clean_cache_fails(module, root: Path) -> None:
+    proxy = root / "proxy"
+    add_proxy_module(proxy, "example.com/dependency", "v1.0.0", "package dependency\nfunc Value() int { return 1 }\n")
+    add_proxy_module(proxy, "example.com/dependency", "v1.2.3", "package dependency\nfunc Value() int { return 2 }\n")
+    project, _ = prepare_workspace(root, proxy)
+    raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0"))
+    spec_path, lock_path = make_spec(project, raw, "server")
+    previous = set_go_environment(proxy, root / "generation-cache")
+    try:
+        module.generate(spec_path, lock_path)
+    finally:
+        restore_environment(previous)
+    os.environ.update({"GOPROXY": "off", "GOSUMDB": "off", "GOMODCACHE": str(root / "missing-cache")})
+    try:
+        assert_raises(subprocess.CalledProcessError, "returned non-zero", lambda: module.apply(lock_path, project, root / "evidence.json"))
+    finally:
+        restore_environment(previous)
+
+
+def test_checksum_mismatch_and_newer_skip(module, root: Path) -> None:
+    project = root / "project"
+    project.mkdir()
+    project.joinpath("go.mod").write_text("module example.com/app\ngo 1.25\nrequire example.com/dependency v1.0.0\n", encoding="utf-8")
+    lock = lock_data(module, updates=[update()])
+    path = project / "lock.json"
+    write_lock(module, path, lock)
+    original_run = module.run_go
+    original_download = module.download_module
+    module.run_go = lambda arguments, _cwd, output=False, workspace=None, online=False: "v1.0.0\n" if arguments[1:3] == ["list", "-m"] else ""
+    module.download_module = lambda *_args: {"sum": SUM_B, "goModSum": SUM_A}
+    try:
+        assert_raises(module.LockError, "checksum mismatch", lambda: module.apply(path, project, root / "mismatch.json"))
+    finally:
+        module.run_go = original_run
+        module.download_module = original_download
+
+    calls: list[list[str]] = []
+    def newer(arguments, _cwd, output=False, workspace=None, online=False):
+        calls.append(arguments)
+        if arguments[1:3] == ["list", "-m"] and "-mod=readonly" not in arguments:
+            return "v1.3.0\n"
+        if "-m" in arguments:
+            return "example.com/dependency v1.3.0\n"
+        return ""
+    module.run_go = newer
+    module.download_module = lambda *_args: (_ for _ in ()).throw(AssertionError("newer module was staged"))
+    try:
+        module.apply(path, project, root / "newer.json")
+    finally:
+        module.run_go = original_run
+        module.download_module = original_download
+    evidence = json.loads(root.joinpath("newer.json").read_text(encoding="utf-8"))
+    assert evidence["staged"] == []
+    assert evidence["selected"][0]["version"] == "v1.3.0"
+    assert not any(arguments[1:3] == ["mod", "edit"] for arguments in calls)
 
 
 def test_capture_artifact_binding(module, root: Path) -> None:
@@ -277,7 +318,7 @@ def test_capture_artifact_binding(module, root: Path) -> None:
     spec_dir.mkdir(parents=True)
     source = {"repository": "https://example.com/source.git", "version": "1.2.3", "commit": "a" * 40}
     database = {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}
-    scan = {"moduleRoot": ".", "packages": ["."], "phase": "source"}
+    scan = {"moduleRoot": "server", "packages": ["."], "phase": "source"}
     spec_data = {"capture": "raw.jsonl", "source": source, "database": database, "scan": scan}
     spec_name = "images/example/go-remediation.spec.json"
     spec_dir.joinpath("go-remediation.spec.json").write_bytes(module.canonical(spec_data))
@@ -287,70 +328,18 @@ def test_capture_artifact_binding(module, root: Path) -> None:
     raw_path.parent.mkdir(parents=True)
     raw_path.write_bytes(raw)
     entry = {"spec": spec_name, "raw": raw_path.relative_to(artifact).as_posix(), "rawSha256": module.digest(raw), "source": source, "database": database, "scan": scan}
-    manifest = {"schemaVersion": 1, "repository": "tektum/verity-images", "pr": 407, "run": 42, "base": "a" * 40, "head": "b" * 40, "tool": module.TOOL, "changedDirectories": ["images/example"], "specs": [spec_name], "captures": [entry]}
+    manifest = {"schemaVersion": module.SCHEMA_VERSION, "repository": "tektum/verity-images", "pr": 407, "run": 42, "base": "a" * 40, "head": "b" * 40, "tool": module.TOOL, "changedDirectories": ["images/example"], "specs": [spec_name], "captures": [entry]}
     artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-    verified = module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name])
-    assert verified == [entry]
-    for field, value in (("head", "c" * 40), ("base", "c" * 40), ("repository", "other/repo")):
-        manifest[field] = value
-        artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-        try:
-            module.verify_capture_artifact(
-                artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
-            )
-        except module.LockError as error:
-            assert "identity mismatch" in str(error)
-        else:
-            raise AssertionError(f"unbound artifact {field} was accepted")
-        manifest[field] = {"head": "b" * 40, "base": "a" * 40, "repository": "tektum/verity-images"}[field]
-    entry["rawSha256"] = "sha256:" + "0" * 64
+    assert module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]) == [entry]
+    entry["scan"] = {**scan, "moduleRoot": "."}
     artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-    try:
-        module.verify_capture_artifact(
-            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
-        )
-    except module.LockError as error:
-        assert "hash mismatch" in str(error)
-    else:
-        raise AssertionError("stale raw capture was accepted")
-    entry["rawSha256"] = module.digest(raw)
-    manifest["captures"] = []
-    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-    try:
-        module.verify_capture_artifact(
-            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
-        )
-    except module.LockError as error:
-        assert "omits declared scan" in str(error)
-    else:
-        raise AssertionError("missing capture was accepted")
-    manifest["captures"] = [entry, dict(entry)]
-    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-    try:
-        module.verify_capture_artifact(
-            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
-        )
-    except module.LockError as error:
-        assert "unknown spec" in str(error)
-    else:
-        raise AssertionError("extra capture was accepted")
+    assert_raises(module.LockError, "trusted spec", lambda: module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]))
 
 
-def test_changed_spec_selection(module) -> None:
-    specs = [
-        "images/kubectl/1.34/go-remediation.spec.json",
-        "images/kubectl/1.35/go-remediation.spec.json",
-    ]
-    directories, selected = module.select_changed_specs(specs, ["images/kubectl/1.35/melange.yaml"])
-    assert directories == ["images/kubectl/1.35"]
-    assert selected == [specs[1]]
-    workflow = ROOT.joinpath(".github/workflows/renovate-go-remediation.yaml").read_text(encoding="utf-8")
-    assert "per_page=100&page=${page}" in workflow
-    assert "((page += 1))" in workflow
+def test_selection_epoch_and_contracts(module, root: Path) -> None:
+    specs = ["images/kubectl/1.34/go-remediation.spec.json", "images/kubectl/1.35/go-remediation.spec.json"]
+    assert module.select_changed_specs(specs, ["images/kubectl/1.35/melange.yaml"]) == (["images/kubectl/1.35"], [specs[1]])
     assert module.select_changed_specs(specs, ["renovate.json"]) == ([], [])
-
-
-def test_epoch(module, root: Path) -> None:
     recipe = root / "melange.yaml"
     recipe.write_text('package:\n  version: "1.2.3"\n  epoch: 4\n', encoding="utf-8")
     old = root / "old.json"
@@ -359,34 +348,35 @@ def test_epoch(module, root: Path) -> None:
     new.write_text(json.dumps({"source": {"version": "1.2.3"}, "contentHash": "sha256:" + "2" * 64}), encoding="utf-8")
     assert module.bump_epoch(recipe, old, new)
     assert "epoch: 5" in recipe.read_text(encoding="utf-8")
-    new.write_text(json.dumps({"source": {"version": "1.2.4"}, "contentHash": "sha256:" + "3" * 64}), encoding="utf-8")
-    assert not module.bump_epoch(recipe, old, new)
+    workflow = ROOT.joinpath(".github/workflows/renovate-go-remediation.yaml").read_text(encoding="utf-8")
+    assert workflow.count("git/refs/heads/${BRANCH}") == 1
+    assert "git/trees" in workflow and "git/commits" in workflow
+    pipeline = ROOT.joinpath("pipelines/go/remediate.yaml").read_text(encoding="utf-8")
+    assert 'environment.update(GOPROXY="off", GOSUMDB="off")' in pipeline
+    assert '"staged": sorted(staged, key=canonical)' in pipeline
+    assert '["go", "mod", "vendor"]' in pipeline
+    assert '["go", "work", "vendor"]' in pipeline
 
 
 def main() -> None:
     module = load()
     with tempfile.TemporaryDirectory() as temporary:
-        test_prerelease_ordering(module)
-        test_generation(module, Path(temporary))
+        test_root_binding_and_deterministic_generation(module, Path(temporary))
+    test_finding_cannot_redirect_root(module)
+    test_version_and_path_major(module)
     with tempfile.TemporaryDirectory() as temporary:
-        test_malformed_and_no_fix(module, Path(temporary))
+        test_lock_artifact_shape_and_root_validation(module, Path(temporary))
+        fake_download_response(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
-        test_path_major(module, Path(temporary))
+        test_clean_cache_offline_workspace_and_evidence(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
-        test_offline_apply(module, Path(temporary))
+        test_network_disabled_clean_cache_fails(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
-        test_workspace_vendor_apply(module, Path(temporary))
-    with tempfile.TemporaryDirectory() as temporary:
-        test_apply_rejects_escape_and_preserves_newer(module, Path(temporary))
-    with tempfile.TemporaryDirectory() as temporary:
-        test_selected_versions_are_per_root(module, Path(temporary))
-    with tempfile.TemporaryDirectory() as temporary:
-        test_pipeline_and_workflow_contracts(module, Path(temporary))
+        test_checksum_mismatch_and_newer_skip(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_capture_artifact_binding(module, Path(temporary))
-        test_changed_spec_selection(module)
     with tempfile.TemporaryDirectory() as temporary:
-        test_epoch(module, Path(temporary))
+        test_selection_epoch_and_contracts(module, Path(temporary))
     print("passed scripts/test_go_remediation.py")
 
 
