@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container="verity-etcd-test-$$"
 volume="verity-etcd-data-$$"
 
@@ -22,7 +25,7 @@ fail() {
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/etcd"]'
 
-docker run --rm --entrypoint /bin/sh "$image" -c '
+docker run --rm --entrypoint /bin/sh --env expected_version="$expected_version" "$image" -c '
   set -eu
   test -x /usr/bin/etcd
   test -x /usr/bin/etcdctl
@@ -30,7 +33,7 @@ docker run --rm --entrypoint /bin/sh "$image" -c '
   test -L /usr/local/bin/etcd
   [ "$(readlink /usr/local/bin/etcd)" = "../../bin/etcd" ]
   [ "$(stat -c "%u:%g:%a" /var/lib/etcd)" = "65532:65532:700" ]
-  /usr/local/bin/etcd --version | grep -F "etcd Version: 3.6.14"
+  /usr/local/bin/etcd --version | grep -F "etcd Version: $expected_version"
   # etcdutl-only subcommand: guards against etcdutl being built from the
   # etcdctl module (that regressed once; etcdctl has no hashkv).
   /usr/bin/etcdutl --help | grep -q hashkv
