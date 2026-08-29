@@ -540,7 +540,16 @@ def verify_capture_artifact(artifact: Path, root: Path, repository: str, pr: str
         spec = expected.pop(spec_name)
         if any(entry[key] != spec.get(key) for key in ("source", "database", "scan")):
             raise LockError("capture artifact does not match trusted spec")
-        raw_path = artifact / safe_relative(str(entry["raw"]))
+        raw_name = safe_relative(str(entry["raw"]))
+        if not raw_name.startswith("raw/") or not raw_name.endswith(".jsonl"):
+            raise LockError("invalid capture artifact path")
+        raw_path = (artifact / raw_name).resolve()
+        try:
+            raw_path.relative_to(artifact.resolve())
+        except ValueError as error:
+            raise LockError("capture artifact path escapes artifact") from error
+        if not raw_path.is_file() or raw_path.stat().st_size > 32 * 1024 * 1024:
+            raise LockError("invalid capture artifact size")
         raw = raw_path.read_bytes()
         if entry["rawSha256"] != digest(raw):
             raise LockError("capture artifact hash mismatch")
