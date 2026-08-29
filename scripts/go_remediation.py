@@ -412,13 +412,51 @@ def read_json(path: Path) -> dict[str, Any]:
 def scan_specs(root: Path) -> list[Path]:
     return sorted(root.glob("images/**/go-remediation.spec.json"))
 
+def select_changed_specs(specs: list[str], changed: list[str]) -> tuple[list[str], list[str]]:
+    normalized_specs = sorted({safe_relative(item) for item in specs})
+    directories = {str(Path(item).parent.as_posix()) for item in normalized_specs}
+    selected_directories: set[str] = set()
+    for filename in changed:
+        path = safe_relative(filename)
+        matches = [directory for directory in directories if path == directory or path.startswith(directory + "/")]
+        if matches:
+            selected_directories.add(max(matches, key=lambda item: len(Path(item).parts)))
+    selected_specs = [item for item in normalized_specs if str(Path(item).parent.as_posix()) in selected_directories]
+    return sorted(selected_directories), selected_specs
 
-def capture_artifact(root: Path, output: Path, repository: str, pr: str, run: str, head: str) -> None:
-    if COMMIT.fullmatch(head) is None or not repository or not pr.isdecimal() or not run.isdecimal():
+
+def git_changed_files(root: Path, base: str, head: str) -> list[str]:
+    if COMMIT.fullmatch(base) is None or COMMIT.fullmatch(head) is None:
+        raise LockError("invalid change range")
+    output = subprocess.run(
+        ["git", "diff", "--name-only", "--diff-filter=ACMR", base, head],
+        cwd=root,
+        check=True,
+        text=True,
+        capture_output=True,
+    ).stdout
+    return [line for line in output.splitlines() if line]
+
+
+
+
+def capture_artifact(
+    root: Path, output: Path, repository: str, pr: str, run: str, base: str, head: str
+) -> None:
+    if (
+        COMMIT.fullmatch(base) is None
+        or COMMIT.fullmatch(head) is None
+        or not repository
+        or not pr.isdecimal()
+        or not run.isdecimal()
+    ):
         raise LockError("invalid capture identity")
     output.mkdir(parents=True, exist_ok=True)
+    spec_names = [path.relative_to(root).as_posix() for path in scan_specs(root)]
+    directories, selected_specs = select_changed_specs(spec_names, git_changed_files(root, base, head))
     entries: list[dict[str, Any]] = []
-    for spec_path in scan_specs(root):
+    for relative_spec in selected_specs:
+        spec_path = root / relative_spec
         spec = read_json(spec_path)
         source, database, scan = spec.get("source"), spec.get("database"), spec.get("scan")
         if not isinstance(source, dict) or not isinstance(database, dict) or not isinstance(scan, dict):
@@ -510,26 +548,43 @@ def capture_artifact(root: Path, output: Path, repository: str, pr: str, run: st
         "repository": repository,
         "pr": int(pr),
         "run": int(run),
+        "base": base,
         "head": head,
         "tool": TOOL,
+        "changedDirectories": directories,
+        "specs": selected_specs,
         "captures": entries,
     }
     (output / "manifest.json").write_bytes(canonical(manifest))
 
 
-def verify_capture_artifact(artifact: Path, root: Path, repository: str, pr: str, run: str, head: str) -> list[dict[str, Any]]:
+def verify_capture_artifact(
+    artifact: Path,
+    root: Path,
+    repository: str,
+    pr: str,
+    run: str,
+    base: str,
+    head: str,
+    expected_specs: list[str],
+) -> list[dict[str, Any]]:
     manifest = read_json(artifact / "manifest.json")
+    expected_specs = sorted({safe_relative(item) for item in expected_specs})
+    expected_directories = sorted({Path(item).parent.as_posix() for item in expected_specs})
     if (
         manifest.get("schemaVersion") != SCHEMA_VERSION
         or manifest.get("repository") != repository
         or manifest.get("pr") != int(pr)
         or manifest.get("run") != int(run)
+        or manifest.get("base") != base
         or manifest.get("head") != head
         or manifest.get("tool") != TOOL
+        or manifest.get("changedDirectories") != expected_directories
+        or manifest.get("specs") != expected_specs
         or not isinstance(manifest.get("captures"), list)
     ):
         raise LockError("capture artifact identity mismatch")
-    expected = {path.relative_to(root).as_posix(): read_json(path) for path in scan_specs(root)}
+    expected = {item: read_json(root / item) for item in expected_specs}
     verified: list[dict[str, Any]] = []
     for entry in manifest["captures"]:
         if not isinstance(entry, dict) or set(entry) != {"spec", "raw", "rawSha256", "source", "database", "scan"}:
@@ -581,6 +636,7 @@ def main() -> int:
     capture_parser.add_argument("--repository", required=True)
     capture_parser.add_argument("--pr", required=True)
     capture_parser.add_argument("--run", required=True)
+    capture_parser.add_argument("--base", required=True)
     capture_parser.add_argument("--head", required=True)
     capture_parser.add_argument("--output", required=True, type=Path)
     verify_parser = subparsers.add_parser("verify-capture")
@@ -588,8 +644,10 @@ def main() -> int:
     verify_parser.add_argument("--repository", required=True)
     verify_parser.add_argument("--pr", required=True)
     verify_parser.add_argument("--run", required=True)
+    verify_parser.add_argument("--base", required=True)
     verify_parser.add_argument("--head", required=True)
     verify_parser.add_argument("--root", required=True, type=Path)
+    verify_parser.add_argument("--spec", action="append", default=[])
     args = parser.parse_args()
     try:
         if args.command == "generate":
@@ -599,9 +657,11 @@ def main() -> int:
         elif args.command == "apply":
             apply(args.lock, args.root.resolve(), args.evidence)
         elif args.command == "capture":
-            capture_artifact(Path.cwd(), args.output, args.repository, args.pr, args.run, args.head)
+            capture_artifact(Path.cwd(), args.output, args.repository, args.pr, args.run, args.base, args.head)
         elif args.command == "verify-capture":
-            verify_capture_artifact(args.artifact, args.root, args.repository, args.pr, args.run, args.head)
+            verify_capture_artifact(
+                args.artifact, args.root, args.repository, args.pr, args.run, args.base, args.head, args.spec
+            )
         else:
             bump_epoch(args.recipe, args.old_lock, args.new_lock)
     except (LockError, KeyError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:

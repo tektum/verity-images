@@ -33,6 +33,7 @@ jobs:
       - name: Update reviewed remediation locks
         env:
           ARTIFACT: go-remediation-captures-${{ github.event.workflow_run.head_sha }}
+          BASE_SHA: ${{ github.event.workflow_run.pull_requests[0].base.sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
@@ -46,15 +47,34 @@ jobs:
           artifact="$work/artifact"
           mkdir -p "$trusted"
           gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT" --dir "$artifact"
-          response=$(gh api "repos/${REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1")
+          page=1
+          changed_files='[]'
+          while :; do
+            response=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100&page=${page}")
+            changed_files=$(jq -c --argjson page "$response" '. + [$page[].filename]' <<<"$changed_files")
+            (($(jq length <<<"$response") == 100)) || break
+            ((page += 1))
+          done
+          mapfile -t all_specs < <(
+            gh api "repos/${REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1" --jq \
+              '.tree[] | select(.path | test("^images/.+/go-remediation\\.spec\\.json$")) | .path'
+          )
           mapfile -t specs < <(
-            jq -r '.tree[] | select(.path | test("^images/.+/go-remediation\\.spec\\.json$")) | .path' \
-              <<<"$response"
+            python3 - "$changed_files" "${all_specs[@]}" <<'PYTHON'
+          import json, sys
+          from pathlib import Path
+          changed = json.loads(sys.argv[1])
+          specs = sys.argv[2:]
+          directories = {str(Path(spec).parent): spec for spec in specs}
+          selected = set()
+          for filename in changed:
+              matches = [directory for directory in directories if filename.startswith(directory + "/")]
+              if matches:
+                  selected.add(directories[max(matches, key=lambda item: len(Path(item).parts))])
+          print("\n".join(sorted(selected)))
+          PYTHON
           )
           declare -A original_blobs raw_captures
-          while IFS=$'\t' read -r spec raw; do raw_captures["$spec"]="$raw"; done < <(
-            jq -r '.captures[] | [.spec, .raw] | @tsv' "$artifact/manifest.json"
-          )
           for spec in "${specs[@]}"; do
             directory=${spec%/*}
             lock="$directory/go-remediation.lock.json"
@@ -72,9 +92,12 @@ jobs:
             mkdir -p "$trusted/$directory/$(dirname "$capture")"
             cp "$artifact/$raw" "$trusted/$directory/$capture"
           done
-          python3 scripts/go_remediation.py verify-capture "$artifact" \
+          verify=(python3 scripts/go_remediation.py verify-capture "$artifact" \
             --root "$trusted" --repository "$REPOSITORY" --pr "$PR_NUMBER" \
-            --run "$RUN_ID" --head "$HEAD_SHA"
+            --run "$RUN_ID" --base "$BASE_SHA" --head "$HEAD_SHA")
+          for spec in "${specs[@]}"; do verify+=(--spec "$spec"); done
+          "${verify[@]}"
+          ((${#specs[@]})) || exit 0
           changed_paths=()
           for spec in "${specs[@]}"; do
             directory=${spec%/*}

@@ -275,39 +275,79 @@ def test_capture_artifact_binding(module, root: Path) -> None:
     trusted = root / "trusted"
     spec_dir = trusted / "images/example"
     spec_dir.mkdir(parents=True)
-    source = {"version": "1.2.3", "commit": "a" * 40}
+    source = {"repository": "https://example.com/source.git", "version": "1.2.3", "commit": "a" * 40}
     database = {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}
     scan = {"moduleRoot": ".", "packages": ["."], "phase": "source"}
     spec_data = {"capture": "raw.jsonl", "source": source, "database": database, "scan": scan}
+    spec_name = "images/example/go-remediation.spec.json"
     spec_dir.joinpath("go-remediation.spec.json").write_bytes(module.canonical(spec_data))
     artifact = root / "artifact"
     raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0")).encode()
     raw_path = artifact / "raw/images/example/go-remediation.spec.jsonl"
     raw_path.parent.mkdir(parents=True)
     raw_path.write_bytes(raw)
-    entry = {"spec": "images/example/go-remediation.spec.json", "raw": raw_path.relative_to(artifact).as_posix(), "rawSha256": module.digest(raw), "source": source, "database": database, "scan": scan}
-    manifest = {"schemaVersion": 1, "repository": "tektum/verity-images", "pr": 407, "run": 42, "head": "b" * 40, "tool": module.TOOL, "captures": [entry]}
+    entry = {"spec": spec_name, "raw": raw_path.relative_to(artifact).as_posix(), "rawSha256": module.digest(raw), "source": source, "database": database, "scan": scan}
+    manifest = {"schemaVersion": 1, "repository": "tektum/verity-images", "pr": 407, "run": 42, "base": "a" * 40, "head": "b" * 40, "tool": module.TOOL, "changedDirectories": ["images/example"], "specs": [spec_name], "captures": [entry]}
     artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
-    verified = module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+    verified = module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name])
     assert verified == [entry]
-    for field, value in (("head", "c" * 40), ("repository", "other/repo")):
+    for field, value in (("head", "c" * 40), ("base", "c" * 40), ("repository", "other/repo")):
         manifest[field] = value
         artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
         try:
-            module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+            module.verify_capture_artifact(
+                artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
+            )
         except module.LockError as error:
             assert "identity mismatch" in str(error)
         else:
             raise AssertionError(f"unbound artifact {field} was accepted")
-        manifest[field] = "b" * 40 if field == "head" else "tektum/verity-images"
+        manifest[field] = {"head": "b" * 40, "base": "a" * 40, "repository": "tektum/verity-images"}[field]
     entry["rawSha256"] = "sha256:" + "0" * 64
     artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
     try:
-        module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+        module.verify_capture_artifact(
+            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
+        )
     except module.LockError as error:
         assert "hash mismatch" in str(error)
     else:
         raise AssertionError("stale raw capture was accepted")
+    entry["rawSha256"] = module.digest(raw)
+    manifest["captures"] = []
+    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
+    try:
+        module.verify_capture_artifact(
+            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
+        )
+    except module.LockError as error:
+        assert "omits declared scan" in str(error)
+    else:
+        raise AssertionError("missing capture was accepted")
+    manifest["captures"] = [entry, dict(entry)]
+    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
+    try:
+        module.verify_capture_artifact(
+            artifact, trusted, "tektum/verity-images", "407", "42", "a" * 40, "b" * 40, [spec_name]
+        )
+    except module.LockError as error:
+        assert "unknown spec" in str(error)
+    else:
+        raise AssertionError("extra capture was accepted")
+
+
+def test_changed_spec_selection(module) -> None:
+    specs = [
+        "images/kubectl/1.34/go-remediation.spec.json",
+        "images/kubectl/1.35/go-remediation.spec.json",
+    ]
+    directories, selected = module.select_changed_specs(specs, ["images/kubectl/1.35/melange.yaml"])
+    assert directories == ["images/kubectl/1.35"]
+    assert selected == [specs[1]]
+    workflow = ROOT.joinpath(".github/workflows/renovate-go-remediation.yaml").read_text(encoding="utf-8")
+    assert "per_page=100&page=${page}" in workflow
+    assert "((page += 1))" in workflow
+    assert module.select_changed_specs(specs, ["renovate.json"]) == ([], [])
 
 
 def test_epoch(module, root: Path) -> None:
@@ -344,6 +384,7 @@ def main() -> None:
         test_pipeline_and_workflow_contracts(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_capture_artifact_binding(module, Path(temporary))
+        test_changed_spec_selection(module)
     with tempfile.TemporaryDirectory() as temporary:
         test_epoch(module, Path(temporary))
     print("passed scripts/test_go_remediation.py")
