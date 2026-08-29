@@ -5,8 +5,8 @@ inputs:
     description: Go module root relative to the checked-out source
     default: server
   packages:
-    description: Space-separated package patterns to scan and validate
-    default: github.com/gorilla/websocket
+    description: Space-separated application package patterns to scan and validate
+    default: ./...
 
 pipeline:
   - runs: |
@@ -33,6 +33,7 @@ pipeline:
       import shlex
       import subprocess
       import sys
+      import tempfile
       from pathlib import Path
 
       TOOL_VERSION = "v1.7.0"
@@ -271,7 +272,8 @@ pipeline:
               run_go(["go", "work", "vendor"], workspace_root, workspace=workspace)
           mode = "vendor" if workspace_vendor or (module_vendor and workspace is None) else "readonly"
           run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
-          run_go(["go", "build", f"-mod={mode}", *packages], root, workspace=workspace)
+          with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
+              run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
 
       def main():
           binary, workspace_arg, root_arg, *packages = sys.argv[1:]
@@ -287,14 +289,13 @@ pipeline:
           before = scan(Path(binary), root, packages, workspace)
           selected = selected_modules(root, workspace)
           updates, _, _, expected_fixed = derive_fixes(before, selected)
-          requested = [
-              f"{module}@{fixed}"
-              for module, fixed in sorted(updates.items())
-              if version_key(selected[module]) < version_key(fixed)
-          ]
-          if requested:
-              print("go remediation: applying " + " ".join(requested), flush=True)
-              run_go(["go", "get", *requested], root, workspace=workspace)
+          for module, fixed in sorted(updates.items()):
+              current = selected_modules(root, workspace).get(module)
+              if current is None or version_key(current) >= version_key(fixed):
+                  continue
+              request = f"{module}@{fixed}"
+              print("go remediation: applying " + request, flush=True)
+              run_go(["go", "get", request], root, workspace=workspace)
           reconcile(workspace_root, root, packages, workspace)
           after = scan(Path(binary), root, packages, workspace)
           remaining, unresolved, detected, _ = derive_fixes(after, selected_modules(root, workspace))
