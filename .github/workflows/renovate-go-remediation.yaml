@@ -36,41 +36,56 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          changed=false
           response=$(gh api "repos/${REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1")
           mapfile -t specs < <(
             jq -r \
               '.tree[] | select(.path | test("^images/.+/go-remediation\\.spec\\.json$")) | .path' \
               <<<"$response"
           )
+          work=$(mktemp -d)
+          declare -A original_blobs
+          changed_paths=()
           for spec in "${specs[@]}"; do
             directory=${spec%/*}
             lock="$directory/go-remediation.lock.json"
             scan="$directory/go-remediation.lock.scan.json"
             recipe="$directory/melange.yaml"
-            work=$(mktemp -d)
             for path in "$spec" "$lock" "$scan" "$recipe"; do
               payload=$(gh api "repos/${REPOSITORY}/contents/${path}?ref=${HEAD_SHA}")
               mkdir -p "$work/$(dirname "$path")"
               jq -er .content <<<"$payload" | base64 --decode >"$work/$path"
+              original_blobs["$path"]=$(jq -er .sha <<<"$payload")
             done
             cp "$work/$lock" "$work/$lock.old"
             python3 scripts/go_remediation.py generate "$work/$spec" "$work/$lock"
             python3 scripts/go_remediation.py bump-epoch "$work/$recipe" "$work/$lock.old" "$work/$lock"
             for path in "$lock" "$scan" "$recipe"; do
-              original=$(gh api "repos/${REPOSITORY}/contents/${path}?ref=${HEAD_SHA}")
-              before=$(jq -er .content <<<"$original" | base64 --decode | sha256sum | cut -d' ' -f1)
-              after=$(sha256sum "$work/$path" | cut -d' ' -f1)
-              if [[ "$before" == "$after" ]]; then
-                continue
+              after=$(git hash-object "$work/$path")
+              if [[ "${original_blobs[$path]}" != "$after" ]]; then
+                changed_paths+=("$path")
               fi
-              content=$(base64 -w0 "$work/$path")
-              sha=$(jq -er .sha <<<"$original")
-              gh api --method PUT "repos/${REPOSITORY}/contents/${path}" \
-                -f message='chore(deps): update Go remediation lock' \
-                -f content="$content" -f sha="$sha" -f branch="$BRANCH"
-              changed=true
             done
-            rm -rf "$work"
           done
-          "$changed" || true
+          if ((${#changed_paths[@]})); then
+            tree_entries='[]'
+            for path in "${changed_paths[@]}"; do
+              content=$(base64 -w0 "$work/$path")
+              blob=$(gh api --method POST "repos/${REPOSITORY}/git/blobs" \
+                -f content="$content" -f encoding=base64 --jq .sha)
+              entry=$(jq -nc --arg path "$path" --arg sha "$blob" \
+                '{path: $path, mode: "100644", type: "blob", sha: $sha}')
+              tree_entries=$(jq -c --argjson entry "$entry" '. + [$entry]' <<<"$tree_entries")
+            done
+            tree_body=$(jq -nc --arg base "$HEAD_SHA" --argjson tree "$tree_entries" \
+              '{base_tree: $base, tree: $tree}')
+            tree=$(gh api --method POST "repos/${REPOSITORY}/git/trees" \
+              --input - --jq .sha <<<"$tree_body")
+            commit_body=$(jq -nc --arg message 'chore(deps): update Go remediation lock' \
+              --arg tree "$tree" --arg parent "$HEAD_SHA" \
+              '{message: $message, tree: $tree, parents: [$parent]}')
+            commit=$(gh api --method POST "repos/${REPOSITORY}/git/commits" \
+              --input - --jq .sha <<<"$commit_body")
+            gh api --method PATCH "repos/${REPOSITORY}/git/refs/heads/${BRANCH}" \
+              -f sha="$commit" -F force=false
+          fi
+          rm -rf "$work"

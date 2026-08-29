@@ -37,17 +37,17 @@ def digest(value: bytes) -> str:
     return "sha256:" + hashlib.sha256(value).hexdigest()
 
 
-def parse_version(value: str) -> tuple[int, int, int, tuple[tuple[int, str], ...]]:
+def parse_version(value: str) -> tuple[int, int, int, int, tuple[tuple[int, str], ...]]:
     match = VERSION.fullmatch(value)
     if match is None:
         raise LockError(f"invalid module version: {value!r}")
-    prerelease: tuple[tuple[int, str], ...] = ()
-    if match.group(4):
-        prerelease = tuple(
-            (0, f"{int(part):020d}") if part.isdecimal() else (1, part)
-            for part in match.group(4).split(".")
-        )
-    return int(match.group(1)), int(match.group(2)), int(match.group(3)), prerelease
+    prerelease = match.group(4)
+    identifiers = (
+        tuple((0, f"{int(part):020d}") if part.isdecimal() else (1, part) for part in prerelease.split("."))
+        if prerelease
+        else ()
+    )
+    return int(match.group(1)), int(match.group(2)), int(match.group(3)), 0 if prerelease else 1, identifiers
 
 
 def compatible(module: str, version: str) -> bool:
@@ -220,36 +220,66 @@ def lock_hash(lock: dict[str, Any]) -> str:
 
 
 def validate_lock(lock: dict[str, Any], capture: bytes | None = None) -> None:
-    if lock.get("schemaVersion") != SCHEMA_VERSION or lock.get("tool") != TOOL:
+    if not isinstance(lock, dict) or set(lock) != {
+        "schemaVersion", "source", "tool", "database", "scan", "updates", "nonFixable", "contentHash"
+    }:
+        raise LockError("invalid remediation lock fields")
+    if lock["schemaVersion"] != SCHEMA_VERSION or lock["tool"] != TOOL:
         raise LockError("unsupported remediation lock")
-    source = lock.get("source")
+    source = lock["source"]
     if not isinstance(source, dict) or COMMIT.fullmatch(str(source.get("commit", ""))) is None:
         raise LockError("invalid source commit")
     if not isinstance(source.get("version"), str) or not source["version"]:
         raise LockError("invalid source version")
-    database = lock.get("database")
-    if not isinstance(database, dict) or SHA256.fullmatch(str(database.get("sha256", ""))) is None:
+    database = lock["database"]
+    if (
+        not isinstance(database, dict)
+        or not all(isinstance(database.get(key), str) and database[key] for key in ("source", "revision"))
+        or SHA256.fullmatch(str(database.get("sha256", ""))) is None
+    ):
         raise LockError("invalid database provenance")
-    scan = lock.get("scan")
+    scan = lock["scan"]
     if not isinstance(scan, dict) or SHA256.fullmatch(str(scan.get("captureSha256", ""))) is None:
         raise LockError("invalid scan capture")
     safe_relative(str(scan.get("moduleRoot", "")))
+    safe_relative(str(scan.get("capture", "")))
     patterns = scan.get("packages")
     if not isinstance(patterns, list) or not patterns or not all(isinstance(item, str) and item and not item.startswith("-") for item in patterns):
         raise LockError("invalid scan package patterns")
     if scan.get("phase") not in {"source", "post-generation"}:
         raise LockError("invalid scan phase")
-    for update in lock.get("updates", []):
-        if not isinstance(update, dict):
+    for collection in ("updates", "nonFixable"):
+        if not isinstance(lock[collection], list):
+            raise LockError(f"invalid {collection}")
+    for update in lock["updates"]:
+        if not isinstance(update, dict) or set(update) != {"moduleRoot", "module", "oldVersion", "fixedVersion", "vulnerabilityIds"}:
             raise LockError("invalid update")
-        safe_relative(str(update.get("moduleRoot", "")))
-        if not compatible(str(update.get("module", "")), str(update.get("fixedVersion", ""))):
+        safe_relative(str(update["moduleRoot"]))
+        if not compatible(str(update["module"]), str(update["fixedVersion"])):
             raise LockError("unsafe module update")
-        parse_version(str(update.get("oldVersion", "")))
-    if lock.get("contentHash") != lock_hash(lock):
+        if parse_version(str(update["oldVersion"])) >= parse_version(str(update["fixedVersion"])):
+            raise LockError("module update does not advance the version")
+        ids = update["vulnerabilityIds"]
+        if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not all(isinstance(item, str) and item for item in ids):
+            raise LockError("invalid update vulnerability IDs")
+    for record in lock["nonFixable"]:
+        if not isinstance(record, dict) or record.get("status") not in {"no-fix", "no-compatible-fix"}:
+            raise LockError("invalid non-fixable record")
+        safe_relative(str(record.get("moduleRoot", "")))
+        if MODULE.fullmatch(str(record.get("module", ""))) is None:
+            raise LockError("invalid non-fixable module")
+        parse_version(str(record.get("version", "")))
+        ids = record.get("vulnerabilityIds")
+        if not isinstance(ids, list) or not ids or ids != sorted(set(ids)) or not all(isinstance(item, str) and item for item in ids):
+            raise LockError("invalid non-fixable vulnerability IDs")
+    if lock["contentHash"] != lock_hash(lock):
         raise LockError("lock content hash mismatch")
-    if capture is not None and scan["captureSha256"] != digest(capture):
-        raise LockError("captured scan hash mismatch")
+    if capture is not None:
+        if scan["captureSha256"] != digest(capture):
+            raise LockError("captured scan hash mismatch")
+        captured = json.loads(capture)
+        if captured.get("schemaVersion") != SCHEMA_VERSION or captured.get("tool") != TOOL or captured.get("database") != database:
+            raise LockError("captured scan provenance mismatch")
 
 
 def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
@@ -282,8 +312,9 @@ def generate(spec_path: Path, lock_path: Path) -> dict[str, Any]:
     return lock
 
 
-def run_go(arguments: list[str], cwd: Path, output: bool = False) -> str:
-    environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK="off", GOPROXY="off", GOSUMDB="off")
+def run_go(arguments: list[str], cwd: Path, output: bool = False, workspace: Path | None = None) -> str:
+    gowork = str(workspace) if workspace is not None else "off"
+    environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=gowork, GOPROXY="off", GOSUMDB="off")
     completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
     return completed.stdout if output else ""
 
@@ -292,27 +323,52 @@ def file_hash(path: Path) -> str | None:
     return digest(path.read_bytes()) if path.is_file() else None
 
 
+def resolve_module_root(root: Path, relative: str) -> Path:
+    candidate = (root / safe_relative(relative)).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as error:
+        raise LockError(f"module root escapes workspace: {relative!r}") from error
+    if not candidate.is_dir():
+        raise LockError(f"module root is not a directory: {relative!r}")
+    return candidate
+
+
 def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
     lock = json.loads(lock_path.read_text(encoding="utf-8"))
-    validate_lock(lock)
-    roots = {safe_relative(update["moduleRoot"]): (root / safe_relative(update["moduleRoot"])).resolve() for update in lock["updates"]}
+    capture_path = lock_path.parent / safe_relative(str(lock.get("scan", {}).get("capture", "")))
+    validate_lock(lock, capture_path.read_bytes())
+    root = root.resolve()
+    relatives = {lock["scan"]["moduleRoot"], *(update["moduleRoot"] for update in lock["updates"])}
+    roots = {relative: resolve_module_root(root, relative) for relative in relatives}
+    expected: dict[tuple[str, str], str] = {}
     for update in lock["updates"]:
-        run_go(["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"], roots[update["moduleRoot"]])
-    selected: dict[str, str] = {}
+        relative = update["moduleRoot"]
+        current = run_go(["go", "list", "-m", "-f", "{{.Version}}", update["module"]], roots[relative], True).strip()
+        if parse_version(current) >= parse_version(update["fixedVersion"]):
+            expected[(relative, update["module"])] = current
+            continue
+        if current != update["oldVersion"]:
+            raise LockError(f"selected version drift for {update['module']}: {current}")
+        run_go(["go", "mod", "edit", f"-require={update['module']}@{update['fixedVersion']}"], roots[relative])
+        expected[(relative, update["module"])] = update["fixedVersion"]
+    selected: dict[tuple[str, str], str] = {}
     for relative, module in sorted(roots.items()):
         patterns = lock["scan"]["packages"] if relative == lock["scan"]["moduleRoot"] else ["./..."]
         run_go(["go", "list", "-mod=readonly", *patterns], module)
         listing = run_go(["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"], module, True)
-        selected.update(line.split(" ", 1) for line in listing.splitlines() if " " in line)
+        selected.update(((relative, path), version) for path, version in (line.split(" ", 1) for line in listing.splitlines() if " " in line))
         if (module / "vendor").is_dir():
             run_go(["go", "list", "-mod=vendor", *patterns], module)
-    if (root / "go.work").is_file():
-        run_go(["go", "work", "sync"], root)
+    workspace = root / "go.work"
+    if workspace.is_file():
+        run_go(["go", "work", "sync"], root, workspace=workspace)
         if (root / "vendor").is_dir():
-            run_go(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], root)
-    for update in lock["updates"]:
-        if selected.get(update["module"]) != update["fixedVersion"]:
-            raise LockError(f"selected version mismatch for {update['module']}")
+            scan_root = roots[lock["scan"]["moduleRoot"]]
+            run_go(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], scan_root, workspace=workspace)
+    for key, version in expected.items():
+        if selected.get(key) != version:
+            raise LockError(f"selected version mismatch for {key[1]} in {key[0]}")
     evidence = {
         "schemaVersion": SCHEMA_VERSION,
         "lockContentHash": lock["contentHash"],
@@ -322,6 +378,7 @@ def apply(lock_path: Path, root: Path, evidence_path: Path) -> None:
         "scan": lock["scan"],
         "updates": lock["updates"],
         "nonFixable": lock["nonFixable"],
+        "selected": [{"moduleRoot": root_key, "module": module, "version": version} for (root_key, module), version in sorted(expected.items())],
         "manifests": {
             relative: {"go.mod": file_hash(module / "go.mod"), "go.sum": file_hash(module / "go.sum"), "vendor/modules.txt": file_hash(module / "vendor/modules.txt")}
             for relative, module in sorted(roots.items())
