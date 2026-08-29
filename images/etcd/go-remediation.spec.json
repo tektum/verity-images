@@ -1,0 +1,20 @@
+{
+  "capture": "go-remediation.raw.jsonl",
+  "database": {
+    "revision": "2026-08-28T14:47:45Z",
+    "sha256": "sha256:f9871baedab551489b8df31561eb93427298b2b633819d5a4f7007d9965623fe",
+    "source": "https://vuln.go.dev"
+  },
+  "scan": {
+    "moduleRoot": "server",
+    "packages": [
+      "github.com/gorilla/websocket"
+    ],
+    "phase": "source"
+  },
+  "source": {
+    "commit": "fc04cf702b0a46c2fd85547a2be05705b100a496",
+    "repository": "https://github.com/etcd-io/etcd",
+    "version": "3.6.14"
+  }
+}
