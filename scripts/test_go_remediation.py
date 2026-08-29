@@ -271,6 +271,45 @@ def test_pipeline_and_workflow_contracts(module, root: Path) -> None:
     assert all(line.startswith("off|off|off|") for line in calls.splitlines())
 
 
+def test_capture_artifact_binding(module, root: Path) -> None:
+    trusted = root / "trusted"
+    spec_dir = trusted / "images/example"
+    spec_dir.mkdir(parents=True)
+    source = {"version": "1.2.3", "commit": "a" * 40}
+    database = {"source": "https://vuln.go.dev", "revision": "2026-08-28", "sha256": "sha256:" + "1" * 64}
+    scan = {"moduleRoot": ".", "packages": ["."], "phase": "source"}
+    spec_data = {"capture": "raw.jsonl", "source": source, "database": database, "scan": scan}
+    spec_dir.joinpath("go-remediation.spec.json").write_bytes(module.canonical(spec_data))
+    artifact = root / "artifact"
+    raw = stream(osv("GO-1", "example.com/dependency", "v1.2.3"), finding("GO-1", "example.com/dependency", "v1.0.0")).encode()
+    raw_path = artifact / "raw/images/example/go-remediation.spec.jsonl"
+    raw_path.parent.mkdir(parents=True)
+    raw_path.write_bytes(raw)
+    entry = {"spec": "images/example/go-remediation.spec.json", "raw": raw_path.relative_to(artifact).as_posix(), "rawSha256": module.digest(raw), "source": source, "database": database, "scan": scan}
+    manifest = {"schemaVersion": 1, "repository": "tektum/verity-images", "pr": 407, "run": 42, "head": "b" * 40, "tool": module.TOOL, "captures": [entry]}
+    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
+    verified = module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+    assert verified == [entry]
+    for field, value in (("head", "c" * 40), ("repository", "other/repo")):
+        manifest[field] = value
+        artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
+        try:
+            module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+        except module.LockError as error:
+            assert "identity mismatch" in str(error)
+        else:
+            raise AssertionError(f"unbound artifact {field} was accepted")
+        manifest[field] = "b" * 40 if field == "head" else "tektum/verity-images"
+    entry["rawSha256"] = "sha256:" + "0" * 64
+    artifact.joinpath("manifest.json").write_bytes(module.canonical(manifest))
+    try:
+        module.verify_capture_artifact(artifact, trusted, "tektum/verity-images", "407", "42", "b" * 40)
+    except module.LockError as error:
+        assert "hash mismatch" in str(error)
+    else:
+        raise AssertionError("stale raw capture was accepted")
+
+
 def test_epoch(module, root: Path) -> None:
     recipe = root / "melange.yaml"
     recipe.write_text('package:\n  version: "1.2.3"\n  epoch: 4\n', encoding="utf-8")
@@ -303,6 +342,8 @@ def main() -> None:
         test_selected_versions_are_per_root(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_pipeline_and_workflow_contracts(module, Path(temporary))
+    with tempfile.TemporaryDirectory() as temporary:
+        test_capture_artifact_binding(module, Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_epoch(module, Path(temporary))
     print("passed scripts/test_go_remediation.py")

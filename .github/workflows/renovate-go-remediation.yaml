@@ -1,10 +1,10 @@
 name: Update Renovate Go remediation locks
 
-# workflow_run keeps generation on trusted default-branch code. PR source is
-# fetched as data through the GitHub API and is never checked out or executed.
+# This privileged follow-up executes only trusted default-branch code. It treats
+# captures from the preceding unprivileged workflow as inert data.
 on:  # zizmor: ignore[dangerous-triggers]
   workflow_run:
-    workflows: [Build images]
+    workflows: [Capture Renovate Go remediation scans]
     types: [completed]
 
 permissions: {}
@@ -16,11 +16,13 @@ concurrency:
 jobs:
   update:
     if: >-
+      github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
       github.event.workflow_run.actor.login == 'renovate[bot]' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: write
     steps:
       - name: Check out trusted generator
@@ -30,21 +32,29 @@ jobs:
 
       - name: Update reviewed remediation locks
         env:
+          ARTIFACT: go-remediation-captures-${{ github.event.workflow_run.head_sha }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
           GH_TOKEN: ${{ github.token }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          PR_NUMBER: ${{ github.event.workflow_run.pull_requests[0].number }}
           REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
         run: |
           set -euo pipefail
+          work=$(mktemp -d)
+          trusted="$work/trusted"
+          artifact="$work/artifact"
+          mkdir -p "$trusted"
+          gh run download "$RUN_ID" --repo "$REPOSITORY" --name "$ARTIFACT" --dir "$artifact"
           response=$(gh api "repos/${REPOSITORY}/git/trees/${HEAD_SHA}?recursive=1")
           mapfile -t specs < <(
-            jq -r \
-              '.tree[] | select(.path | test("^images/.+/go-remediation\\.spec\\.json$")) | .path' \
+            jq -r '.tree[] | select(.path | test("^images/.+/go-remediation\\.spec\\.json$")) | .path' \
               <<<"$response"
           )
-          work=$(mktemp -d)
-          declare -A original_blobs
-          changed_paths=()
+          declare -A original_blobs raw_captures
+          while IFS=$'\t' read -r spec raw; do raw_captures["$spec"]="$raw"; done < <(
+            jq -r '.captures[] | [.spec, .raw] | @tsv' "$artifact/manifest.json"
+          )
           for spec in "${specs[@]}"; do
             directory=${spec%/*}
             lock="$directory/go-remediation.lock.json"
@@ -52,26 +62,40 @@ jobs:
             recipe="$directory/melange.yaml"
             for path in "$spec" "$lock" "$scan" "$recipe"; do
               payload=$(gh api "repos/${REPOSITORY}/contents/${path}?ref=${HEAD_SHA}")
-              mkdir -p "$work/$(dirname "$path")"
-              jq -er .content <<<"$payload" | base64 --decode >"$work/$path"
+              mkdir -p "$trusted/$(dirname "$path")"
+              jq -er .content <<<"$payload" | base64 --decode >"$trusted/$path"
               original_blobs["$path"]=$(jq -er .sha <<<"$payload")
             done
-            cp "$work/$lock" "$work/$lock.old"
-            python3 scripts/go_remediation.py generate "$work/$spec" "$work/$lock"
-            python3 scripts/go_remediation.py bump-epoch "$work/$recipe" "$work/$lock.old" "$work/$lock"
+            raw=${raw_captures[$spec]:-}
+            [[ -n "$raw" ]] || { echo "missing raw capture for $spec" >&2; exit 1; }
+            capture=$(jq -er .capture "$trusted/$spec")
+            mkdir -p "$trusted/$directory/$(dirname "$capture")"
+            cp "$artifact/$raw" "$trusted/$directory/$capture"
+          done
+          python3 scripts/go_remediation.py verify-capture "$artifact" \
+            --root "$trusted" --repository "$REPOSITORY" --pr "$PR_NUMBER" \
+            --run "$RUN_ID" --head "$HEAD_SHA"
+          changed_paths=()
+          for spec in "${specs[@]}"; do
+            directory=${spec%/*}
+            lock="$directory/go-remediation.lock.json"
+            scan="$directory/go-remediation.lock.scan.json"
+            recipe="$directory/melange.yaml"
+            cp "$trusted/$lock" "$trusted/$lock.old"
+            python3 scripts/go_remediation.py generate "$trusted/$spec" "$trusted/$lock"
+            python3 scripts/go_remediation.py bump-epoch "$trusted/$recipe" \
+              "$trusted/$lock.old" "$trusted/$lock"
             for path in "$lock" "$scan" "$recipe"; do
-              after=$(git hash-object "$work/$path")
-              if [[ "${original_blobs[$path]}" != "$after" ]]; then
-                changed_paths+=("$path")
-              fi
+              after=$(git hash-object "$trusted/$path")
+              before=${original_blobs[$path]:-}
+              if [[ "$before" != "$after" ]]; then changed_paths+=("$path"); fi
             done
           done
           if ((${#changed_paths[@]})); then
             tree_entries='[]'
             for path in "${changed_paths[@]}"; do
-              content=$(base64 -w0 "$work/$path")
               blob=$(gh api --method POST "repos/${REPOSITORY}/git/blobs" \
-                -f content="$content" -f encoding=base64 --jq .sha)
+                -f content="$(base64 -w0 "$trusted/$path")" -f encoding=base64 --jq .sha)
               entry=$(jq -nc --arg path "$path" --arg sha "$blob" \
                 '{path: $path, mode: "100644", type: "blob", sha: $sha}')
               tree_entries=$(jq -c --argjson entry "$entry" '. + [$entry]' <<<"$tree_entries")
@@ -80,9 +104,8 @@ jobs:
               '{base_tree: $base, tree: $tree}')
             tree=$(gh api --method POST "repos/${REPOSITORY}/git/trees" \
               --input - --jq .sha <<<"$tree_body")
-            commit_body=$(jq -nc --arg message 'chore(deps): update Go remediation lock' \
-              --arg tree "$tree" --arg parent "$HEAD_SHA" \
-              '{message: $message, tree: $tree, parents: [$parent]}')
+            commit_body=$(jq -nc --arg tree "$tree" --arg parent "$HEAD_SHA" \
+              '{message: "chore(deps): update Go remediation lock", tree: $tree, parents: [$parent]}')
             commit=$(gh api --method POST "repos/${REPOSITORY}/git/commits" \
               --input - --jq .sha <<<"$commit_body")
             gh api --method PATCH "repos/${REPOSITORY}/git/refs/heads/${BRANCH}" \

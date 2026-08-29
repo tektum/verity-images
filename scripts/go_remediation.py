@@ -401,6 +401,115 @@ def bump_epoch(recipe: Path, old_lock: Path, new_lock: Path) -> bool:
     return True
 
 
+def read_json(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise LockError(f"expected JSON object: {path}")
+    return value
+
+
+def scan_specs(root: Path) -> list[Path]:
+    return sorted(root.glob("images/**/go-remediation.spec.json"))
+
+
+def capture_artifact(root: Path, output: Path, repository: str, pr: str, run: str, head: str) -> None:
+    if COMMIT.fullmatch(head) is None or not repository or not pr.isdecimal() or not run.isdecimal():
+        raise LockError("invalid capture identity")
+    output.mkdir(parents=True, exist_ok=True)
+    entries: list[dict[str, Any]] = []
+    for spec_path in scan_specs(root):
+        spec = read_json(spec_path)
+        source, database, scan = spec.get("source"), spec.get("database"), spec.get("scan")
+        if not isinstance(source, dict) or not isinstance(database, dict) or not isinstance(scan, dict):
+            raise LockError(f"invalid scan specification: {spec_path}")
+        module_root = safe_relative(str(scan.get("moduleRoot", "")))
+        packages = scan.get("packages")
+        if scan.get("phase") not in {"source", "post-generation"} or not isinstance(packages, list) or not packages:
+            raise LockError(f"unsupported scan specification: {spec_path}")
+        workdir = (root / module_root).resolve()
+        try:
+            workdir.relative_to(root.resolve())
+        except ValueError as error:
+            raise LockError(f"scan module root escapes repository: {module_root!r}") from error
+        if scan["phase"] == "post-generation":
+            subprocess.run(
+                ["go", "generate", "./..."],
+                cwd=workdir,
+                env=dict(os.environ, GOTOOLCHAIN="local", GOWORK="off"),
+                check=True,
+                text=True,
+                capture_output=True,
+            )
+        raw = subprocess.run(
+            ["go", "run", f"{TOOL['module']}@{TOOL['version']}", "-json", *packages],
+            cwd=workdir,
+            env=dict(os.environ, GOTOOLCHAIN="local", GOWORK="off"),
+            check=True,
+            text=True,
+            capture_output=True,
+        ).stdout.encode()
+        message_stream(raw.decode())
+        relative_spec = spec_path.relative_to(root).as_posix()
+        raw_path = f"raw/{relative_spec.removesuffix('.json')}.jsonl"
+        target = output / raw_path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(raw)
+        entries.append(
+            {
+                "spec": relative_spec,
+                "raw": raw_path,
+                "rawSha256": digest(raw),
+                "source": source,
+                "database": database,
+                "scan": scan,
+            }
+        )
+    manifest = {
+        "schemaVersion": SCHEMA_VERSION,
+        "repository": repository,
+        "pr": int(pr),
+        "run": int(run),
+        "head": head,
+        "tool": TOOL,
+        "captures": entries,
+    }
+    (output / "manifest.json").write_bytes(canonical(manifest))
+
+
+def verify_capture_artifact(artifact: Path, root: Path, repository: str, pr: str, run: str, head: str) -> list[dict[str, Any]]:
+    manifest = read_json(artifact / "manifest.json")
+    if (
+        manifest.get("schemaVersion") != SCHEMA_VERSION
+        or manifest.get("repository") != repository
+        or manifest.get("pr") != int(pr)
+        or manifest.get("run") != int(run)
+        or manifest.get("head") != head
+        or manifest.get("tool") != TOOL
+        or not isinstance(manifest.get("captures"), list)
+    ):
+        raise LockError("capture artifact identity mismatch")
+    expected = {path.relative_to(root).as_posix(): read_json(path) for path in scan_specs(root)}
+    verified: list[dict[str, Any]] = []
+    for entry in manifest["captures"]:
+        if not isinstance(entry, dict) or set(entry) != {"spec", "raw", "rawSha256", "source", "database", "scan"}:
+            raise LockError("invalid capture artifact entry")
+        spec_name = entry["spec"]
+        if not isinstance(spec_name, str) or expected.get(spec_name) is None:
+            raise LockError("capture artifact references unknown spec")
+        spec = expected.pop(spec_name)
+        if any(entry[key] != spec.get(key) for key in ("source", "database", "scan")):
+            raise LockError("capture artifact does not match trusted spec")
+        raw_path = artifact / safe_relative(str(entry["raw"]))
+        raw = raw_path.read_bytes()
+        if entry["rawSha256"] != digest(raw):
+            raise LockError("capture artifact hash mismatch")
+        message_stream(raw.decode())
+        verified.append(entry)
+    if expected:
+        raise LockError("capture artifact omits declared scan")
+    return verified
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -418,14 +527,31 @@ def main() -> int:
     epoch_parser.add_argument("recipe", type=Path)
     epoch_parser.add_argument("old_lock", type=Path)
     epoch_parser.add_argument("new_lock", type=Path)
+    capture_parser = subparsers.add_parser("capture")
+    capture_parser.add_argument("--repository", required=True)
+    capture_parser.add_argument("--pr", required=True)
+    capture_parser.add_argument("--run", required=True)
+    capture_parser.add_argument("--head", required=True)
+    capture_parser.add_argument("--output", required=True, type=Path)
+    verify_parser = subparsers.add_parser("verify-capture")
+    verify_parser.add_argument("artifact", type=Path)
+    verify_parser.add_argument("--repository", required=True)
+    verify_parser.add_argument("--pr", required=True)
+    verify_parser.add_argument("--run", required=True)
+    verify_parser.add_argument("--head", required=True)
+    verify_parser.add_argument("--root", required=True, type=Path)
     args = parser.parse_args()
     try:
         if args.command == "generate":
             generate(args.spec, args.lock)
         elif args.command == "validate":
-            validate_lock(json.loads(args.lock.read_text(encoding="utf-8")), args.capture.read_bytes())
+            validate_lock(read_json(args.lock), args.capture.read_bytes())
         elif args.command == "apply":
             apply(args.lock, args.root.resolve(), args.evidence)
+        elif args.command == "capture":
+            capture_artifact(Path.cwd(), args.output, args.repository, args.pr, args.run, args.head)
+        elif args.command == "verify-capture":
+            verify_capture_artifact(args.artifact, args.root, args.repository, args.pr, args.run, args.head)
         else:
             bump_epoch(args.recipe, args.old_lock, args.new_lock)
     except (LockError, KeyError, OSError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
