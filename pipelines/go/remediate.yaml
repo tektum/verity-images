@@ -1,0 +1,91 @@
+name: Apply locked Go vulnerability remediation
+
+inputs:
+  lock:
+    description: Reviewed remediation lock relative to the build workspace
+    default: go-remediation.lock.json
+  modroot:
+    description: Root containing the pinned upstream Go source
+    default: .
+
+pipeline:
+  - runs: |
+      set -eu
+      root=$(realpath "${{inputs.modroot}}")
+      lock=$(realpath "${{inputs.lock}}")
+      tool="$root/.verity/apply-go-remediation.py"
+      evidence="$root/.verity/go-remediation-evidence.json"
+      install -d "$root/.verity"
+      cat >"$tool" <<'PYTHON'
+      import hashlib
+      import json
+      import os
+      import re
+      import subprocess
+      import sys
+      from pathlib import Path
+
+      def canonical(value):
+          return (json.dumps(value, indent=2, sort_keys=True, separators=(",", ": ")) + "\n").encode()
+
+      def digest(value):
+          return "sha256:" + hashlib.sha256(value).hexdigest()
+
+      def relative(value):
+          path = Path(value)
+          if path.is_absolute() or ".." in path.parts:
+              raise ValueError(f"unsafe relative path: {value!r}")
+          return path.as_posix()
+
+      def run(arguments, cwd, output=False):
+          environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK="off", GOPROXY="off", GOSUMDB="off")
+          completed = subprocess.run(arguments, cwd=cwd, env=environment, check=True, text=True, capture_output=output)
+          return completed.stdout if output else ""
+
+      lock_path, root, evidence_path = map(Path, sys.argv[1:])
+      lock = json.loads(lock_path.read_text(encoding="utf-8"))
+      unhashed = dict(lock)
+      unhashed.pop("contentHash", None)
+      if lock.get("contentHash") != digest(canonical(unhashed)):
+          raise ValueError("lock content hash mismatch")
+      roots = {
+          relative(update["moduleRoot"]): (root / relative(update["moduleRoot"])).resolve()
+          for update in lock["updates"]
+      }
+      for update in lock["updates"]:
+          requirement = f"-require={update['module']}@{update['fixedVersion']}"
+          arguments = ["go", "mod", "edit", requirement]
+          run(arguments, roots[update["moduleRoot"]])
+      selected = {}
+      for module_root, module in sorted(roots.items()):
+          packages = (
+              lock["scan"]["packages"]
+              if module_root == lock["scan"]["moduleRoot"]
+              else ["./..."]
+          )
+          run(["go", "list", "-mod=readonly", *packages], module)
+          arguments = [
+              "go", "list", "-mod=readonly", "-m", "-f",
+              "{{.Path}} {{.Version}}", "all",
+          ]
+          listing = run(arguments, module, True)
+          selected.update(line.split(" ", 1) for line in listing.splitlines() if " " in line)
+          if (module / "vendor").is_dir():
+              run(["go", "list", "-mod=vendor", *packages], module)
+      if (root / "go.work").is_file():
+          run(["go", "work", "sync"], root)
+          if (root / "vendor").is_dir():
+              run(["go", "list", "-mod=vendor", *lock["scan"]["packages"]], root)
+      for update in lock["updates"]:
+          if selected.get(update["module"]) != update["fixedVersion"]:
+              raise ValueError(f"selected version mismatch for {update['module']}")
+      keys = (
+          "schemaVersion", "contentHash", "source", "tool", "database",
+          "scan", "updates", "nonFixable",
+      )
+      evidence = {key: lock[key] for key in keys}
+      evidence_path.write_bytes(canonical(evidence))
+      PYTHON
+      python3 "$tool" "$lock" "$root" "$evidence"
+      install -Dm644 "$evidence" \
+        "${{targets.destdir}}/usr/share/${{package.name}}/go-remediation-evidence.json"
