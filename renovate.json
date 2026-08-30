@@ -144,6 +144,69 @@
       "separateMajorMinor": false
     },
     {
+      "description": "A major upstream transition in a source-built image changes the published product. Open the pull request, but require human review instead of automerge.",
+      "matchFileNames": ["images/**/melange.yaml"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "labels": ["image-major-update", "review-required"]
+    },
+    {
+      "description": "argo-workflows is pinned to the 3.7 stream. Widening the stream is an explicit edit here.",
+      "matchFileNames": ["images/argo-workflows/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/argoproj/argo-workflows"],
+      "allowedVersions": "/^3\\.7\\./"
+    },
+    {
+      "description": "argocd is pinned to the 3.3 stream. Widening the stream is an explicit edit here.",
+      "matchFileNames": ["images/argocd/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/argoproj/argo-cd"],
+      "allowedVersions": "/^3\\.3\\./"
+    },
+    {
+      "description": "cassandra is pinned to the 5.0 stream. Widening the stream is an explicit edit here.",
+      "matchFileNames": ["images/cassandra/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/apache/cassandra"],
+      "allowedVersions": "/^5\\.0\\./"
+    },
+    {
+      "description": "etcd is pinned to the 3.6 stream. Widening the stream is an explicit edit here.",
+      "matchFileNames": ["images/etcd/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/etcd-io/etcd"],
+      "allowedVersions": "/^3\\.6\\./"
+    },
+    {
+      "description": "zookeeper is pinned to the 3.9 stream. Widening the stream is an explicit edit here.",
+      "matchFileNames": ["images/zookeeper/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/apache/zookeeper"],
+      "allowedVersions": "/^3\\.9\\./"
+    },
+    {
+      "description": "The crossplane 2.3 directory owns that stream. A sibling directory owns any other stream.",
+      "matchFileNames": ["images/crossplane/2.3/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/crossplane/crossplane"],
+      "allowedVersions": "/^2\\.3\\./"
+    },
+    {
+      "description": "The kubectl 1.35 directory owns that stream. A sibling directory owns any other stream.",
+      "matchFileNames": ["images/kubectl/1.35/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/kubernetes/kubernetes"],
+      "allowedVersions": "/^1\\.35\\./"
+    },
+    {
+      "description": "The perl 5.42 directory owns that stream. A sibling directory owns any other stream.",
+      "matchFileNames": ["images/perl/5.42/melange.yaml"],
+      "matchDatasources": ["git-tags"],
+      "matchPackageNames": ["https://github.com/Perl/perl5.git"],
+      "allowedVersions": "/^5\\.42\\./"
+    },
+    {
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false
