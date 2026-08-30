@@ -46,6 +46,7 @@ def write_image(
     name: str,
     versions: str,
     package_version: str | None = None,
+    version_literal: str | None = None,
     upstream_version: str | None = None,
 ) -> Path:
     (directory / "tests").mkdir(parents=True)
@@ -57,12 +58,13 @@ def write_image(
         f"upstream: https://example.com/\nversions: [{versions}]\nenabled: true\n",
         encoding="utf-8",
     )
-    if package_version is None:
+    if package_version is None and version_literal is None:
         (directory / "apko.lock.json").write_text("{}\n", encoding="utf-8")
         return metadata
+    literal = f'"{package_version}"' if version_literal is None else version_literal
     variables = "" if upstream_version is None else f"vars:\n  upstream-version: {upstream_version}\n"
     (directory / "melange.yaml").write_text(
-        f'package:\n  name: {name}\n  version: "{package_version}"\n  epoch: 0\n{variables}'
+        f"package:\n  name: {name}\n  version: {literal}\n  epoch: 0  # remediation\n{variables}"
         "pipeline:\n  - uses: git-checkout\n    with:\n      tag: v${{package.version}}\n",
         encoding="utf-8",
     )
@@ -126,6 +128,12 @@ def check_version_derivation() -> None:
         else:
             raise AssertionError("a stream directory accepted a foreign version")
 
+        # Every valid YAML scalar form of package.version is read, including a
+        # single-quoted value and an unquoted value with an inline comment.
+        assert derived_version(root, 10, name="quoted", versions="1.2", version_literal="'1.2.3'") == "1.2"
+        assert derived_version(root, 11, name="commented", versions="1.2.3", version_literal="1.2.3 # pinned") == "1.2.3"
+        assert derived_version(root, 12, name="both", versions="1.2", version_literal='"1.2.3"  # pinned') == "1.2"
+
 
 def check_source_bump_matrix() -> None:
     metadata = (gen_matrix.ROOT / "images/etcd/metadata.yaml").read_bytes()
@@ -140,6 +148,21 @@ def check_source_bump_matrix() -> None:
             entries = gen_matrix.generate(None)["include"]
         assert [(entry["version"], entry["tag_version"]) for entry in entries] == [("3.7", "3.7")]
         assert (root / "images/etcd/metadata.yaml").read_bytes() == metadata
+
+    # The derived channel names the build report, the scan bundle, and the
+    # report version that the build-gate summary table renders, so an etcd
+    # 3.6.14 -> 3.7.1 bump reports 3.7 instead of a stale 3.6.
+    build = (gen_matrix.ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+    action = (gen_matrix.ROOT / ".github/actions/publish-image/action.yaml").read_text(encoding="utf-8")
+    entry = entries[0]
+    assert build.count("name: report-${{ matrix.name }}-${{ matrix.tag_version }}") == 2
+    assert build.count("tag-version: ${{ matrix.tag_version }}") == 2
+    assert build.count("VERSION: ${{ matrix.tag_version }}") == 2
+    assert 'name: scan-${{ inputs.image-name }}-${{ inputs.tag-version }}' in action
+    assert (
+        f"report-{entry['name']}-{entry['tag_version']}",
+        f"scan-{entry['name']}-{entry['tag_version']}",
+    ) == ("report-etcd-3.7", "scan-etcd-3.7")
 
 
 def main() -> None:

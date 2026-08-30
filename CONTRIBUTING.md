@@ -73,8 +73,12 @@ editable copy of it.
 - A source-built image whose APK version syntax differs from upstream syntax
   declares `vars.upstream-version` in `melange.yaml`. That marker is the only
   documented exception and returns authority to the `versions` entry, as tidb
-  does for `9.0.0_beta1` against `9.0.0-beta.1`. Without the marker, an
-  APK-only version syntax fails `lint`.
+  does for `9.0.0_beta1` against `9.0.0-beta.1`. `vars.upstream-version` is
+  then the version-bearing field Renovate updates with `expected-commit`,
+  because the checkout tag reads it instead of `package.version`; keep the
+  `versions` entry, `package.version`, and `vars.upstream-version` consistent
+  in the same reviewed pull request. Without the marker, an APK-only version
+  syntax fails `lint`.
 - A nested `images/<name>/<stream>/` directory owns its stream. The derived
   version must stay inside it, so a minor or major transition renames the
   directory in a reviewed pull request instead of silently republishing another
@@ -155,10 +159,12 @@ requests:
 - A source-built Wolfi image must keep `package.version`, the HTTPS GitHub
   `git-checkout.repository`, `tag: v${{package.version}}`, and the full
   `expected-commit` in `images/<name>/melange.yaml`. Renovate updates the tag
-  version and matching commit together, and those two lines are the complete
-  update surface: `metadata.yaml`, melange package names, APKO package
-  references, and smoke-test fixtures must not need an edit in the same pull
-  request.
+  version and matching commit together, and for that layout those two lines are
+  the complete update surface: `metadata.yaml`, melange package names, APKO
+  package references, and smoke-test fixtures must not need an edit in the same
+  pull request. A recipe that checks out `tag: v${{vars.upstream-version}}`
+  instead has that variable as its version-bearing field, so its manager in
+  `renovate.json` updates `vars.upstream-version` with `expected-commit`.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
   `latest` tag.

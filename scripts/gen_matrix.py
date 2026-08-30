@@ -44,6 +44,7 @@ COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
 WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
 DESCRIPTION_VERSION: Final = re.compile(r"(?<![A-Za-z0-9])v?\d+(?:\.\d+)*(?![A-Za-z0-9])")
 NUMERIC_VERSION: Final = re.compile(r"\d+(?:\.\d+)*")
+INLINE_COMMENT: Final = re.compile(r"\s+#.*$")
 IMAGE_ROOTS: Final = frozenset({"images", "patched"})
 
 type Track = Literal["wolfi", "patched"]
@@ -214,7 +215,7 @@ def source_version(image: str, path: Path) -> str:
 
 
 def block_scalar(contents: str, block: str, field: str) -> str | None:
-    pattern = re.compile(rf'^\s{{2}}{re.escape(field)}:\s*"?([^"\s#]+)"?\s*$')
+    pattern = re.compile(rf"^\s{{2}}{re.escape(field)}:\s*(\S.*?)\s*$")
     inside = False
     for line in contents.splitlines():
         if line == f"{block}:":
@@ -224,7 +225,7 @@ def block_scalar(contents: str, block: str, field: str) -> str | None:
             if line and not line[0].isspace():
                 break
             if (match := pattern.match(line)) is not None:
-                return match.group(1)
+                return INLINE_COMMENT.sub("", match.group(1)).strip("\"'")
     return None
 
 
