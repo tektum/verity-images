@@ -79,7 +79,7 @@ BOOTSTRAP_INVENTORY_COMMAND: Final = (
     "input/report/build-report.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
-    "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "inventory-filter.jq",
+    "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "scripts/catalog_inventory.jq",
     "catalog.json", "expected-images.json", ">/dev/null",
 )
 
@@ -199,6 +199,14 @@ def main() -> None:
     assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
     assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
     assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
+    # A version-authority change moves a published identity, so main rebuilds any
+    # identity the published catalog does not carry yet.
+    assert '          elif [[ "$REF" == refs/heads/main && -f catalog.json ]]; then\n' in workflow
+    assert (
+        '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json)\n'
+        in workflow
+    )
+    assert "        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'\n" in workflow
     assert ") || status=000\n" in workflow
 
     verify_step = between(
@@ -418,8 +426,12 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
-    assert "cat > inventory-filter.jq <<'EOF'" in catalog
-    assert "all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))" in catalog
+    inventory_filter = (ROOT / "scripts/catalog_inventory.jq").read_text(encoding="utf-8")
+    assert "cat > inventory-filter.jq <<'EOF'" not in catalog
+    assert "(.[1].include | map([.name, .tag_version])) as $expected" in inventory_filter
+    # A superseded identity may only remain while no expected version of the same
+    # image has been published, so an authority change cannot prune a live entry.
+    assert "($expected | any(.[0] == $image.name))" in inventory_filter
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
 

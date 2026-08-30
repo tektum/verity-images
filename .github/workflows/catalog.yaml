@@ -16,6 +16,7 @@ on:
       - scripts/apk_archive.py
       - scripts/apk_repository_policy.py
       - scripts/build_catalog.py
+      - scripts/catalog_inventory.jq
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
       - scripts/validate_repository_state.py
@@ -224,6 +225,8 @@ jobs:
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
+        env:
+          EXPECTED_IMAGES: expected-images.json
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
             "$(test -f previous.json && printf previous.json)" catalog.json \
@@ -233,11 +236,7 @@ jobs:
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
-          cat > inventory-filter.jq <<'EOF'
-          (.[1].include | map([.name, .tag_version])) as $expected |
-          all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
-          EOF
-          devbox run -- jq -e --slurp --from-file inventory-filter.jq \
+          devbox run -- jq -e --slurp --from-file scripts/catalog_inventory.jq \
             catalog.json expected-images.json >/dev/null
 
 

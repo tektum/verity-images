@@ -48,7 +48,7 @@ jobs:
           persist-credentials: false
 
       - name: Download receipt cache
-        if: github.event_name == 'workflow_dispatch'
+        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         run: |
           status=$(curl --silent --show-error --location --output catalog.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json) || status=000
@@ -58,6 +58,7 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
           BASE_SHA: >-
             ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||
             github.event.merge_group.base_sha || github.event.before }}
@@ -67,6 +68,10 @@ jobs:
             matrix=$(python3 scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24)
           elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
+          elif [[ "$REF" == refs/heads/main && -f catalog.json ]]; then
+            # A published identity that no longer matches any image is rebuilt here,
+            # so a version-authority change cannot wait for an unrelated image push.
+            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json)
           else
             matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")
           fi

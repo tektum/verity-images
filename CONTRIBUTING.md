@@ -69,16 +69,23 @@ editable copy of it.
 - A non-numeric entry such as `latest` or `wolfi` is a literal channel and
   publishes verbatim.
 - A pure APKO image has no `melange.yaml`, so its `versions` entry stays the
-  authoritative channel or version.
+  authoritative channel or version. A directory whose only recipe is a flavor
+  helper such as `fips.melange.yaml` is treated the same way, because that
+  recipe packages activation glue rather than the runtime source.
+- `major` opts in to a floating major tag. Its value is derived from the
+  published version, and a declared value that names a different major fails
+  `lint`, so the floating tag can never point at another major. A cross-major
+  transition therefore updates `major` in the same reviewed pull request; it
+  never automerges.
 - A source-built image whose APK version syntax differs from upstream syntax
   declares `vars.upstream-version` in `melange.yaml`. That marker is the only
-  documented exception and returns authority to the `versions` entry, as tidb
-  does for `9.0.0_beta1` against `9.0.0-beta.1`. `vars.upstream-version` is
-  then the version-bearing field Renovate updates with `expected-commit`,
-  because the checkout tag reads it instead of `package.version`; keep the
-  `versions` entry, `package.version`, and `vars.upstream-version` consistent
-  in the same reviewed pull request. Without the marker, an APK-only version
-  syntax fails `lint`.
+  documented exception: the `versions` entry stays authoritative and nothing is
+  derived. Today only the quarantined `enabled: false` tidb definition uses it,
+  where `package.version` is `9.0.0_beta1`, the checkout tag reads
+  `vars.upstream-version`, and `versions` states the upstream spelling. Renovate
+  updates `vars.upstream-version` with `expected-commit` for that layout, so
+  reconcile all three fields in one reviewed pull request before enabling such
+  an image. Without the marker, an APK-only version syntax fails `lint`.
 - A nested `images/<name>/<stream>/` directory owns its stream. The derived
   version must stay inside it, so a minor or major transition renames the
   directory in a reviewed pull request instead of silently republishing another
@@ -86,10 +93,21 @@ editable copy of it.
 
 Transitional contract: existing numeric `versions` entries stay exactly as
 written, because only their component count is load-bearing for a source-built
-image. Final contract: metadata states granularity or a literal channel and
-never restates a version that `melange.yaml` or `source.yaml` already declares.
-Numeric melange package names and their APKO references remain stable legacy
-identities and are not part of a version transition.
+image. The numeric text is transition support, not the final shape: it still
+reads like a version while only its granularity is used. Removing it is a
+single mechanical migration that replaces each source-built entry with an
+explicit granularity token and updates `parse_metadata`; land it as its own
+reviewed change once no image needs the numeric form. Final contract: metadata
+states granularity or a literal channel and never restates a version that
+`melange.yaml` or `source.yaml` already declares. Numeric melange package names
+and their APKO references remain stable legacy identities and are not part of a
+version transition.
+
+A version-authority change moves a published identity, so `main` regenerates
+its matrix with `--published catalog.json` and rebuilds any image whose current
+identity the published catalog does not carry yet. Until that replacement is
+published, `scripts/build_catalog.py` keeps the superseded catalog entry instead
+of pruning it, and prunes it only once the replacement is present.
 
 ### Preflight
 
@@ -159,12 +177,14 @@ requests:
 - A source-built Wolfi image must keep `package.version`, the HTTPS GitHub
   `git-checkout.repository`, `tag: v${{package.version}}`, and the full
   `expected-commit` in `images/<name>/melange.yaml`. Renovate updates the tag
-  version and matching commit together, and for that layout those two lines are
-  the complete update surface: `metadata.yaml`, melange package names, APKO
-  package references, and smoke-test fixtures must not need an edit in the same
-  pull request. A recipe that checks out `tag: v${{vars.upstream-version}}`
-  instead has that variable as its version-bearing field, so its manager in
-  `renovate.json` updates `vars.upstream-version` with `expected-commit`.
+  version and matching commit together, and for that layout `metadata.yaml`,
+  melange package names, and APKO package references must not need an edit in
+  the same pull request. A smoke test needs no edit when it derives its expected
+  primary version from the image or the recipe; a test that hardcodes that
+  version, or asserts a bundled tool version, still changes with the bump.
+  A recipe that checks out `tag: v${{vars.upstream-version}}` instead has that
+  variable as its version-bearing field, so its manager in `renovate.json`
+  updates `vars.upstream-version` with `expected-commit`.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
   `latest` tag.

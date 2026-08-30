@@ -150,11 +150,11 @@ def parse_metadata(path: Path) -> Metadata:
         versions = values["versions"]
         if not isinstance(upstream, str):
             raise MetadataError(f"{path}: upstream must be a string")
-        if not isinstance(versions, tuple) or len(versions) != 1:
-            raise MetadataError(f"{path}: versions must contain exactly one version")
-        source = melange_version(path.parent)
-        if source is not None:
-            versions = (channel_version(str(versions[0]), source, path),)
+        if not isinstance(versions, tuple) or len(versions) != 1 or not str(versions[0]).strip():
+            raise MetadataError(f"{path}: versions must contain exactly one non-empty version")
+        published = melange_version(path.parent)
+        if published is not None:
+            versions = (channel_version(str(versions[0]), published, path),)
     version = str(versions[0])
     stream = stream_directory(path)
     if stream is not None and version != stream and not version.startswith(f"{stream}."):
@@ -171,6 +171,10 @@ def parse_metadata(path: Path) -> Metadata:
     major = values.get("major", "")
     if not isinstance(major, str):
         raise MetadataError(f"{path}: major must be a string")
+    if major and major != version.split(".")[0]:
+        raise MetadataError(
+            f"{path}: major {major} must be the major component of the published version {version}"
+        )
 
     return Metadata(
         name=str(values["name"]),
@@ -215,14 +219,17 @@ def source_version(image: str, path: Path) -> str:
 
 
 def block_scalar(contents: str, block: str, field: str) -> str | None:
-    pattern = re.compile(rf"^\s{{2}}{re.escape(field)}:\s*(\S.*?)\s*$")
+    pattern = re.compile(rf"^\s{{2,}}{re.escape(field)}:\s*(\S.*?)\s*$")
     inside = False
     for line in contents.splitlines():
-        if line == f"{block}:":
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if line.rstrip() == f"{block}:":
             inside = True
             continue
         if inside:
-            if line and not line[0].isspace():
+            if not line[0].isspace():
                 break
             if (match := pattern.match(line)) is not None:
                 return INLINE_COMMENT.sub("", match.group(1)).strip("\"'")
@@ -357,8 +364,26 @@ def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str]
     return cached
 
 
+def published_identities(path: Path | None) -> set[tuple[str, str]]:
+    """Every name and version the published catalog already carries, at any age."""
+    if path is None:
+        return set()
+    document = json.loads(path.read_text(encoding="utf-8"))
+    images = document.get("images")
+    if not isinstance(images, list):
+        raise MetadataError(f"{path}: catalog images must be an array")
+    return {
+        (image["name"], image["version"])
+        for image in images
+        if isinstance(image, dict) and isinstance(image.get("name"), str) and isinstance(image.get("version"), str)
+    }
+
+
 def generate(
-    base_ref: str | None, catalog_path: Path | None = None, max_age: timedelta = timedelta(hours=24)
+    base_ref: str | None,
+    catalog_path: Path | None = None,
+    max_age: timedelta = timedelta(hours=24),
+    published_catalog: Path | None = None,
 ) -> Matrix:
     changed: set[str] = (
         {
@@ -374,6 +399,7 @@ def generate(
     go_bump_changed = bool(changed & GO_BUMP_PATHS)
     corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
     cached = cached_images(catalog_path, max_age)
+    published = published_identities(published_catalog)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
     samples = {
         (metadata.track, flavor): (
@@ -421,18 +447,21 @@ def generate(
                 and metadata.track == "wolfi"
                 and uses_openssl_fips_provider(directory, flavor)
             )
+            version = metadata.versions[0]
+            tag_version = version if flavor == "plain" else f"{version}-{flavor}"
             if catalog_path is None and base_ref and not directly_changed and (
                 not provider_changed
+                and not (published_catalog is not None and (metadata.name, tag_version) not in published)
                 and not (go_bump_changed and relative == GO_BUMP_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue
             fingerprint = input_digest(directory, flavor)
-            tag_version = metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
             if cached.get((metadata.name, tag_version)) == fingerprint:
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
+            is_latest = version == latest[metadata.name]
             entries.append(
                 {
                     "name": metadata.name,
@@ -444,12 +473,10 @@ def generate(
                     "description": metadata.description,
                     "category": metadata.category,
                     "upstream": metadata.upstream,
-                    "version": metadata.versions[0],
-                    "tag_version": (
-                        metadata.versions[0] if flavor == "plain" else f"{metadata.versions[0]}-{flavor}"
-                    ),
-                    "major": metadata.major if metadata.versions[0] == latest[metadata.name] else "",
-                    "latest": metadata.versions[0] == latest[metadata.name],
+                    "version": version,
+                    "tag_version": tag_version,
+                    "major": version.split(".")[0] if metadata.major and is_latest else "",
+                    "latest": is_latest,
                     "owner": metadata.owner,
                     "evidence_file": (
                         f"dist/{build_name}/apko.lock.json"
@@ -464,13 +491,16 @@ def generate(
 
 def main() -> None:
     catalog_path: Path | None = None
+    published_catalog: Path | None = None
     max_age = timedelta(hours=24)
     arguments = sys.argv[1:]
-    while len(arguments) >= 2 and arguments[-2] in {"--catalog", "--max-age-hours"}:
+    while len(arguments) >= 2 and arguments[-2] in {"--catalog", "--max-age-hours", "--published"}:
         option, value = arguments[-2:]
         arguments = arguments[:-2]
         if option == "--catalog":
             catalog_path = Path(value)
+        elif option == "--published":
+            published_catalog = Path(value)
         else:
             max_age = timedelta(hours=int(value))
     match arguments:
@@ -481,9 +511,13 @@ def main() -> None:
         case _:
             raise SystemExit(
                 "usage: gen_matrix.py --all | --changed BASE_REF "
-                "[--catalog CATALOG] [--max-age-hours HOURS]"
+                "[--catalog CATALOG] [--max-age-hours HOURS] [--published CATALOG]"
             )
-    print(json.dumps(generate(base_ref, catalog_path, max_age), separators=(",", ":"), sort_keys=True))
+    print(
+        json.dumps(
+            generate(base_ref, catalog_path, max_age, published_catalog), separators=(",", ":"), sort_keys=True
+        )
+    )
 
 
 if __name__ == "__main__":
