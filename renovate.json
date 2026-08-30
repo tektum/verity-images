@@ -144,6 +144,20 @@
       "separateMajorMinor": false
     },
     {
+      "description": "A major upstream transition in a source-built image changes the published product. Open the pull request, but require human review instead of automerge.",
+      "matchFileNames": ["images/**/melange.yaml"],
+      "matchUpdateTypes": ["major"],
+      "automerge": false,
+      "addLabels": ["image-major-update", "review-required"]
+    },
+    {
+      "description": "A nested image directory owns a version stream. Keep patch updates automatic, but require human review before changing its minor or major stream.",
+      "matchFileNames": ["images/*/*/melange.yaml"],
+      "matchUpdateTypes": ["minor", "major"],
+      "automerge": false,
+      "addLabels": ["image-stream-update", "review-required"]
+    },
+    {
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false

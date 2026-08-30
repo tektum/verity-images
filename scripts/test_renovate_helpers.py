@@ -299,7 +299,9 @@ def test_renovate_configuration() -> None:
     assert source_manager["managerFilePatterns"] == [r"/^images/.+/melange\.yaml$/"]
 
     image_rule = next(
-        rule for rule in renovate["packageRules"] if rule.get("matchFileNames") == ["images/**/melange.yaml"]
+        rule
+        for rule in renovate["packageRules"]
+        if rule.get("matchFileNames") == ["images/**/melange.yaml"] and "groupName" in rule
     )
     assert image_rule == {
         "matchFileNames": ["images/**/melange.yaml"],
@@ -325,7 +327,9 @@ def test_renovate_configuration() -> None:
 def test_renovate_image_groups() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     image_rule = next(
-        rule for rule in renovate["packageRules"] if rule.get("matchFileNames") == ["images/**/melange.yaml"]
+        rule
+        for rule in renovate["packageRules"]
+        if rule.get("matchFileNames") == ["images/**/melange.yaml"] and "groupName" in rule
     )
     group_template = image_rule["groupName"]
 
@@ -342,6 +346,63 @@ def test_renovate_image_groups() -> None:
     assert nested not in {source, sibling}
     assert nested.endswith("images/nested/1.0")
 
+
+def test_renovate_major_brake() -> None:
+    renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
+    rules = renovate["packageRules"]
+    assert renovate["automerge"] is True
+    brake_index = next(
+        index
+        for index, rule in enumerate(rules)
+        if rule.get("matchFileNames") == ["images/**/melange.yaml"]
+        and rule.get("matchUpdateTypes") == ["major"]
+    )
+    brake = rules[brake_index]
+    assert brake["automerge"] is False
+    assert "review-required" in brake["addLabels"]
+    # The brake must cover every dependency in an image recipe, not just the upstream source.
+    assert "matchDatasources" not in brake
+    assert "matchPackageNames" not in brake
+    # A major update must still open a reviewable pull request rather than disappear.
+    assert "enabled" not in brake
+    assert all(
+        rule.get("automerge") is not True
+        for rule in rules[brake_index + 1 :]
+        if rule.get("matchFileNames") in (None, ["images/**/melange.yaml"])
+    )
+
+
+def test_renovate_nested_stream_brake() -> None:
+    renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
+    rules = renovate["packageRules"]
+    brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchFileNames") == ["images/*/*/melange.yaml"]
+    )
+    assert brake == {
+        "description": (
+            "A nested image directory owns a version stream. Keep patch updates automatic, "
+            "but require human review before changing its minor or major stream."
+        ),
+        "matchFileNames": ["images/*/*/melange.yaml"],
+        "matchUpdateTypes": ["minor", "major"],
+        "automerge": False,
+        "addLabels": ["image-stream-update", "review-required"],
+    }
+    major_brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchFileNames") == ["images/**/melange.yaml"]
+        and rule.get("matchUpdateTypes") == ["major"]
+    )
+    nested_major_labels = set(brake["addLabels"]) | set(major_brake["addLabels"])
+    assert nested_major_labels == {
+        "image-major-update",
+        "image-stream-update",
+        "review-required",
+    }
+    assert all("allowedVersions" not in rule for rule in rules)
 
 
 def test_checksum_workflow() -> None:
@@ -368,6 +429,8 @@ def main() -> None:
         test_corepack_install(Path(temporary))
     test_renovate_configuration()
     test_renovate_image_groups()
+    test_renovate_major_brake()
+    test_renovate_nested_stream_brake()
     test_checksum_workflow()
     print("passed scripts/test_renovate_helpers.py")
 

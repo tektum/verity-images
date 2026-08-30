@@ -133,6 +133,14 @@ If an external source cannot use one of these layouts, extend `renovate.json`
 in the same pull request. Pure APKO images have no upstream OCI image version;
 their reviewed `apko.lock.json` remains the update boundary.
 
+Update policy lives in `renovate.json`, not in a second copy of a version
+string. A major upstream transition under `images/**/melange.yaml` opens a pull
+request but never automerges. A nested `images/<name>/<stream>/` directory is
+the structural signal for a parallel stream: patch updates remain automatic,
+while minor and major transitions require review. Renovate still offers those
+transitions instead of silently filtering them through duplicated
+`allowedVersions` strings.
+
 ## Style
 
 - Use keyboard-only ASCII characters in prose, comments, and documentation.
