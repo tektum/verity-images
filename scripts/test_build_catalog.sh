@@ -149,15 +149,66 @@ jq -e --slurp '
 jq -e '.images | length > 100' "$work/catalog.json" >/dev/null
 jq -e '.images | any(.name == "static" and .version == "wolfi")' "$work/catalog.json" >/dev/null
 jq '.images = .images[:5]' "$work/catalog.json" > "$work/partial-catalog.json"
-jq -e --slurp '
-  (.[1].include | map([.name, .tag_version])) as $expected |
-  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
-' "$work/partial-catalog.json" "$work/expected-images.json" >/dev/null
+jq -e --slurp --from-file "$root/scripts/catalog_inventory.jq" \
+  "$work/partial-catalog.json" "$work/expected-images.json" >/dev/null
 jq '.images += [{name: "unknown", version: "1"}]' "$work/partial-catalog.json" > "$work/unknown-catalog.json"
-if jq -e --slurp '
-  (.[1].include | map([.name, .tag_version])) as $expected |
-  all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
-' "$work/unknown-catalog.json" "$work/expected-images.json" >/dev/null; then
+if jq -e --slurp --from-file "$root/scripts/catalog_inventory.jq" \
+  "$work/unknown-catalog.json" "$work/expected-images.json" >/dev/null; then
   printf '%s\n' 'unknown catalog image unexpectedly passed partial inventory validation' >&2
   exit 1
 fi
+
+# A version-authority change must not prune a published entry before its
+# replacement build exists, and must prune it once the replacement is published.
+cat > "$work/authority-expected.json" <<'EOF'
+{"include":[{"name":"authority","tag_version":"2.0"},{"name":"other","tag_version":"1.0"}]}
+EOF
+mkdir -p "$work/authority-scans/scan-other-1.0" "$work/authority-scans/scan-authority-1.0" \
+  "$work/authority-scans/scan-authority-2.0"
+printf '%s\n' '{}' > "$work/authority-scans/scan-other-1.0/scan-amd64.json"
+printf '%s\n' '{}' > "$work/authority-scans/scan-authority-1.0/scan-amd64.json"
+printf '%s\n' '{}' > "$work/authority-scans/scan-authority-2.0/scan-amd64.json"
+image_report() {
+  jq -n --arg name "$1" --arg version "$2" --arg digest "$3" \
+    '{name:$name,version:$version,track:"wolfi",description:"Authority image.",
+      digest:("sha256:" + ($digest * 64)),tags:($version + ",latest"),scan:{all:{},fixable:0}}'
+}
+jq -n --slurpfile images <(image_report authority 1.0 a) '{images: $images}' > "$work/authority-previous.json"
+EXPECTED_IMAGES="$work/authority-expected.json" python3 "$root/scripts/build_catalog.py" \
+  "$work/authority-previous.json" "$work/authority-scans" "" "$work/authority-legacy.json" \
+  5 https://github.com/tektum/verity-images/actions/runs/5 \
+  eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee 2026-08-03T00:00:00Z
+jq -e '.images | map([.name, .version]) == [["authority", "1.0"]]' "$work/authority-legacy.json" >/dev/null
+jq -e --slurp --from-file "$root/scripts/catalog_inventory.jq" \
+  "$work/authority-legacy.json" "$work/authority-expected.json" >/dev/null
+
+jq -n --slurpfile images <(image_report authority 2.0 b; image_report other 1.0 c) '{images: $images}' \
+  > "$work/authority-report.json"
+EXPECTED_IMAGES="$work/authority-expected.json" python3 "$root/scripts/build_catalog.py" \
+  "$work/authority-report.json" "$work/authority-scans" "$work/authority-legacy.json" \
+  "$work/authority-catalog.json" 6 https://github.com/tektum/verity-images/actions/runs/6 \
+  ffffffffffffffffffffffffffffffffffffffff 2026-08-04T00:00:00Z
+jq -e '.images | map([.name, .version]) == [["authority", "2.0"], ["other", "1.0"]]' \
+  "$work/authority-catalog.json" >/dev/null
+jq -e --slurp --from-file "$root/scripts/catalog_inventory.jq" \
+  "$work/authority-catalog.json" "$work/authority-expected.json" >/dev/null
+
+# An explicit empty expected matrix means no image is publishable. It is
+# different from unavailable inventory authority and must remove every entry.
+printf '%s\n' '{"include":[]}' > "$work/empty-expected.json"
+EXPECTED_IMAGES="$work/empty-expected.json" python3 "$root/scripts/build_catalog.py" \
+  "$work/authority-report.json" "$work/authority-scans" "$work/authority-legacy.json" \
+  "$work/empty-catalog.json" 6 https://github.com/tektum/verity-images/actions/runs/6 \
+  ffffffffffffffffffffffffffffffffffffffff 2026-08-04T00:00:00Z
+jq -e '.images == []' "$work/empty-catalog.json" >/dev/null
+
+# A retired image name is still pruned outright.
+jq -n --slurpfile images <(image_report retired 1.0 a; image_report other 1.0 c) '{images: $images}' \
+  > "$work/retired-previous.json"
+mkdir -p "$work/authority-scans/scan-retired-1.0"
+printf '%s\n' '{}' > "$work/authority-scans/scan-retired-1.0/scan-amd64.json"
+EXPECTED_IMAGES="$work/authority-expected.json" python3 "$root/scripts/build_catalog.py" \
+  "$work/retired-previous.json" "$work/authority-scans" "" "$work/retired-catalog.json" \
+  7 https://github.com/tektum/verity-images/actions/runs/7 \
+  aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 2026-08-05T00:00:00Z
+jq -e '.images | map([.name, .version]) == [["other", "1.0"]]' "$work/retired-catalog.json" >/dev/null

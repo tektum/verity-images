@@ -1,6 +1,9 @@
 name: Build catalog data
 
-on:
+# workflow_run is required to consume image evidence emitted by the trusted
+# main-branch build. This workflow checks out only the default branch and
+# validates the source workflow, repository, branch, commit, and artifacts.
+on:  # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: [Build images]
     types: [completed]
@@ -16,6 +19,7 @@ on:
       - scripts/apk_archive.py
       - scripts/apk_repository_policy.py
       - scripts/build_catalog.py
+      - scripts/catalog_inventory.jq
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
       - scripts/validate_repository_state.py
@@ -224,20 +228,21 @@ jobs:
       - name: Generate catalog
         if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
+        env:
+          EXPECTED_IMAGES: expected-images.json
+          PUBLISHED_AT: ${{ steps.source.outputs.published-at }}
+          RUN_ID: ${{ steps.source.outputs.run-id }}
+          RUN_URL: ${{ steps.source.outputs.run-url }}
+          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
             "$(test -f previous.json && printf previous.json)" catalog.json \
-            '${{ steps.source.outputs.run-id }}' '${{ steps.source.outputs.run-url }}' \
-            '${{ steps.source.outputs.source-sha }}' '${{ steps.source.outputs.published-at }}'
+            "$RUN_ID" "$RUN_URL" "$SOURCE_SHA" "$PUBLISHED_AT"
           devbox run -- jq -e \
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
           devbox run -- check-jsonschema --schemafile docs/catalog.schema.json catalog.json
-          cat > inventory-filter.jq <<'EOF'
-          (.[1].include | map([.name, .tag_version])) as $expected |
-          all(.[0].images[]; . as $image | any($expected[]; . == [$image.name, $image.version]))
-          EOF
-          devbox run -- jq -e --slurp --from-file inventory-filter.jq \
+          devbox run -- jq -e --slurp --from-file scripts/catalog_inventory.jq \
             catalog.json expected-images.json >/dev/null
 
 

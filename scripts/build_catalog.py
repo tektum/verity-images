@@ -5,10 +5,14 @@
 # ///
 # How to run:
 #   uv run scripts/build_catalog.py BUILD_REPORT SCAN_DIR PREVIOUS OUTPUT RUN_ID RUN_URL SOURCE_SHA PUBLISHED_AT
+#
+# EXPECTED_IMAGES may point at a `gen_matrix.py --all` document to reuse an
+# already generated matrix instead of regenerating it here.
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 import sys
@@ -55,7 +59,22 @@ if $previous != "" then
 else
   .report.images |= sort_by(.name, .version)
 end |
-.report.images |= (if ($expected | length) == 0 then . else map(. as $image | select(any($expected[]; . == [$image.name, $image.version]))) end) |
+.report.images |= (
+  if $expected == null then .
+  else
+    . as $images
+    | map(
+        . as $image
+        | ($expected | any(. == [$image.name, $image.version])) as $expects_identity
+        | ($expected | any(.[0] == $image.name)) as $expects_image
+        | (
+            $images
+            | any(. as $other | $other.name == $image.name and ($expected | any(. == [$other.name, $other.version])))
+          ) as $replacement_published
+        | select($expects_identity or ($expects_image and ($replacement_published | not)))
+      )
+  end
+) |
 {
   schemaVersion: 2,
   publishedAt: $publishedAt,
@@ -189,10 +208,14 @@ def main() -> None:
     _ = output.write_text(catalog, encoding="utf-8")
 
 
-def expected_images() -> list[list[str]]:
-    if not Path.cwd().is_relative_to(Path(__file__).resolve().parents[1]):
-        return []
-    matrix = json.loads(run([sys.executable, str(Path(__file__).with_name("gen_matrix.py")), "--all"]))
+def expected_images() -> list[list[str]] | None:
+    override = os.environ.get("EXPECTED_IMAGES")
+    if override:
+        matrix = json.loads(Path(override).read_text(encoding="utf-8"))
+    elif Path.cwd().is_relative_to(Path(__file__).resolve().parents[1]):
+        matrix = json.loads(run([sys.executable, str(Path(__file__).with_name("gen_matrix.py")), "--all"]))
+    else:
+        return None
     return [[image["name"], image["tag_version"]] for image in matrix["include"]]
 
 if __name__ == "__main__":
