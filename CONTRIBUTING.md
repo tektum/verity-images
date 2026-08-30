@@ -56,6 +56,37 @@ Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
+### Published version authority
+
+A build artifact owns the version it publishes; metadata never carries a second
+editable copy of it.
+
+- A source-built Wolfi image derives its published version from `melange.yaml`
+  `package.version`. Its `versions` entry declares only channel granularity:
+  one component publishes a major channel, two publish `major.minor`, and three
+  publish the exact version. An etcd bump from `3.6.14` to `3.7.1` therefore
+  publishes `3.7` with no metadata edit.
+- A non-numeric entry such as `latest` or `wolfi` is a literal channel and
+  publishes verbatim.
+- A pure APKO image has no `melange.yaml`, so its `versions` entry stays the
+  authoritative channel or version.
+- A source-built image whose APK version syntax differs from upstream syntax
+  declares `vars.upstream-version` in `melange.yaml`. That marker is the only
+  documented exception and returns authority to the `versions` entry, as tidb
+  does for `9.0.0_beta1` against `9.0.0-beta.1`. Without the marker, an
+  APK-only version syntax fails `lint`.
+- A nested `images/<name>/<stream>/` directory owns its stream. The derived
+  version must stay inside it, so a minor or major transition renames the
+  directory in a reviewed pull request instead of silently republishing another
+  stream from the same path.
+
+Transitional contract: existing numeric `versions` entries stay exactly as
+written, because only their component count is load-bearing for a source-built
+image. Final contract: metadata states granularity or a literal channel and
+never restates a version that `melange.yaml` or `source.yaml` already declares.
+Numeric melange package names and their APKO references remain stable legacy
+identities and are not part of a version transition.
+
 ### Preflight
 
 Before creating parallel image branches:
@@ -124,7 +155,10 @@ requests:
 - A source-built Wolfi image must keep `package.version`, the HTTPS GitHub
   `git-checkout.repository`, `tag: v${{package.version}}`, and the full
   `expected-commit` in `images/<name>/melange.yaml`. Renovate updates the tag
-  version and matching commit together.
+  version and matching commit together, and those two lines are the complete
+  update surface: `metadata.yaml`, melange package names, APKO package
+  references, and smoke-test fixtures must not need an edit in the same pull
+  request.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
   `latest` tag.

@@ -43,6 +43,8 @@ SOURCE_REGISTRIES: Final = frozenset({"docker.io", "registry.k8s.io", "docker.el
 COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
 WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
 DESCRIPTION_VERSION: Final = re.compile(r"(?<![A-Za-z0-9])v?\d+(?:\.\d+)*(?![A-Za-z0-9])")
+NUMERIC_VERSION: Final = re.compile(r"\d+(?:\.\d+)*")
+IMAGE_ROOTS: Final = frozenset({"images", "patched"})
 
 type Track = Literal["wolfi", "patched"]
 GLOBAL_SAMPLES: Final[dict[tuple[Track, str], str]] = {
@@ -149,6 +151,13 @@ def parse_metadata(path: Path) -> Metadata:
             raise MetadataError(f"{path}: upstream must be a string")
         if not isinstance(versions, tuple) or len(versions) != 1:
             raise MetadataError(f"{path}: versions must contain exactly one version")
+        source = melange_version(path.parent)
+        if source is not None:
+            versions = (channel_version(str(versions[0]), source, path),)
+    version = str(versions[0])
+    stream = stream_directory(path)
+    if stream is not None and version != stream and not version.startswith(f"{stream}."):
+        raise MetadataError(f"{path}: version {version} must stay inside the {stream} stream directory")
     enabled = values["enabled"]
     if not isinstance(enabled, bool):
         raise MetadataError(f"{path}: enabled must be true or false")
@@ -204,6 +213,51 @@ def source_version(image: str, path: Path) -> str:
     return match.group(1)
 
 
+def block_scalar(contents: str, block: str, field: str) -> str | None:
+    pattern = re.compile(rf'^\s{{2}}{re.escape(field)}:\s*"?([^"\s#]+)"?\s*$')
+    inside = False
+    for line in contents.splitlines():
+        if line == f"{block}:":
+            inside = True
+            continue
+        if inside:
+            if line and not line[0].isspace():
+                break
+            if (match := pattern.match(line)) is not None:
+                return match.group(1)
+    return None
+
+
+def melange_version(directory: Path) -> str | None:
+    """Upstream version a source-built image publishes, or None when metadata owns it."""
+    path = directory / "melange.yaml"
+    if not path.is_file():
+        return None
+    contents = path.read_text(encoding="utf-8")
+    if block_scalar(contents, "vars", "upstream-version") is not None:
+        return None
+    version = block_scalar(contents, "package", "version")
+    if version is None:
+        raise MetadataError(f"{path}: package.version is missing")
+    return version
+
+
+def channel_version(declared: str, source: str, path: Path) -> str:
+    if not declared[:1].isdecimal():
+        return declared
+    if not NUMERIC_VERSION.fullmatch(declared):
+        raise MetadataError(f"{path}: versions must be a numeric channel or a literal channel")
+    if not NUMERIC_VERSION.fullmatch(source):
+        raise MetadataError(
+            f"{path}: melange package.version {source} is not upstream version syntax; "
+            "declare vars.upstream-version to keep an explicit metadata version"
+        )
+    return ".".join(source.split(".")[: len(declared.split("."))])
+
+
+def stream_directory(path: Path) -> str | None:
+    parents = path.parents
+    return path.parent.name if len(parents) > 2 and parents[2].name in IMAGE_ROOTS else None
 
 
 def changed_paths(base_ref: str) -> set[str]:

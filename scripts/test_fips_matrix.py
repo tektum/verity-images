@@ -40,7 +40,10 @@ def main() -> None:
             "  packages: [openssl-fips-provider=3.1.2-r3]\n",
             encoding="utf-8",
         )
-        (image / "melange.yaml").touch()
+        (image / "melange.yaml").write_text(
+            'package:\n  name: fixture\n  version: "1.0.0"\n  epoch: 0\n',
+            encoding="utf-8",
+        )
         (image / "tests" / "test.sh").touch()
         patched = root / "patched" / "fixture"
         (patched / "tests").mkdir(parents=True)
