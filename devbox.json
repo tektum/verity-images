@@ -22,6 +22,8 @@
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
         "ruff check --isolated --no-cache scripts",
         "python3 scripts/gen_matrix.py --all >/dev/null",
+        "python3 scripts/validate_version_streams.py",
+        "python3 scripts/test_validate_version_streams.py",
         "python3 scripts/test_gen_apk_matrix.py",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",
