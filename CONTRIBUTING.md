@@ -135,12 +135,11 @@ their reviewed `apko.lock.json` remains the update boundary.
 
 Update policy lives in `renovate.json`, not in a second copy of a version
 string. A major upstream transition under `images/**/melange.yaml` opens a pull
-request but never automerges. An image that must stay on one upstream stream
-declares that stream once as an `allowedVersions` package rule, and a nested
-`images/<name>/<stream>/` directory owns exactly its own stream. Widening a
-stream is an explicit edit to that rule. Renovate offers no update at all once a
-pinned stream excludes the version the recipe builds today, so a pin must always
-admit the current version.
+request but never automerges. A nested `images/<name>/<stream>/` directory is
+the structural signal for a parallel stream: patch updates remain automatic,
+while minor and major transitions require review. Renovate still offers those
+transitions instead of silently filtering them through duplicated
+`allowedVersions` strings.
 
 ## Style
 

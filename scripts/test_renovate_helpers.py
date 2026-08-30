@@ -6,7 +6,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -360,7 +359,7 @@ def test_renovate_major_brake() -> None:
     )
     brake = rules[brake_index]
     assert brake["automerge"] is False
-    assert "review-required" in brake["labels"]
+    assert "review-required" in brake["addLabels"]
     # The brake must cover every dependency in an image recipe, not just the upstream source.
     assert "matchDatasources" not in brake
     assert "matchPackageNames" not in brake
@@ -373,45 +372,37 @@ def test_renovate_major_brake() -> None:
     )
 
 
-def melange_repository(text: str) -> str:
-    match = re.search(r"^\s+repository:\s*(\S+)\s*$", text, re.MULTILINE)
-    assert match is not None
-    return match.group(1)
-
-
-def melange_version(text: str) -> str:
-    match = re.search(r'^  version:\s*"?([^"\s#]+)"?\s*$', text, re.MULTILINE)
-    assert match is not None
-    return match.group(1)
-
-
-def test_renovate_stream_pins() -> None:
+def test_renovate_nested_stream_brake() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-    pins = [rule for rule in renovate["packageRules"] if "allowedVersions" in rule]
-    assert pins
-    for pin in pins:
-        assert pin["matchDatasources"] == ["git-tags"], pin
-        (package_file,) = pin["matchFileNames"]
-        (package_name,) = pin["matchPackageNames"]
-        recipe = ROOT / package_file
-        assert recipe.is_file(), package_file
-        text = recipe.read_text(encoding="utf-8")
-        assert melange_repository(text) == package_name, package_file
-
-        allowed = pin["allowedVersions"]
-        assert allowed.startswith("/^") and allowed.endswith("/"), allowed
-        pattern = re.compile(allowed[1:-1])
-
-        # A pin whose stream excludes the current version would silently stop all updates,
-        # because Renovate only filters candidates that are greater than the current version.
-        version = melange_version(text)
-        assert pattern.match(version), f"{package_file}: {version} is outside {allowed}"
-
-        # A pin on a recipe Renovate cannot read would be inert, so require the managed layout.
-        tag = next(line for line in text.splitlines() if line.strip().startswith("tag:"))
-        assert "${{package.version}}" in tag, package_file
-        assert re.search(r"^\s+expected-commit:\s*[0-9a-f]{40}\s*$", text, re.MULTILINE), package_file
-
+    rules = renovate["packageRules"]
+    brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchFileNames") == ["images/*/*/melange.yaml"]
+    )
+    assert brake == {
+        "description": (
+            "A nested image directory owns a version stream. Keep patch updates automatic, "
+            "but require human review before changing its minor or major stream."
+        ),
+        "matchFileNames": ["images/*/*/melange.yaml"],
+        "matchUpdateTypes": ["minor", "major"],
+        "automerge": False,
+        "addLabels": ["image-stream-update", "review-required"],
+    }
+    major_brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchFileNames") == ["images/**/melange.yaml"]
+        and rule.get("matchUpdateTypes") == ["major"]
+    )
+    nested_major_labels = set(brake["addLabels"]) | set(major_brake["addLabels"])
+    assert nested_major_labels == {
+        "image-major-update",
+        "image-stream-update",
+        "review-required",
+    }
+    assert all("allowedVersions" not in rule for rule in rules)
 
 
 def test_checksum_workflow() -> None:
@@ -439,7 +430,7 @@ def main() -> None:
     test_renovate_configuration()
     test_renovate_image_groups()
     test_renovate_major_brake()
-    test_renovate_stream_pins()
+    test_renovate_nested_stream_brake()
     test_checksum_workflow()
     print("passed scripts/test_renovate_helpers.py")
 
