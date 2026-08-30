@@ -193,6 +193,15 @@ jq -e '.images | map([.name, .version]) == [["authority", "2.0"], ["other", "1.0
 jq -e --slurp --from-file "$root/scripts/catalog_inventory.jq" \
   "$work/authority-catalog.json" "$work/authority-expected.json" >/dev/null
 
+# An explicit empty expected matrix means no image is publishable. It is
+# different from unavailable inventory authority and must remove every entry.
+printf '%s\n' '{"include":[]}' > "$work/empty-expected.json"
+EXPECTED_IMAGES="$work/empty-expected.json" python3 "$root/scripts/build_catalog.py" \
+  "$work/authority-report.json" "$work/authority-scans" "$work/authority-legacy.json" \
+  "$work/empty-catalog.json" 6 https://github.com/tektum/verity-images/actions/runs/6 \
+  ffffffffffffffffffffffffffffffffffffffff 2026-08-04T00:00:00Z
+jq -e '.images == []' "$work/empty-catalog.json" >/dev/null
+
 # A retired image name is still pruned outright.
 jq -n --slurpfile images <(image_report retired 1.0 a; image_report other 1.0 c) '{images: $images}' \
   > "$work/retired-previous.json"

@@ -60,7 +60,7 @@ else
   .report.images |= sort_by(.name, .version)
 end |
 .report.images |= (
-  if ($expected | length) == 0 then .
+  if $expected == null then .
   else
     . as $images
     | map(
@@ -208,14 +208,14 @@ def main() -> None:
     _ = output.write_text(catalog, encoding="utf-8")
 
 
-def expected_images() -> list[list[str]]:
+def expected_images() -> list[list[str]] | None:
     override = os.environ.get("EXPECTED_IMAGES")
     if override:
         matrix = json.loads(Path(override).read_text(encoding="utf-8"))
     elif Path.cwd().is_relative_to(Path(__file__).resolve().parents[1]):
         matrix = json.loads(run([sys.executable, str(Path(__file__).with_name("gen_matrix.py")), "--all"]))
     else:
-        return []
+        return None
     return [[image["name"], image["tag_version"]] for image in matrix["include"]]
 
 if __name__ == "__main__":

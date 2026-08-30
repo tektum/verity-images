@@ -1,6 +1,9 @@
 name: Build catalog data
 
-on:
+# workflow_run is required to consume image evidence emitted by the trusted
+# main-branch build. This workflow checks out only the default branch and
+# validates the source workflow, repository, branch, commit, and artifacts.
+on:  # zizmor: ignore[dangerous-triggers]
   workflow_run:
     workflows: [Build images]
     types: [completed]
@@ -227,11 +230,14 @@ jobs:
         shell: bash
         env:
           EXPECTED_IMAGES: expected-images.json
+          PUBLISHED_AT: ${{ steps.source.outputs.published-at }}
+          RUN_ID: ${{ steps.source.outputs.run-id }}
+          RUN_URL: ${{ steps.source.outputs.run-url }}
+          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
         run: |
           devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
             "$(test -f previous.json && printf previous.json)" catalog.json \
-            '${{ steps.source.outputs.run-id }}' '${{ steps.source.outputs.run-url }}' \
-            '${{ steps.source.outputs.source-sha }}' '${{ steps.source.outputs.published-at }}'
+            "$RUN_ID" "$RUN_URL" "$SOURCE_SHA" "$PUBLISHED_AT"
           devbox run -- jq -e \
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null

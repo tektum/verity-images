@@ -426,6 +426,9 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
+    assert "${{ steps.source.outputs." not in catalog_script
+    for variable in ("PUBLISHED_AT", "RUN_ID", "RUN_URL", "SOURCE_SHA"):
+        assert f'"${variable}"' in catalog_script
     inventory_filter = (ROOT / "scripts/catalog_inventory.jq").read_text(encoding="utf-8")
     assert "cat > inventory-filter.jq <<'EOF'" not in catalog
     assert "(.[1].include | map([.name, .tag_version])) as $expected" in inventory_filter

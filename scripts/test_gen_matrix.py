@@ -265,6 +265,37 @@ def check_authority_drift() -> None:
             )
     assert drifted == expected, drifted
 
+    # A pre-transition catalog contains every currently expected identity under
+    # the old metadata-authoritative tag. With no changed image paths, the
+    # published-gap selector must choose exactly the five enabled corrections.
+    old_by_context = {
+        context: old
+        for context, old, _, enabled in expected
+        if enabled
+    }
+    full = gen_matrix.generate(None)["include"]
+    previous = {
+        "images": [
+            {
+                "name": entry["name"],
+                "version": old_by_context.get(entry["context"], entry["tag_version"]),
+            }
+            for entry in full
+        ]
+    }
+    with TemporaryDirectory() as temporary_directory:
+        catalog = Path(temporary_directory) / "catalog.json"
+        catalog.write_text(json.dumps(previous), encoding="utf-8")
+        with patch.object(gen_matrix, "changed_paths", return_value=set()):
+            gaps = gen_matrix.generate("base", published_catalog=catalog)["include"]
+    assert {(entry["name"], entry["tag_version"]) for entry in gaps} == {
+        ("karpenter", "1.14"),
+        ("kube-bench", "0.16.0"),
+        ("sealed-secrets", "0.39.1"),
+        ("trivy", "0.74.0"),
+        ("valkey", "9.1"),
+    }
+
 
 def main() -> None:
     with TemporaryDirectory() as temporary_directory:
