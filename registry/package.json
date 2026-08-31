@@ -1,0 +1,14 @@
+{
+  "name": "verity-vanity-registry",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev --port 8787",
+    "test": "node --test worker.test.mjs",
+    "check": "node --check worker.mjs",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "check:startup": "wrangler check startup"
+  },
+  "devDependencies": {
+    "wrangler": "4.127.1"
+  }
+}
