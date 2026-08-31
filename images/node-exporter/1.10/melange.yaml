@@ -1,7 +1,7 @@
 package:
   name: prometheus-node-exporter
   version: "1.10.2"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: Prometheus exporter for hardware and OS metrics
   copyright:
     - license: Apache-2.0
@@ -28,6 +28,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOTOOLCHAIN: local
@@ -39,12 +40,10 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
 
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        github.com/opencontainers/selinux@v1.15.1
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
+      modroot: .
+      packages: .
 
   - runs: |
       flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
