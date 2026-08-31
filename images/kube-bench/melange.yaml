@@ -1,7 +1,7 @@
 package:
   name: verity-kube-bench-0.11
   version: "0.16.0"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: Checks Kubernetes deployments against CIS benchmarks
   copyright:
     - license: Apache-2.0
@@ -27,6 +27,7 @@ environment:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -43,6 +44,10 @@ pipeline:
         golang.org/x/net@v0.58.0
         golang.org/x/text@v0.41.0
         github.com/go-viper/mapstructure/v2@v2.5.0
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
   - uses: go/build
     with:
       packages: .
