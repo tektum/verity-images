@@ -1,7 +1,7 @@
 package:
   name: pgweb
   version: "0.17.0"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: Web-based PostgreSQL database browser
   copyright:
     - license: MIT
@@ -19,6 +19,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -29,13 +30,10 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 6b0b0244d1aefd6971999b03481eeeaa4ec7cf55
 
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        github.com/sirupsen/logrus@v1.10.2
-        golang.org/x/crypto@v0.55.0
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
+      modroot: .
+      packages: .
 
   - uses: go/build
     with:
