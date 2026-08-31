@@ -1,7 +1,7 @@
 package:
   name: haproxy-ingress
   version: "0.16.1"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: HAProxy Ingress Controller
   copyright:
     - license: Apache-2.0
@@ -22,6 +22,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -31,12 +32,10 @@ pipeline:
       repository: https://github.com/jcmoraisjr/haproxy-ingress
       tag: v${{package.version}}
       expected-commit: 5cda817e35489ea12ba2ad2bf31857a7c7eb3b96
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        golang.org/x/net@v0.58.0
-        golang.org/x/crypto@v0.55.0
-        golang.org/x/text@v0.41.0
+      modroot: .
+      packages: ./pkg
   - runs: |
       PKG=github.com/jcmoraisjr/haproxy-ingress/pkg/version
       LDFLAGS="-X $PKG.RELEASE=v${{package.version}}"
