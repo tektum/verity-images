@@ -127,12 +127,19 @@ def main() -> None:
         "pipelines/go/bump.yaml",
         "scripts/build_candidate.sh",
     }
+    assert gen_matrix.GO_REMEDIATE_PATHS == {
+        "pipelines/go/remediate.yaml",
+        "scripts/build_candidate.sh",
+    }
+    assert gen_matrix.uses_go_remediate(ROOT / gen_matrix.GO_REMEDIATE_SAMPLE)
     for changed_path in gen_matrix.GO_BUMP_PATHS:
         with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
             go_bump_samples = gen_matrix.generate("base")["include"]
         expected = {gen_matrix.GO_BUMP_SAMPLE}
         if changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
             expected.add(gen_matrix.COREPACK_INSTALL_SAMPLE)
+        if changed_path in gen_matrix.GO_REMEDIATE_PATHS:
+            expected.add(gen_matrix.GO_REMEDIATE_SAMPLE)
         assert {sample["context"] for sample in go_bump_samples} == expected
     assert gen_matrix.COREPACK_INSTALL_PATHS == {
         "pipelines/corepack/install.yaml",
@@ -144,7 +151,41 @@ def main() -> None:
         expected = {gen_matrix.COREPACK_INSTALL_SAMPLE}
         if changed_path in gen_matrix.GO_BUMP_PATHS:
             expected.add(gen_matrix.GO_BUMP_SAMPLE)
+        if changed_path in gen_matrix.GO_REMEDIATE_PATHS:
+            expected.add(gen_matrix.GO_REMEDIATE_SAMPLE)
         assert {sample["context"] for sample in corepack_samples} == expected
+    for changed_path in gen_matrix.GO_REMEDIATE_PATHS:
+        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
+            go_remediate_samples = gen_matrix.generate("base")["include"]
+        expected = {gen_matrix.GO_REMEDIATE_SAMPLE}
+        if changed_path in gen_matrix.GO_BUMP_PATHS:
+            expected.add(gen_matrix.GO_BUMP_SAMPLE)
+        if changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
+            expected.add(gen_matrix.COREPACK_INSTALL_SAMPLE)
+        assert {sample["context"] for sample in go_remediate_samples} == expected
+
+    consumer_variants = [
+        (directory, flavor)
+        for directory in gen_matrix.image_directories()
+        if gen_matrix.uses_go_remediate(directory)
+        for flavor in gen_matrix.parse_metadata(directory / "metadata.yaml").flavors
+    ]
+    fingerprints = {
+        variant: gen_matrix.input_digest(*variant)
+        for variant in consumer_variants
+    }
+    pipeline = ROOT / "pipelines/go/remediate.yaml"
+    read_bytes = Path.read_bytes
+
+    def changed_pipeline(path: Path) -> bytes:
+        content = read_bytes(path)
+        return content + b"\n" if path == pipeline else content
+
+    with patch.object(Path, "read_bytes", changed_pipeline):
+        assert all(
+            gen_matrix.input_digest(*variant) != fingerprints[variant]
+            for variant in consumer_variants
+        )
     with patch.object(
         gen_matrix, "changed_paths", return_value={".github/workflows/build.yaml"}
     ):
@@ -162,6 +203,13 @@ def main() -> None:
     assert len(samples) == len(sample_paths)
     assert sample_paths.keys() == actual_pairs
     assert gen_matrix.GLOBAL_SAMPLES.items() <= sample_paths.items()
+    all_variants = [
+        (directory, flavor)
+        for directory in gen_matrix.image_directories()
+        if (metadata := gen_matrix.parse_metadata(directory / "metadata.yaml")).enabled
+        for flavor in metadata.flavors
+    ]
+    assert len(samples) < len(all_variants)
     parse_metadata = gen_matrix.parse_metadata
 
     def unknown_flavor_metadata(path: Path) -> gen_matrix.Metadata:
