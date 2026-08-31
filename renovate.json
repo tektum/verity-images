@@ -151,6 +151,13 @@
       "addLabels": ["image-major-update", "review-required"]
     },
     {
+      "description": "A Go module major upgrade changes its import path and requires source migration. Do not rewrite explicit build overrides across module majors.",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["go"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    },
+    {
       "description": "A nested image directory owns a version stream. Keep patch updates automatic, but require human review before changing its minor or major stream.",
       "matchFileNames": ["images/*/*/melange.yaml"],
       "matchUpdateTypes": ["minor", "major"],

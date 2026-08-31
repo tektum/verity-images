@@ -360,11 +360,27 @@ def test_renovate_major_brake() -> None:
     brake = rules[brake_index]
     assert brake["automerge"] is False
     assert "review-required" in brake["addLabels"]
-    # The brake must cover every dependency in an image recipe, not just the upstream source.
+    # Source-image major updates remain reviewable instead of disappearing.
     assert "matchDatasources" not in brake
     assert "matchPackageNames" not in brake
-    # A major update must still open a reviewable pull request rather than disappear.
     assert "enabled" not in brake
+    go_override_brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchManagers") == ["custom.regex"]
+        and rule.get("matchDatasources") == ["go"]
+    )
+    assert go_override_brake == {
+        "description": (
+            "A Go module major upgrade changes its import path and requires source migration. "
+            "Do not rewrite explicit build overrides across module majors."
+        ),
+        "matchManagers": ["custom.regex"],
+        "matchDatasources": ["go"],
+        "matchUpdateTypes": ["major"],
+        "enabled": False,
+    }
+    assert rules.index(go_override_brake) > brake_index
     assert all(
         rule.get("automerge") is not True
         for rule in rules[brake_index + 1 :]
