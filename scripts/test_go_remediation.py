@@ -367,6 +367,142 @@ def test_interdependent_fixes(module, root: Path) -> None:
     assert "get example.com/low@v1.2.0" not in commands
 
 
+def invoke_main(module, root: Path) -> None:
+    previous_argv = sys.argv
+    sys.argv = ["remediate.py", str(root / "scanner"), str(root), str(root), "."]
+    try:
+        module.main()
+    finally:
+        sys.argv = previous_argv
+
+
+def test_outer_pass_limit(module, root: Path) -> None:
+    limit = module.MAX_REMEDIATION_PASSES
+    selected = {f"example.com/dependency{index}": "v1.0.0" for index in range(limit + 1)}
+    scans = 0
+
+    def scan(*_args, **_kwargs):
+        nonlocal scans
+        result = scans
+        scans += 1
+        return result
+
+    def derive_fixes(index, _selected):
+        dependency = f"example.com/dependency{index}"
+        identity = (f"GO-{index}", dependency)
+        return {dependency: "v1.1.0"}, [], {identity}, {identity}
+
+    def run_go(arguments, _root, capture=False, workspace=None):
+        assert not capture and workspace is None
+        dependency, version = arguments[2].rsplit("@", 1)
+        selected[dependency] = version
+        return ""
+
+    module.scan = scan
+    module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+    module.derive_fixes = derive_fixes
+    module.run_go = run_go
+    module.reconcile = lambda *_args, **_kwargs: None
+    assert_raises(
+        module.RemediationError,
+        f"go remediation pass limit reached after {limit} passes",
+        lambda: invoke_main(module, root),
+    )
+    assert scans == limit + 1
+
+
+def test_outer_no_progress(module, root: Path) -> None:
+    dependency = "example.com/dependency"
+    selected = {dependency: "v1.0.0"}
+    identity = ("GO-1", dependency)
+    module.scan = lambda *_args, **_kwargs: object()
+    module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+    module.derive_fixes = lambda *_args, **_kwargs: ({dependency: "v1.2.0"}, [], {identity}, {identity})
+    module.run_go = lambda *_args, **_kwargs: ""
+    module.reconcile = lambda *_args, **_kwargs: None
+    assert_raises(
+        module.RemediationError,
+        "go remediation pass made no module graph progress",
+        lambda: invoke_main(module, root),
+    )
+
+
+def test_apply_loop_rechecks_current_versions(module, root: Path) -> None:
+    dependency = "example.com/dependency"
+    calls = 0
+
+    def selected_modules(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return {dependency: "v1.0.0" if calls == 1 else "v1.2.0"}
+
+    identity = ("GO-1", dependency)
+    module.scan = lambda *_args, **_kwargs: object()
+    module.selected_modules = selected_modules
+    module.derive_fixes = lambda *_args, **_kwargs: ({dependency: "v1.2.0"}, [], {identity}, {identity})
+    module.run_go = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("stale request applied"))
+    module.reconcile = lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("empty apply loop reconciled"))
+    assert_raises(
+        module.RemediationError,
+        "go remediation apply loop selected no updates",
+        lambda: invoke_main(module, root),
+    )
+
+
+def test_newly_exposed_fixes_converge(module, root: Path) -> None:
+    proxy = root / "proxy"
+    for version in ("v1.0.0", "v1.1.0", "v1.2.0"):
+        add_proxy_module(proxy, "example.com/core", version)
+    add_proxy_module(proxy, "example.com/exporter", "v1.0.0", {"example.com/core": "v1.0.0"})
+    add_proxy_module(proxy, "example.com/exporter", "v1.2.0", {"example.com/core": "v1.1.0"})
+    workspace_root = root / "checkout"
+    workspace_root.mkdir()
+    workspace_root.joinpath("go.mod").write_text(
+        "module example.com/app\n\ngo 1.25\n\nrequire (\n\texample.com/core v1.0.0\n\texample.com/exporter v1.0.0\n)\n",
+        encoding="utf-8",
+    )
+    workspace_root.joinpath("main.go").write_text(
+        'package main\nimport core "example.com/core"\nimport exporter "example.com/exporter"\nfunc main() { _, _ = core.Value(), exporter.Value() }\n',
+        encoding="utf-8",
+    )
+    environment = dict(os.environ, GOPROXY=proxy.resolve().as_uri(), GOSUMDB="off", GOMODCACHE=str(root / "cache"), GOTOOLCHAIN="local", GOWORK="off")
+    subprocess.run(["go", "mod", "tidy"], cwd=workspace_root, env=environment, check=True, capture_output=True)
+    exporter_vulnerable = stream(
+        osv("GO-EXPORTER", "example.com/exporter", "v1.2.0"),
+        finding("GO-EXPORTER", "example.com/exporter", "v1.0.0"),
+    )
+    core_vulnerable = stream(
+        osv("GO-CORE", "example.com/core", "v1.2.0"),
+        finding("GO-CORE", "example.com/core", "v1.1.0"),
+    )
+    scanner = sequence_scanner(root, [(exporter_vulnerable, 3), (core_vulnerable, 3), (stream(), 0)], package="./...")
+    real_go = shutil.which("go")
+    assert real_go
+    binary_dir = root / "bin"
+    binary_dir.mkdir()
+    log = root / "go.log"
+    wrapper = binary_dir / "go"
+    wrapper.write_text("#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$GO_LOG\"\nexec \"$REAL_GO\" \"$@\"\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    previous_environ = os.environ.copy()
+    previous_argv = sys.argv
+    os.environ.update(environment, PATH=f"{binary_dir}:{os.environ['PATH']}", REAL_GO=real_go, GO_LOG=str(log))
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "./..."]
+    try:
+        module.main()
+    finally:
+        sys.argv = previous_argv
+        os.environ.clear()
+        os.environ.update(previous_environ)
+    go_mod = workspace_root.joinpath("go.mod").read_text(encoding="utf-8")
+    assert "example.com/exporter v1.2.0" in go_mod
+    assert "example.com/core v1.2.0" in go_mod
+    commands = log.read_text(encoding="utf-8").splitlines()
+    assert "get example.com/exporter@v1.2.0" in commands
+    assert "get example.com/core@v1.2.0" in commands
+    assert root.joinpath("scan-state").read_text(encoding="utf-8") == "3"
+
+
 def test_package_inputs(module, root: Path) -> None:
     glob = root / "glob"
     glob.mkdir()
@@ -425,7 +561,23 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
+        test_outer_pass_limit(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_outer_no_progress(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_apply_loop_rechecks_current_versions(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
         test_interdependent_fixes(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_newly_exposed_fixes_converge(module, root)
     test_pipeline_contract()
     print("passed scripts/test_go_remediation.py")
 
