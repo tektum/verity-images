@@ -1,5 +1,9 @@
 name: Resolve Go vulnerabilities
 
+needs:
+  packages:
+    - omnibump
+
 inputs:
   modroot:
     description: Go module root relative to the checked-out source
@@ -71,8 +75,9 @@ pipeline:
               suffix = re.search(r"\.v([0-9]+)$", module)
               if suffix is None:
                   return False
-          expected = int(suffix.group(1)) if suffix else None
-          return (expected is None and major < 2) or expected == major
+          # Legacy module paths may use v2+ with +incompatible. Omnibump
+          # canonicalizes an unsuffixed candidate before applying it.
+          return suffix is None or int(suffix.group(1)) == major
 
       def parse_stream(raw):
           decoder = json.JSONDecoder()
@@ -200,7 +205,7 @@ pipeline:
               return min(compatible_fixes, key=version_key), ""
           return "", "no-compatible-fix" if candidates else "no-fix"
 
-      def run_go(arguments, cwd, capture=False, workspace=None):
+      def run_go(arguments, cwd, capture=False, workspace=None, report=False):
           command = shlex.join(arguments)
           print("+ " + command, flush=True)
           environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
@@ -208,7 +213,41 @@ pipeline:
           if completed.returncode:
               detail = completed.stderr.strip() or completed.stdout.strip() or "no output"
               raise RemediationError(f"command failed ({completed.returncode}): {command}: {detail}")
+          if report:
+              print(completed.stdout, end="", flush=True)
+              print(completed.stderr, end="", file=sys.stderr, flush=True)
           return completed.stdout if capture else ""
+
+
+      def language_directives(path):
+          directives = {}
+          for line in path.read_text(encoding="utf-8").splitlines():
+              fields = line.split("//", 1)[0].split()
+              if fields and fields[0] in {"go", "toolchain"}:
+                  if len(fields) != 2 or fields[0] in directives:
+                      raise RemediationError(f"invalid {path.name} directives")
+                  directives[fields[0]] = line
+          return directives
+
+
+      def restore_language_directives(path, directives):
+          content = path.read_text(encoding="utf-8")
+          lines = content.splitlines()
+          for name in ("go", "toolchain"):
+              matches = [index for index, line in enumerate(lines) if line.split()[:1] == [name]]
+              if matches:
+                  if name in directives:
+                      lines[matches[0]] = directives[name]
+                      for index in reversed(matches[1:]):
+                          del lines[index]
+                  else:
+                      for index in reversed(matches):
+                          del lines[index]
+              elif name in directives:
+                  anchor = "go" if name == "toolchain" else "module"
+                  index = next((index for index, line in enumerate(lines) if line.split()[:1] == [anchor]), -1)
+                  lines.insert(index + 1, directives[name])
+          path.write_text("\n".join(lines) + ("\n" if content.endswith("\n") else ""), encoding="utf-8")
 
       def selected_modules(root, workspace=None):
           return {
@@ -288,6 +327,8 @@ pipeline:
           except ValueError as error:
               raise RemediationError("module root escapes workspace") from error
           workspace = workspace_root / "go.work" if workspace_root.joinpath("go.work").is_file() else None
+          if workspace and root == workspace_root:
+              raise RemediationError("module root cannot be the workspace root")
           messages = scan(Path(binary), root, packages, workspace)
           remediated = set()
           passes = 0
@@ -318,17 +359,23 @@ pipeline:
                   raise RemediationError(
                       f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                   )
-              applied = False
-              for module, fixed in requested:
-                  current = selected_modules(root, workspace).get(module)
-                  if current is None or version_key(current) >= version_key(fixed):
-                      continue
-                  request = f"{module}@{fixed}"
-                  print("go remediation: applying " + request, flush=True)
-                  run_go(["go", "get", request], root, workspace=workspace)
-                  applied = True
-              if not applied:
-                  raise RemediationError(f"go remediation apply loop selected no updates: {details}")
+              module_directives = language_directives(root / "go.mod")
+              workspace_directives = language_directives(workspace) if workspace else None
+              print("go remediation: applying " + details, flush=True)
+              try:
+                  run_go(
+                      [
+                          "omnibump", "--language", "go", "--dir", str(root),
+                          "--packages", details, "--tidy=false",
+                      ],
+                      root,
+                      workspace=workspace,
+                      report=True,
+                  )
+              finally:
+                  restore_language_directives(root / "go.mod", module_directives)
+                  if workspace_directives is not None:
+                      restore_language_directives(workspace, workspace_directives)
               reconcile(workspace_root, root, packages, workspace)
               reconciled = True
               passes += 1
