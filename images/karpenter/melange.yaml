@@ -1,9 +1,7 @@
 package:
   name: karpenter-1.11
   version: "1.14.1"
-  # Matches verity-org/verity's pinned revision, which supersedes the
-  # vulnerable public 1.14.1-r0 package for this same source commit.
-  epoch: 7
+  epoch: 8  # Go remediation
   description: Karpenter is a Kubernetes Node Autoscaler built for flexibility, performance, and simplicity.
   copyright:
     - license: Apache-2.0
@@ -25,6 +23,7 @@ environment:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -36,11 +35,10 @@ pipeline:
       repository: https://github.com/aws/karpenter-provider-aws
       tag: v${{package.version}}
       expected-commit: bde00654cd316fddb3dccfba3f5ac07039865429
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
+      modroot: .
+      packages: ./cmd/controller
   - uses: go/build
     with:
       go-package: go-1.26
