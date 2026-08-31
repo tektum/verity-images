@@ -1,7 +1,7 @@
 package:
   name: rqlite-8
   version: "8.43.4"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: rqlite distributed SQLite
   copyright:
     - license: MIT
@@ -22,6 +22,7 @@ environment:
       - go-1.26
       - icu-dev
       - pkgconf
+      - python3
       - zlib-dev
   environment:
     CGO_ENABLED: "1"
@@ -32,14 +33,10 @@ pipeline:
       repository: https://github.com/rqlite/rqlite
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        github.com/aws/aws-sdk-go-v2/service/s3@v1.108.0
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
-        google.golang.org/grpc@v1.83.2
-      tidy: false
+      modroot: .
+      packages: ./cmd/rqlited/.
   - runs: |
       flags="-s -w -X github.com/rqlite/rqlite/v8/cmd.CompilerCommand=cc"
       flags="$flags -X github.com/rqlite/rqlite/v8/cmd.Version=v${{package.version}}"
