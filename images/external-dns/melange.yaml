@@ -1,7 +1,7 @@
 package:
   name: verity-external-dns-0.19
   version: "0.19.0"
-  epoch: 0
+  epoch: 1  # Go remediation
   description: Kubernetes DNS record controller
   copyright:
     - license: Apache-2.0
@@ -25,6 +25,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOTOOLCHAIN: local
@@ -40,12 +41,13 @@ pipeline:
       deps: |-
         github.com/openshift/api@v0.0.0-20251015095338-264e80a2b6e7
         github.com/openshift/client-go@v0.0.0-20251015124057-db0dee36e235
-        github.com/projectcontour/contour@v1.33.6
         go.opentelemetry.io/otel@v1.46.0
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
         google.golang.org/grpc@v1.83.2
         sigs.k8s.io/gateway-api@v1.6.1
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=false \
         -ldflags="-s -w \
