@@ -41,6 +41,7 @@ pipeline:
       RESULT_EXIT_CODES = {0, 3}
       MESSAGE_TYPES = {"config", "progress", "SBOM", "osv", "finding"}
       MAX_OUTPUT_BYTES = 32 * 1024 * 1024
+      MAX_REMEDIATION_PASSES = 8
       MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
       VERSION = re.compile(
           r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -221,6 +222,7 @@ pipeline:
               if len(fields := line.split()) == 2
           }
 
+
       def derive_fixes(messages, selected):
           osvs = {}
           findings = []
@@ -286,27 +288,54 @@ pipeline:
           except ValueError as error:
               raise RemediationError("module root escapes workspace") from error
           workspace = workspace_root / "go.work" if workspace_root.joinpath("go.work").is_file() else None
-          before = scan(Path(binary), root, packages, workspace)
-          selected = selected_modules(root, workspace)
-          updates, _, _, expected_fixed = derive_fixes(before, selected)
-          for module, fixed in sorted(updates.items()):
-              current = selected_modules(root, workspace).get(module)
-              if current is None or version_key(current) >= version_key(fixed):
-                  continue
-              request = f"{module}@{fixed}"
-              print("go remediation: applying " + request, flush=True)
-              run_go(["go", "get", request], root, workspace=workspace)
-          reconcile(workspace_root, root, packages, workspace)
-          after = scan(Path(binary), root, packages, workspace)
-          remaining, unresolved, detected, _ = derive_fixes(after, selected_modules(root, workspace))
-          persisted = expected_fixed & detected
-          if remaining or persisted:
-              details = " ".join(f"{module}@{version}" for module, version in sorted(remaining.items()))
+          messages = scan(Path(binary), root, packages, workspace)
+          remediated = set()
+          passes = 0
+          reconciled = False
+          while True:
+              selected = selected_modules(root, workspace)
+              updates, unresolved, detected, fixable = derive_fixes(messages, selected)
+              persisted = remediated & detected
               if persisted:
                   details = " ".join(f"{osv_id}:{module}" for osv_id, module in sorted(persisted))
-              raise RemediationError(f"compatible vulnerability fixes remain after remediation: {details}")
-          for osv_id, module, current, reason in unresolved:
-              print(f"go remediation: continuing with {osv_id} in {module}@{current} ({reason})", flush=True)
+                  raise RemediationError(f"compatible vulnerability fixes remain after remediation: {details}")
+              requested = [
+                  (module, fixed)
+                  for module, fixed in sorted(updates.items())
+                  if version_key(selected[module]) < version_key(fixed)
+              ]
+              if not requested:
+                  if not reconciled:
+                      reconcile(workspace_root, root, packages, workspace)
+                      reconciled = True
+                      messages = scan(Path(binary), root, packages, workspace)
+                      continue
+                  for osv_id, module, current, reason in unresolved:
+                      print(f"go remediation: continuing with {osv_id} in {module}@{current} ({reason})", flush=True)
+                  return
+              details = " ".join(f"{module}@{fixed}" for module, fixed in requested)
+              if passes >= MAX_REMEDIATION_PASSES:
+                  raise RemediationError(
+                      f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
+                  )
+              applied = False
+              for module, fixed in requested:
+                  current = selected_modules(root, workspace).get(module)
+                  if current is None or version_key(current) >= version_key(fixed):
+                      continue
+                  request = f"{module}@{fixed}"
+                  print("go remediation: applying " + request, flush=True)
+                  run_go(["go", "get", request], root, workspace=workspace)
+                  applied = True
+              if not applied:
+                  raise RemediationError(f"go remediation apply loop selected no updates: {details}")
+              reconcile(workspace_root, root, packages, workspace)
+              reconciled = True
+              passes += 1
+              remediated.update(fixable)
+              if selected_modules(root, workspace) == selected:
+                  raise RemediationError(f"go remediation pass made no module graph progress: {details}")
+              messages = scan(Path(binary), root, packages, workspace)
 
       if __name__ == "__main__":
           try:
