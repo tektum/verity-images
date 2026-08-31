@@ -201,6 +201,12 @@ while minor and major transitions require review. Renovate still offers those
 transitions instead of silently filtering them through duplicated
 `allowedVersions` strings.
 
+Explicit Go dependency overrides are different from upstream image versions.
+A Go module major upgrade changes its import path and requires a source
+migration, so Renovate does not update `go/bump` or versioned `go get`
+overrides across majors. Same-major override updates remain eligible. Source
+image major releases still open reviewable pull requests.
+
 ## Style
 
 - Use keyboard-only ASCII characters in prose, comments, and documentation.
