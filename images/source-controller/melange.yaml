@@ -1,7 +1,7 @@
 package:
   name: verity-source-controller
   version: "1.6.2"
-  epoch: 0
+  epoch: 1
   description: Kubernetes controller for Flux source artifacts.
   copyright:
     - license: Apache-2.0
@@ -26,6 +26,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOFLAGS: -p=4
@@ -53,6 +54,10 @@ pipeline:
         github.com/moby/spdystream@v0.5.1
         google.golang.org/grpc@v1.82.1
         oras.land/oras-go/v2@v2.6.2
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
   - runs: |
       go build -trimpath -a -ldflags "-s -w" \
         -tags netgo,osusergo,static_build -o manager main.go
