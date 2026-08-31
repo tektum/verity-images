@@ -1,7 +1,7 @@
 package:
   name: verity-argocd
   version: "3.3.14"
-  epoch: 0
+  epoch: 1
   description: Declarative GitOps continuous delivery controller.
   copyright:
     - license: Apache-2.0
@@ -33,6 +33,7 @@ environment:
       - git
       - go-1.26
       - nodejs-23
+      - python3
       - corepack
   environment:
     CGO_ENABLED: "0"
@@ -79,10 +80,20 @@ pipeline:
         k8s.io/kubernetes@v1.34.2
         oras.land/oras-go/v2@v2.6.2
 
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
   - uses: go/bump
     with:
       deps: golang.org/x/text@v0.39.0
       modroot: third_party/helm
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/helm
+      packages: ./cmd/helm
 
   - uses: go/bump
     with:
@@ -90,6 +101,11 @@ pipeline:
         golang.org/x/net@v0.56.0
         golang.org/x/text@v0.39.0
       modroot: third_party/git-lfs
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/git-lfs
+      packages: .
 
   - name: Declare upstream package manager
     runs: |
@@ -204,9 +220,9 @@ pipeline:
       git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
       printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.'
       printf '%s\n' "$git_lfs_build_info" | \
-        grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.56.0'
+        grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.57.0'
       printf '%s\n' "$git_lfs_build_info" | \
-        grep -E 'dep[[:space:]]+golang.org/x/text[[:space:]]+v0.39.0'
+        grep -E 'dep[[:space:]]+golang.org/x/text[[:space:]]+v0.41.0'
       rm -rf .verity-source-commit third_party/helm third_party/git-lfs
 
   - uses: strip
