@@ -1,7 +1,7 @@
 package:
   name: verity-metrics-server
   version: "0.9.0"
-  epoch: 0
+  epoch: 1
   description: Resource metrics for Kubernetes built-in autoscaling pipelines.
   copyright:
     - license: Apache-2.0
@@ -26,6 +26,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -34,14 +35,10 @@ pipeline:
     with:
       uri: https://github.com/kubernetes-sigs/metrics-server/archive/${{vars.source-commit}}.tar.gz
       expected-sha256: 7c3dc479484fca306297221058bf55f5d4620305b4041e729dfb497386a621fa
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        github.com/google/cel-go@v0.29.0
-        golang.org/x/crypto@v0.53.0
-        golang.org/x/net@v0.56.0
-        golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
+      modroot: .
+      packages: ./cmd/metrics-server
   - runs: |
       make metrics-server \
         ARCH="$(go env GOARCH)" \
