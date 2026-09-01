@@ -207,6 +207,37 @@ migration, so Renovate does not update `go/bump` or versioned `go get`
 overrides across majors. Same-major override updates remain eligible. Source
 image major releases still open reviewable pull requests.
 
+### Rust vulnerability remediation
+
+A Cargo image resolves fixable crate advisories with the shared
+`cargo/remediate` pipeline instead of handwritten `cargo update` pins.
+
+- The pipeline installs the pinned `cargo-audit` crate version into a temporary
+  tool root and uses `cargo audit --json` only to discover advisories. Omnibump
+  is the only dependency graph mutation engine; `cargo audit fix` and raw
+  `cargo update` are not remediation paths.
+- Audit exit status 0 means clean and 1 means valid findings. Any other status,
+  an output that contradicts the status, or malformed JSON fails the build.
+- Only `vulnerabilities.list` drives mutation. Unmaintained, unsound, and yanked
+  warnings are printed as diagnostics.
+- Each finding contributes the lowest exact version satisfying a patched or
+  newer-unaffected requirement, including across a SemVer boundary. The complete
+  candidate set reaches omnibump in one coordinated invocation with
+  `--fail-on-unapplied-pins`, then the audit reruns to a bounded fixed point.
+- A finding with no fixed or newer-unaffected release is reported and stays
+  non-blocking. A known fix that omnibump cannot land, a fix boundary that names
+  no exact release, a downgrade, a pass with no lock progress, and pass-limit
+  exhaustion all fail loudly.
+- The recipe passes `features` matching its own build feature selection, so
+  omnibump resolves the graph the build compiles. Remediation ends with locked
+  `cargo metadata` and `cargo fetch` verification; the recipe still owns its
+  `--locked` build.
+- The recipe environment provides the Rust toolchain, and the pipeline declares
+  its own omnibump and Python runtime. Editing the shared implementation
+  invalidates every consuming image fingerprint and validates against one
+  consuming image. The final `fixable=0` image gate is unchanged and remediation
+  records no extra evidence artifact.
+
 ## Style
 
 - Use keyboard-only ASCII characters in prose, comments, and documentation.

@@ -186,6 +186,46 @@ def main() -> None:
             gen_matrix.input_digest(*variant) != fingerprints[variant]
             for variant in consumer_variants
         )
+
+    assert gen_matrix.CARGO_REMEDIATE_PATHS == {
+        "pipelines/cargo/remediate.yaml",
+        "scripts/build_candidate.sh",
+    }
+    cargo_pipeline = ROOT / "pipelines/cargo/remediate.yaml"
+    assert cargo_pipeline.is_file()
+    assert not any(
+        gen_matrix.uses_cargo_remediate(directory) for directory in gen_matrix.image_directories()
+    )
+    with patch.object(
+        gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
+    ):
+        assert gen_matrix.generate("base")["include"] == []
+
+    def changed_cargo_pipeline(path: Path) -> bytes:
+        content = read_bytes(path)
+        return content + b"\n" if path == cargo_pipeline else content
+
+    consumer = ROOT / gen_matrix.GO_REMEDIATE_SAMPLE
+    unrelated = ROOT / gen_matrix.GO_BUMP_SAMPLE
+    with patch.object(
+        gen_matrix, "uses_cargo_remediate", side_effect=lambda directory: directory == consumer
+    ):
+        with patch.object(
+            gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
+        ):
+            cargo_samples = gen_matrix.generate("base")["include"]
+        assert {sample["context"] for sample in cargo_samples} == {gen_matrix.GO_REMEDIATE_SAMPLE}
+        consumer_flavors = gen_matrix.parse_metadata(consumer / "metadata.yaml").flavors
+        consumer_fingerprints = {
+            flavor: gen_matrix.input_digest(consumer, flavor) for flavor in consumer_flavors
+        }
+        unrelated_fingerprint = gen_matrix.input_digest(unrelated, "plain")
+        with patch.object(Path, "read_bytes", changed_cargo_pipeline):
+            assert all(
+                gen_matrix.input_digest(consumer, flavor) != consumer_fingerprints[flavor]
+                for flavor in consumer_flavors
+            )
+            assert gen_matrix.input_digest(unrelated, "plain") == unrelated_fingerprint
     with patch.object(
         gen_matrix, "changed_paths", return_value={".github/workflows/build.yaml"}
     ):
