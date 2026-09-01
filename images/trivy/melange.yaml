@@ -1,7 +1,7 @@
 package:
   name: trivy
   version: "0.74.0"
-  epoch: 3
+  epoch: 4
   description: Simple and comprehensive vulnerability scanner for containers
   copyright:
     - license: Apache-2.0
@@ -28,16 +28,6 @@ pipeline:
       repository: https://github.com/aquasecurity/trivy
       tag: v${{package.version}}
       expected-commit: e1fd17a0ea4a8cf24bc4b4dd7e2cfbf4bb31b994
-  # Keep compatibility and +incompatible overrides explicit; go/remediate
-  # handles vulnerability-only semantic-version updates.
-  - uses: go/bump
-    with:
-      deps: |-
-        github.com/stretchr/testify@v1.12.1
-        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc@v1.46.0
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace@v1.46.0
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@v1.46.0
-        go.opentelemetry.io/otel/sdk/metric@v1.46.0
   - uses: go/remediate
     with:
       modroot: .
