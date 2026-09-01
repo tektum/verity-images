@@ -31,6 +31,7 @@ GLOBAL_PATHS: Final = {
 GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml", "scripts/build_candidate.sh"}
 GO_REMEDIATE_PATHS: Final = {"pipelines/go/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}
+CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
 GO_BUMP_SAMPLE: Final = "images/kube-bench"
 GO_REMEDIATE_SAMPLE: Final = "images/rqlite"
@@ -308,6 +309,10 @@ def uses_corepack_install(directory: Path) -> bool:
     return any("uses: corepack/install" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
 
 
+def uses_cargo_remediate(directory: Path) -> bool:
+    return any("uses: cargo/remediate" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
+
+
 def version_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split(".") if part.isdecimal()) or (0,)
 
@@ -326,6 +331,8 @@ def input_digest(directory: Path, flavor: str) -> str:
         shared_paths |= GO_REMEDIATE_PATHS
     if uses_corepack_install(directory):
         shared_paths |= COREPACK_INSTALL_PATHS
+    if uses_cargo_remediate(directory):
+        shared_paths |= CARGO_REMEDIATE_PATHS
     paths = sorted(
         {
             *(relative for relative in shared_paths if (ROOT / relative).is_file()),
@@ -407,6 +414,7 @@ def generate(
     go_bump_changed = bool(changed & GO_BUMP_PATHS)
     go_remediate_changed = bool(changed & GO_REMEDIATE_PATHS)
     corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
+    cargo_remediate_changed = bool(changed & CARGO_REMEDIATE_PATHS)
     cached = cached_images(catalog_path, max_age)
     published = published_identities(published_catalog)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
@@ -424,6 +432,18 @@ def generate(
         if metadata.enabled
         for flavor in metadata.flavors
     }
+    # Derived rather than pinned: a shared cargo change validates one consumer, and
+    # selects nothing while no image consumes the pipeline yet.
+    cargo_remediate_sample = ""
+    if cargo_remediate_changed:
+        cargo_remediate_sample = min(
+            (
+                candidate_directory.relative_to(ROOT).as_posix()
+                for candidate_directory, candidate in catalog
+                if candidate.enabled and uses_cargo_remediate(candidate_directory)
+            ),
+            default="",
+        )
     latest = {
         metadata.name: max(
             (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
@@ -464,6 +484,7 @@ def generate(
                 and not (go_bump_changed and relative == GO_BUMP_SAMPLE)
                 and not (go_remediate_changed and relative == GO_REMEDIATE_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
+                and not (cargo_remediate_changed and relative == cargo_remediate_sample)
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue

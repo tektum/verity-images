@@ -207,6 +207,63 @@ migration, so Renovate does not update `go/bump` or versioned `go get`
 overrides across majors. Same-major override updates remain eligible. Source
 image major releases still open reviewable pull requests.
 
+### Rust vulnerability remediation
+
+A Cargo image resolves fixable crate advisories with the shared
+`cargo/remediate` pipeline instead of handwritten `cargo update` pins.
+
+- The pipeline installs the pinned `cargo-audit` crate version into a temporary
+  tool root and uses `cargo audit --json` only to discover advisories. Omnibump
+  is the only dependency graph mutation engine; `cargo audit fix` and raw
+  `cargo update` are not remediation paths.
+- The checkout is untrusted input, so the audit runs from a controlled directory
+  outside it with its own `HOME` and `CARGO_HOME`, an explicit advisory database
+  path and URL, and an absolute lockfile path. A repository-local
+  `.cargo/audit.toml` therefore cannot ignore advisories, lower the severity
+  threshold, or redirect the database, and the reported `settings` are validated
+  so any override fails the build. Yanked-crate checking is off because it is a
+  diagnostic that would reintroduce a registry trust surface.
+- Audit exit status 0 means clean and 1 means valid findings. Any other status,
+  a missing or malformed report, or an output that contradicts the status is a
+  scanner failure and surfaces the audit's stderr.
+- Only `vulnerabilities.list` drives mutation. Unmaintained, unsound, and yanked
+  warnings are printed once as diagnostics.
+- Each finding contributes the lowest exact version satisfying the advisory's
+  patched requirements, including across a SemVer boundary, honoring bare,
+  caret, tilde, and exact upper bounds plus disjoint ranges. An `unaffected`
+  floor is only a fallback when no patched release is reachable upward, because
+  an unaffected range often names releases years older than the fix.
+- Candidates are requested as explicit `crate@current=fixed` pins per vulnerable
+  locked version. This keeps duplicate compatibility lines distinct while all
+  pins for a pass reach omnibump in one coordinated invocation with
+  `--fail-on-unapplied-pins`; the audit then reruns to a bounded fixed point.
+- Only a finding with no fixed or newer-unaffected release is reported as
+  non-blocking. These all fail loudly: a fix that requires a downgrade, a fix
+  behind a strict `>` bound that names no exact release, any move from a stable
+  release to a prerelease, a prerelease move outside its existing major/minor
+  train, an unsupported or unsatisfiable requirement, a known fix that omnibump
+  cannot land, a downgraded locked instance, a pass with no lock progress, and
+  pass-limit exhaustion. A strict bound means a fix demonstrably exists that
+  this pipeline will not guess at, so the recipe owns that decision.
+- Crate identity carries its lock source. A finding that maps to one name and
+  version from several sources, to a replaced entry, or to a non-registry source
+  fails instead of claiming remediation.
+- The recipe passes `features` matching its own build feature selection, so
+  omnibump resolves the graph the build compiles. Remediation ends with locked
+  `cargo metadata` and `cargo fetch` verification; the recipe still owns its
+  `--locked` build.
+- The recipe environment provides the Rust toolchain, and the pipeline declares
+  its own omnibump and Python runtime. Editing the shared implementation
+  invalidates every consuming image fingerprint and validates against one
+  consuming image. The final `fixable=0` image gate is unchanged and remediation
+  records no extra evidence artifact.
+- `scripts/test_cargo_omnibump_contract.py` proves the real omnibump Rust CLI
+  contract in a digest-pinned ephemeral container: flag support, a direct
+  SemVer-boundary update, a transitive update, a pin the graph refuses, and two
+  unsatisfied compatibility lines for one crate landing from explicit pins in
+  one invocation. It reports SKIPPED when no container runtime or registry is
+  reachable locally, and fails instead of skipping under `CI`.
+
 ## Style
 
 - Use keyboard-only ASCII characters in prose, comments, and documentation.

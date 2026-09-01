@@ -186,6 +186,62 @@ def main() -> None:
             gen_matrix.input_digest(*variant) != fingerprints[variant]
             for variant in consumer_variants
         )
+
+    assert gen_matrix.CARGO_REMEDIATE_PATHS == {
+        "pipelines/cargo/remediate.yaml",
+        "scripts/build_candidate.sh",
+    }
+    cargo_pipeline = ROOT / "pipelines/cargo/remediate.yaml"
+    assert cargo_pipeline.is_file()
+    # Conditional invariant: no consumer today means a shared cargo change
+    # selects nothing, and the deterministic consumer sample takes over as soon
+    # as an image adopts the pipeline.
+    cargo_consumers = [
+        directory.relative_to(ROOT).as_posix()
+        for directory in gen_matrix.image_directories()
+        if gen_matrix.parse_metadata(directory / "metadata.yaml").enabled
+        and gen_matrix.uses_cargo_remediate(directory)
+    ]
+    with patch.object(
+        gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
+    ):
+        cargo_samples = gen_matrix.generate("base")["include"]
+    assert {sample["context"] for sample in cargo_samples} == (
+        {min(cargo_consumers)} if cargo_consumers else set()
+    )
+
+    def changed_cargo_pipeline(path: Path) -> bytes:
+        content = read_bytes(path)
+        return content + b"\n" if path == cargo_pipeline else content
+
+    # A simulated consumer keeps the once-adopted behavior covered while the
+    # catalog has none, and stays valid after the first real consumer lands.
+    consumer = ROOT / (min(cargo_consumers) if cargo_consumers else gen_matrix.GO_REMEDIATE_SAMPLE)
+    unrelated = ROOT / gen_matrix.GO_BUMP_SAMPLE
+    assert consumer != unrelated
+    with patch.object(
+        gen_matrix,
+        "uses_cargo_remediate",
+        side_effect=lambda directory: directory == consumer,
+    ):
+        with patch.object(
+            gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
+        ):
+            cargo_samples = gen_matrix.generate("base")["include"]
+        assert {sample["context"] for sample in cargo_samples} == {
+            consumer.relative_to(ROOT).as_posix()
+        }
+        consumer_flavors = gen_matrix.parse_metadata(consumer / "metadata.yaml").flavors
+        consumer_fingerprints = {
+            flavor: gen_matrix.input_digest(consumer, flavor) for flavor in consumer_flavors
+        }
+        unrelated_fingerprint = gen_matrix.input_digest(unrelated, "plain")
+        with patch.object(Path, "read_bytes", changed_cargo_pipeline):
+            assert all(
+                gen_matrix.input_digest(consumer, flavor) != consumer_fingerprints[flavor]
+                for flavor in consumer_flavors
+            )
+            assert gen_matrix.input_digest(unrelated, "plain") == unrelated_fingerprint
     with patch.object(
         gen_matrix, "changed_paths", return_value={".github/workflows/build.yaml"}
     ):

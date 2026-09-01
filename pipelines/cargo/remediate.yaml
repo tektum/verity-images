@@ -1,0 +1,542 @@
+name: Resolve Rust vulnerabilities
+
+needs:
+  packages:
+    - omnibump
+    - python3
+
+inputs:
+  crateroot:
+    description: Cargo project root relative to the checked-out source
+    default: .
+  features:
+    description: Space-separated Cargo features mirroring the build feature selection
+    default: ""
+
+pipeline:
+  - runs: |
+      set -eu
+      features='${{inputs.features}}'
+      workspace=$(pwd -P)
+      root=$(realpath '${{inputs.crateroot}}')
+      case "$root/" in
+        "$workspace/"*) ;;
+        *) printf 'error: cargo root escapes workspace: %s\n' "$root" >&2; exit 1 ;;
+      esac
+      tool_dir=$(mktemp -d)
+      trap 'rm -rf "$tool_dir"' EXIT
+      mkdir -p "$tool_dir/audit/cargo"
+      (cd "$tool_dir" && cargo install cargo-audit --version 0.22.2 --locked --root "$tool_dir")
+      cat >"$tool_dir/remediate.py" <<'PYTHON'
+      import json
+      import os
+      from collections import Counter
+      import re
+      import selectors
+      import shlex
+      import subprocess
+      import sys
+      import tomllib
+      from pathlib import Path
+
+      TOOL_NAME = "cargo-audit"
+      TOOL_VERSION = "0.22.2"
+      DATABASE_URL = "https://github.com/rustsec/advisory-db"
+      RESULT_EXIT_CODES = {0, 1}
+      # The audit runs outside the checkout, so no repository policy can apply.
+      # These settings prove that: any override fails the build closed.
+      EXPECTED_SETTINGS = {
+          "target_arch": [],
+          "target_os": [],
+          "severity": None,
+          "ignore": [],
+          "informational_warnings": ["unmaintained", "unsound", "notice"],
+      }
+      REGISTRY = "registry+"
+      MAX_OUTPUT_BYTES = 32 * 1024 * 1024
+      MAX_REMEDIATION_PASSES = 8
+      BLOCKING_REASONS = {
+          "unnameable-fix": "names no exact release",
+          "prerelease-fix": "requires a prerelease",
+          "downgrade-fix": "requires a downgrade",
+      }
+      CRATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+      VERSION = re.compile(
+          r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+          r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+      )
+      PARTIAL = re.compile(
+          r"^(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\.(0|[1-9][0-9]*))?"
+          r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
+      )
+      COMPARATOR = re.compile(r"^(?P<operator>>=|<=|=|>|<|\^|~)?\s*(?P<version>[0-9][0-9A-Za-z.+-]*)$")
+
+      class RemediationError(ValueError):
+          pass
+
+      def version_key(value):
+          match = VERSION.fullmatch(value)
+          if match is None:
+              raise RemediationError(f"invalid crate version: {value!r}")
+          prerelease = match.group(4)
+          identifiers = (
+              tuple(
+                  (0, f"{int(part):020d}") if part.isdecimal() else (1, part)
+                  for part in prerelease.split(".")
+              )
+              if prerelease else ()
+          )
+          return int(match.group(1)), int(match.group(2)), int(match.group(3)), 0 if prerelease else 1, identifiers
+
+      def prerelease(version):
+          return version_key(version)[3] == 0
+
+      def bound_version(value):
+          match = PARTIAL.fullmatch(value)
+          if match is None:
+              raise RemediationError(f"unsupported version bound: {value!r}")
+          major, minor, patch, suffix = match.groups()
+          exact = f"{major}.{minor or 0}.{patch or 0}"
+          return (f"{exact}-{suffix}" if suffix else exact), (major, minor, patch)
+
+      def implicit_upper(operator, components):
+          """The upper bound cargo infers for a caret or tilde comparator."""
+          major, minor, patch = (int(part) if part is not None else None for part in components)
+          if operator == "~":
+              return f"{major}.{minor + 1}.0" if minor is not None else f"{major + 1}.0.0"
+          if major or minor is None:
+              # `^1.2.3` allows `<2.0.0`, and bare `^0` allows `<1.0.0`.
+              return f"{major + 1}.0.0"
+          if minor or patch is None:
+              # `^0.2.3` allows `<0.3.0`, and `^0.0` allows `<0.1.0`.
+              return f"0.{minor + 1}.0"
+          return f"0.0.{patch + 1}"
+
+      def exact_upper(version, components):
+          """The upper bound for a possibly partial exact comparator."""
+          major, minor, patch = (int(part) if part is not None else None for part in components)
+          if patch is not None:
+              return "<=", version
+          if minor is not None:
+              return "<", f"{major}.{minor + 1}.0"
+          return "<", f"{major + 1}.0.0"
+
+      def violated(candidate, uppers):
+          return any(
+              version_key(candidate) >= version_key(bound) if operator == "<"
+              else version_key(candidate) > version_key(bound)
+              for operator, bound in uppers
+          )
+
+      def requirement_floor(requirement):
+          """Lowest exact version a requirement admits, with how nameable it is.
+
+          Status is `exact` for a nameable floor, `unnameable` when a strict lower
+          bound names no release, and `open` when the requirement has no lower
+          bound at all. An unsatisfiable requirement raises instead of yielding a
+          floor no release can occupy.
+          """
+          if not isinstance(requirement, str) or not requirement.strip():
+              raise RemediationError(f"invalid version requirement: {requirement!r}")
+          floors = []
+          exclusive = []
+          uppers = []
+          for raw in requirement.split(","):
+              match = COMPARATOR.fullmatch(raw.strip())
+              if match is None:
+                  raise RemediationError(f"unsupported version requirement: {requirement!r}")
+              operator = match.group("operator") or ""
+              try:
+                  version, components = bound_version(match.group("version"))
+              except RemediationError as error:
+                  raise RemediationError(f"unsupported version requirement: {requirement!r}") from error
+              if operator == ">=":
+                  floors.append(version)
+              elif operator in {"", "^", "~"}:
+                  floors.append(version)
+                  uppers.append(("<", implicit_upper("^" if not operator else operator, components)))
+              elif operator == "=":
+                  floors.append(version)
+                  uppers.append(exact_upper(version, components))
+              elif operator == ">":
+                  exclusive.append(version)
+              else:
+                  uppers.append((operator, version))
+          floor = max(floors, key=version_key) if floors else ""
+          strict = max(exclusive, key=version_key) if exclusive else ""
+          if floor and violated(floor, uppers):
+              raise RemediationError(f"unsatisfiable version requirement: {requirement!r}")
+          if strict and any(version_key(strict) >= version_key(bound) for _, bound in uppers):
+              raise RemediationError(f"unsatisfiable version requirement: {requirement!r}")
+          if strict and (not floor or version_key(floor) <= version_key(strict)):
+              return "", "unnameable"
+          if not floor:
+              return "", "open"
+          return floor, "exact"
+
+      def minimum_fix(entry, current):
+          versions = entry.get("versions")
+          if not isinstance(versions, dict):
+              raise RemediationError("invalid cargo-audit version record")
+          candidates = {"patched": [], "unaffected": []}
+          prereleases = []
+          unnameable = False
+          below = False
+          for field in candidates:
+              requirements = versions.get(field, [])
+              if not isinstance(requirements, list):
+                  raise RemediationError(f"invalid cargo-audit {field} requirements")
+              for requirement in requirements:
+                  floor, status = requirement_floor(requirement)
+                  if status == "unnameable":
+                      unnameable = True
+                  elif status == "open" or version_key(floor) <= version_key(current):
+                      # The range exists but lies at or below the locked version.
+                      below = True
+                  elif prerelease(floor) and (
+                      not prerelease(current) or version_key(current)[:2] != version_key(floor)[:2]
+                  ):
+                      # A stable lock may never move onto a prerelease. A lock
+                      # already on a prerelease may advance only within its line.
+                      prereleases.append(floor)
+                  else:
+                      candidates[field].append(floor)
+          # The advisory's patched set is authoritative. An unaffected floor may
+          # undercut it by years, so it is only a fallback when no patched
+          # release is reachable upward.
+          selected = candidates["patched"] or candidates["unaffected"]
+          if selected:
+              return min(selected, key=version_key), ""
+          if unnameable:
+              return "", "unnameable-fix"
+          if prereleases:
+              return "", "prerelease-fix"
+          return "", "downgrade-fix" if below else "no-fix"
+
+      def parse_report(raw):
+          try:
+              report = json.loads(raw)
+          except json.JSONDecodeError as error:
+              raise RemediationError(f"malformed cargo-audit JSON: {error}") from error
+          if not isinstance(report, dict):
+              raise RemediationError("cargo-audit report must be an object")
+          vulnerabilities = report.get("vulnerabilities")
+          if not isinstance(vulnerabilities, dict):
+              raise RemediationError("cargo-audit report has no vulnerabilities section")
+          found = vulnerabilities.get("found")
+          count = vulnerabilities.get("count")
+          entries = vulnerabilities.get("list")
+          if (
+              not isinstance(found, bool)
+              or not isinstance(count, int)
+              or isinstance(count, bool)
+              or not isinstance(entries, list)
+              or count != len(entries)
+              or found != bool(entries)
+          ):
+              raise RemediationError("invalid cargo-audit vulnerability summary")
+          if not isinstance(report.get("warnings", {}), dict):
+              raise RemediationError("invalid cargo-audit warnings")
+          settings = report.get("settings")
+          if not isinstance(settings, dict):
+              raise RemediationError("cargo-audit report has no settings section")
+          overrides = {
+              key: settings.get(key)
+              for key, expected in EXPECTED_SETTINGS.items()
+              if key not in settings or settings[key] != expected
+          }
+          if overrides:
+              raise RemediationError(f"cargo-audit policy overrides rejected: {overrides}")
+          return report
+
+      def read_streams(process):
+          streams = {process.stdout: ("stdout", bytearray()), process.stderr: ("stderr", bytearray())}
+          selector = selectors.DefaultSelector()
+          try:
+              for stream in streams:
+                  selector.register(stream, selectors.EVENT_READ)
+              while selector.get_map():
+                  for key, _ in selector.select():
+                      stream = key.fileobj
+                      chunk = os.read(stream.fileno(), 64 * 1024)
+                      if not chunk:
+                          selector.unregister(stream)
+                          continue
+                      name, buffer = streams[stream]
+                      buffer.extend(chunk)
+                      if len(buffer) > MAX_OUTPUT_BYTES:
+                          process.kill()
+                          raise RemediationError(f"cargo-audit {name} exceeds 32 MiB")
+          finally:
+              selector.close()
+              if process.poll() is None:
+                  process.kill()
+          return bytes(streams[process.stdout][1]), bytes(streams[process.stderr][1])
+
+      def scan(binary, lockfile, workdir, database):
+          """Audit the lockfile from a controlled directory with a trusted database.
+
+          The checkout is untrusted input: running there would let it ship
+          `.cargo/audit.toml` and silently ignore advisories, lower the severity
+          threshold, or redirect the advisory database.
+          """
+          arguments = [
+              str(binary), "audit", "--json", "--color", "never", "--no-yanked",
+              "--file", str(lockfile), "--db", str(database), "--url", DATABASE_URL,
+          ]
+          environment = dict(os.environ, HOME=str(workdir), CARGO_HOME=str(workdir / "cargo"))
+          with subprocess.Popen(
+              arguments, cwd=workdir, env=environment,
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+          ) as process:
+              if process.stdout is None or process.stderr is None:
+                  raise RemediationError("failed to capture cargo-audit output")
+              stdout, raw_stderr = read_streams(process)
+              returncode = process.wait()
+              stderr = raw_stderr.decode(errors="replace").strip()
+          detail = f"(exit {returncode}): {stderr or 'no stderr'}"
+          if returncode not in RESULT_EXIT_CODES:
+              raise RemediationError(f"cargo-audit scanner failure {detail}")
+          try:
+              raw = stdout.decode()
+          except UnicodeDecodeError as error:
+              raise RemediationError(f"malformed cargo-audit UTF-8 output {detail}") from error
+          if not raw.strip():
+              raise RemediationError(f"cargo-audit produced no report {detail}")
+          try:
+              report = parse_report(raw)
+          except RemediationError as error:
+              raise RemediationError(f"{error} {detail}") from error
+          if bool(report["vulnerabilities"]["list"]) != (returncode == 1):
+              raise RemediationError(f"cargo-audit exit status contradicts its vulnerability list {detail}")
+          return report
+
+      def report_diagnostics(report, reported=None):
+          """Print each warning once; warnings persist across remediation passes."""
+          seen = reported if reported is not None else set()
+          for kind, entries in sorted(report.get("warnings", {}).items()):
+              if not isinstance(entries, list):
+                  raise RemediationError("invalid cargo-audit warnings")
+              for entry in entries:
+                  package = entry.get("package") if isinstance(entry, dict) else None
+                  if not isinstance(package, dict):
+                      raise RemediationError("invalid cargo-audit warning record")
+                  advisory = entry.get("advisory")
+                  identifier = advisory.get("id") if isinstance(advisory, dict) else kind
+                  diagnostic = (
+                      f"cargo remediation: diagnostic {kind} {identifier} in "
+                      f"{package.get('name')}@{package.get('version')}"
+                  )
+                  if diagnostic in seen:
+                      continue
+                  seen.add(diagnostic)
+                  print(diagnostic, flush=True)
+
+
+      def validate_lock_identity(locked, crate, current):
+          """Fail unless the finding maps to exactly one registry lock entry."""
+          sources = {source for version, source in locked.get(crate, ()) if version == current}
+          if not sources:
+              raise RemediationError(f"cargo-audit reported {crate}@{current}, which Cargo.lock does not lock")
+          if len(sources) > 1:
+              raise RemediationError(
+                  f"cargo-audit reported {crate}@{current}, which Cargo.lock locks from "
+                  f"{len(sources)} sources: {' '.join(sorted(sources))}"
+              )
+          source = sources.pop()
+          if not source.startswith(REGISTRY):
+              raise RemediationError(
+                  f"{crate}@{current} is locked from {source or 'a local path'}, "
+                  "which no registry version pin can remediate"
+              )
+
+      def derive_fixes(report, locked):
+          updates = {}
+          unresolved = set()
+          detected = set()
+          fixable = set()
+          for entry in report["vulnerabilities"]["list"]:
+              advisory = entry.get("advisory") if isinstance(entry, dict) else None
+              package = entry.get("package") if isinstance(entry, dict) else None
+              if not isinstance(advisory, dict) or not isinstance(package, dict):
+                  raise RemediationError("invalid cargo-audit vulnerability record")
+              identifier = advisory.get("id")
+              crate = package.get("name")
+              current = package.get("version")
+              if not isinstance(identifier, str) or not identifier:
+                  raise RemediationError("cargo-audit finding has no advisory id")
+              if not isinstance(crate, str) or CRATE.fullmatch(crate) is None:
+                  raise RemediationError(f"invalid crate name: {crate!r}")
+              if not isinstance(current, str):
+                  raise RemediationError(f"invalid crate version: {current!r}")
+              if package.get("replace") is not None:
+                  raise RemediationError(f"{crate}@{current} is replaced in Cargo.lock; identity is ambiguous")
+              validate_lock_identity(locked, crate, current)
+              detected.add((identifier, crate, current))
+              try:
+                  fixed, reason = minimum_fix(entry, current)
+              except RemediationError as error:
+                  raise RemediationError(f"{identifier} in {crate}@{current}: {error}") from error
+              if reason in BLOCKING_REASONS:
+                  raise RemediationError(
+                      f"known fix for {identifier} in {crate}@{current} {BLOCKING_REASONS[reason]}"
+                  )
+              if not fixed:
+                  unresolved.add((identifier, crate, current, reason))
+                  continue
+              fixable.add((identifier, crate, current))
+              # Preserve each vulnerable locked identity. Omnibump's explicit
+              # from=to form keeps repeated crate names distinct in one batch.
+              key = (crate, current)
+              previous = updates.get(key)
+              if previous is None or version_key(previous) < version_key(fixed):
+                  updates[key] = fixed
+          return updates, sorted(unresolved), detected, fixable
+
+      def locked_instances(lockfile):
+          """Every locked crate instance as (version, source), keeping sources distinct."""
+          try:
+              document = tomllib.loads(lockfile.read_text(encoding="utf-8"))
+          except (tomllib.TOMLDecodeError, UnicodeDecodeError) as error:
+              raise RemediationError(f"malformed Cargo.lock: {error}") from error
+          packages = document.get("package")
+          if not isinstance(packages, list) or not packages:
+              raise RemediationError("Cargo.lock locks no packages")
+          locked = {}
+          for entry in packages:
+              if not isinstance(entry, dict):
+                  raise RemediationError("invalid Cargo.lock package record")
+              crate = entry.get("name")
+              version = entry.get("version")
+              source = entry.get("source", "")
+              if not isinstance(crate, str) or CRATE.fullmatch(crate) is None:
+                  raise RemediationError(f"invalid locked crate name: {crate!r}")
+              if not isinstance(version, str) or VERSION.fullmatch(version) is None:
+                  raise RemediationError(f"invalid locked crate version: {version!r}")
+              if not isinstance(source, str):
+                  raise RemediationError(f"invalid locked crate source for {crate}@{version}")
+              if entry.get("replace") is not None:
+                  raise RemediationError(f"Cargo.lock replaces {crate}@{version}; identity is ambiguous")
+              locked.setdefault(crate, set()).add((version, source))
+          return {
+              crate: tuple(sorted(instances, key=lambda instance: (version_key(instance[0]), instance[1])))
+              for crate, instances in locked.items()
+          }
+
+      def reject_downgrades(before, after):
+          """Reject lower replacements after removing unchanged instances.
+
+          Exact matches are removed first. Remaining versions are paired low to
+          high, preventing an added high version from hiding a lower replacement
+          while still allowing independent additions and duplicate collapse.
+          """
+          downgraded = []
+          for crate, instances in sorted(before.items()):
+              updated = after.get(crate)
+              if updated is None:
+                  continue
+              previous = Counter(version for version, _ in instances)
+              current = Counter(version for version, _ in updated)
+              unchanged = previous & current
+              removed = sorted((previous - unchanged).elements(), key=version_key)
+              added = sorted((current - unchanged).elements(), key=version_key)
+              downgraded += [
+                  f"{crate}@{was}->{now}"
+                  for was, now in zip(removed, added)
+                  if version_key(now) < version_key(was)
+              ]
+          if downgraded:
+              raise RemediationError("cargo remediation downgraded locked crates: " + " ".join(downgraded))
+
+      def run_command(arguments, cwd, capture=False, report=False):
+          command = shlex.join(arguments)
+          print("+ " + command, flush=True)
+          completed = subprocess.run(arguments, cwd=cwd, check=False, text=True, capture_output=True)
+          if completed.returncode:
+              detail = completed.stderr.strip() or completed.stdout.strip() or "no output"
+              raise RemediationError(f"command failed ({completed.returncode}): {command}: {detail}")
+          if report:
+              print(completed.stdout, end="", flush=True)
+              print(completed.stderr, end="", file=sys.stderr, flush=True)
+          return completed.stdout if capture else ""
+
+      def verify_tool(binary):
+          reported = run_command([str(binary), "--version"], None, capture=True).strip()
+          if reported != f"{TOOL_NAME} {TOOL_VERSION}":
+              raise RemediationError(f"unexpected cargo-audit version: {reported!r}")
+
+      def verify(root):
+          run_command(["cargo", "metadata", "--locked", "--format-version", "1"], root)
+          run_command(["cargo", "fetch", "--locked"], root)
+
+      def main():
+          if len(sys.argv) != 5:
+              raise RemediationError("usage: remediate.py CARGO_AUDIT CRATE_ROOT FEATURES TOOL_DIR")
+          binary, root_argument, features_argument, tool_argument = sys.argv[1:]
+          root = Path(root_argument).resolve()
+          lockfile = root / "Cargo.lock"
+          if not lockfile.is_file():
+              raise RemediationError(f"no Cargo.lock in {root}")
+          tool_dir = Path(tool_argument).resolve()
+          workdir = tool_dir / "audit"
+          workdir.joinpath("cargo").mkdir(parents=True, exist_ok=True)
+          database = tool_dir / "advisory-db"
+          features = features_argument.split()
+          verify_tool(binary)
+          report = scan(binary, lockfile, workdir, database)
+          remediated = set()
+          reported_diagnostics = set()
+          passes = 0
+          while True:
+              report_diagnostics(report, reported_diagnostics)
+              locked = locked_instances(lockfile)
+              updates, unresolved, detected, fixable = derive_fixes(report, locked)
+              persisted = remediated & detected
+              if persisted:
+                  details = " ".join(
+                      f"{identifier}:{crate}@{version}" for identifier, crate, version in sorted(persisted)
+                  )
+                  raise RemediationError(f"vulnerable crate versions remain after remediation: {details}")
+              # Keep only pins whose vulnerable source version remains locked.
+              requested = sorted(
+                  (crate, current, fixed)
+                  for (crate, current), fixed in updates.items()
+                  if any(version == current for version, _ in locked[crate])
+              )
+              if not requested:
+                  for identifier, crate, version, reason in unresolved:
+                      print(
+                          f"cargo remediation: continuing with {identifier} in {crate}@{version} ({reason})",
+                          flush=True,
+                      )
+                  verify(root)
+                  return
+              details = " ".join(f"{crate}@{current}={fixed}" for crate, current, fixed in requested)
+              if passes >= MAX_REMEDIATION_PASSES:
+                  raise RemediationError(
+                      f"cargo remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
+                  )
+              print("cargo remediation: applying " + details, flush=True)
+              arguments = [
+                  "omnibump", "--language", "rust", "--dir", str(root),
+                  "--packages", details, "--fail-on-unapplied-pins",
+              ]
+              if features:
+                  arguments += ["--features", ",".join(features)]
+              run_command(arguments, root, report=True)
+              passes += 1
+              remediated.update(fixable)
+              updated = locked_instances(lockfile)
+              reject_downgrades(locked, updated)
+              if updated == locked:
+                  raise RemediationError(f"cargo remediation pass made no lock graph progress: {details}")
+              report = scan(binary, lockfile, workdir, database)
+
+      if __name__ == "__main__":
+          try:
+              main()
+          except (OSError, RemediationError) as error:
+              print(f"error: {error}", file=sys.stderr)
+              raise SystemExit(1)
+      PYTHON
+      python3 "$tool_dir/remediate.py" "$tool_dir/bin/cargo-audit" "$root" "$features" "$tool_dir"
