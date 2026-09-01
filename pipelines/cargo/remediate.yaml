@@ -30,6 +30,7 @@ pipeline:
       cat >"$tool_dir/remediate.py" <<'PYTHON'
       import json
       import os
+      from collections import Counter
       import re
       import selectors
       import shlex
@@ -192,8 +193,11 @@ pipeline:
                   elif status == "open" or version_key(floor) <= version_key(current):
                       # The range exists but lies at or below the locked version.
                       below = True
-                  elif prerelease(floor) and version_key(current)[:2] != version_key(floor)[:2]:
-                      # Never move a stable line onto an unrelated prerelease line.
+                  elif prerelease(floor) and (
+                      not prerelease(current) or version_key(current)[:2] != version_key(floor)[:2]
+                  ):
+                      # A stable lock may never move onto a prerelease. A lock
+                      # already on a prerelease may advance only within its line.
                       prereleases.append(floor)
                   else:
                       candidates[field].append(floor)
@@ -328,14 +332,6 @@ pipeline:
                   seen.add(diagnostic)
                   print(diagnostic, flush=True)
 
-      def compatibility_line(version):
-          """The cargo compatibility line a version belongs to."""
-          major, minor, patch = version_key(version)[:3]
-          if major:
-              return (major,)
-          if minor:
-              return (0, minor)
-          return (0, 0, patch)
 
       def validate_lock_identity(locked, crate, current):
           """Fail unless the finding maps to exactly one registry lock entry."""
@@ -389,10 +385,9 @@ pipeline:
                   unresolved.add((identifier, crate, current, reason))
                   continue
               fixable.add((identifier, crate, current))
-              # One pin per vulnerable compatibility line: omnibump skips a pin
-              # that any instance on its own line already satisfies, so a shared
-              # key would strand every line below the highest fix.
-              key = (crate, compatibility_line(current))
+              # Preserve each vulnerable locked identity. Omnibump's explicit
+              # from=to form keeps repeated crate names distinct in one batch.
+              key = (crate, current)
               previous = updates.get(key)
               if previous is None or version_key(previous) < version_key(fixed):
                   updates[key] = fixed
@@ -429,22 +424,25 @@ pipeline:
           }
 
       def reject_downgrades(before, after):
-          """Rank locked instances high to low: a dropped rank is a downgrade.
+          """Reject lower replacements after removing unchanged instances.
 
-          Comparing only maxima would miss a duplicate-version regression, and
-          comparing sets would reject collapsing a duplicate into a higher line.
-          A removed or added instance is therefore allowed; a lowered one is not.
+          Exact matches are removed first. Remaining versions are paired low to
+          high, preventing an added high version from hiding a lower replacement
+          while still allowing independent additions and duplicate collapse.
           """
           downgraded = []
           for crate, instances in sorted(before.items()):
               updated = after.get(crate)
               if updated is None:
                   continue
-              ranked = sorted((version for version, _ in instances), key=version_key, reverse=True)
-              current = sorted((version for version, _ in updated), key=version_key, reverse=True)
+              previous = Counter(version for version, _ in instances)
+              current = Counter(version for version, _ in updated)
+              unchanged = previous & current
+              removed = sorted((previous - unchanged).elements(), key=version_key)
+              added = sorted((current - unchanged).elements(), key=version_key)
               downgraded += [
                   f"{crate}@{was}->{now}"
-                  for was, now in zip(ranked, current)
+                  for was, now in zip(removed, added)
                   if version_key(now) < version_key(was)
               ]
           if downgraded:
@@ -499,17 +497,11 @@ pipeline:
                       f"{identifier}:{crate}@{version}" for identifier, crate, version in sorted(persisted)
                   )
                   raise RemediationError(f"vulnerable crate versions remain after remediation: {details}")
-              # One request per vulnerable line, kept only while that line still
-              # holds an instance below its fix. Identical pins collapse.
+              # Keep only pins whose vulnerable source version remains locked.
               requested = sorted(
-                  {
-                      (crate, fixed)
-                      for (crate, line), fixed in updates.items()
-                      if any(
-                          version_key(version) < version_key(fixed) and compatibility_line(version) == line
-                          for version, _ in locked[crate]
-                      )
-                  }
+                  (crate, current, fixed)
+                  for (crate, current), fixed in updates.items()
+                  if any(version == current for version, _ in locked[crate])
               )
               if not requested:
                   for identifier, crate, version, reason in unresolved:
@@ -519,7 +511,7 @@ pipeline:
                       )
                   verify(root)
                   return
-              details = " ".join(f"{crate}@{fixed}" for crate, fixed in requested)
+              details = " ".join(f"{crate}@{current}={fixed}" for crate, current, fixed in requested)
               if passes >= MAX_REMEDIATION_PASSES:
                   raise RemediationError(
                       f"cargo remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"

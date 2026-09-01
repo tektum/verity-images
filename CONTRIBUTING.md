@@ -229,27 +229,25 @@ A Cargo image resolves fixable crate advisories with the shared
 - Only `vulnerabilities.list` drives mutation. Unmaintained, unsound, and yanked
   warnings are printed once as diagnostics.
 - Each finding contributes the lowest exact version satisfying the advisory's
-  patched requirements, including across a SemVer boundary, honoring caret and
-  tilde implicit upper bounds and disjoint ranges. An `unaffected` floor is only
-  a fallback when no patched release is reachable upward, because an unaffected
-  range often names releases years older than the fix.
-- Candidates are requested one pin per vulnerable compatibility line, because
-  omnibump treats a pin as landed once any instance on that line satisfies it.
-  All pins for a pass reach omnibump in one coordinated invocation with
-  `--fail-on-unapplied-pins`, then the audit reruns to a bounded fixed point.
+  patched requirements, including across a SemVer boundary, honoring bare,
+  caret, tilde, and exact upper bounds plus disjoint ranges. An `unaffected`
+  floor is only a fallback when no patched release is reachable upward, because
+  an unaffected range often names releases years older than the fix.
+- Candidates are requested as explicit `crate@current=fixed` pins per vulnerable
+  locked version. This keeps duplicate compatibility lines distinct while all
+  pins for a pass reach omnibump in one coordinated invocation with
+  `--fail-on-unapplied-pins`; the audit then reruns to a bounded fixed point.
 - Only a finding with no fixed or newer-unaffected release is reported as
   non-blocking. These all fail loudly: a fix that requires a downgrade, a fix
-  behind a strict `>` bound that names no exact release, a fix that would move a
-  stable line onto an unrelated prerelease, an unsupported or unsatisfiable
-  requirement, a known fix that omnibump cannot land, a downgraded locked
-  instance, a pass with no lock progress, and pass-limit exhaustion. A strict
-  bound and a stranded compatibility line both mean a fix demonstrably exists
-  that this pipeline will not guess at, so the recipe owns that decision.
+  behind a strict `>` bound that names no exact release, any move from a stable
+  release to a prerelease, a prerelease move outside its existing major/minor
+  train, an unsupported or unsatisfiable requirement, a known fix that omnibump
+  cannot land, a downgraded locked instance, a pass with no lock progress, and
+  pass-limit exhaustion. A strict bound means a fix demonstrably exists that
+  this pipeline will not guess at, so the recipe owns that decision.
 - Crate identity carries its lock source. A finding that maps to one name and
   version from several sources, to a replaced entry, or to a non-registry source
-  fails instead of claiming remediation. A vulnerable line whose only fix lives
-  on another line, where omnibump will not cross while that line is occupied, is
-  caught by the rescan and fails loudly.
+  fails instead of claiming remediation.
 - The recipe passes `features` matching its own build feature selection, so
   omnibump resolves the graph the build compiles. Remediation ends with locked
   `cargo metadata` and `cargo fetch` verification; the recipe still owns its
@@ -260,11 +258,11 @@ A Cargo image resolves fixable crate advisories with the shared
   consuming image. The final `fixable=0` image gate is unchanged and remediation
   records no extra evidence artifact.
 - `scripts/test_cargo_omnibump_contract.py` proves the real omnibump Rust CLI
-  contract in an ephemeral container: flag support, a direct SemVer-boundary
-  update, a transitive update, a pin the graph refuses, the satisfied-duplicate
-  skip, and a pin landing on an older compatibility line. It reports SKIPPED
-  when no container runtime or registry is reachable locally, and fails instead
-  of skipping under `CI`.
+  contract in a digest-pinned ephemeral container: flag support, a direct
+  SemVer-boundary update, a transitive update, a pin the graph refuses, and two
+  unsatisfied compatibility lines for one crate landing from explicit pins in
+  one invocation. It reports SKIPPED when no container runtime or registry is
+  reachable locally, and fails instead of skipping under `CI`.
 
 ## Style
 

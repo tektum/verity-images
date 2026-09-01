@@ -97,7 +97,11 @@ if error := os.environ.get("OMNIBUMP_ERROR"):
     raise SystemExit(42)
 print("omnibump: rust dependency graph analysis complete", file=sys.stderr)
 directory = pathlib.Path(arguments[arguments.index("--dir") + 1])
-pins = [tuple(pin.rsplit("@", 1)) for pin in arguments[arguments.index("--packages") + 1].split()]
+pins = []
+for pin in arguments[arguments.index("--packages") + 1].split():
+    crate, transition = pin.rsplit("@", 1)
+    current, requested = transition.split("=", 1)
+    pins.append((crate, current, requested))
 mode = os.environ.get("OMNIBUMP_MODE", "collapse")
 if mode == "noop":
     raise SystemExit(0)
@@ -119,7 +123,7 @@ def line(value):
 lock = directory / "Cargo.lock"
 text = lock.read_text(encoding="utf-8")
 applied = []
-for crate, requested in pins:
+for crate, current, requested in pins:
     pattern = re.compile(r'(\[\[package\]\]\nname = "' + re.escape(crate) + r'"\nversion = ")([^"]+)(")')
     matches = list(pattern.finditer(text))
     if not matches:
@@ -131,18 +135,13 @@ for crate, requested in pins:
         # Lower one non-maximum instance and leave the rest untouched.
         targets = {min(matches, key=lambda match: key(match.group(2))).start(): "0.0.1"}
     else:
-        same = [match for match in matches if line(match.group(2)) == line(requested)]
-        if same and any(key(match.group(2)) >= key(requested) for match in same):
-            print(f"omnibump: {crate} already satisfies >= {requested}; skipping", file=sys.stderr)
-            continue
-        movable = same or [match for match in matches if key(match.group(2)) < key(requested)]
-        if not same and movable:
-            movable = [max(movable, key=lambda match: key(match.group(2)))]
+        movable = [match for match in matches if match.group(2) == current]
+        if not movable:
+            print(f"omnibump: {crate}@{current} is not locked", file=sys.stderr)
+            raise SystemExit(42)
         if mode == "partial" and len(movable) > 1:
             movable = movable[1:]
-        targets = {
-            match.start(): requested for match in movable if key(match.group(2)) < key(requested)
-        }
+        targets = {match.start(): requested for match in movable}
     if targets:
         applied.append((crate, requested))
 
@@ -568,7 +567,7 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {("direct", (1,)): "1.3.0"}
+    assert updates == {("direct", "1.0.0"): "1.3.0"}
     assert unresolved == []
     assert detected == {("RUSTSEC-2099-0001", "direct", "1.0.0"), ("RUSTSEC-2099-0002", "direct", "1.0.0")}
     assert fixable == detected
@@ -583,7 +582,7 @@ def test_fix_selection(module) -> None:
         locked,
     )
     # One pin per vulnerable line: the 0.1 line must not be stranded behind 0.3.
-    assert updates == {("dupe", (0, 1)): "0.1.45", ("dupe", (0, 3)): "0.3.20"}
+    assert updates == {("dupe", "0.1.40"): "0.1.45", ("dupe", "0.3.10"): "0.3.20"}
     assert len(detected) == 2 and fixable == detected
 
     # An instance must satisfy every advisory against it, even across a line.
@@ -597,20 +596,20 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {("dupe", (0, 1)): "0.3.20", ("dupe", (0, 3)): "0.3.20"}
+    assert updates == {("dupe", "0.1.40"): "0.3.20", ("dupe", "0.3.10"): "0.3.20"}
     assert len(detected) == 3
 
     updates, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0005", "boundary", "3.5.0", (">=4.0.0",)))),
         locked,
     )
-    assert updates == {("boundary", (3,)): "4.0.0"}
+    assert updates == {("boundary", "3.5.0"): "4.0.0"}
 
     updates, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0006", "direct", "1.0.0", (), (">=3.0.0",)))),
         locked,
     )
-    assert updates == {("direct", (1,)): "3.0.0"}
+    assert updates == {("direct", "1.0.0"): "3.0.0"}
 
     # Disjoint ranges: the lower range is unreachable, the higher one is the fix.
     updates, _, _, _ = module.derive_fixes(
@@ -619,7 +618,7 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {("stuck", (1,)): "1.6.0"}
+    assert updates == {("stuck", "1.3.0"): "1.6.0"}
 
     entry = vulnerability("RUSTSEC-2099-0008", "stuck", "1.3.0")
     updates, unresolved, _, fixable = module.derive_fixes(json.loads(report(entry)), locked)
@@ -629,7 +628,7 @@ def test_fix_selection(module) -> None:
     # The advisory's patched floor wins over lower unaffected pins.
     captured = module.parse_report(CAPTURED_REPORT)
     updates, unresolved, detected, fixable = module.derive_fixes(captured, {"time": registry("0.1.45")})
-    assert updates == {("time", (0, 1)): "0.2.23"}
+    assert updates == {("time", "0.1.45"): "0.2.23"}
     assert unresolved == []
     assert detected == {("RUSTSEC-2020-0071", "time", "0.1.45")} and fixable == detected
 
@@ -640,11 +639,15 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {("direct", (1,)): "2.0.0"}
+    assert updates == {("direct", "1.0.0"): "2.0.0"}
 
 
 def test_blocking_classifications(module) -> None:
-    locked = {"stuck": registry("1.3.0"), "stable": registry("0.9.0")}
+    locked = {
+        "stuck": registry("1.3.0"),
+        "stable": registry("0.9.0"),
+        "stable-same-line": registry("1.2.0"),
+    }
     for entry, message in (
         (
             vulnerability("RUSTSEC-2099-0010", "stuck", "1.3.0", ("> 1.3.0",)),
@@ -661,6 +664,10 @@ def test_blocking_classifications(module) -> None:
         (
             vulnerability("RUSTSEC-2099-0013", "stable", "0.9.0", (">=1.0.0-rc.2",)),
             "known fix for RUSTSEC-2099-0013 in stable@0.9.0 requires a prerelease",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0019", "stable-same-line", "1.2.0", (">=1.2.1-rc.1",)),
+            "known fix for RUSTSEC-2099-0019 in stable-same-line@1.2.0 requires a prerelease",
         ),
         (
             vulnerability("RUSTSEC-2099-0014", "stuck", "1.3.0", ("1.*",)),
@@ -682,7 +689,7 @@ def test_blocking_classifications(module) -> None:
         json.loads(report(vulnerability("RUSTSEC-2099-0016", "line", "1.0.0-rc.1", (">=1.0.0-rc.2",)))),
         {"line": registry("1.0.0-rc.1")},
     )
-    assert updates == {("line", (1,)): "1.0.0-rc.2"}
+    assert updates == {("line", "1.0.0-rc.1"): "1.0.0-rc.2"}
 
     # A stable candidate wins over a prerelease candidate instead of blocking.
     updates, _, _, _ = module.derive_fixes(
@@ -691,14 +698,14 @@ def test_blocking_classifications(module) -> None:
         ),
         locked,
     )
-    assert updates == {("stable", (0, 9)): "1.0.0"}
+    assert updates == {("stable", "0.9.0"): "1.0.0"}
 
     # A prerelease bump within the locked prerelease train stays allowed.
     updates, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0018", "train", "2.0.0-rc.1", (">=2.0.1-rc.1",)))),
         {"train": registry("2.0.0-rc.1")},
     )
-    assert updates == {("train", (2,)): "2.0.1-rc.1"}
+    assert updates == {("train", "2.0.0-rc.1"): "2.0.1-rc.1"}
 
 
 def test_crate_identity(module, root: Path) -> None:
@@ -858,10 +865,10 @@ def test_direct_fix(module, root: Path) -> None:
     assert module.locked_instances(project / "Cargo.lock")["directvuln"] == registry("1.2.0")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
-        "--packages", "directvuln@1.2.0", "--fail-on-unapplied-pins",
+        "--packages", "directvuln@1.0.0=1.2.0", "--fail-on-unapplied-pins",
     ]]
     assert logged(case / "cargo.log") == VERIFICATION
-    assert "cargo remediation: applying directvuln@1.2.0" in output
+    assert "cargo remediation: applying directvuln@1.0.0=1.2.0" in output
     assert "omnibump: rust dependency graph analysis complete" in output
     assert 'directvuln = "1.2.0"' in project.joinpath("Cargo.toml").read_text(encoding="utf-8")
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "2"
@@ -880,7 +887,7 @@ def test_transitive_fix(module, root: Path) -> None:
     assert module.locked_instances(project / "Cargo.lock")["transitive"] == registry("1.1.0")
     manifest = project.joinpath("Cargo.toml").read_text(encoding="utf-8")
     assert "transitive" not in manifest and 'wrapper = "2.0.0"' in manifest
-    assert logged(case / "omnibump.log")[0][5] == "transitive@1.1.0"
+    assert logged(case / "omnibump.log")[0][5] == "transitive@1.0.0=1.1.0"
 
 
 def test_semver_boundary(module, root: Path) -> None:
@@ -895,7 +902,7 @@ def test_semver_boundary(module, root: Path) -> None:
     )
     assert module.locked_instances(project / "Cargo.lock")["boundary"] == registry("4.0.0")
     assert 'boundary = "4.0.0"' in project.joinpath("Cargo.toml").read_text(encoding="utf-8")
-    assert logged(case / "omnibump.log")[0][5] == "boundary@4.0.0"
+    assert logged(case / "omnibump.log")[0][5] == "boundary@3.5.0=4.0.0"
 
 
 def test_workspace_dependency(module, root: Path) -> None:
@@ -914,7 +921,7 @@ def test_workspace_dependency(module, root: Path) -> None:
     assert module.locked_instances(project / "Cargo.lock")["shared"] == registry("0.9.5")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
-        "--packages", "shared@0.9.5", "--fail-on-unapplied-pins",
+        "--packages", "shared@0.9.1=0.9.5", "--fail-on-unapplied-pins",
         "--features", "sources-stdin,sinks-console",
     ]]
     for member in ("member-one", "member-two"):
@@ -936,26 +943,22 @@ def test_duplicate_lock_versions(module, root: Path) -> None:
         (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
     )
     assert module.locked_instances(project / "Cargo.lock")["dupe"] == registry("0.1.45", "0.3.20")
-    assert logged(case / "omnibump.log")[0][5] == "dupe@0.1.45 dupe@0.3.20"
+    assert logged(case / "omnibump.log")[0][5] == "dupe@0.1.40=0.1.45 dupe@0.3.10=0.3.20"
 
-    # The 0.1 line's only fix lives on the 0.3 line, which omnibump will not
-    # cross while a 0.3 instance exists. The rescan must fail loudly.
+    # Explicit source versions also let both lines converge on one fixed release.
     cross_line = findings(
         vulnerability("RUSTSEC-2099-0006", "dupe", "0.1.40", (">=0.3.20",)),
         vulnerability("RUSTSEC-2099-0006", "dupe", "0.3.10", (">=0.3.20",)),
     )
-    stranded = findings(vulnerability("RUSTSEC-2099-0006", "dupe", "0.1.40", (">=0.3.20",)))
-    assert_raises(
-        module.RemediationError,
-        "vulnerable crate versions remain after remediation: RUSTSEC-2099-0006:dupe@0.1.40",
-        lambda: remediate(
-            module,
-            root,
-            "duplicates-stranded",
-            [cross_line, stranded],
-            (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
-        ),
+    case, project, _ = remediate(
+        module,
+        root,
+        "duplicates-cross-line",
+        [cross_line, findings()],
+        (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
     )
+    assert module.locked_instances(project / "Cargo.lock")["dupe"] == registry("0.3.20")
+    assert logged(case / "omnibump.log")[0][5] == "dupe@0.1.40=0.3.20 dupe@0.3.10=0.3.20"
 
 
 def test_coordinated_multi_crate(module, root: Path) -> None:
@@ -974,7 +977,7 @@ def test_coordinated_multi_crate(module, root: Path) -> None:
     assert locked["alpha"] == registry("1.2.0") and locked["beta"] == registry("2.3.0")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
-        "--packages", "alpha@1.2.0 beta@2.3.0", "--fail-on-unapplied-pins",
+        "--packages", "alpha@1.0.0=1.2.0 beta@2.0.0=2.3.0", "--fail-on-unapplied-pins",
     ]]
 
 
@@ -991,8 +994,8 @@ def test_newly_exposed_finding(module, root: Path) -> None:
     locked = module.locked_instances(project / "Cargo.lock")
     assert locked["exporter"] == registry("1.2.0") and locked["core"] == registry("1.2.0")
     assert logged(case / "omnibump.log") == [
-        ["--language", "rust", "--dir", str(project), "--packages", "exporter@1.2.0", "--fail-on-unapplied-pins"],
-        ["--language", "rust", "--dir", str(project), "--packages", "core@1.2.0", "--fail-on-unapplied-pins"],
+        ["--language", "rust", "--dir", str(project), "--packages", "exporter@1.0.0=1.2.0", "--fail-on-unapplied-pins"],
+        ["--language", "rust", "--dir", str(project), "--packages", "core@1.1.0=1.2.0", "--fail-on-unapplied-pins"],
     ]
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "3"
     assert logged(case / "cargo.log") == VERIFICATION
@@ -1003,7 +1006,7 @@ def test_no_progress(module, root: Path) -> None:
     vulnerable = findings(vulnerability("RUSTSEC-2099-0011", "stuck", "1.0.0", (">=1.2.0",)))
     assert_raises(
         module.RemediationError,
-        "cargo remediation pass made no lock graph progress: stuck@1.2.0",
+        "cargo remediation pass made no lock graph progress: stuck@1.0.0=1.2.0",
         lambda: remediate(
             module,
             root,
@@ -1048,6 +1051,30 @@ def test_downgrade_rejected(module, root: Path) -> None:
         ),
     )
 
+    # An added high version must not hide a lower replacement at another rank.
+    assert_raises(
+        module.RemediationError,
+        "cargo remediation downgraded locked crates: masked@5.0.0->4.0.0",
+        lambda: module.reject_downgrades(
+            {"masked": registry("1.0.0", "5.0.0", "10.0.0")},
+            {"masked": registry("1.0.0", "4.0.0", "10.0.0", "11.0.0")},
+        ),
+    )
+    # Removing unchanged instances first must still permit multiple upgrades.
+    module.reject_downgrades(
+        {"raised": registry("1.0.0", "10.0.0")},
+        {"raised": registry("2.0.0", "11.0.0")},
+    )
+    # Pure additions and removals have no replacement to classify as a downgrade.
+    module.reject_downgrades(
+        {"expanded": registry("5.0.0")},
+        {"expanded": registry("1.0.0", "5.0.0", "11.0.0")},
+    )
+    module.reject_downgrades(
+        {"contracted": registry("1.0.0", "5.0.0", "10.0.0")},
+        {"contracted": registry("1.0.0", "10.0.0")},
+    )
+
 
 def test_unapplied_fix_is_loud(module, root: Path) -> None:
     vulnerable = findings(vulnerability("RUSTSEC-2099-0013", "blocked", "1.0.0", (">=1.2.0",)))
@@ -1087,12 +1114,13 @@ def test_pass_limit(module, root: Path) -> None:
     def derive_fixes(index, _locked):
         crate = f"crate{index}"
         identity = (f"RUSTSEC-2099-{index:04d}", crate, "1.0.0")
-        return {(crate, (1,)): "1.1.0"}, [], {identity}, {identity}
+        return {(crate, "1.0.0"): "1.1.0"}, [], {identity}, {identity}
 
     def run_command(arguments, _cwd, capture=False, report=False):
         assert arguments[0] == "omnibump" and report and not capture
         for pin in arguments[arguments.index("--packages") + 1].split():
-            crate, version = pin.rsplit("@", 1)
+            crate, transition = pin.rsplit("@", 1)
+            _, version = transition.split("=", 1)
             state[crate] = registry(version)
         return ""
 

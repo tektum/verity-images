@@ -86,7 +86,7 @@ printf 'fn main() { println!("{}", itoa::Buffer::new().format(42u32)); }\n' >a/s
 (cd a && cargo generate-lockfile -q)
 emit a.before "$(locked a itoa)"
 emit a.manifest_before "$(grep '^itoa' a/Cargo.toml | tr -d ' ')"
-run a /work/a "itoa@%(new)s" --features default
+run a /work/a "itoa@%(old_line)s=%(new)s" --features default
 emit a.after "$(locked a itoa)"
 emit a.manifest_after "$(grep '^itoa' a/Cargo.toml | tr -d ' ')"
 
@@ -104,7 +104,7 @@ EOF
 printf 'fn main() { println!("{}", serde_json::json!({"a": 1})); }\n' >b/src/main.rs
 (cd b && cargo generate-lockfile -q && cargo update -p itoa --precise %(old)s -q)
 emit b.before "$(locked b itoa)"
-run b /work/b "itoa@%(new)s"
+run b /work/b "itoa@%(old)s=%(new)s"
 emit b.after "$(locked b itoa)"
 emit b.manifest_mentions "$(grep -c itoa b/Cargo.toml || true)"
 
@@ -132,10 +132,11 @@ printf 'fn main() { println!("{}", blocker::value()); }\n' >c/src/main.rs
 printf 'pub fn value() -> String { itoa::Buffer::new().format(7u32).to_string() }\n' >c/blocker/src/lib.rs
 (cd c && cargo generate-lockfile -q)
 emit c.before "$(locked c itoa)"
-run c /work/c "itoa@%(new)s"
+run c /work/c "itoa@%(old)s=%(new)s"
 emit c.after "$(locked c itoa)"
 
-# Scenarios D and E share a graph holding two itoa compatibility lines.
+# Scenario D: two unsatisfied compatibility lines updated in one invocation,
+# exactly matching the production handoff for duplicate vulnerable crates.
 rm -rf d && mkdir -p d/src
 cat >d/Cargo.toml <<'EOF'
 [package]
@@ -149,17 +150,11 @@ serde_json = "1.0.100"
 EOF
 printf 'fn main() { println!("{} {}", itoa::Buffer::new().format(1u32), serde_json::json!(1)); }\n' >d/src/main.rs
 (cd d && cargo generate-lockfile -q && cargo update -p itoa@%(old_line)s --precise %(older_line)s -q)
+new_current=$(locked d itoa | awk '$1 !~ /^0\.4\./ { print; exit }')
+(cd d && cargo update -p "itoa@$new_current" --precise %(old)s -q)
 emit d.before "$(locked d itoa | tr '\n' ',')"
-
-# D: a pin the newer line already satisfies is skipped, stranding the older
-# line. The pipeline rescan and persistence check own that case.
-run d /work/d "itoa@%(new)s"
+run d /work/d "itoa@%(older_line)s=%(old_line)s itoa@%(old)s=%(new)s"
 emit d.after "$(locked d itoa | tr '\n' ',')"
-
-# E: pinning the older line lands there without touching the newer line, which
-# is what the pipeline's one-pin-per-compatibility-line request relies on.
-run e /work/d "itoa@%(old_line)s"
-emit e.after "$(locked d itoa | tr '\n' ',')"
 """
 
 
@@ -260,22 +255,16 @@ def main() -> None:
         failure = work.joinpath("c.log").read_text(encoding="utf-8")
         assert "itoa" in failure and "cannot satisfy" in failure, failure
 
-        # D: a satisfied duplicate lets omnibump skip, stranding the lower
-        # instance with exit 0. The pipeline rescan and persistence check own
-        # this case; see the duplicate-stranded test in test_cargo_remediation.py.
-        assert results["d.status"] == "0", results
-        stranded = [version for version in results["d.after"].split(",") if version]
-        assert any(version.startswith("0.4.") for version in stranded), results
-        assert "already satisfies" in work.joinpath("d.log").read_text(encoding="utf-8")
-        assert "vulnerable crate versions remain after remediation" in pipeline
-
-        # E: pinning the older line lands there and leaves the newer line alone,
-        # which is what one pin per compatibility line depends on.
-        assert results["e.status"] == "0", results
-        assert sorted(version for version in results["e.after"].split(",") if version) == sorted(
+        # D: production sends both unsatisfied lines in one --packages value;
+        # the real CLI must keep the repeated crate names distinct and land both.
+        assert results["d.status"] == "0", work.joinpath("d.log").read_text(encoding="utf-8")
+        assert sorted(version for version in results["d.before"].split(",") if version) == sorted(
+            {OLDER_LINE_ITOA, OLD_ITOA}
+        ), results
+        assert sorted(version for version in results["d.after"].split(",") if version) == sorted(
             {OLD_LINE_ITOA, NEW_ITOA}
         ), results
-        assert "One request per vulnerable line" in pipeline
+        assert 'f"{crate}@{current}={fixed}"' in pipeline
 
     print("passed scripts/test_cargo_omnibump_contract.py")
 
