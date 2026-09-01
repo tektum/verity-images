@@ -1,7 +1,7 @@
 package:
   name: verity-kube-bench-0.11
   version: "0.16.0"
-  epoch: 1  # Go remediation
+  epoch: 2  # Go remediation
   description: Checks Kubernetes deployments against CIS benchmarks
   copyright:
     - license: Apache-2.0
@@ -37,13 +37,6 @@ pipeline:
       repository: https://github.com/aquasecurity/kube-bench
       tag: v${{package.version}}
       expected-commit: 5c6c22d51b926020e7414e1f1e051851d1a2feff
-  - uses: go/bump
-    with:
-      deps: |-
-        github.com/jackc/pgx/v5@v5.10.0
-        golang.org/x/net@v0.58.0
-        golang.org/x/text@v0.41.0
-        github.com/go-viper/mapstructure/v2@v2.5.0
   - uses: go/remediate
     with:
       modroot: .
