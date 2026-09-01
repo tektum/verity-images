@@ -483,8 +483,16 @@ def test_split_module_family_analysis(module, root: Path) -> None:
     }
     recommendations = [
         {"Name": "example.com/telemetry/sdk", "Version": "v1.2.0"},
-        {"Name": "example.com/telemetry", "Version": "v1.2.0"},
-        {"Name": "example.com/telemetry/sdk/log", "Version": "v0.2.0"},
+        {
+            "Name": "example.com/telemetry",
+            "Version": "v1.2.0",
+            "Metadata": {"required_by": "transitive dependency check"},
+        },
+        {
+            "Name": "example.com/telemetry/sdk/log",
+            "Version": "v0.2.0",
+            "Metadata": {"required_by": "transitive dependency check"},
+        },
     ]
 
     def run_go(arguments, *_args, **kwargs):
@@ -513,8 +521,16 @@ def test_transitive_family_analysis(module, root: Path) -> None:
     }
     recommendations = [
         {"Name": "example.com/schema/v6", "Version": "v6.1.0"},
-        {"Name": "example.com/client", "Version": "v1.4.0"},
-        {"Name": "example.com/gateway", "Version": "v1.3.0"},
+        {
+            "Name": "example.com/client",
+            "Version": "v1.4.0",
+            "Metadata": {"required_by": "transitive dependency check"},
+        },
+        {
+            "Name": "example.com/gateway",
+            "Version": "v1.3.0",
+            "Metadata": {"required_by": "transitive dependency check"},
+        },
     ]
     module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
     assert module.analyzed_updates(
@@ -526,6 +542,146 @@ def test_transitive_family_analysis(module, root: Path) -> None:
         ("example.com/client", "v1.4.0"),
         ("example.com/gateway", "v1.3.0"),
         ("example.com/schema/v6", "v6.1.0"),
+    ]
+
+
+def test_unrelated_api_consumers_are_not_upgraded(module, root: Path) -> None:
+    selected = {
+        "example.com/runtime": "v1.0.0",
+        "example.com/runtime/sdk": "v1.0.0",
+        "example.com/unrelated": "v1.0.0",
+        "example.com/project": "v1.0.0",
+        "example.com/project/component": "v0.3.0",
+    }
+    recommendations = [
+        {"Name": "example.com/runtime", "Version": "v1.2.0"},
+        {
+            "Name": "example.com/runtime/sdk",
+            "Version": "v1.2.0",
+            "Metadata": {"required_by": "transitive dependency check"},
+        },
+        {
+            "Name": "example.com/unrelated",
+            "Version": "v1.15.0",
+            "Metadata": {"required_by": "api compatibility check"},
+        },
+        {
+            "Name": "example.com/project",
+            "Version": "v1.9.0",
+            "Metadata": {"required_by": "api compatibility check"},
+        },
+        {
+            "Name": "example.com/project/component",
+            "Version": "v0.4.0",
+            "Metadata": {"fixes_indirect": "example.com/runtime"},
+        },
+    ]
+    module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
+    assert module.analyzed_updates(
+        root,
+        [("example.com/runtime", "v1.2.0")],
+        selected,
+        None,
+    ) == [
+        ("example.com/runtime", "v1.2.0"),
+        ("example.com/runtime/sdk", "v1.2.0"),
+    ]
+
+
+def test_build_failure_targets_package_preserving_consumer(module, root: Path) -> None:
+    error = module.CommandError(
+        ["go", "build", "-mod=readonly", "."],
+        1,
+        "",
+        "# example.com/client/applyconfiguration\n"
+        "cannot use example.com/schema/v4.Type as example.com/schema/v6.Type\n",
+    )
+    selected = {
+        "example.com/client": "v1.0.0",
+        "example.com/schema/v4": "v4.0.0",
+        "example.com/schema/v6": "v6.0.0",
+        "example.com/unrelated": "v1.0.0",
+    }
+    module.available_upgrades = lambda *_args: ["v1.1.0", "v1.2.0"]
+    module.candidate_contains_packages = (
+        lambda _root, dependency, version, packages: dependency == "example.com/client"
+        and version == "v1.2.0"
+        and packages == ["example.com/client/applyconfiguration"]
+    )
+    assert module.build_failure_updates(error, root, selected) == [("example.com/client", "v1.2.0")]
+
+
+def test_build_failure_reconciliation_is_bounded_and_targeted(module, root: Path) -> None:
+    dependency = "example.com/client"
+    selected = {dependency: "v1.0.0", "example.com/unrelated": "v1.0.0"}
+    attempts = 0
+    applied = []
+
+    def reconcile(*_args, **_kwargs):
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise module.CommandError(
+                ["go", "build", "-mod=readonly", "."],
+                1,
+                "",
+                "# example.com/client/applyconfiguration\ntype mismatch\n",
+            )
+
+    def apply_updates(_root, requested, _workspace, action="applying"):
+        applied.append((requested, action))
+        selected[dependency] = requested[0][1]
+
+    module.reconcile = reconcile
+    module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+    module.build_failure_updates = lambda *_args, **_kwargs: [(dependency, "v1.2.0")]
+    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
+    module.apply_updates = apply_updates
+    assert module.reconcile_with_compatibility(root, root, ["."], None, [], 0) == 1
+    assert attempts == 2
+    assert applied == [([(dependency, "v1.2.0")], "repairing compatibility")]
+
+
+def test_disjoint_vulnerability_ranges_continue_to_fixed_point(module, root: Path) -> None:
+    dependency = "example.com/runtime"
+    record = {
+        "osv": {
+            "id": "GO-RANGES",
+            "affected": [{
+                "package": {"name": dependency, "ecosystem": "Go"},
+                "ranges": [{
+                    "type": "SEMVER",
+                    "events": [
+                        {"introduced": "0"},
+                        {"fixed": "1.2.0"},
+                        {"introduced": "1.3.0"},
+                        {"fixed": "1.4.0"},
+                    ],
+                }],
+            }],
+        }
+    }
+    vulnerable = module.parse_stream(stream(record, finding("GO-RANGES", dependency, "v1.0.0")))
+    scans = iter((vulnerable, vulnerable, module.parse_stream(stream())))
+    selected = {dependency: "v1.0.0"}
+    expanded = iter(([(dependency, "v1.3.0")], [(dependency, "v1.4.0")]))
+    commands = []
+    module.scan = lambda *_args, **_kwargs: next(scans)
+    module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+    module.analyzed_updates = lambda *_args, **_kwargs: next(expanded)
+    module.reconcile = lambda *_args, **_kwargs: None
+
+    def run_go(arguments, *_args, **_kwargs):
+        commands.append(arguments)
+        request = arguments[arguments.index("--packages") + 1]
+        selected[dependency] = request.rsplit("@", 1)[1]
+        return ""
+
+    module.run_go = run_go
+    invoke_main(module, root)
+    assert [command[command.index("--packages") + 1] for command in commands] == [
+        f"{dependency}@v1.3.0",
+        f"{dependency}@v1.4.0",
     ]
 
 
@@ -938,6 +1094,22 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_transitive_family_analysis(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_unrelated_api_consumers_are_not_upgraded(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_build_failure_targets_package_preserving_consumer(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_build_failure_reconciliation_is_bounded_and_targeted(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_disjoint_vulnerability_ranges_continue_to_fixed_point(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)

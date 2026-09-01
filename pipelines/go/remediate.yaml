@@ -60,6 +60,15 @@ pipeline:
       class RemediationError(ValueError):
           pass
 
+
+      class CommandError(RemediationError):
+          def __init__(self, arguments, returncode, stdout, stderr):
+              self.arguments = tuple(arguments)
+              self.output = stderr or stdout
+              command = shlex.join(arguments)
+              detail = self.output.strip() or "no output"
+              super().__init__(f"command failed ({returncode}): {command}: {detail}")
+
       def version_key(value):
           match = VERSION.fullmatch(value)
           if match is None:
@@ -216,8 +225,7 @@ pipeline:
           environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
           completed = subprocess.run(arguments, cwd=cwd, env=environment, check=False, text=True, capture_output=True)
           if completed.returncode:
-              detail = completed.stderr.strip() or completed.stdout.strip() or "no output"
-              raise RemediationError(f"command failed ({completed.returncode}): {command}: {detail}")
+              raise CommandError(arguments, completed.returncode, completed.stdout, completed.stderr)
           if report:
               print(completed.stdout, end="", flush=True)
               print(completed.stderr, end="", file=sys.stderr, flush=True)
@@ -247,8 +255,20 @@ pipeline:
                   raise RemediationError("invalid omnibump analysis update")
               module = recommendation.get("Name")
               version = recommendation.get("Version")
-              if not isinstance(module, str) or not isinstance(version, str) or not compatible(module, version):
+              metadata = recommendation.get("Metadata") or {}
+              if (
+                  not isinstance(module, str)
+                  or not isinstance(version, str)
+                  or not isinstance(metadata, dict)
+                  or not compatible(module, version)
+              ):
                   raise RemediationError("invalid omnibump analysis update")
+              needed = (
+                  module in expanded
+                  or metadata.get("required_by") == "transitive dependency check"
+              )
+              if not needed:
+                  continue
               current = selected.get(module)
               if current is None:
                   raise RemediationError(f"omnibump recommended module outside selected graph: {module}")
@@ -257,6 +277,112 @@ pipeline:
                   if previous is None or version_key(previous) < version_key(version):
                       expanded[module] = version
           return sorted(expanded.items())
+
+
+      def available_upgrades(root, module, current):
+          values = []
+          with tempfile.TemporaryDirectory(prefix="go-remediate-query-") as query_root:
+              Path(query_root, "go.mod").write_text("module go_remediation_query\n\ngo 1.21\n", encoding="utf-8")
+              for query in ("upgrade", "main", "master"):
+                  try:
+                      raw = run_go(
+                          ["go", "list", "-mod=mod", "-m", "-json", "-versions", f"{module}@{query}"],
+                          query_root,
+                          capture=True,
+                      )
+                  except CommandError:
+                      if query == "upgrade":
+                          raise
+                      continue
+                  try:
+                      result = json.loads(raw)
+                  except json.JSONDecodeError as error:
+                      raise RemediationError("invalid go list module output") from error
+                  if not isinstance(result, dict) or result.get("Path") != module:
+                      raise RemediationError(f"invalid go list module identity: {module}")
+                  listed = result.get("Versions", [])
+                  resolved = result.get("Version")
+                  if not isinstance(listed, list) or any(not isinstance(value, str) for value in listed):
+                      raise RemediationError(f"invalid go list module versions: {module}")
+                  values.extend(listed)
+                  if isinstance(resolved, str):
+                      values.append(resolved)
+          current_key = version_key(current)
+          stable = current_key[3] == 1
+          return sorted({
+              value for value in values
+              if compatible(module, value)
+              and current_key < version_key(value)
+              and not (stable and version_key(value)[3] == 0)
+          }, key=version_key)
+
+
+      def candidate_contains_packages(root, module, version, packages):
+          with tempfile.TemporaryDirectory(prefix="go-remediate-download-") as query_root:
+              raw = run_go(["go", "mod", "download", "-json", f"{module}@{version}"], query_root, capture=True)
+          try:
+              result = json.loads(raw)
+              directory = Path(result["Dir"]).resolve()
+          except (json.JSONDecodeError, KeyError, TypeError) as error:
+              raise RemediationError(f"invalid go mod download output: {module}@{version}") from error
+          for package in packages:
+              relative = package.removeprefix(module).lstrip("/")
+              package_root = directory.joinpath(relative)
+              if not package_root.is_dir() or not any(
+                  path.suffix == ".go" and not path.name.endswith("_test.go")
+                  for path in package_root.iterdir()
+              ):
+                  return False
+          return True
+
+
+      def build_failure_updates(error, root, selected):
+          if not isinstance(error, CommandError) or error.arguments[:2] != ("go", "build"):
+              return []
+          packages = sorted(set(re.findall(r"^# ([^\s]+)$", error.output, re.MULTILINE)))
+          affected = {}
+          for package in packages:
+              owners = [
+                  module for module in selected
+                  if package == module or package.startswith(module + "/")
+              ]
+              if owners:
+                  module = max(owners, key=len)
+                  affected.setdefault(module, []).append(package)
+          updates = []
+          for module, owned_packages in sorted(affected.items()):
+              current = selected[module]
+              candidate = next(
+                  (
+                      version for version in available_upgrades(root, module, current)
+                      if candidate_contains_packages(root, module, version, owned_packages)
+                  ),
+                  None,
+              )
+              if candidate is not None:
+                  updates.append((module, candidate))
+          return updates
+
+
+      def apply_updates(root, requested, workspace, action="applying"):
+          details = " ".join(f"{module}@{version}" for module, version in requested)
+          module_directives = language_directives(root / "go.mod")
+          workspace_directives = language_directives(workspace) if workspace else None
+          print(f"go remediation: {action} " + details, flush=True)
+          try:
+              run_go(
+                  [
+                      "omnibump", "--language", "go", "--dir", str(root),
+                      "--packages", details, "--tidy=false",
+                  ],
+                  root,
+                  workspace=workspace,
+                  report=True,
+              )
+          finally:
+              restore_language_directives(root / "go.mod", module_directives)
+              if workspace_directives is not None:
+                  restore_language_directives(workspace, workspace_directives)
 
 
       def resolve_vendor_patches(workspace_root, raw):
@@ -396,6 +522,33 @@ pipeline:
           with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
               run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
 
+      def reconcile_with_compatibility(workspace_root, root, packages, workspace, vendor_patches, passes):
+          previous = None
+          while True:
+              try:
+                  reconcile(workspace_root, root, packages, workspace, vendor_patches)
+                  if previous is not None and selected_modules(root, workspace) == previous:
+                      raise RemediationError("go remediation compatibility pass made no module graph progress")
+                  return passes
+              except CommandError as error:
+                  selected = selected_modules(root, workspace)
+                  if previous is not None and selected == previous:
+                      raise RemediationError(
+                          "go remediation compatibility pass made no module graph progress"
+                      ) from error
+                  requested = build_failure_updates(error, root, selected)
+                  if not requested:
+                      raise
+                  details = " ".join(f"{module}@{version}" for module, version in requested)
+                  if passes >= MAX_REMEDIATION_PASSES:
+                      raise RemediationError(
+                          f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
+                      ) from error
+                  requested = analyzed_updates(root, requested, selected, workspace)
+                  apply_updates(root, requested, workspace, action="repairing compatibility")
+                  passes += 1
+                  previous = selected
+
       def main():
           binary, workspace_arg, root_arg, vendor_patches_arg, *packages = sys.argv[1:]
           workspace_root = Path(workspace_arg).resolve()
@@ -416,17 +569,19 @@ pipeline:
               selected = selected_modules(root, workspace)
               updates, unresolved, detected, fixable = derive_fixes(messages, selected)
               persisted = remediated & detected
-              if persisted:
-                  details = " ".join(f"{osv_id}:{module}" for osv_id, module in sorted(persisted))
-                  raise RemediationError(f"compatible vulnerability fixes remain after remediation: {details}")
               requested = [
                   (module, fixed)
                   for module, fixed in sorted(updates.items())
                   if version_key(selected[module]) < version_key(fixed)
               ]
               if not requested:
+                  if persisted:
+                      details = " ".join(f"{osv_id}:{module}" for osv_id, module in sorted(persisted))
+                      raise RemediationError(f"compatible vulnerability fixes remain after remediation: {details}")
                   if not reconciled:
-                      reconcile(workspace_root, root, packages, workspace, vendor_patches)
+                      passes = reconcile_with_compatibility(
+                          workspace_root, root, packages, workspace, vendor_patches, passes
+                      )
                       reconciled = True
                       messages = scan(Path(binary), root, packages, workspace)
                       continue
@@ -439,28 +594,13 @@ pipeline:
                       f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                   )
               requested = analyzed_updates(root, requested, selected, workspace)
-              details = " ".join(f"{module}@{fixed}" for module, fixed in requested)
-              module_directives = language_directives(root / "go.mod")
-              workspace_directives = language_directives(workspace) if workspace else None
-              print("go remediation: applying " + details, flush=True)
-              try:
-                  run_go(
-                      [
-                          "omnibump", "--language", "go", "--dir", str(root),
-                          "--packages", details, "--tidy=false",
-                      ],
-                      root,
-                      workspace=workspace,
-                      report=True,
-                  )
-              finally:
-                  restore_language_directives(root / "go.mod", module_directives)
-                  if workspace_directives is not None:
-                      restore_language_directives(workspace, workspace_directives)
-              reconcile(workspace_root, root, packages, workspace, vendor_patches)
-              reconciled = True
+              apply_updates(root, requested, workspace)
               passes += 1
               remediated.update(fixable)
+              passes = reconcile_with_compatibility(
+                  workspace_root, root, packages, workspace, vendor_patches, passes
+              )
+              reconciled = True
               if selected_modules(root, workspace) == selected:
                   raise RemediationError(f"go remediation pass made no module graph progress: {details}")
               messages = scan(Path(binary), root, packages, workspace)
