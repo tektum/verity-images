@@ -55,7 +55,7 @@
         "bash scripts/test_fips_foundation.sh",
         "python3 scripts/test_fips_matrix.py",
         "python3 scripts/test_workflow_policy.py",
-        "if LC_ALL=C grep -PRn '[^\\x00-\\x7F]' --exclude-dir=.codegraph --exclude-dir=.devbox --exclude-dir=.git --exclude-dir=.omo --exclude-dir=.venv --include='*.md' --include='*.yaml' --include='*.yml' --include='*.py' --include='*.sh' .; then exit 1; fi",
+        "if LC_ALL=C grep -PRn '[^\\x00-\\x7F]' --exclude-dir=.codegraph --exclude-dir=.devbox --exclude-dir=.git --exclude-dir=.omo --exclude-dir=.venv --exclude-dir=.wrangler --exclude-dir=node_modules --include='*.md' --include='*.yaml' --include='*.yml' --include='*.py' --include='*.sh' .; then exit 1; fi",
         "if grep -PRn 'uses:\\s+(?!\\./)[^[:space:]@]+@(?![0-9a-f]{40}(?:[[:space:]]|$))' --include='*.yaml' --include='*.yml' .github; then exit 1; fi"
       ]
     }
