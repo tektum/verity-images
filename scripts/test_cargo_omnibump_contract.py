@@ -22,13 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "pipelines/cargo/remediate.yaml"
 # Ephemeral test fixture, not a published artifact: wolfi-base only supplies
 # `apk`, and the contract subject (omnibump) is resolved from the same Wolfi
-# package repository a melange build environment uses. Pinned by digest, with
-# the tag as the recovery path once the digest ages out of the registry.
+# package repository a melange build environment uses. The runtime is pinned by
+# digest so the contract cannot silently change underneath a green test.
 IMAGE = (
     "cgr.dev/chainguard/wolfi-base@sha256:"
     "7e62cecd3c5712dba6e52c5260afb8f9d7a23b9bbcdd26ad7508a811e74b766d"
 )
-IMAGE_TAG = "cgr.dev/chainguard/wolfi-base:latest"
 PACKAGES = ("omnibump", "rust-1.94")
 # Zero-dependency crates with stable published versions.
 OLD_ITOA = "1.0.9"
@@ -174,16 +173,15 @@ def skip(reason: str) -> None:
 
 
 def image(work: Path) -> str:
-    for candidate in (IMAGE, IMAGE_TAG):
-        if subprocess.run(
-            ["docker", "image", "inspect", candidate], capture_output=True, cwd=work
-        ).returncode == 0:
-            return candidate
-        if subprocess.run(
-            ["docker", "pull", "-q", candidate], capture_output=True, text=True, cwd=work
-        ).returncode == 0:
-            return candidate
-    skip(f"cannot pull {IMAGE} or {IMAGE_TAG}")
+    if subprocess.run(
+        ["docker", "image", "inspect", IMAGE], capture_output=True, cwd=work
+    ).returncode == 0:
+        return IMAGE
+    if subprocess.run(
+        ["docker", "pull", "-q", IMAGE], capture_output=True, text=True, cwd=work
+    ).returncode == 0:
+        return IMAGE
+    skip(f"cannot pull pinned image {IMAGE}")
     raise AssertionError("unreachable")
 
 
@@ -224,6 +222,7 @@ def run(work: Path) -> dict[str, str]:
 
 
 def main() -> None:
+    assert "@sha256:" in IMAGE and ":latest" not in IMAGE
     if not shutil.which("docker"):
         skip("docker is unavailable")
     if os.environ.get("CARGO_OMNIBUMP_CONTRACT") == "0":
