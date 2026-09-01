@@ -24,11 +24,13 @@ DEFAULT_SETTINGS = {
     "ignore": [],
     "informational_warnings": ["unmaintained", "unsound", "notice"],
 }
-# Verbatim `cargo-audit 0.22.2 audit --json` output for a local fixture advisory
-# database and lockfile, reduced to one vulnerability and one warning.
+# Verbatim `cargo audit --json` output from cargo-audit 0.22.2 for a lockfile
+# holding time 0.1.45 against RUSTSEC-2020-0071, whose real advisory carries both
+# a patched floor and lower unaffected pins. The unaffected floors must never
+# undercut the patched floor.
 CAPTURED_REPORT = """{
-    "database": {"advisory-count": 11, "last-commit": null, "last-updated": null},
-    "lockfile": {"dependency-count": 12},
+    "database": {"advisory-count": 1, "last-commit": null, "last-updated": null},
+    "lockfile": {"dependency-count": 2},
     "settings": {
         "target_arch": [], "target_os": [], "severity": null, "ignore": [],
         "informational_warnings": ["unmaintained", "unsound", "notice"]
@@ -39,17 +41,34 @@ CAPTURED_REPORT = """{
         "list": [
             {
                 "advisory": {
-                    "id": "RUSTSEC-2099-0002", "package": "caret", "title": "RUSTSEC-2099-0002",
-                    "description": "fixture", "date": "2099-01-01", "aliases": [], "related": [],
-                    "collection": "crates", "categories": [], "keywords": [], "cvss": null,
-                    "informational": null, "references": [], "source": null,
-                    "url": "https://example.com/", "withdrawn": null, "license": "CC0-1.0",
+                    "id": "RUSTSEC-2020-0071",
+                    "package": "time",
+                    "title": "Potential segfault in the time crate",
+                    "description": "Unix-like operating systems may segfault due to dereferencing a dangling pointer.",
+                    "date": "2020-11-18",
+                    "aliases": ["CVE-2020-26235", "GHSA-wcg3-cvx6-7396"],
+                    "related": [],
+                    "collection": "crates",
+                    "categories": ["code-execution", "memory-corruption"],
+                    "keywords": ["segfault"],
+                    "cvss": null,
+                    "informational": null,
+                    "references": [],
+                    "source": null,
+                    "url": "https://github.com/time-rs/time/issues/293",
+                    "withdrawn": null,
+                    "license": "CC0-1.0",
                     "expect-deleted": false
                 },
-                "versions": {"patched": ["^1.4.3"], "unaffected": []},
+                "versions": {
+                    "patched": [">=0.2.23"],
+                    "unaffected": [
+                        "=0.2.0", "=0.2.1", "=0.2.2", "=0.2.3", "=0.2.4", "=0.2.5", "=0.2.6"
+                    ]
+                },
                 "affected": null,
                 "package": {
-                    "name": "caret", "version": "1.2.0",
+                    "name": "time", "version": "0.1.45",
                     "source": "registry+https://github.com/rust-lang/crates.io-index",
                     "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
                     "replace": null
@@ -57,29 +76,7 @@ CAPTURED_REPORT = """{
             }
         ]
     },
-    "warnings": {
-        "unmaintained": [
-            {
-                "kind": "unmaintained",
-                "package": {
-                    "name": "unmaint", "version": "1.0.0",
-                    "source": "registry+https://github.com/rust-lang/crates.io-index",
-                    "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
-                    "replace": null
-                },
-                "advisory": {
-                    "id": "RUSTSEC-2099-0011", "package": "unmaint", "title": "RUSTSEC-2099-0011",
-                    "description": "fixture", "date": "2099-01-01", "aliases": [], "related": [],
-                    "collection": "crates", "categories": [], "keywords": [], "cvss": null,
-                    "informational": "unmaintained", "references": [], "source": null,
-                    "url": "https://example.com/", "withdrawn": null, "license": "CC0-1.0",
-                    "expect-deleted": false
-                },
-                "affected": null,
-                "versions": {"patched": [], "unaffected": []}
-            }
-        ]
-    }
+    "warnings": {}
 }
 """
 
@@ -100,7 +97,7 @@ if error := os.environ.get("OMNIBUMP_ERROR"):
     raise SystemExit(42)
 print("omnibump: rust dependency graph analysis complete", file=sys.stderr)
 directory = pathlib.Path(arguments[arguments.index("--dir") + 1])
-pins = dict(pin.rsplit("@", 1) for pin in arguments[arguments.index("--packages") + 1].split())
+pins = [tuple(pin.rsplit("@", 1)) for pin in arguments[arguments.index("--packages") + 1].split()]
 mode = os.environ.get("OMNIBUMP_MODE", "collapse")
 if mode == "noop":
     raise SystemExit(0)
@@ -110,23 +107,44 @@ def key(value):
     return tuple(int(part) for part in re.split(r"[.-]", value) if part.isdigit())
 
 
+def line(value):
+    major, minor, patch = (key(value) + (0, 0, 0))[:3]
+    return (major,) if major else ((0, minor) if minor else (0, 0, patch))
+
+
+# Mirrors the real omnibump 0.23.2 semantics proven by
+# scripts/test_cargo_omnibump_contract.py: a pin lands on its own compatibility
+# line, is skipped once that line satisfies it, and otherwise crosses the
+# boundary from the highest lower instance.
 lock = directory / "Cargo.lock"
 text = lock.read_text(encoding="utf-8")
-for crate, requested in sorted(pins.items()):
+applied = []
+for crate, requested in pins:
     pattern = re.compile(r'(\[\[package\]\]\nname = "' + re.escape(crate) + r'"\nversion = ")([^"]+)(")')
     matches = list(pattern.finditer(text))
+    if not matches:
+        print(f"omnibump: package {crate} not found in Cargo.lock", file=sys.stderr)
+        continue
     if mode == "downgrade":
         targets = {match.start(): "0.0.1" for match in matches}
     elif mode == "sink":
         # Lower one non-maximum instance and leave the rest untouched.
         targets = {min(matches, key=lambda match: key(match.group(2))).start(): "0.0.1"}
     else:
-        skip = matches[0].start() if mode == "partial" and len(matches) > 1 else -1
+        same = [match for match in matches if line(match.group(2)) == line(requested)]
+        if same and any(key(match.group(2)) >= key(requested) for match in same):
+            print(f"omnibump: {crate} already satisfies >= {requested}; skipping", file=sys.stderr)
+            continue
+        movable = same or [match for match in matches if key(match.group(2)) < key(requested)]
+        if not same and movable:
+            movable = [max(movable, key=lambda match: key(match.group(2)))]
+        if mode == "partial" and len(movable) > 1:
+            movable = movable[1:]
         targets = {
-            match.start(): requested
-            for match in matches
-            if match.start() != skip and key(match.group(2)) < key(requested)
+            match.start(): requested for match in movable if key(match.group(2)) < key(requested)
         }
+    if targets:
+        applied.append((crate, requested))
 
     def replace(match, targets=targets):
         target = targets.get(match.start())
@@ -136,7 +154,7 @@ for crate, requested in sorted(pins.items()):
 lock.write_text(text, encoding="utf-8")
 for manifest in sorted(directory.rglob("Cargo.toml")):
     content = manifest.read_text(encoding="utf-8")
-    for crate, requested in sorted(pins.items()):
+    for crate, requested in applied:
         content = re.sub(
             r'(?m)^' + re.escape(crate) + r' = "[^"]+"$',
             crate + ' = "' + requested + '"',
@@ -495,6 +513,16 @@ def test_requirement_floor(module) -> None:
     assert module.requirement_floor(">0.3.1, >=0.4.0") == ("0.4.0", "exact")
     assert module.requirement_floor(">0.3.1, <2.0.0") == ("", "unnameable")
 
+    # Degenerate caret forms: `^0` allows `<1.0.0` and `^0.0` allows `<0.1.0`,
+    # so neither may contradict a higher floor in the same requirement.
+    assert module.requirement_floor("^0") == ("0.0.0", "exact")
+    assert module.requirement_floor("^0, >=0.5.0") == ("0.5.0", "exact")
+    assert module.requirement_floor("^0.0") == ("0.0.0", "exact")
+    assert module.requirement_floor("^0.0, >=0.0.5") == ("0.0.5", "exact")
+    assert module.requirement_floor("^0.0.3") == ("0.0.3", "exact")
+    assert module.requirement_floor("~0") == ("0.0.0", "exact")
+    assert module.requirement_floor("~0.0") == ("0.0.0", "exact")
+
     # Caret and tilde carry implicit upper bounds that can contradict a floor.
     for requirement in (
         ">=1.0.0, <1.0.0",
@@ -532,12 +560,26 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {"direct": "1.3.0"}
+    assert updates == {("direct", (1,)): "1.3.0"}
     assert unresolved == []
     assert detected == {("RUSTSEC-2099-0001", "direct", "1.0.0"), ("RUSTSEC-2099-0002", "direct", "1.0.0")}
     assert fixable == detected
 
     updates, unresolved, detected, fixable = module.derive_fixes(
+        json.loads(
+            report(
+                vulnerability("RUSTSEC-2099-0003", "dupe", "0.1.40", (">=0.1.45",)),
+                vulnerability("RUSTSEC-2099-0004", "dupe", "0.3.10", (">=0.3.20",)),
+            )
+        ),
+        locked,
+    )
+    # One pin per vulnerable line: the 0.1 line must not be stranded behind 0.3.
+    assert updates == {("dupe", (0, 1)): "0.1.45", ("dupe", (0, 3)): "0.3.20"}
+    assert len(detected) == 2 and fixable == detected
+
+    # An instance must satisfy every advisory against it, even across a line.
+    updates, _, detected, _ = module.derive_fixes(
         json.loads(
             report(
                 vulnerability("RUSTSEC-2099-0003", "dupe", "0.1.40", (">=0.1.45",)),
@@ -547,20 +589,20 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {"dupe": "0.3.20"}
-    assert len(detected) == 3 and fixable == detected
+    assert updates == {("dupe", (0, 1)): "0.3.20", ("dupe", (0, 3)): "0.3.20"}
+    assert len(detected) == 3
 
     updates, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0005", "boundary", "3.5.0", (">=4.0.0",)))),
         locked,
     )
-    assert updates == {"boundary": "4.0.0"}
+    assert updates == {("boundary", (3,)): "4.0.0"}
 
     updates, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0006", "direct", "1.0.0", (), (">=3.0.0",)))),
         locked,
     )
-    assert updates == {"direct": "3.0.0"}
+    assert updates == {("direct", (1,)): "3.0.0"}
 
     # Disjoint ranges: the lower range is unreachable, the higher one is the fix.
     updates, _, _, _ = module.derive_fixes(
@@ -569,12 +611,28 @@ def test_fix_selection(module) -> None:
         ),
         locked,
     )
-    assert updates == {"stuck": "1.6.0"}
+    assert updates == {("stuck", (1,)): "1.6.0"}
 
     entry = vulnerability("RUSTSEC-2099-0008", "stuck", "1.3.0")
     updates, unresolved, _, fixable = module.derive_fixes(json.loads(report(entry)), locked)
     assert updates == {} and fixable == set()
     assert unresolved == [("RUSTSEC-2099-0008", "stuck", "1.3.0", "no-fix")]
+
+    # The advisory's patched floor wins over lower unaffected pins.
+    captured = module.parse_report(CAPTURED_REPORT)
+    updates, unresolved, detected, fixable = module.derive_fixes(captured, {"time": registry("0.1.45")})
+    assert updates == {("time", (0, 1)): "0.2.23"}
+    assert unresolved == []
+    assert detected == {("RUSTSEC-2020-0071", "time", "0.1.45")} and fixable == detected
+
+    # An unaffected floor still applies when no patched release is reachable.
+    updates, _, _, _ = module.derive_fixes(
+        json.loads(
+            report(vulnerability("RUSTSEC-2099-0009", "direct", "1.0.0", (">=0.9.0",), (">=2.0.0",)))
+        ),
+        locked,
+    )
+    assert updates == {("direct", (1,)): "2.0.0"}
 
 
 def test_blocking_classifications(module) -> None:
@@ -616,7 +674,7 @@ def test_blocking_classifications(module) -> None:
         json.loads(report(vulnerability("RUSTSEC-2099-0016", "line", "1.0.0-rc.1", (">=1.0.0-rc.2",)))),
         {"line": registry("1.0.0-rc.1")},
     )
-    assert updates == {"line": "1.0.0-rc.2"}
+    assert updates == {("line", (1,)): "1.0.0-rc.2"}
 
     # A stable candidate wins over a prerelease candidate instead of blocking.
     updates, _, _, _ = module.derive_fixes(
@@ -625,7 +683,14 @@ def test_blocking_classifications(module) -> None:
         ),
         locked,
     )
-    assert updates == {"stable": "1.0.0"}
+    assert updates == {("stable", (0, 9)): "1.0.0"}
+
+    # A prerelease bump within the locked prerelease train stays allowed.
+    updates, _, _, _ = module.derive_fixes(
+        json.loads(report(vulnerability("RUSTSEC-2099-0018", "train", "2.0.0-rc.1", (">=2.0.1-rc.1",)))),
+        {"train": registry("2.0.0-rc.1")},
+    )
+    assert updates == {("train", (2,)): "2.0.1-rc.1"}
 
 
 def test_crate_identity(module, root: Path) -> None:
@@ -700,18 +765,27 @@ def test_crate_identity(module, root: Path) -> None:
 
 
 def test_captured_report(module) -> None:
-    """Guard the field shape against cargo-audit 0.22.2 output captured verbatim."""
+    """Guard the captured field shape, and print each diagnostic once per run."""
     parsed = module.parse_report(CAPTURED_REPORT)
-    updates, unresolved, detected, fixable = module.derive_fixes(parsed, {"caret": registry("1.2.0")})
-    assert updates == {"caret": "1.4.3"}
-    assert unresolved == []
-    assert detected == {("RUSTSEC-2099-0002", "caret", "1.2.0")} and fixable == detected
-    output = io.StringIO()
-    with contextlib.redirect_stdout(output):
-        module.report_diagnostics(parsed)
-    assert output.getvalue() == (
-        "cargo remediation: diagnostic unmaintained RUSTSEC-2099-0011 in unmaint@1.0.0\n"
+    assert parsed["vulnerabilities"]["count"] == 1 and parsed["warnings"] == {}
+    assert parsed["vulnerabilities"]["list"][0]["package"]["source"] == REGISTRY
+    diagnostics = module.parse_report(
+        report(
+            warnings={
+                "unmaintained": [warning("unmaintained", "abandoned", "1.0.0", "RUSTSEC-2099-0100")],
+                "yanked": [warning("yanked", "pulled", "2.0.0")],
+            }
+        )
     )
+    output = io.StringIO()
+    seen = set()
+    with contextlib.redirect_stdout(output):
+        module.report_diagnostics(diagnostics, seen)
+        module.report_diagnostics(diagnostics, seen)
+    assert output.getvalue().splitlines() == [
+        "cargo remediation: diagnostic unmaintained RUSTSEC-2099-0100 in abandoned@1.0.0",
+        "cargo remediation: diagnostic yanked yanked in pulled@2.0.0",
+    ]
 
 
 def test_locked_instances(module, root: Path) -> None:
@@ -840,34 +914,38 @@ def test_workspace_dependency(module, root: Path) -> None:
 
 
 def test_duplicate_lock_versions(module, root: Path) -> None:
-    vulnerable = findings(
+    # Each vulnerable line has a fix on its own line, so one invocation carries
+    # both pins and omnibump lands each without stranding the lower line.
+    per_line = findings(
         vulnerability("RUSTSEC-2099-0005", "dupe", "0.1.40", (">=0.1.45",)),
-        vulnerability("RUSTSEC-2099-0006", "dupe", "0.1.40", (">=0.3.20",)),
         vulnerability("RUSTSEC-2099-0006", "dupe", "0.3.10", (">=0.3.20",)),
     )
     case, project, _ = remediate(
         module,
         root,
         "duplicates",
-        [vulnerable, findings()],
+        [per_line, findings()],
         (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
     )
-    assert module.locked_instances(project / "Cargo.lock")["dupe"] == registry("0.3.20")
-    assert logged(case / "omnibump.log")[0][5] == "dupe@0.3.20"
+    assert module.locked_instances(project / "Cargo.lock")["dupe"] == registry("0.1.45", "0.3.20")
+    assert logged(case / "omnibump.log")[0][5] == "dupe@0.1.45 dupe@0.3.20"
 
-    # Omnibump skips a pin once any instance satisfies it, so a stranded lower
-    # instance must fail loudly instead of passing as remediated.
-    stranded = findings(vulnerability("RUSTSEC-2099-0005", "dupe", "0.1.40", (">=0.1.45",)))
+    # The 0.1 line's only fix lives on the 0.3 line, which omnibump will not
+    # cross while a 0.3 instance exists. The rescan must fail loudly.
+    cross_line = findings(
+        vulnerability("RUSTSEC-2099-0006", "dupe", "0.1.40", (">=0.3.20",)),
+        vulnerability("RUSTSEC-2099-0006", "dupe", "0.3.10", (">=0.3.20",)),
+    )
+    stranded = findings(vulnerability("RUSTSEC-2099-0006", "dupe", "0.1.40", (">=0.3.20",)))
     assert_raises(
         module.RemediationError,
-        "vulnerable crate versions remain after remediation: RUSTSEC-2099-0005:dupe@0.1.40",
+        "vulnerable crate versions remain after remediation: RUSTSEC-2099-0006:dupe@0.1.40",
         lambda: remediate(
             module,
             root,
             "duplicates-stranded",
-            [vulnerable, stranded],
+            [cross_line, stranded],
             (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
-            environment={"OMNIBUMP_MODE": "partial"},
         ),
     )
 
@@ -1001,7 +1079,7 @@ def test_pass_limit(module, root: Path) -> None:
     def derive_fixes(index, _locked):
         crate = f"crate{index}"
         identity = (f"RUSTSEC-2099-{index:04d}", crate, "1.0.0")
-        return {crate: "1.1.0"}, [], {identity}, {identity}
+        return {(crate, (1,)): "1.1.0"}, [], {identity}, {identity}
 
     def run_command(arguments, _cwd, capture=False, report=False):
         assert arguments[0] == "omnibump" and report and not capture

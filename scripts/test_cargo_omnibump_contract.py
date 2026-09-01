@@ -6,17 +6,15 @@ so its flags and failure semantics are load-bearing. This runs the real binary
 from the same Wolfi package the pipeline depends on, inside an ephemeral
 container, and never installs anything globally.
 
-The container and crates.io are external, so the fixture reports SKIPPED and
-exits 0 when either is unavailable; CI has both and therefore always proves the
-contract.
+The container registry and crates.io are external, so the fixture reports
+SKIPPED and exits 0 when either is unavailable locally. Under CI it must prove
+the contract: every skip becomes a failure.
 """
 from __future__ import annotations
 
-import json
 import os
 import shutil
 import subprocess
-import sys
 import tempfile
 from pathlib import Path
 
@@ -24,12 +22,20 @@ ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "pipelines/cargo/remediate.yaml"
 # Ephemeral test fixture, not a published artifact: wolfi-base only supplies
 # `apk`, and the contract subject (omnibump) is resolved from the same Wolfi
-# package repository a melange build environment uses.
-IMAGE = "cgr.dev/chainguard/wolfi-base:latest"
+# package repository a melange build environment uses. Pinned by digest, with
+# the tag as the recovery path once the digest ages out of the registry.
+IMAGE = (
+    "cgr.dev/chainguard/wolfi-base@sha256:"
+    "7e62cecd3c5712dba6e52c5260afb8f9d7a23b9bbcdd26ad7508a811e74b766d"
+)
+IMAGE_TAG = "cgr.dev/chainguard/wolfi-base:latest"
 PACKAGES = ("omnibump", "rust-1.94")
 # Zero-dependency crates with stable published versions.
 OLD_ITOA = "1.0.9"
 NEW_ITOA = "1.0.18"
+# Two versions on the crate's older 0.4 compatibility line.
+OLD_LINE_ITOA = "0.4.8"
+OLDER_LINE_ITOA = "0.4.6"
 TIMEOUT = 1800
 
 SCRIPT = r"""#!/bin/sh
@@ -53,6 +59,19 @@ emit() { printf '%%s %%s\n' "$1" "$2" >>/work/result; }
 omnibump --help >/work/help.txt 2>&1
 omnibump supported >/work/supported.txt 2>&1
 
+run() {
+  name=$1
+  directory=$2
+  pins=$3
+  shift 3
+  set +e
+  omnibump --language rust --dir "$directory" --packages "$pins" \
+    --fail-on-unapplied-pins "$@" >"/work/$name.log" 2>&1
+  status=$?
+  set -e
+  emit "$name.status" "$status"
+}
+
 # Scenario A: a direct dependency crossing a SemVer boundary.
 rm -rf a && mkdir -p a/src
 cat >a/Cargo.toml <<'EOF'
@@ -68,9 +87,7 @@ printf 'fn main() { println!("{}", itoa::Buffer::new().format(42u32)); }\n' >a/s
 (cd a && cargo generate-lockfile -q)
 emit a.before "$(locked a itoa)"
 emit a.manifest_before "$(grep '^itoa' a/Cargo.toml | tr -d ' ')"
-omnibump --language rust --dir /work/a --packages "itoa@%(new)s" \
-  --fail-on-unapplied-pins --features default >/work/a.log 2>&1
-emit a.status "$?"
+run a /work/a "itoa@%(new)s" --features default
 emit a.after "$(locked a itoa)"
 emit a.manifest_after "$(grep '^itoa' a/Cargo.toml | tr -d ' ')"
 
@@ -88,9 +105,7 @@ EOF
 printf 'fn main() { println!("{}", serde_json::json!({"a": 1})); }\n' >b/src/main.rs
 (cd b && cargo generate-lockfile -q && cargo update -p itoa --precise %(old)s -q)
 emit b.before "$(locked b itoa)"
-omnibump --language rust --dir /work/b --packages "itoa@%(new)s" \
-  --fail-on-unapplied-pins >/work/b.log 2>&1
-emit b.status "$?"
+run b /work/b "itoa@%(new)s"
 emit b.after "$(locked b itoa)"
 emit b.manifest_mentions "$(grep -c itoa b/Cargo.toml || true)"
 
@@ -118,15 +133,10 @@ printf 'fn main() { println!("{}", blocker::value()); }\n' >c/src/main.rs
 printf 'pub fn value() -> String { itoa::Buffer::new().format(7u32).to_string() }\n' >c/blocker/src/lib.rs
 (cd c && cargo generate-lockfile -q)
 emit c.before "$(locked c itoa)"
-set +e
-omnibump --language rust --dir /work/c --packages "itoa@%(new)s" \
-  --fail-on-unapplied-pins >/work/c.log 2>&1
-emit c.status "$?"
-set -e
+run c /work/c "itoa@%(new)s"
 emit c.after "$(locked c itoa)"
 
-# Scenario D: omnibump treats a pin as landed once any instance satisfies it, so
-# a stranded lower duplicate stays behind. The pipeline rescan must catch that.
+# Scenarios D and E share a graph holding two itoa compatibility lines.
 rm -rf d && mkdir -p d/src
 cat >d/Cargo.toml <<'EOF'
 [package]
@@ -139,42 +149,61 @@ itoa = "0.4"
 serde_json = "1.0.100"
 EOF
 printf 'fn main() { println!("{} {}", itoa::Buffer::new().format(1u32), serde_json::json!(1)); }\n' >d/src/main.rs
-(cd d && cargo generate-lockfile -q)
+(cd d && cargo generate-lockfile -q && cargo update -p itoa@%(old_line)s --precise %(older_line)s -q)
 emit d.before "$(locked d itoa | tr '\n' ',')"
-set +e
-omnibump --language rust --dir /work/d --packages "itoa@%(new)s" \
-  --fail-on-unapplied-pins >/work/d.log 2>&1
-emit d.status "$?"
-set -e
+
+# D: a pin the newer line already satisfies is skipped, stranding the older
+# line. The pipeline rescan and persistence check own that case.
+run d /work/d "itoa@%(new)s"
 emit d.after "$(locked d itoa | tr '\n' ',')"
+
+# E: pinning the older line lands there without touching the newer line, which
+# is what the pipeline's one-pin-per-compatibility-line request relies on.
+run e /work/d "itoa@%(old_line)s"
+emit e.after "$(locked d itoa | tr '\n' ',')"
 """
 
 
 def skip(reason: str) -> None:
-    print(f"SKIPPED scripts/test_cargo_omnibump_contract.py: {reason}")
+    """Local runs may lack docker or a registry; CI must prove the contract."""
+    message = f"scripts/test_cargo_omnibump_contract.py: {reason}"
+    if os.environ.get("CI"):
+        raise SystemExit(f"error: {message}")
+    print(f"SKIPPED {message}")
     raise SystemExit(0)
 
 
-def pull(work: Path) -> None:
-    if subprocess.run(["docker", "image", "inspect", IMAGE], capture_output=True, cwd=work).returncode == 0:
-        return
-    completed = subprocess.run(["docker", "pull", "-q", IMAGE], capture_output=True, text=True, cwd=work)
-    if completed.returncode != 0:
-        skip(f"cannot pull {IMAGE}: {completed.stderr.strip() or 'no stderr'}")
+def image(work: Path) -> str:
+    for candidate in (IMAGE, IMAGE_TAG):
+        if subprocess.run(
+            ["docker", "image", "inspect", candidate], capture_output=True, cwd=work
+        ).returncode == 0:
+            return candidate
+        if subprocess.run(
+            ["docker", "pull", "-q", candidate], capture_output=True, text=True, cwd=work
+        ).returncode == 0:
+            return candidate
+    skip(f"cannot pull {IMAGE} or {IMAGE_TAG}")
+    raise AssertionError("unreachable")
 
 
 def run(work: Path) -> dict[str, str]:
     script = work / "contract.sh"
     script.write_text(
-        SCRIPT % {"packages": " ".join(PACKAGES), "old": OLD_ITOA, "new": NEW_ITOA},
+        SCRIPT % {
+            "packages": " ".join(PACKAGES),
+            "old": OLD_ITOA,
+            "new": NEW_ITOA,
+            "old_line": OLD_LINE_ITOA,
+            "older_line": OLDER_LINE_ITOA,
+        },
         encoding="utf-8",
     )
-    pull(work)
     completed = subprocess.run(
         [
-            "docker", "run", "--rm", "--network", "host",
+            "docker", "run", "--rm",
             "-e", f"HOST_UID={os.getuid()}", "-e", f"HOST_GID={os.getgid()}",
-            "-v", f"{work}:/work", IMAGE, "sh", "/work/contract.sh",
+            "-v", f"{work}:/work", image(work), "sh", "/work/contract.sh",
         ],
         capture_output=True,
         text=True,
@@ -241,6 +270,14 @@ def main() -> None:
         assert "already satisfies" in work.joinpath("d.log").read_text(encoding="utf-8")
         assert "vulnerable crate versions remain after remediation" in pipeline
 
+        # E: pinning the older line lands there and leaves the newer line alone,
+        # which is what one pin per compatibility line depends on.
+        assert results["e.status"] == "0", results
+        assert sorted(version for version in results["e.after"].split(",") if version) == sorted(
+            {OLD_LINE_ITOA, NEW_ITOA}
+        ), results
+        assert "One request per vulnerable line" in pipeline
+
     print("passed scripts/test_cargo_omnibump_contract.py")
 
 
@@ -248,7 +285,4 @@ if __name__ == "__main__":
     try:
         main()
     except subprocess.TimeoutExpired:
-        print("SKIPPED scripts/test_cargo_omnibump_contract.py: contract fixture timed out", file=sys.stderr)
-        raise SystemExit(1) from None
-    except json.JSONDecodeError as error:
-        raise SystemExit(f"error: {error}") from error
+        raise SystemExit(f"error: contract fixture exceeded {TIMEOUT}s") from None

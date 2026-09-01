@@ -16,8 +16,9 @@ inputs:
 pipeline:
   - runs: |
       set -eu
+      features='${{inputs.features}}'
       workspace=$(pwd -P)
-      root=$(realpath "${{inputs.crateroot}}")
+      root=$(realpath '${{inputs.crateroot}}')
       case "$root/" in
         "$workspace/"*) ;;
         *) printf 'error: cargo root escapes workspace: %s\n' "$root" >&2; exit 1 ;;
@@ -103,11 +104,13 @@ pipeline:
           major, minor, patch = (int(part) if part is not None else None for part in components)
           if operator == "~":
               return f"{major}.{minor + 1}.0" if minor is not None else f"{major + 1}.0.0"
-          if major:
+          if major or minor is None:
+              # `^1.2.3` allows `<2.0.0`, and bare `^0` allows `<1.0.0`.
               return f"{major + 1}.0.0"
-          if minor:
+          if minor or patch is None:
+              # `^0.2.3` allows `<0.3.0`, and `^0.0` allows `<0.1.0`.
               return f"0.{minor + 1}.0"
-          return f"0.0.{(patch or 0) + 1}"
+          return f"0.0.{patch + 1}"
 
       def violated(candidate, uppers):
           return any(
@@ -161,11 +164,11 @@ pipeline:
           versions = entry.get("versions")
           if not isinstance(versions, dict):
               raise RemediationError("invalid cargo-audit version record")
-          candidates = []
+          candidates = {"patched": [], "unaffected": []}
           prereleases = []
           unnameable = False
           below = False
-          for field in ("patched", "unaffected"):
+          for field in candidates:
               requirements = versions.get(field, [])
               if not isinstance(requirements, list):
                   raise RemediationError(f"invalid cargo-audit {field} requirements")
@@ -176,13 +179,17 @@ pipeline:
                   elif status == "open" or version_key(floor) <= version_key(current):
                       # The range exists but lies at or below the locked version.
                       below = True
-                  elif prerelease(floor) and version_key(current)[:3] != version_key(floor)[:3]:
+                  elif prerelease(floor) and version_key(current)[:2] != version_key(floor)[:2]:
                       # Never move a stable line onto an unrelated prerelease line.
                       prereleases.append(floor)
                   else:
-                      candidates.append(floor)
-          if candidates:
-              return min(candidates, key=version_key), ""
+                      candidates[field].append(floor)
+          # The advisory's patched set is authoritative. An unaffected floor may
+          # undercut it by years, so it is only a fallback when no patched
+          # release is reachable upward.
+          selected = candidates["patched"] or candidates["unaffected"]
+          if selected:
+              return min(selected, key=version_key), ""
           if unnameable:
               return "", "unnameable-fix"
           if prereleases:
@@ -287,7 +294,9 @@ pipeline:
               raise RemediationError(f"cargo-audit exit status contradicts its vulnerability list {detail}")
           return report
 
-      def report_diagnostics(report):
+      def report_diagnostics(report, reported=None):
+          """Print each warning once; warnings persist across remediation passes."""
+          seen = reported if reported is not None else set()
           for kind, entries in sorted(report.get("warnings", {}).items()):
               if not isinstance(entries, list):
                   raise RemediationError("invalid cargo-audit warnings")
@@ -297,14 +306,26 @@ pipeline:
                       raise RemediationError("invalid cargo-audit warning record")
                   advisory = entry.get("advisory")
                   identifier = advisory.get("id") if isinstance(advisory, dict) else kind
-                  print(
+                  diagnostic = (
                       f"cargo remediation: diagnostic {kind} {identifier} in "
-                      f"{package.get('name')}@{package.get('version')}",
-                      flush=True,
+                      f"{package.get('name')}@{package.get('version')}"
                   )
+                  if diagnostic in seen:
+                      continue
+                  seen.add(diagnostic)
+                  print(diagnostic, flush=True)
 
-      def locked_source(locked, crate, current):
-          """The single lock entry a finding maps to, or a loud ambiguity failure."""
+      def compatibility_line(version):
+          """The cargo compatibility line a version belongs to."""
+          major, minor, patch = version_key(version)[:3]
+          if major:
+              return (major,)
+          if minor:
+              return (0, minor)
+          return (0, 0, patch)
+
+      def validate_lock_identity(locked, crate, current):
+          """Fail unless the finding maps to exactly one registry lock entry."""
           sources = {source for version, source in locked.get(crate, ()) if version == current}
           if not sources:
               raise RemediationError(f"cargo-audit reported {crate}@{current}, which Cargo.lock does not lock")
@@ -319,7 +340,6 @@ pipeline:
                   f"{crate}@{current} is locked from {source or 'a local path'}, "
                   "which no registry version pin can remediate"
               )
-          return source
 
       def derive_fixes(report, locked):
           updates = {}
@@ -342,7 +362,7 @@ pipeline:
                   raise RemediationError(f"invalid crate version: {current!r}")
               if package.get("replace") is not None:
                   raise RemediationError(f"{crate}@{current} is replaced in Cargo.lock; identity is ambiguous")
-              locked_source(locked, crate, current)
+              validate_lock_identity(locked, crate, current)
               detected.add((identifier, crate, current))
               try:
                   fixed, reason = minimum_fix(entry, current)
@@ -356,9 +376,13 @@ pipeline:
                   unresolved.add((identifier, crate, current, reason))
                   continue
               fixable.add((identifier, crate, current))
-              previous = updates.get(crate)
+              # One pin per vulnerable compatibility line: omnibump skips a pin
+              # that any instance on its own line already satisfies, so a shared
+              # key would strand every line below the highest fix.
+              key = (crate, compatibility_line(current))
+              previous = updates.get(key)
               if previous is None or version_key(previous) < version_key(fixed):
-                  updates[crate] = fixed
+                  updates[key] = fixed
           return updates, sorted(unresolved), detected, fixable
 
       def locked_instances(lockfile):
@@ -450,9 +474,10 @@ pipeline:
           verify_tool(binary)
           report = scan(binary, lockfile, workdir, database)
           remediated = set()
+          reported_diagnostics = set()
           passes = 0
           while True:
-              report_diagnostics(report)
+              report_diagnostics(report, reported_diagnostics)
               locked = locked_instances(lockfile)
               updates, unresolved, detected, fixable = derive_fixes(report, locked)
               persisted = remediated & detected
@@ -461,13 +486,18 @@ pipeline:
                       f"{identifier}:{crate}@{version}" for identifier, crate, version in sorted(persisted)
                   )
                   raise RemediationError(f"vulnerable crate versions remain after remediation: {details}")
-              # Omnibump treats a pin as landed once any locked instance satisfies
-              # it, so request an update whenever a lower instance still exists.
-              requested = [
-                  (crate, fixed)
-                  for crate, fixed in sorted(updates.items())
-                  if any(version_key(version) < version_key(fixed) for version, _ in locked[crate])
-              ]
+              # One request per vulnerable line, kept only while that line still
+              # holds an instance below its fix. Identical pins collapse.
+              requested = sorted(
+                  {
+                      (crate, fixed)
+                      for (crate, line), fixed in updates.items()
+                      if any(
+                          version_key(version) < version_key(fixed) and compatibility_line(version) == line
+                          for version, _ in locked[crate]
+                      )
+                  }
+              )
               if not requested:
                   for identifier, crate, version, reason in unresolved:
                       print(
@@ -504,4 +534,4 @@ pipeline:
               print(f"error: {error}", file=sys.stderr)
               raise SystemExit(1)
       PYTHON
-      python3 "$tool_dir/remediate.py" "$tool_dir/bin/cargo-audit" "$root" "${{inputs.features}}" "$tool_dir"
+      python3 "$tool_dir/remediate.py" "$tool_dir/bin/cargo-audit" "$root" "$features" "$tool_dir"
