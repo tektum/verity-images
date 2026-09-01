@@ -1,7 +1,7 @@
 package:
   name: verity-argo-workflows
   version: "3.7.18"
-  epoch: 0
+  epoch: 1
   description: Argo Workflows executor.
   copyright:
     - license: Apache-2.0
@@ -25,6 +25,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOFLAGS: -p=4
@@ -38,10 +39,10 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: 66e32e5cc367f223e2ecf4fbe852b95eaed83034
 
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: github.com/go-git/go-git/v5@v5.19.2
-
+      modroot: .
+      packages: ./cmd/argoexec
   - runs: |
       source_commit=$(git rev-parse HEAD)
       build_date=$(git show -s --format=%cI HEAD)
