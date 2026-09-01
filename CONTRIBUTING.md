@@ -226,8 +226,14 @@ A Cargo image resolves fixable crate advisories with the shared
 - Audit exit status 0 means clean and 1 means valid findings. Any other status,
   a missing or malformed report, or an output that contradicts the status is a
   scanner failure and surfaces the audit's stderr.
-- Only `vulnerabilities.list` drives mutation. Unmaintained, unsound, and yanked
-  warnings are printed once as diagnostics.
+- Only `vulnerabilities.list` drives mutation. Before selecting fixes, the
+  pipeline asks locked `cargo metadata` for the configured target and feature
+  selection, then follows normal and build edges from `resolve.root` for a
+  package manifest or `workspace_default_members` for a virtual workspace.
+  Dev-only, target-inactive, and unselected optional dependencies stay audit
+  diagnostics and are never sent to omnibump.
+  Unmaintained, unsound, and yanked warnings are also printed once as
+  diagnostics.
 - Each finding contributes the lowest exact version satisfying the advisory's
   patched requirements, including across a SemVer boundary, honoring bare,
   caret, tilde, and exact upper bounds plus disjoint ranges. An `unaffected`
@@ -245,13 +251,17 @@ A Cargo image resolves fixable crate advisories with the shared
   cannot land, a downgraded locked instance, a pass with no lock progress, and
   pass-limit exhaustion. A strict bound means a fix demonstrably exists that
   this pipeline will not guess at, so the recipe owns that decision.
-- Crate identity carries its lock source. A finding that maps to one name and
-  version from several sources, to a replaced entry, or to a non-registry source
-  fails instead of claiming remediation.
-- The recipe passes `features` matching its own build feature selection, so
-  omnibump resolves the graph the build compiles. Remediation ends with locked
-  `cargo metadata` and `cargo fetch` verification; the recipe still owns its
-  `--locked` build.
+- Crate identity carries its lock source. Cargo metadata packages and audit
+  findings must correlate exactly to `Cargo.lock` by name, version, and source.
+  Malformed graphs, missing roots, unknown targets, uncorrelated package
+  identities, replaced entries, and shipped pins ambiguous across several
+  sources fail instead of claiming remediation.
+- The recipe passes `features`, `default-features`, and `target` matching its
+  subsequent build. The target defaults to Cargo's `host-tuple`, and default
+  features remain enabled unless explicitly disabled. The same selection is
+  enforced for Cargo metadata and omnibump's internal metadata/tree queries.
+  Remediation ends with locked metadata using that selection plus locked
+  `cargo fetch`; the recipe still owns its `--locked` build.
 - The recipe environment provides the Rust toolchain, and the pipeline declares
   its own omnibump and Python runtime. Editing the shared implementation
   invalidates every consuming image fingerprint and validates against one
