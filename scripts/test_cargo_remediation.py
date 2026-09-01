@@ -507,6 +507,9 @@ def test_requirement_floor(module) -> None:
     assert module.requirement_floor("0.25.4") == ("0.25.4", "exact")
     assert module.requirement_floor(">= 0.9") == ("0.9.0", "exact")
     assert module.requirement_floor(">=1.0.0-rc.2") == ("1.0.0-rc.2", "exact")
+    assert module.requirement_floor("1.2.3, >=1.5.0") == ("1.5.0", "exact")
+    assert module.requirement_floor("=1.2.3") == ("1.2.3", "exact")
+    assert module.requirement_floor("=1.2, >=1.2.5") == ("1.2.5", "exact")
     assert module.requirement_floor("<0.10.0") == ("", "open")
     assert module.requirement_floor("<=0.10.0") == ("", "open")
     assert module.requirement_floor("> 0.3.1") == ("", "unnameable")
@@ -529,6 +532,11 @@ def test_requirement_floor(module) -> None:
         ">=2.0.0, <1.0.0",
         "^1.4.3, <1.2.0",
         "~1.4.3, <1.4.0",
+        "1.2.3, >=2.0.0",
+        "=1.2.3, >=1.2.4",
+        "=1.2, >=1.3.0",
+        "=1, >=2.0.0",
+        "=1.2.3, >1.2.3",
         ">2.0.0, <2.0.0",
     ):
         assert_raises(
@@ -536,7 +544,7 @@ def test_requirement_floor(module) -> None:
             "unsatisfiable version requirement",
             lambda requirement=requirement: module.requirement_floor(requirement),
         )
-    for requirement in ("1.*", "*", "", "latest", ">=1.0.0 <2.0.0", "1.x"):
+    for requirement in ("1.*", "*", "", "latest", ">=1.0.0 <2.0.0", "1.x", "==1.2.3"):
         assert_raises(
             module.RemediationError,
             "version requirement",

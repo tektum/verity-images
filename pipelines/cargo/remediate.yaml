@@ -59,7 +59,6 @@ pipeline:
           "prerelease-fix": "requires a prerelease",
           "downgrade-fix": "requires a downgrade",
       }
-      LOWER_BOUNDS = frozenset({">=", "=", "==", ""})
       CRATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
       VERSION = re.compile(
           r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -69,7 +68,7 @@ pipeline:
           r"^(0|[1-9][0-9]*)(?:\.(0|[1-9][0-9]*))?(?:\.(0|[1-9][0-9]*))?"
           r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
       )
-      COMPARATOR = re.compile(r"^(?P<operator>>=|<=|==|=|>|<|\^|~)?\s*(?P<version>[0-9][0-9A-Za-z.+-]*)$")
+      COMPARATOR = re.compile(r"^(?P<operator>>=|<=|=|>|<|\^|~)?\s*(?P<version>[0-9][0-9A-Za-z.+-]*)$")
 
       class RemediationError(ValueError):
           pass
@@ -112,6 +111,15 @@ pipeline:
               return f"0.{minor + 1}.0"
           return f"0.0.{patch + 1}"
 
+      def exact_upper(version, components):
+          """The upper bound for a possibly partial exact comparator."""
+          major, minor, patch = (int(part) if part is not None else None for part in components)
+          if patch is not None:
+              return "<=", version
+          if minor is not None:
+              return "<", f"{major}.{minor + 1}.0"
+          return "<", f"{major + 1}.0.0"
+
       def violated(candidate, uppers):
           return any(
               version_key(candidate) >= version_key(bound) if operator == "<"
@@ -141,18 +149,23 @@ pipeline:
                   version, components = bound_version(match.group("version"))
               except RemediationError as error:
                   raise RemediationError(f"unsupported version requirement: {requirement!r}") from error
-              if operator in LOWER_BOUNDS:
+              if operator == ">=":
                   floors.append(version)
-              elif operator in {"^", "~"}:
+              elif operator in {"", "^", "~"}:
                   floors.append(version)
-                  uppers.append(("<", implicit_upper(operator, components)))
+                  uppers.append(("<", implicit_upper("^" if not operator else operator, components)))
+              elif operator == "=":
+                  floors.append(version)
+                  uppers.append(exact_upper(version, components))
               elif operator == ">":
                   exclusive.append(version)
               else:
                   uppers.append((operator, version))
           floor = max(floors, key=version_key) if floors else ""
           strict = max(exclusive, key=version_key) if exclusive else ""
-          if (floor and violated(floor, uppers)) or (not floor and strict and violated(strict, uppers)):
+          if floor and violated(floor, uppers):
+              raise RemediationError(f"unsatisfiable version requirement: {requirement!r}")
+          if strict and any(version_key(strict) >= version_key(bound) for _, bound in uppers):
               raise RemediationError(f"unsatisfiable version requirement: {requirement!r}")
           if strict and (not floor or version_key(floor) <= version_key(strict)):
               return "", "unnameable"
