@@ -228,10 +228,10 @@ A Cargo image resolves fixable crate advisories with the shared
   scanner failure and surfaces the audit's stderr.
 - Only `vulnerabilities.list` drives mutation. Before selecting fixes, the
   pipeline asks locked `cargo metadata` for the configured target and feature
-  selection, then follows normal and build edges from the package Cargo would
-  build: workspace default members at the workspace root or the current member
-  from a member root. Dev-only, target-inactive, and unselected optional
-  dependencies stay audit diagnostics and are never sent to omnibump.
+  selection, then follows normal and build edges from `resolve.root` for a
+  package manifest or `workspace_default_members` for a virtual workspace.
+  Dev-only, target-inactive, and unselected optional dependencies stay audit
+  diagnostics and are never sent to omnibump.
   Unmaintained, unsound, and yanked warnings are also printed once as
   diagnostics.
 - Each finding contributes the lowest exact version satisfying the advisory's
@@ -253,9 +253,9 @@ A Cargo image resolves fixable crate advisories with the shared
   this pipeline will not guess at, so the recipe owns that decision.
 - Crate identity carries its lock source. Cargo metadata packages and audit
   findings must correlate exactly to `Cargo.lock` by name, version, and source.
-  Malformed graphs, unknown targets, ambiguous mixed release/dev target edges,
-  replaced entries, and shipped pins ambiguous across several sources fail
-  instead of claiming remediation.
+  Malformed graphs, missing roots, unknown targets, uncorrelated package
+  identities, replaced entries, and shipped pins ambiguous across several
+  sources fail instead of claiming remediation.
 - The recipe passes `features`, `default-features`, and `target` matching its
   subsequent build. The target defaults to Cargo's `host-tuple`, and default
   features remain enabled unless explicitly disabled. The same selection is

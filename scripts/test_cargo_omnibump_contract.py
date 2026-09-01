@@ -12,6 +12,8 @@ the contract: every skip becomes a failure.
 """
 from __future__ import annotations
 
+import importlib.util
+import json
 import os
 import shutil
 import subprocess
@@ -155,6 +157,128 @@ new_current=$(locked d itoa | awk '$1 !~ /^0\.4\./ { print; exit }')
 emit d.before "$(locked d itoa | tr '\n' ',')"
 run d /work/d "itoa@%(older_line)s=%(old_line)s itoa@%(old)s=%(new)s"
 emit d.after "$(locked d itoa | tr '\n' ',')"
+
+# Scenario E: Cargo itself resolves feature, dependency-kind, and target scope.
+make_lib() {
+  directory=$1
+  name=$2
+  version=${3:-0.1.0}
+  mkdir -p "$directory/src"
+  cat >"$directory/Cargo.toml" <<EOF
+[package]
+name = "$name"
+version = "$version"
+edition = "2021"
+EOF
+  printf 'pub fn value() {}\n' >"$directory/src/lib.rs"
+}
+
+rm -rf e && mkdir -p e/src
+for spec in 'always always-dep' 'optional optional-dep' 'build build-dep' 'dev dev-dep' \
+  'unix unix-dep' 'windows windows-dep'; do
+  set -- $spec
+  make_lib "e/$1" "$2"
+done
+cat >e/Cargo.toml <<'EOF'
+[package]
+name = "fixture-e"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = ["dep:optional"]
+selected = ["dep:optional"]
+
+[dependencies]
+always = { package = "always-dep", path = "always" }
+optional = { package = "optional-dep", path = "optional", optional = true }
+
+[build-dependencies]
+build = { package = "build-dep", path = "build" }
+
+[dev-dependencies]
+dev = { package = "dev-dep", path = "dev" }
+
+[target.'cfg(unix)'.dependencies]
+unix = { package = "unix-dep", path = "unix" }
+
+[target.'cfg(windows)'.dependencies]
+windows = { package = "windows-dep", path = "windows" }
+EOF
+printf 'fn main() {}\n' >e/src/main.rs
+(cd e && cargo generate-lockfile -q)
+(cd e && cargo metadata --format-version 1 --locked --filter-platform host-tuple >default.json)
+printf 'fn main() {}\n' >e/build.rs
+(cd e && cargo metadata --format-version 1 --locked --filter-platform host-tuple \
+  --no-default-features >none.json)
+(cd e && cargo metadata --format-version 1 --locked --filter-platform host-tuple \
+  --no-default-features --features selected >selected.json)
+(cd e && cargo metadata --format-version 1 --locked --filter-platform x86_64-pc-windows-msvc \
+  --no-default-features >windows.json)
+
+# Scenario F: a virtual workspace builds only its configured default member.
+rm -rf f f-deps
+make_lib f-deps/dep-a dep-a
+make_lib f-deps/dep-b dep-b
+make_lib f/a member-a
+make_lib f/b member-b
+cat >>f/a/Cargo.toml <<'EOF'
+
+[dependencies]
+dep-a = { path = "../../f-deps/dep-a" }
+EOF
+cat >>f/b/Cargo.toml <<'EOF'
+
+[dependencies]
+dep-b = { path = "../../f-deps/dep-b" }
+EOF
+cat >f/Cargo.toml <<'EOF'
+[workspace]
+members = ["a", "b"]
+default-members = ["a"]
+resolver = "2"
+EOF
+(cd f && cargo generate-lockfile -q)
+(cd f && cargo metadata --format-version 1 --locked --filter-platform host-tuple >default.json)
+
+# Scenario V: Vector's build flags exclude the default-only hyper-proxy/h2 0.3 line.
+rm -rf v v-deps && mkdir -p v/src
+make_lib v-deps/h2-old h2 0.3.26
+make_lib v-deps/h2-new h2 0.4.15
+make_lib v-deps/eligible eligible 1.0.0
+make_lib v-deps/hyper-proxy hyper-proxy 0.9.1
+cat >>v-deps/hyper-proxy/Cargo.toml <<'EOF'
+
+[dependencies]
+h2-old = { package = "h2", path = "../h2-old" }
+EOF
+make_lib v-deps/console-core console-core 0.1.0
+cat >>v-deps/console-core/Cargo.toml <<'EOF'
+
+[dependencies]
+h2-new = { package = "h2", path = "../h2-new" }
+eligible = { path = "../eligible" }
+EOF
+cat >v/Cargo.toml <<'EOF'
+[package]
+name = "vector"
+version = "0.57.0"
+edition = "2021"
+
+[features]
+default = ["http"]
+http = ["dep:hyper-proxy"]
+sources-stdin = []
+sinks-console = ["dep:console-core"]
+
+[dependencies]
+hyper-proxy = { path = "../v-deps/hyper-proxy", optional = true }
+console-core = { path = "../v-deps/console-core", optional = true }
+EOF
+printf 'fn main() {}\n' >v/src/main.rs
+(cd v && cargo generate-lockfile -q)
+(cd v && cargo metadata --format-version 1 --locked --filter-platform host-tuple \
+  --no-default-features --features sources-stdin,sinks-console >vector.json)
 """
 
 
@@ -190,6 +314,66 @@ def test_image_timeouts(work: Path) -> None:
     assert image(work, run_process) == IMAGE
     assert [arguments[1:3] for arguments, _ in calls] == [["image", "inspect"], ["pull", "-q"]]
     assert [options["timeout"] for _, options in calls] == [TIMEOUT, TIMEOUT]
+
+
+def load_resolver(work: Path):
+    pipeline = PIPELINE.read_text(encoding="utf-8")
+    script = pipeline.split("      cat >\"$tool_dir/remediate.py\" <<'PYTHON'\n", 1)[1].split(
+        "      PYTHON\n", 1
+    )[0]
+    path = work / "remediate.py"
+    path.write_text(
+        "\n".join(line.removeprefix("      ") for line in script.splitlines()) + "\n",
+        encoding="utf-8",
+    )
+    spec = importlib.util.spec_from_file_location("cargo_remediate_contract", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def assert_metadata_graph_contract(work: Path) -> None:
+    module = load_resolver(work)
+
+    def shipped(project: str, report: str) -> set[tuple[str, str, str]]:
+        root = work / project
+        locked = module.locked_instances(root / "Cargo.lock")
+        raw = root.joinpath(report).read_text(encoding="utf-8")
+        return module.parse_shipped_graph(raw, locked)
+
+    default = shipped("e", "default.json")
+    no_defaults = shipped("e", "none.json")
+    selected = shipped("e", "selected.json")
+    windows = shipped("e", "windows.json")
+    assert ("optional-dep", "0.1.0", "") in default
+    assert ("optional-dep", "0.1.0", "") not in no_defaults
+    assert ("optional-dep", "0.1.0", "") in selected
+    for identity in (
+        ("always-dep", "0.1.0", ""),
+        ("build-dep", "0.1.0", ""),
+        ("unix-dep", "0.1.0", ""),
+    ):
+        assert identity in no_defaults
+    assert ("dev-dep", "0.1.0", "") not in no_defaults
+    assert ("windows-dep", "0.1.0", "") not in no_defaults
+    assert ("windows-dep", "0.1.0", "") in windows
+    assert ("unix-dep", "0.1.0", "") not in windows
+
+    workspace = shipped("f", "default.json")
+    workspace_metadata = json.loads(work.joinpath("f/default.json").read_text(encoding="utf-8"))
+    assert workspace_metadata["resolve"]["root"] is None
+    assert ("member-a", "0.1.0", "") in workspace
+    assert ("dep-a", "0.1.0", "") in workspace
+    assert ("member-b", "0.1.0", "") not in workspace
+    assert ("dep-b", "0.1.0", "") not in workspace
+
+    vector = shipped("v", "vector.json")
+    vector_metadata = json.loads(work.joinpath("v/vector.json").read_text(encoding="utf-8"))
+    assert vector_metadata["resolve"]["root"] is not None
+    assert ("h2", "0.3.26", "") not in vector
+    assert ("h2", "0.4.15", "") in vector
+    assert ("eligible", "1.0.0", "") in vector
 
 
 def run(work: Path) -> dict[str, str]:
@@ -239,6 +423,7 @@ def main() -> None:
         work = Path(temporary)
         work.chmod(0o755)
         results = run(work)
+        assert_metadata_graph_contract(work)
         help_text = work.joinpath("help.txt").read_text(encoding="utf-8")
         supported = work.joinpath("supported.txt").read_text(encoding="utf-8")
         pipeline = PIPELINE.read_text(encoding="utf-8")

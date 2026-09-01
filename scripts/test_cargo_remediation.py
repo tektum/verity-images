@@ -1082,9 +1082,7 @@ def test_workspace_default_members(module) -> None:
         workspace_root="/workspace",
         current="member-b",
     )
-    shipped = module.parse_shipped_graph(
-        member_graph, graph_locked(packages), "/workspace/member-b"
-    )
+    shipped = module.parse_shipped_graph(member_graph, graph_locked(packages))
     assert ("dep-a", "1.0.0", REGISTRY) not in shipped
     assert ("dep-b", "1.0.0", REGISTRY) in shipped
 
@@ -1108,23 +1106,18 @@ def test_target_conditioned_dependencies(module) -> None:
         "cargo target must not be empty",
         lambda: module.metadata_arguments([], True, ""),
     )
-    ambiguous = cargo_graph(
+    mixed_kinds = cargo_graph(
         packages,
         ("app",),
         {
-            "app": (
-                (
-                    "unix",
-                    ((None, "cfg(windows)"), ("dev", "cfg(unix)")),
-                ),
-            )
+            "app": ((
+                "unix",
+                ((None, "cfg(windows)"), ("dev", "cfg(unix)")),
+            ),)
         },
     )
-    assert_raises(
-        module.RemediationError,
-        "cannot correlate mixed release/dev target conditions",
-        lambda: module.parse_shipped_graph(ambiguous, graph_locked(packages)),
-    )
+    shipped = module.parse_shipped_graph(mixed_kinds, graph_locked(packages))
+    assert ("unix-only", "1.0.0", REGISTRY) in shipped
 
 
 def test_feature_argument_compatibility(module) -> None:
@@ -1156,6 +1149,7 @@ def test_vector_release_graph(module) -> None:
         packages,
         ("vector",),
         {"vector": (("h2-shipped", ((None, None),)), ("eligible", ((None, None),)))},
+        current="vector",
     )
     shipped = module.parse_shipped_graph(raw, locked)
     vector_findings = json.loads(

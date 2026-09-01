@@ -407,7 +407,7 @@ pipeline:
           if features:
               arguments += ["--features", ",".join(features)]
           return arguments
-      def parse_shipped_graph(raw, locked, cargo_root=None):
+      def parse_shipped_graph(raw, locked):
           """Return exact lock identities reachable by a release Cargo build."""
           try:
               metadata = json.loads(raw)
@@ -416,19 +416,20 @@ pipeline:
           if not isinstance(metadata, dict) or metadata.get("version") != 1:
               raise RemediationError("invalid cargo metadata format version")
           packages = metadata.get("packages")
-          roots = metadata.get("workspace_default_members")
-          workspace_root = metadata.get("workspace_root")
+          default_roots = metadata.get("workspace_default_members")
           resolve = metadata.get("resolve")
           nodes = resolve.get("nodes") if isinstance(resolve, dict) else None
-          if (
-              not isinstance(packages, list)
-              or not isinstance(roots, list)
-              or not roots
-              or not isinstance(nodes, list)
-              or not isinstance(workspace_root, str)
-              or not workspace_root
-          ):
+          if not isinstance(packages, list) or not isinstance(default_roots, list) or not isinstance(nodes, list):
               raise RemediationError("invalid cargo metadata dependency graph")
+          current_root = resolve.get("root")
+          if current_root is None:
+              roots = default_roots
+          elif isinstance(current_root, str) and current_root:
+              roots = [current_root]
+          else:
+              raise RemediationError("invalid cargo metadata root package")
+          if not roots:
+              raise RemediationError("cargo metadata dependency graph has no build roots")
 
           locked_identities = {
               (crate, version, source)
@@ -481,8 +482,7 @@ pipeline:
                   kinds = dependency.get("dep_kinds")
                   if not isinstance(kinds, list) or not kinds:
                       raise RemediationError("invalid cargo metadata dependency kinds")
-                  release_targets = set()
-                  dev_targets = set()
+                  release_edge = False
                   for kind in kinds:
                       if not isinstance(kind, dict):
                           raise RemediationError("invalid cargo metadata dependency kind")
@@ -490,23 +490,14 @@ pipeline:
                       target = kind.get("target")
                       if value not in {None, "build", "dev"} or not (target is None or isinstance(target, str)):
                           raise RemediationError("invalid cargo metadata dependency kind")
-                      (dev_targets if value == "dev" else release_targets).add(target)
-                  if release_targets and dev_targets and release_targets != dev_targets:
-                      raise RemediationError(
-                          "cargo metadata cannot correlate mixed release/dev target conditions"
-                      )
-                  if release_targets:
+                      release_edge |= value != "dev"
+                  if release_edge:
                       graph[package_id].append(dependency["pkg"])
 
           if set(graph) != set(identities):
               raise RemediationError("cargo metadata packages and resolve nodes disagree")
           if any(not isinstance(root, str) or root not in graph for root in roots):
-              raise RemediationError("invalid cargo metadata default workspace member")
-          if cargo_root is not None and Path(cargo_root).resolve() != Path(workspace_root).resolve():
-              current = resolve.get("root")
-              if not isinstance(current, str) or current not in graph:
-                  raise RemediationError("cargo metadata has no current package for the Cargo root")
-              roots = [current]
+              raise RemediationError("invalid cargo metadata build root")
           shipped = set()
           pending = list(roots)
           while pending:
@@ -519,7 +510,7 @@ pipeline:
 
       def shipped_instances(root, locked, features, default_features, target):
           raw = run_command(metadata_arguments(features, default_features, target), root, capture=True)
-          return parse_shipped_graph(raw, locked, root)
+          return parse_shipped_graph(raw, locked)
 
       def report_unshipped(excluded, reported):
           for identifier, crate, version, source in sorted(excluded):
