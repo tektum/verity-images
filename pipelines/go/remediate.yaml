@@ -3,6 +3,7 @@ name: Resolve Go vulnerabilities
 needs:
   packages:
     - omnibump
+    - patch
 
 inputs:
   modroot:
@@ -11,6 +12,9 @@ inputs:
   packages:
     description: Space-separated application package patterns to scan and validate
     default: ./...
+  vendor-patches:
+    description: Space-separated workspace-relative patches applied after vendor regeneration
+    default: ""
 
 pipeline:
   - runs: |
@@ -22,6 +26,7 @@ pipeline:
         *) printf 'error: module root escapes workspace: %s\n' "$root" >&2; exit 1 ;;
       esac
       packages='${{inputs.packages}}'
+      vendor_patches='${{inputs.vendor-patches}}'
       set -f
       set -- $packages
       [ "$#" -gt 0 ] || { printf 'error: no Go package patterns configured\n' >&2; exit 1; }
@@ -218,6 +223,76 @@ pipeline:
               print(completed.stderr, end="", file=sys.stderr, flush=True)
           return completed.stdout if capture else ""
 
+      def analyzed_updates(root, requested, selected, workspace):
+          details = " ".join(f"{module}@{version}" for module, version in requested)
+          raw = run_go(
+              [
+                  "omnibump", "analyze", str(root), "--language", "go", "--output", "json",
+                  "--packages", details,
+              ],
+              root,
+              capture=True,
+              workspace=workspace,
+          )
+          try:
+              result = json.loads(raw)
+              recommendations = result["strategy"]["DirectUpdates"]
+          except (json.JSONDecodeError, KeyError, TypeError) as error:
+              raise RemediationError("invalid omnibump analysis output") from error
+          if not isinstance(recommendations, list):
+              raise RemediationError("invalid omnibump analysis updates")
+          expanded = dict(requested)
+          for recommendation in recommendations:
+              if not isinstance(recommendation, dict):
+                  raise RemediationError("invalid omnibump analysis update")
+              module = recommendation.get("Name")
+              version = recommendation.get("Version")
+              if not isinstance(module, str) or not isinstance(version, str) or not compatible(module, version):
+                  raise RemediationError("invalid omnibump analysis update")
+              current = selected.get(module)
+              if current is None:
+                  raise RemediationError(f"omnibump recommended module outside selected graph: {module}")
+              if version_key(current) < version_key(version):
+                  previous = expanded.get(module)
+                  if previous is None or version_key(previous) < version_key(version):
+                      expanded[module] = version
+          return sorted(expanded.items())
+
+
+      def resolve_vendor_patches(workspace_root, raw):
+          try:
+              entries = shlex.split(raw)
+          except ValueError as error:
+              raise RemediationError("invalid vendor patch list") from error
+          patches = []
+          for entry in entries:
+              relative = Path(entry)
+              if not entry or entry.startswith("-") or relative.is_absolute():
+                  raise RemediationError(f"invalid vendor patch path: {entry!r}")
+              patch = workspace_root.joinpath(relative).resolve()
+              try:
+                  patch.relative_to(workspace_root)
+              except ValueError as error:
+                  raise RemediationError(f"vendor patch escapes workspace: {entry}") from error
+              if not patch.is_file():
+                  raise RemediationError(f"vendor patch is not a file: {entry}")
+              patches.append(patch)
+          return patches
+
+
+      def apply_vendor_patches(vendor_root, patches):
+          for patch in patches:
+              command = ["patch", "-p1", "--batch", "--forward"]
+              print("+ " + shlex.join(command) + " < " + str(patch), flush=True)
+              with patch.open("rb") as source:
+                  completed = subprocess.run(
+                      command, cwd=vendor_root, stdin=source,
+                      stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                  )
+              if completed.returncode:
+                  detail = (completed.stderr or completed.stdout).decode(errors="replace").strip() or "no output"
+                  raise RemediationError(f"vendor patch failed ({completed.returncode}): {patch}: {detail}")
+
 
       def language_directives(path):
           directives = {}
@@ -301,23 +376,28 @@ pipeline:
                   updates[module] = fixed
           return updates, sorted(unresolved), detected, fixable
 
-      def reconcile(workspace_root, root, packages, workspace):
+      def reconcile(workspace_root, root, packages, workspace, vendor_patches):
           module_vendor = root.joinpath("vendor").is_dir()
           workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
           run_go(["go", "mod", "tidy"], root, workspace=workspace)
           if workspace:
               run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
-          if module_vendor:
+          if module_vendor and not workspace_vendor:
               run_go(["go", "mod", "vendor"], root)
           if workspace_vendor:
               run_go(["go", "work", "vendor"], workspace_root, workspace=workspace)
-          mode = "vendor" if workspace_vendor or (module_vendor and workspace is None) else "readonly"
+          vendor_root = workspace_root if workspace_vendor else root if module_vendor and workspace is None else None
+          if vendor_patches:
+              if vendor_root is None:
+                  raise RemediationError("vendor patches require an active vendor directory")
+              apply_vendor_patches(vendor_root, vendor_patches)
+          mode = "vendor" if vendor_root is not None else "readonly"
           run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
           with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
               run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
 
       def main():
-          binary, workspace_arg, root_arg, *packages = sys.argv[1:]
+          binary, workspace_arg, root_arg, vendor_patches_arg, *packages = sys.argv[1:]
           workspace_root = Path(workspace_arg).resolve()
           root = Path(root_arg).resolve()
           if not packages or any(not package or package.startswith("-") for package in packages):
@@ -327,8 +407,7 @@ pipeline:
           except ValueError as error:
               raise RemediationError("module root escapes workspace") from error
           workspace = workspace_root / "go.work" if workspace_root.joinpath("go.work").is_file() else None
-          if workspace and root == workspace_root:
-              raise RemediationError("module root cannot be the workspace root")
+          vendor_patches = resolve_vendor_patches(workspace_root, vendor_patches_arg)
           messages = scan(Path(binary), root, packages, workspace)
           remediated = set()
           passes = 0
@@ -347,7 +426,7 @@ pipeline:
               ]
               if not requested:
                   if not reconciled:
-                      reconcile(workspace_root, root, packages, workspace)
+                      reconcile(workspace_root, root, packages, workspace, vendor_patches)
                       reconciled = True
                       messages = scan(Path(binary), root, packages, workspace)
                       continue
@@ -359,6 +438,8 @@ pipeline:
                   raise RemediationError(
                       f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                   )
+              requested = analyzed_updates(root, requested, selected, workspace)
+              details = " ".join(f"{module}@{fixed}" for module, fixed in requested)
               module_directives = language_directives(root / "go.mod")
               workspace_directives = language_directives(workspace) if workspace else None
               print("go remediation: applying " + details, flush=True)
@@ -376,7 +457,7 @@ pipeline:
                   restore_language_directives(root / "go.mod", module_directives)
                   if workspace_directives is not None:
                       restore_language_directives(workspace, workspace_directives)
-              reconcile(workspace_root, root, packages, workspace)
+              reconcile(workspace_root, root, packages, workspace, vendor_patches)
               reconciled = True
               passes += 1
               remediated.update(fixable)
@@ -391,4 +472,4 @@ pipeline:
               print(f"error: {error}", file=sys.stderr)
               raise SystemExit(1)
       PYTHON
-      python3 "$tool_dir/remediate.py" "$tool_dir/govulncheck" "$workspace" "$root" "$@"
+      python3 "$tool_dir/remediate.py" "$tool_dir/govulncheck" "$workspace" "$root" "$vendor_patches" "$@"

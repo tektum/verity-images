@@ -132,6 +132,7 @@ def add_proxy_module(
     module: str,
     version: str,
     requirements: dict[str, str] | None = None,
+    source: str = "package dependency\nfunc Value() int { return 1 }\n",
 ) -> None:
     directory = proxy / module / "@v"
     directory.mkdir(parents=True, exist_ok=True)
@@ -144,18 +145,23 @@ def add_proxy_module(
     prefix = f"{module}@{version}/"
     with zipfile.ZipFile(directory / f"{version}.zip", "w") as archive:
         archive.writestr(prefix + "go.mod", mod)
-        archive.writestr(prefix + "dependency.go", "package dependency\nfunc Value() int { return 1 }\n")
+        archive.writestr(prefix + "dependency.go", source)
 
 
-def prepare_project(root: Path, workspace: bool, vendor: bool) -> tuple[Path, Path, dict[str, str]]:
+def prepare_project(
+    root: Path,
+    workspace: bool,
+    vendor: bool,
+    dependency_source: str = "package dependency\nfunc Value() int { return 1 }\n",
+) -> tuple[Path, Path, dict[str, str]]:
     proxy = root / "proxy"
     for version in ("v1.0.0", "v1.2.0", "v1.3.0"):
-        add_proxy_module(proxy, "example.com/dependency", version)
+        add_proxy_module(proxy, "example.com/dependency", version, source=dependency_source)
     workspace_root = root / "checkout"
     module_root = workspace_root / "server" if workspace else workspace_root
     module_root.mkdir(parents=True)
     module_root.joinpath("go.mod").write_text("module example.com/app\n\ngo 1.25\n\ntoolchain go1.25.0\n\nrequire example.com/dependency v1.0.0\n", encoding="utf-8")
-    module_root.joinpath("main.go").write_text('package main\nimport "example.com/dependency"\nfunc main() { _ = dependency.Value() }\n', encoding="utf-8")
+    module_root.joinpath("main.go").write_text('package main\nimport "example.com/dependency"\nfunc main() { var value int = dependency.Value(); _ = value }\n', encoding="utf-8")
     environment = dict(os.environ, GOPROXY=proxy.resolve().as_uri(), GOSUMDB="off", GOMODCACHE=str(root / "cache"), GOTOOLCHAIN="local", GOWORK="off")
     subprocess.run(["go", "mod", "tidy"], cwd=module_root, env=environment, check=True, capture_output=True)
     if workspace:
@@ -239,11 +245,18 @@ def install_command_wrappers(root: Path) -> tuple[Path, Path, str]:
         "#!/usr/bin/env python3\n"
         "import json, os, subprocess, sys\n"
         "args = sys.argv[1:]\n"
+        "assert args[args.index('--language') + 1] == 'go'\n"
+        "assert os.environ.get('GOTOOLCHAIN') == 'local'\n"
+        "if args[0] == 'analyze':\n"
+        "    assert args[args.index('--output') + 1] == 'json'\n"
+        "    packages = args[args.index('--packages') + 1].split()\n"
+        "    updates = [{'Name': item.rsplit('@', 1)[0], 'Version': item.rsplit('@', 1)[1]} for item in packages]\n"
+        "    updates.extend(json.loads(os.environ.get('OMNIBUMP_COUPDATES', '[]')))\n"
+        "    print(json.dumps({'analysis': {}, 'strategy': {'DirectUpdates': updates}}))\n"
+        "    raise SystemExit(0)\n"
         "with open(os.environ['OMNIBUMP_LOG'], 'a', encoding='utf-8') as log:\n"
         "    log.write(json.dumps(args) + '\\n')\n"
-        "assert args[args.index('--language') + 1] == 'go'\n"
         "assert '--tidy=false' in args\n"
-        "assert os.environ.get('GOTOOLCHAIN') == 'local'\n"
         "if error := os.environ.get('OMNIBUMP_ERROR'):\n"
         "    print(error, file=sys.stderr)\n"
         "    raise SystemExit(42)\n"
@@ -272,10 +285,28 @@ def omnibump_commands(root: Path) -> list[list[str]]:
     return [json.loads(line) for line in root.joinpath("omnibump.log").read_text(encoding="utf-8").splitlines()]
 
 
-def run_resolver(module, root: Path, workspace: bool = False, vendor: bool = False, after: str | None = None, package: str = ".", omnibump_error: str | None = None) -> tuple[Path, Path, str]:
+def run_resolver(
+    module,
+    root: Path,
+    workspace: bool = False,
+    vendor: bool = False,
+    after: str | None = None,
+    package: str = ".",
+    omnibump_error: str | None = None,
+    root_workspace: bool = False,
+    vendor_patches: str = "",
+    co_updates: list[dict[str, str]] | None = None,
+) -> tuple[Path, Path, str]:
     workspace_root, module_root, environment = prepare_project(root, workspace, vendor)
+    if root_workspace:
+        assert not workspace
+        workspace_root.joinpath("go.work").write_text("go 1.25\n\ntoolchain go1.25.0\n\nuse .\n", encoding="utf-8")
+        environment["GOWORK"] = str(workspace_root / "go.work")
+        subprocess.run(["go", "work", "sync"], cwd=workspace_root, env=environment, check=True, capture_output=True)
+        if vendor:
+            subprocess.run(["go", "work", "vendor"], cwd=workspace_root, env=environment, check=True, capture_output=True)
     vulnerable = stream(osv("GO-1", "example.com/dependency", "v1.2.0"), finding("GO-1", "example.com/dependency", "v1.0.0"))
-    expected_gowork = str(workspace_root / "go.work") if workspace else "off"
+    expected_gowork = str(workspace_root / "go.work") if workspace or root_workspace else "off"
     scanner = sequence_scanner(
         root,
         [(vulnerable, 3), (after if after is not None else stream(), 0 if after is None else 3)],
@@ -294,7 +325,9 @@ def run_resolver(module, root: Path, workspace: bool = False, vendor: bool = Fal
     )
     if omnibump_error is not None:
         os.environ["OMNIBUMP_ERROR"] = omnibump_error
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), package]
+    if co_updates is not None:
+        os.environ["OMNIBUMP_COUPDATES"] = json.dumps(co_updates)
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), vendor_patches, package]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
@@ -334,6 +367,19 @@ def test_reconciliation_modes(module, root: Path) -> None:
             assert "mod vendor" in commands
             assert module_root.joinpath("vendor/modules.txt").is_file()
         assert "go remediation: applying example.com/dependency@v1.2.0" in output
+
+
+def test_analyzed_graph_updates_are_applied(module, root: Path) -> None:
+    _, module_root, _ = run_resolver(
+        module,
+        root,
+        co_updates=[{"Name": "example.com/dependency", "Version": "v1.3.0"}],
+    )
+    assert "example.com/dependency v1.3.0" in module_root.joinpath("go.mod").read_text(encoding="utf-8")
+    assert omnibump_commands(root) == [[
+        "--language", "go", "--dir", str(module_root),
+        "--packages", "example.com/dependency@v1.3.0", "--tidy=false",
+    ]]
 
 
 def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> None:
@@ -380,6 +426,7 @@ def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> 
 
     module.selected_modules = selected_modules
     module.reconcile = lambda *_args, **_kwargs: None
+    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     binary_dir, _, real_go = install_command_wrappers(root)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
@@ -390,7 +437,7 @@ def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> 
         GO_LOG=str(root / "go.log"),
         OMNIBUMP_LOG=str(root / "omnibump.log"),
     )
-    sys.argv = ["remediate.py", str(root / "scanner"), str(workspace_root), str(module_root), "."]
+    sys.argv = ["remediate.py", str(root / "scanner"), str(workspace_root), str(module_root), "", "."]
     try:
         module.main()
     finally:
@@ -406,15 +453,124 @@ def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> 
     assert tuple(line for line in go_work.splitlines() if line.startswith(("go ", "toolchain "))) == original_workspace_directives
 
 
-def test_workspace_root_rejected(module, root: Path) -> None:
+def test_workspace_root_module_supported(module, root: Path) -> None:
+    workspace_root, module_root, _ = run_resolver(module, root, vendor=True, root_workspace=True)
+    assert workspace_root == module_root
+    commands = root.joinpath("go.log").read_text(encoding="utf-8").splitlines()
+    assert "work sync" in commands
+    assert "work vendor" in commands
+    assert "mod vendor" not in commands
+    assert any(command.startswith("build -mod=vendor -o ") for command in commands)
+
+
+def test_workspace_escape_rejected(module, root: Path) -> None:
     root.joinpath("go.mod").write_text("module example.com/app\n\ngo 1.25\n", encoding="utf-8")
-    root.joinpath("go.work").write_text("go 1.25\n\nuse .\n", encoding="utf-8")
+    workspace = root / "workspace"
+    workspace.mkdir()
     previous_argv = sys.argv
-    sys.argv = ["remediate.py", str(root / "scanner"), str(root), str(root), "."]
+    sys.argv = ["remediate.py", str(root / "scanner"), str(workspace), str(root), "", "."]
     try:
-        assert_raises(module.RemediationError, "module root cannot be the workspace root", module.main)
+        assert_raises(module.RemediationError, "module root escapes workspace", module.main)
     finally:
         sys.argv = previous_argv
+
+
+def test_split_module_family_analysis(module, root: Path) -> None:
+    selected = {
+        "example.com/telemetry": "v1.0.0",
+        "example.com/telemetry/sdk": "v1.0.0",
+        "example.com/telemetry/sdk/log": "v0.1.0",
+    }
+    recommendations = [
+        {"Name": "example.com/telemetry/sdk", "Version": "v1.2.0"},
+        {"Name": "example.com/telemetry", "Version": "v1.2.0"},
+        {"Name": "example.com/telemetry/sdk/log", "Version": "v0.2.0"},
+    ]
+
+    def run_go(arguments, *_args, **kwargs):
+        assert arguments[:2] == ["omnibump", "analyze"]
+        assert kwargs["capture"]
+        return json.dumps({"strategy": {"DirectUpdates": recommendations}})
+
+    module.run_go = run_go
+    assert module.analyzed_updates(
+        root,
+        [("example.com/telemetry/sdk", "v1.2.0")],
+        selected,
+        None,
+    ) == [
+        ("example.com/telemetry", "v1.2.0"),
+        ("example.com/telemetry/sdk", "v1.2.0"),
+        ("example.com/telemetry/sdk/log", "v0.2.0"),
+    ]
+
+
+def test_transitive_family_analysis(module, root: Path) -> None:
+    selected = {
+        "example.com/schema/v6": "v6.0.0",
+        "example.com/client": "v1.0.0",
+        "example.com/gateway": "v1.0.0",
+    }
+    recommendations = [
+        {"Name": "example.com/schema/v6", "Version": "v6.1.0"},
+        {"Name": "example.com/client", "Version": "v1.4.0"},
+        {"Name": "example.com/gateway", "Version": "v1.3.0"},
+    ]
+    module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
+    assert module.analyzed_updates(
+        root,
+        [("example.com/schema/v6", "v6.1.0")],
+        selected,
+        None,
+    ) == [
+        ("example.com/client", "v1.4.0"),
+        ("example.com/gateway", "v1.3.0"),
+        ("example.com/schema/v6", "v6.1.0"),
+    ]
+
+
+def test_vendor_patch_precedes_vendored_build(module, root: Path) -> None:
+    broken = 'package dependency\nfunc Value() string { return "broken" }\n'
+    workspace_root, module_root, environment = prepare_project(root, False, True, dependency_source=broken)
+    failed = subprocess.run(
+        ["go", "build", "-mod=vendor", "."],
+        cwd=module_root,
+        env=environment,
+        check=False,
+        capture_output=True,
+    )
+    assert failed.returncode != 0
+    patch = workspace_root / "vendor-source.patch"
+    patch.write_text(
+        "--- a/vendor/example.com/dependency/dependency.go\n"
+        "+++ b/vendor/example.com/dependency/dependency.go\n"
+        "@@ -1,2 +1,2 @@\n"
+        " package dependency\n"
+        '-func Value() string { return "broken" }\n'
+        "+func Value() int { return 1 }\n",
+        encoding="utf-8",
+    )
+    previous_environ = os.environ.copy()
+    os.environ.update(environment)
+    try:
+        patches = module.resolve_vendor_patches(workspace_root, patch.name)
+        module.reconcile(workspace_root, module_root, ["."], None, patches)
+    finally:
+        os.environ.clear()
+        os.environ.update(previous_environ)
+    vendored = module_root / "vendor/example.com/dependency/dependency.go"
+    assert "func Value() int" in vendored.read_text(encoding="utf-8")
+
+
+def test_vendor_patch_escape_rejected(module, root: Path) -> None:
+    workspace = root / "workspace"
+    workspace.mkdir(exist_ok=True)
+    root.joinpath("outside.patch").write_text("not a patch\n", encoding="utf-8")
+    assert_raises(
+        module.RemediationError,
+        "vendor patch escapes workspace",
+        lambda: module.resolve_vendor_patches(workspace, "../outside.patch"),
+    )
 
 
 def test_no_compatible_fix_continues(module, root: Path) -> None:
@@ -425,7 +581,7 @@ def test_no_compatible_fix_continues(module, root: Path) -> None:
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "."]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "", "."]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output):
@@ -450,6 +606,7 @@ def test_incompatible_candidate_reaches_omnibump(module, root: Path) -> None:
     module.scan = lambda *_args, **_kwargs: next(scans)
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
     module.reconcile = lambda *_args, **_kwargs: None
+    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
 
     def run_go(arguments, _root, capture=False, workspace=None, report=False):
         assert workspace is None
@@ -476,7 +633,7 @@ def test_package_graph_and_post_scan_failures(module, root: Path) -> None:
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "./missing"]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "", "./missing"]
     try:
         assert_raises(module.RemediationError, "command failed", module.main)
     finally:
@@ -504,7 +661,7 @@ def test_package_graph_and_post_scan_failures(module, root: Path) -> None:
         GO_LOG=str(unavailable / "go.log"),
         OMNIBUMP_LOG=str(unavailable / "omnibump.log"),
     )
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "."]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "", "."]
     try:
         assert_raises(module.RemediationError, "command failed", module.main)
     finally:
@@ -548,7 +705,7 @@ def test_interdependent_fixes(module, root: Path) -> None:
         GO_LOG=str(go_log),
         OMNIBUMP_LOG=str(root / "omnibump.log"),
     )
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "./..."]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "", "./..."]
     try:
         module.main()
     finally:
@@ -583,7 +740,7 @@ def invoke_main(module, root: Path) -> None:
     if not root.joinpath("go.mod").exists():
         root.joinpath("go.mod").write_text("module example.com/app\n\ngo 1.25\n", encoding="utf-8")
     previous_argv = sys.argv
-    sys.argv = ["remediate.py", str(root / "scanner"), str(root), str(root), "."]
+    sys.argv = ["remediate.py", str(root / "scanner"), str(root), str(root), "", "."]
     try:
         module.main()
     finally:
@@ -620,6 +777,7 @@ def test_outer_pass_limit(module, root: Path) -> None:
     module.scan = scan
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
     module.derive_fixes = derive_fixes
+    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     module.run_go = run_go
     module.reconcile = lambda *_args, **_kwargs: None
     assert_raises(
@@ -645,6 +803,7 @@ def test_outer_no_progress(module, root: Path) -> None:
         return ""
 
     module.run_go = run_go
+    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     module.reconcile = lambda *_args, **_kwargs: None
     assert_raises(
         module.RemediationError,
@@ -690,7 +849,7 @@ def test_newly_exposed_fixes_converge(module, root: Path) -> None:
         GO_LOG=str(log),
         OMNIBUMP_LOG=str(root / "omnibump.log"),
     )
-    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "./..."]
+    sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(workspace_root), "", "./..."]
     try:
         module.main()
     finally:
@@ -723,7 +882,7 @@ def test_package_inputs(module, root: Path) -> None:
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
-    sys.argv = ["remediate.py", str(option / "missing-scanner"), str(workspace_root), str(module_root), "-test"]
+    sys.argv = ["remediate.py", str(option / "missing-scanner"), str(workspace_root), str(module_root), "", "-test"]
     try:
         assert_raises(module.RemediationError, "invalid Go package patterns", module.main)
     finally:
@@ -739,6 +898,8 @@ def test_pipeline_contract() -> None:
     assert "go-remediation-evidence" not in pipeline and "lockContentHash" not in pipeline
     assert "default: ./..." in pipeline and "github.com/gorilla/websocket" not in pipeline
     assert "set -f" in pipeline and 'package.startswith("-")' in pipeline
+    assert '"omnibump", "analyze"' in pipeline and "DirectUpdates" in pipeline
+    assert "vendor-patches:" in pipeline and "- patch" in pipeline
     assert "- uses: go/remediate" in ROOT.joinpath("images/etcd/melange.yaml").read_text(encoding="utf-8")
 
 
@@ -759,11 +920,32 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
-        test_no_compatible_fix_continues(module, root)
+        test_analyzed_graph_updates_are_applied(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
-        test_workspace_root_rejected(module, root)
+        test_workspace_root_module_supported(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_workspace_escape_rejected(module, root)
+        test_vendor_patch_escape_rejected(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_split_module_family_analysis(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_transitive_family_analysis(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_vendor_patch_precedes_vendored_build(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_no_compatible_fix_continues(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
