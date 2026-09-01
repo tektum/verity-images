@@ -6,6 +6,7 @@ import importlib.util
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -713,6 +714,25 @@ def test_argument_contract(module, root: Path) -> None:
         sys.argv = previous_argv
 
 
+def pipeline_script(crateroot: str = ".", features: str = "") -> str:
+    block = PIPELINE.read_text(encoding="utf-8").split("  - runs: |\n", 1)[1]
+    script = "\n".join(line.removeprefix("      ") for line in block.splitlines()) + "\n"
+    return script.replace("${{inputs.crateroot}}", crateroot).replace("${{inputs.features}}", features)
+
+
+def test_wrapper_contract(root: Path) -> None:
+    case = root / "wrapper"
+    case.mkdir()
+    valid = case / "valid.sh"
+    valid.write_text(pipeline_script(), encoding="utf-8")
+    assert subprocess.run(["sh", "-n", str(valid)], capture_output=True).returncode == 0
+    escaping = case / "escaping.sh"
+    escaping.write_text(pipeline_script(crateroot="/"), encoding="utf-8")
+    completed = subprocess.run(["sh", str(escaping)], cwd=case, capture_output=True, text=True)
+    assert completed.returncode == 1, completed
+    assert "escapes workspace" in completed.stderr
+
+
 def test_pipeline_contract() -> None:
     pipeline = PIPELINE.read_text(encoding="utf-8")
     assert pipeline.count('cargo install cargo-audit --version 0.22.2 --locked --root "$tool_dir"') == 1
@@ -729,30 +749,30 @@ def test_pipeline_contract() -> None:
 
 
 def main() -> None:
-    cases = (
-        (test_scan_contract, True),
-        (test_requirement_floor, False),
-        (test_fix_selection, False),
-        (test_locked_versions, True),
-        (test_clean_audit_verifies, True),
-        (test_direct_fix, True),
-        (test_transitive_fix, True),
-        (test_semver_boundary, True),
-        (test_workspace_dependency, True),
-        (test_duplicate_lock_versions, True),
-        (test_coordinated_multi_crate, True),
-        (test_newly_exposed_finding, True),
-        (test_no_progress, True),
-        (test_downgrade_rejected, True),
-        (test_unapplied_fix_is_loud, True),
-        (test_pass_limit, True),
-        (test_argument_contract, True),
-    )
-    for case, needs_root in cases:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            module = load_resolver(root)
-            case(module, root) if needs_root else case(module)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_scan_contract(module, root)
+        test_requirement_floor(module)
+        test_fix_selection(module)
+        test_locked_versions(module, root)
+        test_clean_audit_verifies(module, root)
+        test_direct_fix(module, root)
+        test_transitive_fix(module, root)
+        test_semver_boundary(module, root)
+        test_workspace_dependency(module, root)
+        test_duplicate_lock_versions(module, root)
+        test_coordinated_multi_crate(module, root)
+        test_newly_exposed_finding(module, root)
+        test_no_progress(module, root)
+        test_downgrade_rejected(module, root)
+        test_unapplied_fix_is_loud(module, root)
+        test_argument_contract(module, root)
+        test_wrapper_contract(root)
+    # A fresh module: the pass-limit case replaces resolver functions.
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        test_pass_limit(load_resolver(root), root)
     test_pipeline_contract()
     print("passed scripts/test_cargo_remediation.py")
 
