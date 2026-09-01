@@ -380,6 +380,11 @@ def test_analyzed_graph_updates_are_applied(module, root: Path) -> None:
         "--language", "go", "--dir", str(module_root),
         "--packages", "example.com/dependency@v1.3.0", "--tidy=false",
     ]]
+    commands = root.joinpath("go.log").read_text(encoding="utf-8").splitlines()
+    download = "mod download example.com/dependency@v1.3.0"
+    assert download in commands
+    assert commands.index("mod tidy") < commands.index(download) < commands.index("list -deps -mod=readonly .")
+    assert "example.com/dependency v1.3.0/go.mod" in module_root.joinpath("go.sum").read_text(encoding="utf-8")
 
 
 def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> None:
@@ -486,12 +491,21 @@ def test_split_module_family_analysis(module, root: Path) -> None:
         {
             "Name": "example.com/telemetry",
             "Version": "v1.2.0",
-            "Metadata": {"required_by": "transitive dependency check"},
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": (
+                    "example.com/telemetry/sdk@v1.2.0 requires example.com/telemetry@v1.2.0 "
+                    "but project has v1.0.0"
+                ),
+            },
         },
         {
             "Name": "example.com/telemetry/sdk/log",
             "Version": "v0.2.0",
-            "Metadata": {"required_by": "transitive dependency check"},
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": "cross-major ecosystem package: optional family alignment",
+            },
         },
     ]
 
@@ -509,7 +523,6 @@ def test_split_module_family_analysis(module, root: Path) -> None:
     ) == [
         ("example.com/telemetry", "v1.2.0"),
         ("example.com/telemetry/sdk", "v1.2.0"),
-        ("example.com/telemetry/sdk/log", "v0.2.0"),
     ]
 
 
@@ -524,12 +537,24 @@ def test_transitive_family_analysis(module, root: Path) -> None:
         {
             "Name": "example.com/client",
             "Version": "v1.4.0",
-            "Metadata": {"required_by": "transitive dependency check"},
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": (
+                    "example.com/schema/v6@v6.1.0 requires example.com/client@v1.4.0 "
+                    "but project has v1.0.0"
+                ),
+            },
         },
         {
             "Name": "example.com/gateway",
             "Version": "v1.3.0",
-            "Metadata": {"required_by": "transitive dependency check"},
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": (
+                    "example.com/schema/v6@v6.1.0 requires example.com/gateway@v1.3.0 "
+                    "but project has v1.0.0"
+                ),
+            },
         },
     ]
     module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
@@ -549,6 +574,7 @@ def test_unrelated_api_consumers_are_not_upgraded(module, root: Path) -> None:
     selected = {
         "example.com/runtime": "v1.0.0",
         "example.com/runtime/sdk": "v1.0.0",
+        "example.com/runtime/unused": "v1.0.0",
         "example.com/unrelated": "v1.0.0",
         "example.com/project": "v1.0.0",
         "example.com/project/component": "v0.3.0",
@@ -558,7 +584,21 @@ def test_unrelated_api_consumers_are_not_upgraded(module, root: Path) -> None:
         {
             "Name": "example.com/runtime/sdk",
             "Version": "v1.2.0",
-            "Metadata": {"required_by": "transitive dependency check"},
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": (
+                    "example.com/runtime@v1.2.0 requires example.com/runtime/sdk@v1.2.0 "
+                    "but project has v1.0.0"
+                ),
+            },
+        },
+        {
+            "Name": "example.com/runtime/unused",
+            "Version": "v1.2.0",
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": "version group with example.com/runtime (both at v1.0.0)",
+            },
         },
         {
             "Name": "example.com/unrelated",
@@ -616,10 +656,12 @@ def test_build_failure_reconciliation_is_bounded_and_targeted(module, root: Path
     selected = {dependency: "v1.0.0", "example.com/unrelated": "v1.0.0"}
     attempts = 0
     applied = []
+    required_sums = []
 
-    def reconcile(*_args, **_kwargs):
+    def reconcile(*args, **_kwargs):
         nonlocal attempts
         attempts += 1
+        required_sums.append(args[-1])
         if attempts == 1:
             raise module.CommandError(
                 ["go", "build", "-mod=readonly", "."],
@@ -640,6 +682,7 @@ def test_build_failure_reconciliation_is_bounded_and_targeted(module, root: Path
     assert module.reconcile_with_compatibility(root, root, ["."], None, [], 0) == 1
     assert attempts == 2
     assert applied == [([(dependency, "v1.2.0")], "repairing compatibility")]
+    assert required_sums == [(), [(dependency, "v1.2.0")]]
 
 
 def test_disjoint_vulnerability_ranges_continue_to_fixed_point(module, root: Path) -> None:

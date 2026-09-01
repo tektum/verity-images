@@ -263,9 +263,11 @@ pipeline:
                   or not compatible(module, version)
               ):
                   raise RemediationError("invalid omnibump analysis update")
-              needed = (
-                  module in expanded
-                  or metadata.get("required_by") == "transitive dependency check"
+              reason = metadata.get("reason")
+              needed = module in expanded or (
+                  metadata.get("required_by") == "transitive dependency check"
+                  and isinstance(reason, str)
+                  and " but project has " in reason
               )
               if not needed:
                   continue
@@ -502,12 +504,14 @@ pipeline:
                   updates[module] = fixed
           return updates, sorted(unresolved), detected, fixable
 
-      def reconcile(workspace_root, root, packages, workspace, vendor_patches):
+      def reconcile(workspace_root, root, packages, workspace, vendor_patches, required_sums=()):
           module_vendor = root.joinpath("vendor").is_dir()
           workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
           run_go(["go", "mod", "tidy"], root, workspace=workspace)
           if workspace:
               run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
+          for module, version in required_sums:
+              run_go(["go", "mod", "download", f"{module}@{version}"], root)
           if module_vendor and not workspace_vendor:
               run_go(["go", "mod", "vendor"], root)
           if workspace_vendor:
@@ -522,11 +526,14 @@ pipeline:
           with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
               run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
 
-      def reconcile_with_compatibility(workspace_root, root, packages, workspace, vendor_patches, passes):
+      def reconcile_with_compatibility(
+          workspace_root, root, packages, workspace, vendor_patches, passes, required_sums=()
+      ):
           previous = None
+          pending_sums = required_sums
           while True:
               try:
-                  reconcile(workspace_root, root, packages, workspace, vendor_patches)
+                  reconcile(workspace_root, root, packages, workspace, vendor_patches, pending_sums)
                   if previous is not None and selected_modules(root, workspace) == previous:
                       raise RemediationError("go remediation compatibility pass made no module graph progress")
                   return passes
@@ -548,6 +555,7 @@ pipeline:
                   apply_updates(root, requested, workspace, action="repairing compatibility")
                   passes += 1
                   previous = selected
+                  pending_sums = requested
 
       def main():
           binary, workspace_arg, root_arg, vendor_patches_arg, *packages = sys.argv[1:]
@@ -598,7 +606,7 @@ pipeline:
               passes += 1
               remediated.update(fixable)
               passes = reconcile_with_compatibility(
-                  workspace_root, root, packages, workspace, vendor_patches, passes
+                  workspace_root, root, packages, workspace, vendor_patches, passes, requested
               )
               reconciled = True
               if selected_modules(root, workspace) == selected:
