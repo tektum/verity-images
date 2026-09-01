@@ -1,7 +1,7 @@
 package:
   name: prometheus-3.11
   version: "3.11.3"
-  epoch: 11
+  epoch: 13
   description: The Prometheus monitoring system and time series database.
   copyright:
     - license: Apache-2.0
@@ -25,6 +25,7 @@ environment:
       - ca-certificates-bundle
       - go
       - make
+      - python3
       - nodejs
       - npm
 
@@ -35,12 +36,10 @@ pipeline:
       branch: main
       depth: -1
       expected-commit: ${{vars.source-commit}}
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: |-
-        golang.org/x/net@v0.55.0
-        golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
+      modroot: .
+      packages: './cmd/prometheus ./cmd/promtool'
   - uses: patch
     with:
       patches: disable-pprof.patch
