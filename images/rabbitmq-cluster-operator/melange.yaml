@@ -1,7 +1,7 @@
 package:
   name: rabbitmq-cluster-operator
   version: "2.22.5"
-  epoch: 1
+  epoch: 2
   description: RabbitMQ Cluster Operator for Kubernetes
   copyright:
     - license: MPL-2.0
@@ -15,6 +15,7 @@ environment:
     packages:
       - busybox
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -24,9 +25,10 @@ pipeline:
       repository: https://github.com/rabbitmq/cluster-operator
       tag: v${{package.version}}
       expected-commit: 17dd297f71de40a722baf69167b8af511072175e
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: google.golang.org/grpc@v1.82.1
+      modroot: .
+      packages: ./cmd
   - runs: |
       go build -a -tags timetzdata -trimpath -ldflags="-s -w" -o manager ./cmd
       install -Dm755 manager "${{targets.destdir}}/usr/bin/manager"
