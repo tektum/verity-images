@@ -434,14 +434,16 @@ def generate(
     }
     # Derived rather than pinned: a shared cargo change validates one consumer, and
     # selects nothing while no image consumes the pipeline yet.
-    cargo_remediate_sample = min(
-        (
-            candidate_directory.relative_to(ROOT).as_posix()
-            for candidate_directory, candidate in catalog
-            if candidate.enabled and uses_cargo_remediate(candidate_directory)
-        ),
-        default="",
-    )
+    cargo_remediate_sample = ""
+    if cargo_remediate_changed:
+        cargo_remediate_sample = min(
+            (
+                candidate_directory.relative_to(ROOT).as_posix()
+                for candidate_directory, candidate in catalog
+                if candidate.enabled and uses_cargo_remediate(candidate_directory)
+            ),
+            default="",
+        )
     latest = {
         metadata.name: max(
             (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),

@@ -14,8 +14,74 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "pipelines/cargo/remediate.yaml"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+DATABASE_URL = "https://github.com/rustsec/advisory-db"
 CHECKSUM = "0" * 64
 VERIFICATION = [["metadata", "--locked", "--format-version", "1"], ["fetch", "--locked"]]
+DEFAULT_SETTINGS = {
+    "target_arch": [],
+    "target_os": [],
+    "severity": None,
+    "ignore": [],
+    "informational_warnings": ["unmaintained", "unsound", "notice"],
+}
+# Verbatim `cargo-audit 0.22.2 audit --json` output for a local fixture advisory
+# database and lockfile, reduced to one vulnerability and one warning.
+CAPTURED_REPORT = """{
+    "database": {"advisory-count": 11, "last-commit": null, "last-updated": null},
+    "lockfile": {"dependency-count": 12},
+    "settings": {
+        "target_arch": [], "target_os": [], "severity": null, "ignore": [],
+        "informational_warnings": ["unmaintained", "unsound", "notice"]
+    },
+    "vulnerabilities": {
+        "found": true,
+        "count": 1,
+        "list": [
+            {
+                "advisory": {
+                    "id": "RUSTSEC-2099-0002", "package": "caret", "title": "RUSTSEC-2099-0002",
+                    "description": "fixture", "date": "2099-01-01", "aliases": [], "related": [],
+                    "collection": "crates", "categories": [], "keywords": [], "cvss": null,
+                    "informational": null, "references": [], "source": null,
+                    "url": "https://example.com/", "withdrawn": null, "license": "CC0-1.0",
+                    "expect-deleted": false
+                },
+                "versions": {"patched": ["^1.4.3"], "unaffected": []},
+                "affected": null,
+                "package": {
+                    "name": "caret", "version": "1.2.0",
+                    "source": "registry+https://github.com/rust-lang/crates.io-index",
+                    "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "replace": null
+                }
+            }
+        ]
+    },
+    "warnings": {
+        "unmaintained": [
+            {
+                "kind": "unmaintained",
+                "package": {
+                    "name": "unmaint", "version": "1.0.0",
+                    "source": "registry+https://github.com/rust-lang/crates.io-index",
+                    "checksum": "0000000000000000000000000000000000000000000000000000000000000000",
+                    "replace": null
+                },
+                "advisory": {
+                    "id": "RUSTSEC-2099-0011", "package": "unmaint", "title": "RUSTSEC-2099-0011",
+                    "description": "fixture", "date": "2099-01-01", "aliases": [], "related": [],
+                    "collection": "crates", "categories": [], "keywords": [], "cvss": null,
+                    "informational": "unmaintained", "references": [], "source": null,
+                    "url": "https://example.com/", "withdrawn": null, "license": "CC0-1.0",
+                    "expect-deleted": false
+                },
+                "affected": null,
+                "versions": {"patched": [], "unaffected": []}
+            }
+        ]
+    }
+}
+"""
 
 OMNIBUMP = r'''#!/usr/bin/env python3
 import json
@@ -47,15 +113,24 @@ def key(value):
 lock = directory / "Cargo.lock"
 text = lock.read_text(encoding="utf-8")
 for crate, requested in sorted(pins.items()):
-    target = "0.0.1" if mode == "downgrade" else requested
     pattern = re.compile(r'(\[\[package\]\]\nname = "' + re.escape(crate) + r'"\nversion = ")([^"]+)(")')
     matches = list(pattern.finditer(text))
-    skip = matches[0].start() if mode == "partial" and len(matches) > 1 else -1
+    if mode == "downgrade":
+        targets = {match.start(): "0.0.1" for match in matches}
+    elif mode == "sink":
+        # Lower one non-maximum instance and leave the rest untouched.
+        targets = {min(matches, key=lambda match: key(match.group(2))).start(): "0.0.1"}
+    else:
+        skip = matches[0].start() if mode == "partial" and len(matches) > 1 else -1
+        targets = {
+            match.start(): requested
+            for match in matches
+            if match.start() != skip and key(match.group(2)) < key(requested)
+        }
 
-    def replace(match, target=target, skip=skip):
-        if match.start() == skip or (mode != "downgrade" and key(match.group(2)) >= key(target)):
-            return match.group(0)
-        return match.group(1) + target + match.group(3)
+    def replace(match, targets=targets):
+        target = targets.get(match.start())
+        return match.group(0) if target is None else match.group(1) + target + match.group(3)
 
     text = pattern.sub(replace, text)
 lock.write_text(text, encoding="utf-8")
@@ -100,12 +175,18 @@ def load_resolver(root: Path):
     return module
 
 
+def registry(*versions: str) -> tuple[tuple[str, str], ...]:
+    return tuple((version, REGISTRY) for version in versions)
+
+
 def vulnerability(
     identifier: str,
     crate: str,
     version: str,
     patched: tuple[str, ...] = (),
     unaffected: tuple[str, ...] = (),
+    source: str = REGISTRY,
+    replace: str | None = None,
 ) -> dict:
     return {
         "advisory": {"id": identifier, "package": crate, "title": identifier, "informational": None},
@@ -114,9 +195,9 @@ def vulnerability(
         "package": {
             "name": crate,
             "version": version,
-            "source": REGISTRY,
+            "source": source,
             "checksum": CHECKSUM,
-            "replace": None,
+            "replace": replace,
         },
     }
 
@@ -127,18 +208,12 @@ def warning(kind: str, crate: str, version: str, identifier: str | None = None) 
     return {"kind": kind, "package": package, "advisory": advisory, "affected": None}
 
 
-def report(*items: dict, warnings: dict | None = None) -> str:
+def report(*items: dict, warnings: dict | None = None, settings: dict | None = None) -> str:
     return json.dumps(
         {
             "database": {"advisory-count": len(items), "last-commit": None, "last-updated": None},
             "lockfile": {"dependency-count": 2},
-            "settings": {
-                "target_arch": [],
-                "target_os": [],
-                "severity": None,
-                "ignore": [],
-                "informational_warnings": ["unmaintained", "unsound", "notice"],
-            },
+            "settings": DEFAULT_SETTINGS if settings is None else settings,
             "vulnerabilities": {"found": bool(items), "count": len(items), "list": list(items)},
             "warnings": warnings or {},
         }
@@ -149,12 +224,13 @@ def findings(*items: dict, warnings: dict | None = None) -> tuple[str, int]:
     return report(*items, warnings=warnings), 1 if items else 0
 
 
-def write_lock(path: Path, packages: tuple[tuple[str, str], ...]) -> None:
+def write_lock(path: Path, packages: tuple[tuple[str, str], ...], sources: dict[str, str] | None = None) -> None:
     body = "version = 4\n"
     for name, version in packages:
         body += f'\n[[package]]\nname = "{name}"\nversion = "{version}"\n'
-        if name != "app":
-            body += f'source = "{REGISTRY}"\nchecksum = "{CHECKSUM}"\n'
+        source = (sources or {}).get(f"{name}@{version}", REGISTRY if name != "app" else "")
+        if source:
+            body += f'source = "{source}"\nchecksum = "{CHECKSUM}"\n'
     path.write_text(body, encoding="utf-8")
 
 
@@ -163,6 +239,7 @@ def prepare_project(
     packages: tuple[tuple[str, str], ...],
     dependencies: tuple[tuple[str, str], ...] = (),
     members: tuple[str, ...] = (),
+    sources: dict[str, str] | None = None,
 ) -> Path:
     project = case / "checkout"
     project.mkdir(parents=True)
@@ -178,15 +255,31 @@ def prepare_project(
         manifest = '[package]\nname = "app"\nversion = "0.1.0"\nedition = "2021"\n\n[dependencies]\n'
         manifest += "".join(f'{crate} = "{requirement}"\n' for crate, requirement in dependencies)
     project.joinpath("Cargo.toml").write_text(manifest, encoding="utf-8")
-    write_lock(project / "Cargo.lock", packages)
+    write_lock(project / "Cargo.lock", packages, sources)
     return project
+
+
+def prepare_tool_dir(case: Path) -> tuple[Path, Path, Path]:
+    tool_dir = case / "tool"
+    workdir = tool_dir / "audit"
+    workdir.joinpath("cargo").mkdir(parents=True, exist_ok=True)
+    return tool_dir, workdir, tool_dir / "advisory-db"
+
+
+def audit_arguments(lockfile: Path, database: Path) -> list[str]:
+    return [
+        "audit", "--json", "--color", "never", "--no-yanked",
+        "--file", str(lockfile), "--db", str(database), "--url", DATABASE_URL,
+    ]
 
 
 def fake_scanner(
     case: Path,
     outputs: list[tuple[str, int]],
     lockfile: Path,
+    database: Path,
     version: str = "cargo-audit 0.22.2",
+    stderr: str = "",
 ) -> Path:
     scanner = case / "cargo-audit"
     paths = []
@@ -199,11 +292,17 @@ def fake_scanner(
     state = case / "scan-state"
     scanner.write_text(
         "#!/usr/bin/env python3\n"
-        "import pathlib, sys\n"
+        "import json, os, pathlib, sys\n"
         f"if sys.argv[1:] == ['--version']:\n"
         f"    print({version!r})\n"
         "    raise SystemExit(0)\n"
-        f"assert sys.argv[1:] == {['audit', '--json', '--color', 'never', '--file', str(lockfile)]!r}, sys.argv[1:]\n"
+        f"assert sys.argv[1:] == {audit_arguments(lockfile, database)!r}, sys.argv[1:]\n"
+        f"with open({str(case / 'audit.log')!r}, 'a', encoding='utf-8') as log:\n"
+        "    log.write(json.dumps({\n"
+        "        'cwd': os.getcwd(),\n"
+        "        'home': os.environ.get('HOME'),\n"
+        "        'cargo_home': os.environ.get('CARGO_HOME'),\n"
+        "    }) + '\\n')\n"
         f"state = pathlib.Path({str(state)!r})\n"
         "index = int(state.read_text() or '0') if state.exists() else 0\n"
         "state.write_text(str(index + 1))\n"
@@ -211,6 +310,7 @@ def fake_scanner(
         f"statuses = {statuses!r}\n"
         "index = min(index, len(paths) - 1)\n"
         "sys.stdout.write(pathlib.Path(paths[index]).read_text())\n"
+        f"sys.stderr.write({stderr!r})\n"
         "raise SystemExit(statuses[index])\n",
         encoding="utf-8",
     )
@@ -228,7 +328,7 @@ def install_command_wrappers(case: Path) -> Path:
     return binary_dir
 
 
-def logged(path: Path) -> list[list[str]]:
+def logged(path: Path) -> list:
     if not path.is_file():
         return []
     return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
@@ -243,14 +343,23 @@ def assert_raises(error_type, message: str, action) -> None:
         raise AssertionError(f"expected {error_type.__name__}: {message}")
 
 
-def run_main(
+def remediate(
     module,
-    case: Path,
-    project: Path,
-    scanner: Path,
+    root: Path,
+    name: str,
+    outputs: list[tuple[str, int]],
+    packages: tuple[tuple[str, str], ...],
+    dependencies: tuple[tuple[str, str], ...] = (),
+    members: tuple[str, ...] = (),
+    sources: dict[str, str] | None = None,
     features: str = "",
     environment: dict[str, str] | None = None,
-) -> str:
+) -> tuple[Path, Path, str]:
+    case = root / name
+    case.mkdir()
+    project = prepare_project(case, packages, dependencies, members, sources)
+    tool_dir, _, database = prepare_tool_dir(case)
+    scanner = fake_scanner(case, outputs, project / "Cargo.lock", database)
     install_command_wrappers(case)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
@@ -260,7 +369,7 @@ def run_main(
         OMNIBUMP_LOG=str(case / "omnibump.log"),
         **(environment or {}),
     )
-    sys.argv = ["remediate.py", str(scanner), str(project), features]
+    sys.argv = ["remediate.py", str(scanner), str(project), features, str(tool_dir)]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
@@ -269,26 +378,7 @@ def run_main(
         sys.argv = previous_argv
         os.environ.clear()
         os.environ.update(previous_environ)
-    return output.getvalue()
-
-
-def remediate(
-    module,
-    root: Path,
-    name: str,
-    outputs: list[tuple[str, int]],
-    packages: tuple[tuple[str, str], ...],
-    dependencies: tuple[tuple[str, str], ...] = (),
-    members: tuple[str, ...] = (),
-    features: str = "",
-    environment: dict[str, str] | None = None,
-) -> tuple[Path, Path, str]:
-    case = root / name
-    case.mkdir()
-    project = prepare_project(case, packages, dependencies, members)
-    scanner = fake_scanner(case, outputs, project / "Cargo.lock")
-    output = run_main(module, case, project, scanner, features, environment)
-    return case, project, output
+    return case, project, output.getvalue()
 
 
 def test_scan_contract(module, root: Path) -> None:
@@ -296,44 +386,129 @@ def test_scan_contract(module, root: Path) -> None:
     case.mkdir()
     project = prepare_project(case, (("app", "0.1.0"), ("directvuln", "1.0.0")))
     lockfile = project / "Cargo.lock"
+    _, workdir, database = prepare_tool_dir(case)
     vulnerable = report(vulnerability("RUSTSEC-2099-0001", "directvuln", "1.0.0", (">=1.2.0",)))
 
-    def run(raw: str, status: int, version: str = "cargo-audit 0.22.2"):
-        scanner = fake_scanner(case, [(raw, status)], lockfile, version)
-        return module.scan(scanner, project, lockfile)
+    def run(raw: str, status: int, version: str = "cargo-audit 0.22.2", stderr: str = ""):
+        scanner = fake_scanner(case, [(raw, status)], lockfile, database, version, stderr)
+        return module.scan(scanner, lockfile, workdir, database)
 
     assert run(vulnerable, 1)["vulnerabilities"]["count"] == 1
     assert run(report(), 0)["vulnerabilities"]["list"] == []
-    assert_raises(module.RemediationError, "unexpected cargo-audit exit status 2", lambda: run(vulnerable, 2))
-    assert_raises(module.RemediationError, "contradicts its vulnerability list", lambda: run(vulnerable, 0))
+
+    # An audit that reports findings without a report is scanner failure, not a finding.
+    assert_raises(
+        module.RemediationError,
+        "cargo-audit produced no report (exit 1): fatal: unable to access advisory database",
+        lambda: run("", 1, stderr="fatal: unable to access advisory database\n"),
+    )
+    assert_raises(
+        module.RemediationError,
+        "cargo-audit scanner failure (exit 2): database fetch failed",
+        lambda: run(vulnerable, 2, stderr="database fetch failed\n"),
+    )
+    assert_raises(
+        module.RemediationError,
+        "malformed cargo-audit JSON",
+        lambda: run("not-json\n", 1, stderr="warning: stale database\n"),
+    )
+    assert "(exit 1): warning: stale database" in caught(module, lambda: run("not-json\n", 1, stderr="warning: stale database\n"))
+    assert_raises(
+        module.RemediationError,
+        "contradicts its vulnerability list",
+        lambda: run(vulnerable, 0),
+    )
     assert_raises(module.RemediationError, "contradicts its vulnerability list", lambda: run(report(), 1))
-    for raw in ("", "not-json\n", '{"vulnerabilities":', "[]\n", '{"vulnerabilities": {}}'):
+    for raw in ('{"vulnerabilities":', "[]\n", '{"vulnerabilities": {}}'):
         assert_raises(module.RemediationError, "cargo-audit", lambda raw=raw: run(raw, 1))
     inconsistent = json.dumps({"vulnerabilities": {"found": True, "count": 2, "list": []}})
     assert_raises(module.RemediationError, "invalid cargo-audit vulnerability summary", lambda: run(inconsistent, 1))
-    mistyped = json.dumps({"vulnerabilities": {"found": True, "count": 0, "list": []}, "warnings": []})
-    assert_raises(module.RemediationError, "invalid cargo-audit vulnerability summary", lambda: run(mistyped, 1))
+    settings_missing = json.dumps({"vulnerabilities": {"found": False, "count": 0, "list": []}, "warnings": {}})
+    assert_raises(module.RemediationError, "has no settings section", lambda: run(settings_missing, 0))
 
-    scanner = fake_scanner(case, [(report(), 0)], lockfile)
+    scanner = fake_scanner(case, [(report(), 0)], lockfile, database)
     module.verify_tool(scanner)
-    stale = fake_scanner(case, [(report(), 0)], lockfile, version="cargo-audit 0.21.2")
+    stale = fake_scanner(case, [(report(), 0)], lockfile, database, version="cargo-audit 0.21.2")
     assert_raises(module.RemediationError, "unexpected cargo-audit version", lambda: module.verify_tool(stale))
     assert_raises(OSError, "No such file", lambda: module.verify_tool(case / "absent"))
 
 
+def caught(module, action) -> str:
+    try:
+        action()
+    except module.RemediationError as error:
+        return str(error)
+    raise AssertionError("expected RemediationError")
+
+
+def test_policy_overrides_rejected(module, root: Path) -> None:
+    case = root / "policy"
+    case.mkdir()
+    project = prepare_project(case, (("app", "0.1.0"), ("directvuln", "1.0.0")))
+    lockfile = project / "Cargo.lock"
+    _, workdir, database = prepare_tool_dir(case)
+    for override in (
+        {"ignore": ["RUSTSEC-2099-0001"]},
+        {"severity": "critical"},
+        {"target_arch": ["x86_64"]},
+        {"target_os": ["linux"]},
+        {"informational_warnings": []},
+    ):
+        settings = dict(DEFAULT_SETTINGS, **override)
+        scanner = fake_scanner(case, [(report(settings=settings), 0)], lockfile, database)
+        message = caught(module, lambda scanner=scanner: module.scan(scanner, lockfile, workdir, database))
+        assert "cargo-audit policy overrides rejected" in message, message
+        assert next(iter(override)) in message, message
+
+
+def test_audit_isolation(module, root: Path) -> None:
+    """The untrusted checkout must never be the audit working directory."""
+    case, project, _ = remediate(
+        module,
+        root,
+        "isolation",
+        [findings()],
+        (("app", "0.1.0"), ("quiet", "1.0.0")),
+    )
+    tool_dir, workdir, _ = prepare_tool_dir(case)
+    records = logged(case / "audit.log")
+    assert records, records
+    for record in records:
+        assert Path(record["cwd"]).resolve() == workdir.resolve(), record
+        assert Path(record["cwd"]).resolve() != project.resolve(), record
+        assert Path(record["home"]).resolve() == workdir.resolve(), record
+        assert Path(record["cargo_home"]).resolve() == (workdir / "cargo").resolve(), record
+        assert str(tool_dir.resolve()) in record["cwd"], record
+
+
 def test_requirement_floor(module) -> None:
-    assert module.requirement_floor(">=1.2.0") == ("1.2.0", True)
-    assert module.requirement_floor(">= 0.9.7, <0.10.0") == ("0.9.7", True)
-    assert module.requirement_floor("^0.22.1") == ("0.22.1", True)
-    assert module.requirement_floor("~0.9.5") == ("0.9.5", True)
-    assert module.requirement_floor("0.25.4") == ("0.25.4", True)
-    assert module.requirement_floor(">= 0.9") == ("0.9.0", True)
-    assert module.requirement_floor(">=1.0.0-rc.2") == ("1.0.0-rc.2", True)
-    assert module.requirement_floor("<0.10.0") == ("", True)
-    assert module.requirement_floor(">=1.0.0, <1.0.0") == ("", True)
-    assert module.requirement_floor("> 0.3.1") == ("", False)
-    assert module.requirement_floor(">0.3.1, >=0.4.0") == ("0.4.0", True)
-    for requirement in ("1.*", "", "latest", ">=1.0.0 <2.0.0"):
+    assert module.requirement_floor(">=1.2.0") == ("1.2.0", "exact")
+    assert module.requirement_floor(">= 0.9.7, <0.10.0") == ("0.9.7", "exact")
+    assert module.requirement_floor("^0.22.1") == ("0.22.1", "exact")
+    assert module.requirement_floor("~0.9.5") == ("0.9.5", "exact")
+    assert module.requirement_floor("0.25.4") == ("0.25.4", "exact")
+    assert module.requirement_floor(">= 0.9") == ("0.9.0", "exact")
+    assert module.requirement_floor(">=1.0.0-rc.2") == ("1.0.0-rc.2", "exact")
+    assert module.requirement_floor("<0.10.0") == ("", "open")
+    assert module.requirement_floor("<=0.10.0") == ("", "open")
+    assert module.requirement_floor("> 0.3.1") == ("", "unnameable")
+    assert module.requirement_floor(">0.3.1, >=0.4.0") == ("0.4.0", "exact")
+    assert module.requirement_floor(">0.3.1, <2.0.0") == ("", "unnameable")
+
+    # Caret and tilde carry implicit upper bounds that can contradict a floor.
+    for requirement in (
+        ">=1.0.0, <1.0.0",
+        ">=2.0.0, <1.0.0",
+        "^1.4.3, <1.2.0",
+        "~1.4.3, <1.4.0",
+        ">2.0.0, <2.0.0",
+    ):
+        assert_raises(
+            module.RemediationError,
+            "unsatisfiable version requirement",
+            lambda requirement=requirement: module.requirement_floor(requirement),
+        )
+    for requirement in ("1.*", "*", "", "latest", ">=1.0.0 <2.0.0", "1.x"):
         assert_raises(
             module.RemediationError,
             "version requirement",
@@ -342,7 +517,12 @@ def test_requirement_floor(module) -> None:
 
 
 def test_fix_selection(module) -> None:
-    locked = {"direct": ("1.0.0",), "dupe": ("0.1.40", "0.3.10"), "boundary": ("3.5.0",), "stuck": ("1.3.0",)}
+    locked = {
+        "direct": registry("1.0.0"),
+        "dupe": registry("0.1.40", "0.3.10"),
+        "boundary": registry("3.5.0"),
+        "stuck": registry("1.3.0"),
+    }
     updates, unresolved, detected, fixable = module.derive_fixes(
         json.loads(
             report(
@@ -382,45 +562,173 @@ def test_fix_selection(module) -> None:
     )
     assert updates == {"direct": "3.0.0"}
 
-    for entry in (
-        vulnerability("RUSTSEC-2099-0007", "stuck", "1.3.0"),
-        vulnerability("RUSTSEC-2099-0008", "stuck", "1.3.0", (">=1.2.0",)),
-        vulnerability("RUSTSEC-2099-0009", "stuck", "1.3.0", (), ("<0.10.0",)),
+    # Disjoint ranges: the lower range is unreachable, the higher one is the fix.
+    updates, _, _, _ = module.derive_fixes(
+        json.loads(
+            report(vulnerability("RUSTSEC-2099-0007", "stuck", "1.3.0", (">=1.2.0, <1.3.0", ">=1.6.0")))
+        ),
+        locked,
+    )
+    assert updates == {"stuck": "1.6.0"}
+
+    entry = vulnerability("RUSTSEC-2099-0008", "stuck", "1.3.0")
+    updates, unresolved, _, fixable = module.derive_fixes(json.loads(report(entry)), locked)
+    assert updates == {} and fixable == set()
+    assert unresolved == [("RUSTSEC-2099-0008", "stuck", "1.3.0", "no-fix")]
+
+
+def test_blocking_classifications(module) -> None:
+    locked = {"stuck": registry("1.3.0"), "stable": registry("0.9.0")}
+    for entry, message in (
+        (
+            vulnerability("RUSTSEC-2099-0010", "stuck", "1.3.0", ("> 1.3.0",)),
+            "known fix for RUSTSEC-2099-0010 in stuck@1.3.0 names no exact release",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0011", "stuck", "1.3.0", (">=1.2.0",)),
+            "known fix for RUSTSEC-2099-0011 in stuck@1.3.0 requires a downgrade",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0012", "stuck", "1.3.0", (), ("<1.0.0",)),
+            "known fix for RUSTSEC-2099-0012 in stuck@1.3.0 requires a downgrade",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0013", "stable", "0.9.0", (">=1.0.0-rc.2",)),
+            "known fix for RUSTSEC-2099-0013 in stable@0.9.0 requires a prerelease",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0014", "stuck", "1.3.0", ("1.*",)),
+            "RUSTSEC-2099-0014 in stuck@1.3.0: unsupported version requirement: '1.*'",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0015", "stuck", "1.3.0", (">=2.0.0, <1.0.0",)),
+            "RUSTSEC-2099-0015 in stuck@1.3.0: unsatisfiable version requirement",
+        ),
     ):
-        updates, unresolved, _, fixable = module.derive_fixes(json.loads(report(entry)), locked)
-        assert updates == {} and fixable == set()
-        assert unresolved == [(entry["advisory"]["id"], "stuck", "1.3.0", "no-fix")]
+        assert_raises(
+            module.RemediationError,
+            message,
+            lambda entry=entry: module.derive_fixes(json.loads(report(entry)), locked),
+        )
 
+    # A prerelease fix is acceptable only on the line the lock already occupies.
+    updates, _, _, _ = module.derive_fixes(
+        json.loads(report(vulnerability("RUSTSEC-2099-0016", "line", "1.0.0-rc.1", (">=1.0.0-rc.2",)))),
+        {"line": registry("1.0.0-rc.1")},
+    )
+    assert updates == {"line": "1.0.0-rc.2"}
+
+    # A stable candidate wins over a prerelease candidate instead of blocking.
+    updates, _, _, _ = module.derive_fixes(
+        json.loads(
+            report(vulnerability("RUSTSEC-2099-0017", "stable", "0.9.0", (">=1.0.0-rc.2", ">=1.0.0")))
+        ),
+        locked,
+    )
+    assert updates == {"stable": "1.0.0"}
+
+
+def test_crate_identity(module, root: Path) -> None:
+    git = "git+https://github.com/example/dupe?rev=abc123"
+    locked = {
+        "dual": (("1.0.0", REGISTRY), ("1.0.0", git)),
+        "vendored": (("1.0.0", ""),),
+        "patched": (("1.0.0", git),),
+        "clean": registry("1.0.0"),
+    }
     assert_raises(
         module.RemediationError,
-        "cannot derive an exact patched version for RUSTSEC-2099-0010 in stuck@1.3.0",
+        "which Cargo.lock locks from 2 sources",
         lambda: module.derive_fixes(
-            json.loads(report(vulnerability("RUSTSEC-2099-0010", "stuck", "1.3.0", ("> 1.3.0",)))),
+            json.loads(report(vulnerability("RUSTSEC-2099-0020", "dual", "1.0.0", (">=1.1.0",)))),
             locked,
         ),
     )
     assert_raises(
         module.RemediationError,
-        "Cargo.lock does not lock",
+        "vendored@1.0.0 is locked from a local path, which no registry version pin can remediate",
         lambda: module.derive_fixes(
-            json.loads(report(vulnerability("RUSTSEC-2099-0011", "direct", "9.9.9", (">=9.9.10",)))),
+            json.loads(report(vulnerability("RUSTSEC-2099-0021", "vendored", "1.0.0", (">=1.1.0",)))),
+            locked,
+        ),
+    )
+    assert_raises(
+        module.RemediationError,
+        f"patched@1.0.0 is locked from {git}",
+        lambda: module.derive_fixes(
+            json.loads(report(vulnerability("RUSTSEC-2099-0022", "patched", "1.0.0", (">=1.1.0",)))),
+            locked,
+        ),
+    )
+    assert_raises(
+        module.RemediationError,
+        "which Cargo.lock does not lock",
+        lambda: module.derive_fixes(
+            json.loads(report(vulnerability("RUSTSEC-2099-0023", "clean", "9.9.9", (">=9.9.10",)))),
+            locked,
+        ),
+    )
+    assert_raises(
+        module.RemediationError,
+        "is replaced in Cargo.lock; identity is ambiguous",
+        lambda: module.derive_fixes(
+            json.loads(
+                report(
+                    vulnerability(
+                        "RUSTSEC-2099-0024", "clean", "1.0.0", (">=1.1.0",), replace="clean 1.0.1"
+                    )
+                )
+            ),
             locked,
         ),
     )
 
+    case = root / "identity"
+    case.mkdir()
+    project = prepare_project(
+        case,
+        (("app", "0.1.0"), ("dual", "1.0.0"), ("dual", "1.0.0")),
+        sources={"dual@1.0.0": REGISTRY},
+    )
+    lockfile = project / "Cargo.lock"
+    instances = module.locked_instances(lockfile)
+    assert instances["dual"] == registry("1.0.0")
+    assert instances["app"] == (("0.1.0", ""),)
+    replaced = lockfile.read_text(encoding="utf-8") + '\n[[package]]\nname = "old"\nversion = "1.0.0"\nreplace = "old 1.0.1"\n'
+    lockfile.write_text(replaced, encoding="utf-8")
+    assert_raises(module.RemediationError, "Cargo.lock replaces old@1.0.0", lambda: module.locked_instances(lockfile))
 
-def test_locked_versions(module, root: Path) -> None:
+
+def test_captured_report(module) -> None:
+    """Guard the field shape against cargo-audit 0.22.2 output captured verbatim."""
+    parsed = module.parse_report(CAPTURED_REPORT)
+    updates, unresolved, detected, fixable = module.derive_fixes(parsed, {"caret": registry("1.2.0")})
+    assert updates == {"caret": "1.4.3"}
+    assert unresolved == []
+    assert detected == {("RUSTSEC-2099-0002", "caret", "1.2.0")} and fixable == detected
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        module.report_diagnostics(parsed)
+    assert output.getvalue() == (
+        "cargo remediation: diagnostic unmaintained RUSTSEC-2099-0011 in unmaint@1.0.0\n"
+    )
+
+
+def test_locked_instances(module, root: Path) -> None:
     case = root / "locked"
     case.mkdir()
     project = prepare_project(case, (("app", "0.1.0"), ("dupe", "0.3.10"), ("dupe", "0.1.40")))
     lockfile = project / "Cargo.lock"
-    assert module.locked_versions(lockfile) == {"app": ("0.1.0",), "dupe": ("0.1.40", "0.3.10")}
+    assert module.locked_instances(lockfile) == {
+        "app": (("0.1.0", ""),),
+        "dupe": registry("0.1.40", "0.3.10"),
+    }
     lockfile.write_text("version = 4\n", encoding="utf-8")
-    assert_raises(module.RemediationError, "locks no packages", lambda: module.locked_versions(lockfile))
+    assert_raises(module.RemediationError, "locks no packages", lambda: module.locked_instances(lockfile))
     lockfile.write_text('version = 4\n\n[[package]]\nname = "x"\nversion = "one"\n', encoding="utf-8")
-    assert_raises(module.RemediationError, "invalid locked crate version", lambda: module.locked_versions(lockfile))
+    assert_raises(module.RemediationError, "invalid locked crate version", lambda: module.locked_instances(lockfile))
     lockfile.write_text("[[package\n", encoding="utf-8")
-    assert_raises(module.RemediationError, "malformed Cargo.lock", lambda: module.locked_versions(lockfile))
+    assert_raises(module.RemediationError, "malformed Cargo.lock", lambda: module.locked_instances(lockfile))
 
 
 def test_clean_audit_verifies(module, root: Path) -> None:
@@ -439,7 +747,7 @@ def test_clean_audit_verifies(module, root: Path) -> None:
     assert logged(case / "cargo.log") == VERIFICATION
     assert "diagnostic unmaintained RUSTSEC-2099-0100 in abandoned@1.0.0" in output
     assert "diagnostic yanked yanked in pulled@2.0.0" in output
-    assert module.locked_versions(project / "Cargo.lock")["abandoned"] == ("1.0.0",)
+    assert module.locked_instances(project / "Cargo.lock")["abandoned"] == registry("1.0.0")
 
     assert_raises(
         module.RemediationError,
@@ -465,7 +773,7 @@ def test_direct_fix(module, root: Path) -> None:
         (("app", "0.1.0"), ("directvuln", "1.0.0")),
         dependencies=(("directvuln", "1.0.0"),),
     )
-    assert module.locked_versions(project / "Cargo.lock")["directvuln"] == ("1.2.0",)
+    assert module.locked_instances(project / "Cargo.lock")["directvuln"] == registry("1.2.0")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
         "--packages", "directvuln@1.2.0", "--fail-on-unapplied-pins",
@@ -487,7 +795,7 @@ def test_transitive_fix(module, root: Path) -> None:
         (("app", "0.1.0"), ("wrapper", "2.0.0"), ("transitive", "1.0.0")),
         dependencies=(("wrapper", "2.0.0"),),
     )
-    assert module.locked_versions(project / "Cargo.lock")["transitive"] == ("1.1.0",)
+    assert module.locked_instances(project / "Cargo.lock")["transitive"] == registry("1.1.0")
     manifest = project.joinpath("Cargo.toml").read_text(encoding="utf-8")
     assert "transitive" not in manifest and 'wrapper = "2.0.0"' in manifest
     assert logged(case / "omnibump.log")[0][5] == "transitive@1.1.0"
@@ -503,7 +811,7 @@ def test_semver_boundary(module, root: Path) -> None:
         (("app", "0.1.0"), ("boundary", "3.5.0")),
         dependencies=(("boundary", "3.5"),),
     )
-    assert module.locked_versions(project / "Cargo.lock")["boundary"] == ("4.0.0",)
+    assert module.locked_instances(project / "Cargo.lock")["boundary"] == registry("4.0.0")
     assert 'boundary = "4.0.0"' in project.joinpath("Cargo.toml").read_text(encoding="utf-8")
     assert logged(case / "omnibump.log")[0][5] == "boundary@4.0.0"
 
@@ -518,9 +826,10 @@ def test_workspace_dependency(module, root: Path) -> None:
         (("app", "0.1.0"), ("member-one", "0.1.0"), ("member-two", "0.1.0"), ("shared", "0.9.1")),
         dependencies=(("shared", "0.9.1"),),
         members=("member-one", "member-two"),
+        sources={"member-one@0.1.0": "", "member-two@0.1.0": ""},
         features="sources-stdin sinks-console",
     )
-    assert module.locked_versions(project / "Cargo.lock")["shared"] == ("0.9.5",)
+    assert module.locked_instances(project / "Cargo.lock")["shared"] == registry("0.9.5")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
         "--packages", "shared@0.9.5", "--fail-on-unapplied-pins",
@@ -543,9 +852,11 @@ def test_duplicate_lock_versions(module, root: Path) -> None:
         [vulnerable, findings()],
         (("app", "0.1.0"), ("dupe", "0.1.40"), ("dupe", "0.3.10")),
     )
-    assert module.locked_versions(project / "Cargo.lock")["dupe"] == ("0.3.20",)
+    assert module.locked_instances(project / "Cargo.lock")["dupe"] == registry("0.3.20")
     assert logged(case / "omnibump.log")[0][5] == "dupe@0.3.20"
 
+    # Omnibump skips a pin once any instance satisfies it, so a stranded lower
+    # instance must fail loudly instead of passing as remediated.
     stranded = findings(vulnerability("RUSTSEC-2099-0005", "dupe", "0.1.40", (">=0.1.45",)))
     assert_raises(
         module.RemediationError,
@@ -573,8 +884,8 @@ def test_coordinated_multi_crate(module, root: Path) -> None:
         [vulnerable, findings()],
         (("app", "0.1.0"), ("alpha", "1.0.0"), ("beta", "2.0.0")),
     )
-    locked = module.locked_versions(project / "Cargo.lock")
-    assert locked["alpha"] == ("1.2.0",) and locked["beta"] == ("2.3.0",)
+    locked = module.locked_instances(project / "Cargo.lock")
+    assert locked["alpha"] == registry("1.2.0") and locked["beta"] == registry("2.3.0")
     assert logged(case / "omnibump.log") == [[
         "--language", "rust", "--dir", str(project),
         "--packages", "alpha@1.2.0 beta@2.3.0", "--fail-on-unapplied-pins",
@@ -591,8 +902,8 @@ def test_newly_exposed_finding(module, root: Path) -> None:
         [exposer, exposed, findings()],
         (("app", "0.1.0"), ("exporter", "1.0.0"), ("core", "1.1.0")),
     )
-    locked = module.locked_versions(project / "Cargo.lock")
-    assert locked["exporter"] == ("1.2.0",) and locked["core"] == ("1.2.0",)
+    locked = module.locked_instances(project / "Cargo.lock")
+    assert locked["exporter"] == registry("1.2.0") and locked["core"] == registry("1.2.0")
     assert logged(case / "omnibump.log") == [
         ["--language", "rust", "--dir", str(project), "--packages", "exporter@1.2.0", "--fail-on-unapplied-pins"],
         ["--language", "rust", "--dir", str(project), "--packages", "core@1.2.0", "--fail-on-unapplied-pins"],
@@ -633,11 +944,29 @@ def test_downgrade_rejected(module, root: Path) -> None:
         ),
     )
 
+    # A duplicate-version regression that leaves the maximum version intact.
+    duplicates = findings(
+        vulnerability("RUSTSEC-2099-0014", "sunk", "0.1.40", (">=0.3.20",)),
+        vulnerability("RUSTSEC-2099-0014", "sunk", "0.3.10", (">=0.3.20",)),
+    )
+    assert_raises(
+        module.RemediationError,
+        "cargo remediation downgraded locked crates: sunk@0.1.40->0.0.1",
+        lambda: remediate(
+            module,
+            root,
+            "downgrade-duplicate",
+            [duplicates, findings()],
+            (("app", "0.1.0"), ("sunk", "0.1.40"), ("sunk", "0.3.10")),
+            environment={"OMNIBUMP_MODE": "sink"},
+        ),
+    )
+
 
 def test_unapplied_fix_is_loud(module, root: Path) -> None:
     vulnerable = findings(vulnerability("RUSTSEC-2099-0013", "blocked", "1.0.0", (">=1.2.0",)))
     case = root / "unapplied"
-    error = "requested pin blocked@1.2.0 did not land"
+    error = "no compatible version can be upgraded to: blocked is not declared by workspace member"
     assert_raises(
         module.RemediationError,
         error,
@@ -659,8 +988,9 @@ def test_pass_limit(module, root: Path) -> None:
     case = root / "limit"
     case.mkdir()
     project = prepare_project(case, (("app", "0.1.0"),))
+    tool_dir, _, _ = prepare_tool_dir(case)
     limit = module.MAX_REMEDIATION_PASSES
-    state = {f"crate{index}": ("1.0.0",) for index in range(limit + 1)}
+    state = {f"crate{index}": registry("1.0.0") for index in range(limit + 1)}
     scans = 0
 
     def scan(*_args, **_kwargs):
@@ -677,18 +1007,18 @@ def test_pass_limit(module, root: Path) -> None:
         assert arguments[0] == "omnibump" and report and not capture
         for pin in arguments[arguments.index("--packages") + 1].split():
             crate, version = pin.rsplit("@", 1)
-            state[crate] = (version,)
+            state[crate] = registry(version)
         return ""
 
     module.verify_tool = lambda *_args, **_kwargs: None
     module.report_diagnostics = lambda *_args, **_kwargs: None
     module.scan = scan
     module.derive_fixes = derive_fixes
-    module.locked_versions = lambda *_args, **_kwargs: dict(state)
+    module.locked_instances = lambda *_args, **_kwargs: dict(state)
     module.run_command = run_command
     module.verify = lambda *_args, **_kwargs: None
     previous_argv = sys.argv
-    sys.argv = ["remediate.py", "cargo-audit", str(project), ""]
+    sys.argv = ["remediate.py", "cargo-audit", str(project), "", str(tool_dir)]
     try:
         assert_raises(
             module.RemediationError,
@@ -704,11 +1034,12 @@ def test_argument_contract(module, root: Path) -> None:
     case = root / "arguments"
     case.mkdir()
     project = prepare_project(case, (("app", "0.1.0"),))
+    tool_dir, _, _ = prepare_tool_dir(case)
     previous_argv = sys.argv
     try:
-        sys.argv = ["remediate.py", "cargo-audit", str(project)]
+        sys.argv = ["remediate.py", "cargo-audit", str(project), ""]
         assert_raises(module.RemediationError, "usage: remediate.py", module.main)
-        sys.argv = ["remediate.py", "cargo-audit", str(case), ""]
+        sys.argv = ["remediate.py", "cargo-audit", str(case), "", str(tool_dir)]
         assert_raises(module.RemediationError, "no Cargo.lock in", module.main)
     finally:
         sys.argv = previous_argv
@@ -743,6 +1074,7 @@ def test_pipeline_contract() -> None:
     assert '"--language", "rust"' in pipeline and '"--fail-on-unapplied-pins"' in pipeline
     assert "MAX_REMEDIATION_PASSES = 8" in pipeline
     assert 'report["vulnerabilities"]["list"]' in pipeline
+    assert '"--db", str(database), "--url", DATABASE_URL' in pipeline
     assert "cargo-remediation-evidence" not in pipeline and "lockContentHash" not in pipeline
     needs = pipeline.split("inputs:", 1)[0]
     assert "- omnibump" in needs and "- python3" in needs and "cargo-audit" not in needs
@@ -753,9 +1085,14 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_scan_contract(module, root)
+        test_policy_overrides_rejected(module, root)
+        test_audit_isolation(module, root)
         test_requirement_floor(module)
         test_fix_selection(module)
-        test_locked_versions(module, root)
+        test_blocking_classifications(module)
+        test_crate_identity(module, root)
+        test_captured_report(module)
+        test_locked_instances(module, root)
         test_clean_audit_verifies(module, root)
         test_direct_fix(module, root)
         test_transitive_fix(module, root)
