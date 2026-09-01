@@ -12,11 +12,24 @@ inputs:
   features:
     description: Space-separated Cargo features mirroring the build feature selection
     default: ""
+  default-features:
+    description: Enable Cargo default features, matching the subsequent build
+    default: true
+  target:
+    description: Cargo target triple for the subsequent build
+    default: host-tuple
 
 pipeline:
   - runs: |
       set -eu
       features='${{inputs.features}}'
+      default_features='${{inputs.default-features}}'
+      target='${{inputs.target}}'
+      case "$default_features" in
+        true|false) ;;
+        *) printf 'error: default-features must be true or false: %s\n' "$default_features" >&2; exit 1 ;;
+      esac
+      [ -n "$target" ] || { printf 'error: cargo target must not be empty\n' >&2; exit 1; }
       workspace=$(pwd -P)
       root=$(realpath '${{inputs.crateroot}}')
       case "$root/" in
@@ -26,7 +39,53 @@ pipeline:
       tool_dir=$(mktemp -d)
       trap 'rm -rf "$tool_dir"' EXIT
       mkdir -p "$tool_dir/audit/cargo"
+      cargo_binary=$(command -v cargo)
       (cd "$tool_dir" && cargo install cargo-audit --version 0.22.2 --locked --root "$tool_dir")
+      cat >"$tool_dir/bin/cargo" <<'SH'
+      #!/usr/bin/env python3
+      import os
+      import sys
+
+      arguments = sys.argv[1:]
+      toolchain = arguments.pop(0) if arguments and arguments[0].startswith("+") else None
+
+      def strip_selection(values):
+          filtered = []
+          skip = False
+          for value in values:
+              if skip:
+                  skip = False
+              elif value in {"--features", "-F", "--target"}:
+                  skip = True
+              elif value not in {"--all-features", "--no-default-features"} and not value.startswith(
+                  ("--features=", "--target=")
+              ):
+                  filtered.append(value)
+          return filtered
+
+      if arguments and arguments[0] in {"metadata", "tree", "check"}:
+          command = arguments[0]
+          tail = strip_selection(arguments[1:])
+          if command == "check":
+              tail = [argument for argument in tail if argument != "--workspace"]
+          target_flag = "--filter-platform" if command == "metadata" else "--target"
+          arguments = [command, target_flag, os.environ["CARGO_REMEDIATE_TARGET"], "--locked", *tail]
+          features = os.environ["CARGO_REMEDIATE_FEATURES"].split()
+          if features:
+              arguments += ["--features", ",".join(features)]
+          if os.environ["CARGO_REMEDIATE_DEFAULT_FEATURES"] == "false":
+              arguments.append("--no-default-features")
+      if toolchain:
+          arguments.insert(0, toolchain)
+      real_cargo = os.environ["CARGO_REMEDIATE_REAL_CARGO"]
+      os.execv(real_cargo, [real_cargo, *arguments])
+      SH
+      chmod +x "$tool_dir/bin/cargo"
+      export CARGO_REMEDIATE_REAL_CARGO="$cargo_binary"
+      export CARGO_REMEDIATE_DEFAULT_FEATURES="$default_features"
+      export CARGO_REMEDIATE_FEATURES="$features"
+      export CARGO_REMEDIATE_TARGET="$target"
+      export PATH="$tool_dir/bin:$PATH"
       cat >"$tool_dir/remediate.py" <<'PYTHON'
       import json
       import os
@@ -333,28 +392,168 @@ pipeline:
                   print(diagnostic, flush=True)
 
 
-      def validate_lock_identity(locked, crate, current):
-          """Fail unless the finding maps to exactly one registry lock entry."""
+      def metadata_arguments(features, default_features, target):
+          if default_features not in {True, False}:
+              raise RemediationError("default-features must be true or false")
+          if not isinstance(target, str) or not target.strip():
+              raise RemediationError("cargo target must not be empty")
+          arguments = [
+              os.environ.get("CARGO_REMEDIATE_REAL_CARGO", "cargo"),
+              "metadata", "--locked", "--format-version", "1",
+              "--filter-platform", target,
+          ]
+          if not default_features:
+              arguments.append("--no-default-features")
+          if features:
+              arguments += ["--features", ",".join(features)]
+          return arguments
+      def parse_shipped_graph(raw, locked, cargo_root=None):
+          """Return exact lock identities reachable by a release Cargo build."""
+          try:
+              metadata = json.loads(raw)
+          except json.JSONDecodeError as error:
+              raise RemediationError(f"malformed cargo metadata JSON: {error}") from error
+          if not isinstance(metadata, dict) or metadata.get("version") != 1:
+              raise RemediationError("invalid cargo metadata format version")
+          packages = metadata.get("packages")
+          roots = metadata.get("workspace_default_members")
+          workspace_root = metadata.get("workspace_root")
+          resolve = metadata.get("resolve")
+          nodes = resolve.get("nodes") if isinstance(resolve, dict) else None
+          if (
+              not isinstance(packages, list)
+              or not isinstance(roots, list)
+              or not roots
+              or not isinstance(nodes, list)
+              or not isinstance(workspace_root, str)
+              or not workspace_root
+          ):
+              raise RemediationError("invalid cargo metadata dependency graph")
+
+          locked_identities = {
+              (crate, version, source)
+              for crate, instances in locked.items()
+              for version, source in instances
+          }
+          identities = {}
+          seen_identities = set()
+          for package in packages:
+              if not isinstance(package, dict):
+                  raise RemediationError("invalid cargo metadata package record")
+              package_id = package.get("id")
+              crate = package.get("name")
+              version = package.get("version")
+              source = package.get("source")
+              source = "" if source is None else source
+              if not isinstance(package_id, str) or not package_id or package_id in identities:
+                  raise RemediationError("invalid or duplicate cargo metadata package id")
+              if not isinstance(crate, str) or CRATE.fullmatch(crate) is None:
+                  raise RemediationError(f"invalid cargo metadata crate name: {crate!r}")
+              if not isinstance(version, str) or VERSION.fullmatch(version) is None:
+                  raise RemediationError(f"invalid cargo metadata version: {version!r}")
+              if not isinstance(source, str):
+                  raise RemediationError(f"invalid cargo metadata source for {crate}@{version}")
+              identity = (crate, version, source)
+              if identity not in locked_identities:
+                  raise RemediationError(
+                      f"cargo metadata package {crate}@{version} from {source or 'a local path'} "
+                      "cannot be correlated to Cargo.lock"
+                  )
+              if identity in seen_identities:
+                  raise RemediationError(
+                      f"cargo metadata repeats lock identity {crate}@{version} from {source or 'a local path'}"
+                  )
+              identities[package_id] = identity
+              seen_identities.add(identity)
+
+          graph = {}
+          for node in nodes:
+              if not isinstance(node, dict):
+                  raise RemediationError("invalid cargo metadata node record")
+              package_id = node.get("id")
+              dependencies = node.get("deps")
+              if package_id not in identities or package_id in graph or not isinstance(dependencies, list):
+                  raise RemediationError("invalid cargo metadata node identity")
+              graph[package_id] = []
+              for dependency in dependencies:
+                  if not isinstance(dependency, dict) or dependency.get("pkg") not in identities:
+                      raise RemediationError("invalid cargo metadata dependency identity")
+                  kinds = dependency.get("dep_kinds")
+                  if not isinstance(kinds, list) or not kinds:
+                      raise RemediationError("invalid cargo metadata dependency kinds")
+                  release_targets = set()
+                  dev_targets = set()
+                  for kind in kinds:
+                      if not isinstance(kind, dict):
+                          raise RemediationError("invalid cargo metadata dependency kind")
+                      value = kind.get("kind")
+                      target = kind.get("target")
+                      if value not in {None, "build", "dev"} or not (target is None or isinstance(target, str)):
+                          raise RemediationError("invalid cargo metadata dependency kind")
+                      (dev_targets if value == "dev" else release_targets).add(target)
+                  if release_targets and dev_targets and release_targets != dev_targets:
+                      raise RemediationError(
+                          "cargo metadata cannot correlate mixed release/dev target conditions"
+                      )
+                  if release_targets:
+                      graph[package_id].append(dependency["pkg"])
+
+          if set(graph) != set(identities):
+              raise RemediationError("cargo metadata packages and resolve nodes disagree")
+          if any(not isinstance(root, str) or root not in graph for root in roots):
+              raise RemediationError("invalid cargo metadata default workspace member")
+          if cargo_root is not None and Path(cargo_root).resolve() != Path(workspace_root).resolve():
+              current = resolve.get("root")
+              if not isinstance(current, str) or current not in graph:
+                  raise RemediationError("cargo metadata has no current package for the Cargo root")
+              roots = [current]
+          shipped = set()
+          pending = list(roots)
+          while pending:
+              package_id = pending.pop()
+              if package_id in shipped:
+                  continue
+              shipped.add(package_id)
+              pending.extend(graph[package_id])
+          return {identities[package_id] for package_id in shipped}
+
+      def shipped_instances(root, locked, features, default_features, target):
+          raw = run_command(metadata_arguments(features, default_features, target), root, capture=True)
+          return parse_shipped_graph(raw, locked, root)
+
+      def report_unshipped(excluded, reported):
+          for identifier, crate, version, source in sorted(excluded):
+              diagnostic = (
+                  f"cargo remediation: diagnostic unshipped {identifier} in {crate}@{version} "
+                  f"from {source or 'a local path'}"
+              )
+              if diagnostic not in reported:
+                  reported.add(diagnostic)
+                  print(diagnostic, flush=True)
+
+      def validate_lock_identity(locked, crate, current, reported_source):
+          """Correlate the finding's full package identity to Cargo.lock."""
           sources = {source for version, source in locked.get(crate, ()) if version == current}
           if not sources:
               raise RemediationError(f"cargo-audit reported {crate}@{current}, which Cargo.lock does not lock")
-          if len(sources) > 1:
+          source = "" if reported_source is None else reported_source
+          if not isinstance(source, str) or source not in sources:
               raise RemediationError(
-                  f"cargo-audit reported {crate}@{current}, which Cargo.lock locks from "
-                  f"{len(sources)} sources: {' '.join(sorted(sources))}"
+                  f"cargo-audit reported {crate}@{current} from {source!r}, which cannot be correlated to Cargo.lock"
               )
-          source = sources.pop()
-          if not source.startswith(REGISTRY):
-              raise RemediationError(
-                  f"{crate}@{current} is locked from {source or 'a local path'}, "
-                  "which no registry version pin can remediate"
-              )
+          return source, sources
 
-      def derive_fixes(report, locked):
+      def derive_fixes(report, locked, shipped=None):
+          shipped = shipped if shipped is not None else {
+              (crate, version, source)
+              for crate, instances in locked.items()
+              for version, source in instances
+          }
           updates = {}
           unresolved = set()
           detected = set()
           fixable = set()
+          excluded = set()
           for entry in report["vulnerabilities"]["list"]:
               advisory = entry.get("advisory") if isinstance(entry, dict) else None
               package = entry.get("package") if isinstance(entry, dict) else None
@@ -371,7 +570,21 @@ pipeline:
                   raise RemediationError(f"invalid crate version: {current!r}")
               if package.get("replace") is not None:
                   raise RemediationError(f"{crate}@{current} is replaced in Cargo.lock; identity is ambiguous")
-              validate_lock_identity(locked, crate, current)
+              source, sources = validate_lock_identity(locked, crate, current, package.get("source"))
+              identity = (crate, current, source)
+              if identity not in shipped:
+                  excluded.add((identifier, crate, current, source))
+                  continue
+              if len(sources) > 1:
+                  raise RemediationError(
+                      f"cargo-audit reported shipped {crate}@{current}, which Cargo.lock locks from "
+                      f"{len(sources)} sources: {' '.join(sorted(sources))}"
+                  )
+              if not source.startswith(REGISTRY):
+                  raise RemediationError(
+                      f"{crate}@{current} is locked from {source or 'a local path'}, "
+                      "which no registry version pin can remediate"
+                  )
               detected.add((identifier, crate, current))
               try:
                   fixed, reason = minimum_fix(entry, current)
@@ -391,7 +604,7 @@ pipeline:
               previous = updates.get(key)
               if previous is None or version_key(previous) < version_key(fixed):
                   updates[key] = fixed
-          return updates, sorted(unresolved), detected, fixable
+          return updates, sorted(unresolved), detected, fixable, excluded
 
       def locked_instances(lockfile):
           """Every locked crate instance as (version, source), keeping sources distinct."""
@@ -465,14 +678,19 @@ pipeline:
           if reported != f"{TOOL_NAME} {TOOL_VERSION}":
               raise RemediationError(f"unexpected cargo-audit version: {reported!r}")
 
-      def verify(root):
-          run_command(["cargo", "metadata", "--locked", "--format-version", "1"], root)
-          run_command(["cargo", "fetch", "--locked"], root)
+      def verify(root, features, default_features, target):
+          run_command(metadata_arguments(features, default_features, target), root)
+          run_command([os.environ.get("CARGO_REMEDIATE_REAL_CARGO", "cargo"), "fetch", "--locked"], root)
 
       def main():
-          if len(sys.argv) != 5:
-              raise RemediationError("usage: remediate.py CARGO_AUDIT CRATE_ROOT FEATURES TOOL_DIR")
-          binary, root_argument, features_argument, tool_argument = sys.argv[1:]
+          if len(sys.argv) != 7:
+              raise RemediationError(
+                  "usage: remediate.py CARGO_AUDIT CRATE_ROOT FEATURES DEFAULT_FEATURES TARGET TOOL_DIR"
+              )
+          binary, root_argument, features_argument, default_argument, target, tool_argument = sys.argv[1:]
+          if default_argument not in {"true", "false"}:
+              raise RemediationError(f"default-features must be true or false: {default_argument!r}")
+          default_features = default_argument == "true"
           root = Path(root_argument).resolve()
           lockfile = root / "Cargo.lock"
           if not lockfile.is_file():
@@ -490,7 +708,12 @@ pipeline:
           while True:
               report_diagnostics(report, reported_diagnostics)
               locked = locked_instances(lockfile)
-              updates, unresolved, detected, fixable = derive_fixes(report, locked)
+              if report["vulnerabilities"]["list"]:
+                  shipped = shipped_instances(root, locked, features, default_features, target)
+              else:
+                  shipped = set()
+              updates, unresolved, detected, fixable, excluded = derive_fixes(report, locked, shipped)
+              report_unshipped(excluded, reported_diagnostics)
               persisted = remediated & detected
               if persisted:
                   details = " ".join(
@@ -509,7 +732,7 @@ pipeline:
                           f"cargo remediation: continuing with {identifier} in {crate}@{version} ({reason})",
                           flush=True,
                       )
-                  verify(root)
+                  verify(root, features, default_features, target)
                   return
               details = " ".join(f"{crate}@{current}={fixed}" for crate, current, fixed in requested)
               if passes >= MAX_REMEDIATION_PASSES:
@@ -531,7 +754,6 @@ pipeline:
               if updated == locked:
                   raise RemediationError(f"cargo remediation pass made no lock graph progress: {details}")
               report = scan(binary, lockfile, workdir, database)
-
       if __name__ == "__main__":
           try:
               main()
@@ -539,4 +761,5 @@ pipeline:
               print(f"error: {error}", file=sys.stderr)
               raise SystemExit(1)
       PYTHON
-      python3 "$tool_dir/remediate.py" "$tool_dir/bin/cargo-audit" "$root" "$features" "$tool_dir"
+      python3 "$tool_dir/remediate.py" "$tool_dir/bin/cargo-audit" "$root" \
+        "$features" "$default_features" "$target" "$tool_dir"

@@ -16,7 +16,8 @@ PIPELINE = ROOT / "pipelines/cargo/remediate.yaml"
 REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
 DATABASE_URL = "https://github.com/rustsec/advisory-db"
 CHECKSUM = "0" * 64
-VERIFICATION = [["metadata", "--locked", "--format-version", "1"], ["fetch", "--locked"]]
+METADATA = ["metadata", "--locked", "--format-version", "1", "--filter-platform", "host-tuple"]
+VERIFICATION = [METADATA, ["fetch", "--locked"]]
 DEFAULT_SETTINGS = {
     "target_arch": [],
     "target_os": [],
@@ -162,17 +163,51 @@ for manifest in sorted(directory.rglob("Cargo.toml")):
     manifest.write_text(content, encoding="utf-8")
 '''
 
-CARGO = r'''#!/usr/bin/env python3
+CARGO = r"""#!/usr/bin/env python3
 import json
 import os
+import pathlib
 import sys
+import tomllib
 
 with open(os.environ["CARGO_LOG"], "a", encoding="utf-8") as log:
     log.write(json.dumps(sys.argv[1:]) + "\n")
 if os.environ.get("CARGO_FAIL") == sys.argv[1]:
     print("cargo: simulated failure", file=sys.stderr)
     raise SystemExit(101)
-'''
+if sys.argv[1] == "metadata":
+    lock = tomllib.loads(pathlib.Path("Cargo.lock").read_text(encoding="utf-8"))
+    packages = []
+    identities = {}
+    for entry in lock["package"]:
+        source = entry.get("source")
+        identity = (entry["name"], entry["version"], source)
+        if identity in identities:
+            continue
+        package_id = f"pkg-{len(packages)}"
+        identities[identity] = package_id
+        packages.append({"id": package_id, "name": entry["name"], "version": entry["version"], "source": source})
+    roots = [package_id for (name, _, source), package_id in identities.items() if source is None]
+    registry_ids = [package_id for (_, _, source), package_id in identities.items() if source is not None]
+    nodes = [
+        {
+            "id": package["id"],
+            "deps": [
+                {"pkg": dependency, "dep_kinds": [{"kind": None, "target": None}]}
+                for dependency in (registry_ids if package["id"] in roots else [])
+            ],
+        }
+        for package in packages
+    ]
+    print(json.dumps({
+        "version": 1,
+        "packages": packages,
+        "workspace_default_members": roots,
+        "workspace_root": os.getcwd(),
+        "resolve": {"nodes": nodes, "root": roots[0] if len(roots) == 1 else None},
+    }))
+"""
+
 
 
 def extract_resolver(root: Path) -> Path:
@@ -182,6 +217,15 @@ def extract_resolver(root: Path) -> Path:
     path = root / "remediate.py"
     path.write_text(script, encoding="utf-8")
     return path
+
+
+def extract_cargo_wrapper() -> str:
+    pipeline = PIPELINE.read_text(encoding="utf-8")
+    script = pipeline.split("      cat >\"$tool_dir/bin/cargo\" <<'SH'\n", 1)[1].split(
+        "      SH\n", 1
+    )[0]
+    return "\n".join(line.removeprefix("      ") for line in script.splitlines()) + "\n"
+
 
 
 def load_resolver(root: Path):
@@ -194,6 +238,60 @@ def load_resolver(root: Path):
 
 def registry(*versions: str) -> tuple[tuple[str, str], ...]:
     return tuple((version, REGISTRY) for version in versions)
+
+
+def cargo_graph(
+    packages: tuple[tuple[str, str, str, str], ...],
+    roots: tuple[str, ...],
+    edges: dict[str, tuple[tuple[str, tuple[tuple[str | None, str | None], ...]], ...]],
+    workspace_root: str = "/workspace",
+    current: str | None = None,
+) -> str:
+    return json.dumps(
+        {
+            "version": 1,
+            "packages": [
+                {
+                    "id": package_id,
+                    "name": name,
+                    "version": version,
+                    "source": source or None,
+                }
+                for package_id, name, version, source in packages
+            ],
+            "workspace_default_members": list(roots),
+            "workspace_root": workspace_root,
+            "resolve": {
+                "root": current,
+                "nodes": [
+                    {
+                        "id": package_id,
+                        "deps": [
+                            {
+                                "pkg": dependency,
+                                "dep_kinds": [
+                                    {"kind": kind, "target": target}
+                                    for kind, target in kinds
+                                ],
+                            }
+                            for dependency, kinds in edges.get(package_id, ())
+                        ],
+                    }
+                    for package_id, _, _, _ in packages
+                ],
+            },
+        }
+    )
+
+
+def graph_locked(
+    packages: tuple[tuple[str, str, str, str], ...],
+) -> dict[str, tuple[tuple[str, str], ...]]:
+    locked: dict[str, set[tuple[str, str]]] = {}
+    for _, name, version, source in packages:
+        locked.setdefault(name, set()).add((version, source))
+    return {name: tuple(sorted(instances)) for name, instances in locked.items()}
+
 
 
 def vulnerability(
@@ -372,6 +470,8 @@ def remediate(
     members: tuple[str, ...] = (),
     sources: dict[str, str] | None = None,
     features: str = "",
+    default_features: bool = True,
+    target: str = "host-tuple",
     environment: dict[str, str] | None = None,
 ) -> tuple[Path, Path, str]:
     case = root / name
@@ -379,16 +479,25 @@ def remediate(
     project = prepare_project(case, packages, dependencies, members, sources)
     tool_dir, _, database = prepare_tool_dir(case)
     scanner = fake_scanner(case, outputs, project / "Cargo.lock", database)
-    install_command_wrappers(case)
+    binary_dir = install_command_wrappers(case)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(
-        PATH=f"{case / 'bin'}:{os.environ['PATH']}",
+        PATH=f"{binary_dir}:{os.environ['PATH']}",
         CARGO_LOG=str(case / "cargo.log"),
         OMNIBUMP_LOG=str(case / "omnibump.log"),
+        CARGO_REMEDIATE_REAL_CARGO=str(binary_dir / "cargo"),
         **(environment or {}),
     )
-    sys.argv = ["remediate.py", str(scanner), str(project), features, str(tool_dir)]
+    sys.argv = [
+        "remediate.py",
+        str(scanner),
+        str(project),
+        features,
+        str(default_features).lower(),
+        target,
+        str(tool_dir),
+    ]
     output = io.StringIO()
     try:
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
@@ -398,6 +507,7 @@ def remediate(
         os.environ.clear()
         os.environ.update(previous_environ)
     return case, project, output.getvalue()
+
 
 
 def test_scan_contract(module, root: Path) -> None:
@@ -577,7 +687,7 @@ def test_fix_selection(module) -> None:
         "boundary": registry("3.5.0"),
         "stuck": registry("1.3.0"),
     }
-    updates, unresolved, detected, fixable = module.derive_fixes(
+    updates, unresolved, detected, fixable, _ = module.derive_fixes(
         json.loads(
             report(
                 vulnerability("RUSTSEC-2099-0001", "direct", "1.0.0", (">=1.2.0", ">=1.4.0")),
@@ -591,7 +701,7 @@ def test_fix_selection(module) -> None:
     assert detected == {("RUSTSEC-2099-0001", "direct", "1.0.0"), ("RUSTSEC-2099-0002", "direct", "1.0.0")}
     assert fixable == detected
 
-    updates, unresolved, detected, fixable = module.derive_fixes(
+    updates, unresolved, detected, fixable, _ = module.derive_fixes(
         json.loads(
             report(
                 vulnerability("RUSTSEC-2099-0003", "dupe", "0.1.40", (">=0.1.45",)),
@@ -605,7 +715,7 @@ def test_fix_selection(module) -> None:
     assert len(detected) == 2 and fixable == detected
 
     # An instance must satisfy every advisory against it, even across a line.
-    updates, _, detected, _ = module.derive_fixes(
+    updates, _, detected, _, _ = module.derive_fixes(
         json.loads(
             report(
                 vulnerability("RUSTSEC-2099-0003", "dupe", "0.1.40", (">=0.1.45",)),
@@ -618,20 +728,20 @@ def test_fix_selection(module) -> None:
     assert updates == {("dupe", "0.1.40"): "0.3.20", ("dupe", "0.3.10"): "0.3.20"}
     assert len(detected) == 3
 
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0005", "boundary", "3.5.0", (">=4.0.0",)))),
         locked,
     )
     assert updates == {("boundary", "3.5.0"): "4.0.0"}
 
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0006", "direct", "1.0.0", (), (">=3.0.0",)))),
         locked,
     )
     assert updates == {("direct", "1.0.0"): "3.0.0"}
 
     # Disjoint ranges: the lower range is unreachable, the higher one is the fix.
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(
             report(vulnerability("RUSTSEC-2099-0007", "stuck", "1.3.0", (">=1.2.0, <1.3.0", ">=1.6.0")))
         ),
@@ -640,19 +750,19 @@ def test_fix_selection(module) -> None:
     assert updates == {("stuck", "1.3.0"): "1.6.0"}
 
     entry = vulnerability("RUSTSEC-2099-0008", "stuck", "1.3.0")
-    updates, unresolved, _, fixable = module.derive_fixes(json.loads(report(entry)), locked)
+    updates, unresolved, _, fixable, _ = module.derive_fixes(json.loads(report(entry)), locked)
     assert updates == {} and fixable == set()
     assert unresolved == [("RUSTSEC-2099-0008", "stuck", "1.3.0", "no-fix")]
 
     # The advisory's patched floor wins over lower unaffected pins.
     captured = module.parse_report(CAPTURED_REPORT)
-    updates, unresolved, detected, fixable = module.derive_fixes(captured, {"time": registry("0.1.45")})
+    updates, unresolved, detected, fixable, _ = module.derive_fixes(captured, {"time": registry("0.1.45")})
     assert updates == {("time", "0.1.45"): "0.2.23"}
     assert unresolved == []
     assert detected == {("RUSTSEC-2020-0071", "time", "0.1.45")} and fixable == detected
 
     # An unaffected floor still applies when no patched release is reachable.
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(
             report(vulnerability("RUSTSEC-2099-0009", "direct", "1.0.0", (">=0.9.0",), (">=2.0.0",)))
         ),
@@ -704,14 +814,14 @@ def test_blocking_classifications(module) -> None:
         )
 
     # A prerelease fix is acceptable only on the line the lock already occupies.
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0016", "line", "1.0.0-rc.1", (">=1.0.0-rc.2",)))),
         {"line": registry("1.0.0-rc.1")},
     )
     assert updates == {("line", "1.0.0-rc.1"): "1.0.0-rc.2"}
 
     # A stable candidate wins over a prerelease candidate instead of blocking.
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(
             report(vulnerability("RUSTSEC-2099-0017", "stable", "0.9.0", (">=1.0.0-rc.2", ">=1.0.0")))
         ),
@@ -720,7 +830,7 @@ def test_blocking_classifications(module) -> None:
     assert updates == {("stable", "0.9.0"): "1.0.0"}
 
     # A prerelease bump within the locked prerelease train stays allowed.
-    updates, _, _, _ = module.derive_fixes(
+    updates, _, _, _, _ = module.derive_fixes(
         json.loads(report(vulnerability("RUSTSEC-2099-0018", "train", "2.0.0-rc.1", (">=2.0.1-rc.1",)))),
         {"train": registry("2.0.0-rc.1")},
     )
@@ -756,7 +866,7 @@ def test_crate_identity(module, root: Path) -> None:
         module.RemediationError,
         "vendored@1.0.0 is locked from a local path, which no registry version pin can remediate",
         lambda: module.derive_fixes(
-            json.loads(report(vulnerability("RUSTSEC-2099-0021", "vendored", "1.0.0", (">=1.1.0",)))),
+            json.loads(report(vulnerability("RUSTSEC-2099-0021", "vendored", "1.0.0", (">=1.1.0",), source=""))),
             locked,
         ),
     )
@@ -764,7 +874,7 @@ def test_crate_identity(module, root: Path) -> None:
         module.RemediationError,
         f"patched@1.0.0 is locked from {git}",
         lambda: module.derive_fixes(
-            json.loads(report(vulnerability("RUSTSEC-2099-0022", "patched", "1.0.0", (">=1.1.0",)))),
+            json.loads(report(vulnerability("RUSTSEC-2099-0022", "patched", "1.0.0", (">=1.1.0",), source=git))),
             locked,
         ),
     )
@@ -848,6 +958,253 @@ def test_locked_instances(module, root: Path) -> None:
     assert_raises(module.RemediationError, "malformed Cargo.lock", lambda: module.locked_instances(lockfile))
 
 
+def test_optional_dependency_feature_selection(module) -> None:
+    packages = (
+        ("app", "app", "0.1.0", ""),
+        ("always", "always", "1.0.0", REGISTRY),
+        ("optional", "optional", "1.0.0", REGISTRY),
+    )
+    locked = graph_locked(packages)
+    no_defaults = cargo_graph(
+        packages,
+        ("app",),
+        {"app": (("always", ((None, None),)),)},
+    )
+    selected = module.parse_shipped_graph(no_defaults, locked)
+    assert ("always", "1.0.0", REGISTRY) in selected
+    assert ("optional", "1.0.0", REGISTRY) not in selected
+
+    with_feature = cargo_graph(
+        packages,
+        ("app",),
+        {"app": (("always", ((None, None),)), ("optional", ((None, None),)))},
+    )
+    assert ("optional", "1.0.0", REGISTRY) in module.parse_shipped_graph(
+        with_feature, locked
+    )
+
+
+def test_release_dependency_kinds(module) -> None:
+    packages = (
+        ("app", "app", "0.1.0", ""),
+        ("normal", "normal", "1.0.0", REGISTRY),
+        ("build", "build", "1.0.0", REGISTRY),
+        ("dev", "dev", "1.0.0", REGISTRY),
+    )
+    raw = cargo_graph(
+        packages,
+        ("app",),
+        {
+            "app": (
+                ("normal", ((None, None),)),
+                ("build", (("build", None),)),
+                ("dev", (("dev", None),)),
+            )
+        },
+    )
+    shipped = module.parse_shipped_graph(raw, graph_locked(packages))
+    assert shipped == {
+        ("app", "0.1.0", ""),
+        ("normal", "1.0.0", REGISTRY),
+        ("build", "1.0.0", REGISTRY),
+    }
+
+
+def test_duplicate_source_identity_graph(module) -> None:
+    alternate = "registry+https://example.invalid/index"
+    packages = (
+        ("app", "app", "0.1.0", ""),
+        ("crates-io-dupe", "dupe", "1.0.0", REGISTRY),
+        ("alternate-dupe", "dupe", "1.0.0", alternate),
+    )
+    locked = graph_locked(packages)
+    raw = cargo_graph(
+        packages,
+        ("app",),
+        {"app": (("alternate-dupe", ((None, None),)),)},
+    )
+    shipped = module.parse_shipped_graph(raw, locked)
+    assert ("dupe", "1.0.0", alternate) in shipped
+    assert ("dupe", "1.0.0", REGISTRY) not in shipped
+    updates, _, _, _, excluded = module.derive_fixes(
+        json.loads(
+            report(vulnerability("RUSTSEC-2099-0200", "dupe", "1.0.0", (">=1.1.0",)))
+        ),
+        locked,
+        shipped,
+    )
+    assert updates == {}
+    assert excluded == {("RUSTSEC-2099-0200", "dupe", "1.0.0", REGISTRY)}
+    assert_raises(
+        module.RemediationError,
+        "Cargo.lock locks from 2 sources",
+        lambda: module.derive_fixes(
+            json.loads(
+                report(
+                    vulnerability(
+                        "RUSTSEC-2099-0201",
+                        "dupe",
+                        "1.0.0",
+                        (">=1.1.0",),
+                        source=alternate,
+                    )
+                )
+            ),
+            locked,
+            shipped,
+        ),
+    )
+
+
+def test_workspace_default_members(module) -> None:
+    packages = (
+        ("member-a", "member-a", "0.1.0", ""),
+        ("member-b", "member-b", "0.1.0", ""),
+        ("dep-a", "dep-a", "1.0.0", REGISTRY),
+        ("dep-b", "dep-b", "1.0.0", REGISTRY),
+    )
+    edges = {
+        "member-a": (("dep-a", ((None, None),)),),
+        "member-b": (("dep-b", ((None, None),)),),
+    }
+    default_graph = cargo_graph(packages, ("member-a",), edges)
+    shipped = module.parse_shipped_graph(default_graph, graph_locked(packages))
+    assert ("dep-a", "1.0.0", REGISTRY) in shipped
+    assert ("dep-b", "1.0.0", REGISTRY) not in shipped
+    virtual_default_graph = cargo_graph(packages, ("member-a", "member-b"), edges)
+    shipped = module.parse_shipped_graph(virtual_default_graph, graph_locked(packages))
+    assert ("dep-a", "1.0.0", REGISTRY) in shipped
+    assert ("dep-b", "1.0.0", REGISTRY) in shipped
+    member_graph = cargo_graph(
+        packages,
+        ("member-a",),
+        edges,
+        workspace_root="/workspace",
+        current="member-b",
+    )
+    shipped = module.parse_shipped_graph(
+        member_graph, graph_locked(packages), "/workspace/member-b"
+    )
+    assert ("dep-a", "1.0.0", REGISTRY) not in shipped
+    assert ("dep-b", "1.0.0", REGISTRY) in shipped
+
+
+def test_target_conditioned_dependencies(module) -> None:
+    packages = (
+        ("app", "app", "0.1.0", ""),
+        ("unix", "unix-only", "1.0.0", REGISTRY),
+        ("windows", "windows-only", "1.0.0", REGISTRY),
+    )
+    current_target = cargo_graph(
+        packages,
+        ("app",),
+        {"app": (("unix", ((None, "cfg(unix)"),)),)},
+    )
+    shipped = module.parse_shipped_graph(current_target, graph_locked(packages))
+    assert ("unix-only", "1.0.0", REGISTRY) in shipped
+    assert ("windows-only", "1.0.0", REGISTRY) not in shipped
+    assert_raises(
+        module.RemediationError,
+        "cargo target must not be empty",
+        lambda: module.metadata_arguments([], True, ""),
+    )
+    ambiguous = cargo_graph(
+        packages,
+        ("app",),
+        {
+            "app": (
+                (
+                    "unix",
+                    ((None, "cfg(windows)"), ("dev", "cfg(unix)")),
+                ),
+            )
+        },
+    )
+    assert_raises(
+        module.RemediationError,
+        "cannot correlate mixed release/dev target conditions",
+        lambda: module.parse_shipped_graph(ambiguous, graph_locked(packages)),
+    )
+
+
+def test_feature_argument_compatibility(module) -> None:
+    assert module.metadata_arguments([], True, "host-tuple")[1:] == METADATA
+    assert module.metadata_arguments(
+        ["sources-stdin", "sinks-console"], False, "aarch64-unknown-linux-musl"
+    )[1:] == [
+        "metadata",
+        "--locked",
+        "--format-version",
+        "1",
+        "--filter-platform",
+        "aarch64-unknown-linux-musl",
+        "--no-default-features",
+        "--features",
+        "sources-stdin,sinks-console",
+    ]
+
+
+def test_vector_release_graph(module) -> None:
+    packages = (
+        ("vector", "vector", "0.57.0", ""),
+        ("h2-old", "h2", "0.3.26", REGISTRY),
+        ("h2-shipped", "h2", "0.4.15", REGISTRY),
+        ("eligible", "eligible", "1.0.0", REGISTRY),
+    )
+    locked = graph_locked(packages)
+    raw = cargo_graph(
+        packages,
+        ("vector",),
+        {"vector": (("h2-shipped", ((None, None),)), ("eligible", ((None, None),)))},
+    )
+    shipped = module.parse_shipped_graph(raw, locked)
+    vector_findings = json.loads(
+        report(
+            vulnerability("RUSTSEC-2024-0003", "h2", "0.3.26", (">=0.4.16",)),
+            vulnerability("RUSTSEC-2099-0300", "eligible", "1.0.0", (">=1.1.0",)),
+        )
+    )
+    updates, _, detected, fixable, excluded = module.derive_fixes(
+        vector_findings, locked, shipped
+    )
+    assert updates == {("eligible", "1.0.0"): "1.1.0"}
+    assert detected == fixable == {("RUSTSEC-2099-0300", "eligible", "1.0.0")}
+    assert excluded == {("RUSTSEC-2024-0003", "h2", "0.3.26", REGISTRY)}
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        seen = set()
+        module.report_unshipped(excluded, seen)
+        module.report_unshipped(excluded, seen)
+    assert (
+        output.getvalue().count("diagnostic unshipped RUSTSEC-2024-0003 in h2@0.3.26")
+        == 1
+    )
+
+
+def test_malformed_graph_fails_closed(module) -> None:
+    packages = (("app", "app", "0.1.0", ""), ("dep", "dep", "1.0.0", REGISTRY))
+    locked = graph_locked(packages)
+    assert_raises(
+        module.RemediationError,
+        "malformed cargo metadata JSON",
+        lambda: module.parse_shipped_graph("not-json", locked),
+    )
+    wrong_source = cargo_graph(
+        (
+            ("app", "app", "0.1.0", ""),
+            ("dep", "dep", "1.0.0", "registry+https://wrong.invalid"),
+        ),
+        ("app",),
+        {"app": (("dep", ((None, None),)),)},
+    )
+    assert_raises(
+        module.RemediationError,
+        "cannot be correlated to Cargo.lock",
+        lambda: module.parse_shipped_graph(wrong_source, locked),
+    )
+
+
+
 def test_clean_audit_verifies(module, root: Path) -> None:
     diagnostics = {
         "unmaintained": [warning("unmaintained", "abandoned", "1.0.0", "RUSTSEC-2099-0100")],
@@ -895,7 +1252,7 @@ def test_direct_fix(module, root: Path) -> None:
         "--language", "rust", "--dir", str(project),
         "--packages", "directvuln@1.0.0=1.2.0", "--fail-on-unapplied-pins",
     ]]
-    assert logged(case / "cargo.log") == VERIFICATION
+    assert logged(case / "cargo.log") == [METADATA, *VERIFICATION]
     assert "cargo remediation: applying directvuln@1.0.0=1.2.0" in output
     assert "omnibump: rust dependency graph analysis complete" in output
     assert 'directvuln = "1.2.0"' in project.joinpath("Cargo.toml").read_text(encoding="utf-8")
@@ -1026,7 +1383,7 @@ def test_newly_exposed_finding(module, root: Path) -> None:
         ["--language", "rust", "--dir", str(project), "--packages", "core@1.1.0=1.2.0", "--fail-on-unapplied-pins"],
     ]
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "3"
-    assert logged(case / "cargo.log") == VERIFICATION
+    assert logged(case / "cargo.log") == [METADATA, METADATA, *VERIFICATION]
     assert output.count("cargo remediation: applying") == 2
 
 
@@ -1136,7 +1493,7 @@ def test_unapplied_fix_is_loud(module, root: Path) -> None:
         ),
     )
     assert len(logged(case / "omnibump.log")) == 1
-    assert logged(case / "cargo.log") == []
+    assert logged(case / "cargo.log") == [METADATA]
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "1"
 
 
@@ -1152,12 +1509,13 @@ def test_pass_limit(module, root: Path) -> None:
     def scan(*_args, **_kwargs):
         nonlocal scans
         scans += 1
-        return scans - 1
+        return {"vulnerabilities": {"list": [{}]}, "index": scans - 1}
 
-    def derive_fixes(index, _locked):
+    def derive_fixes(report, _locked, _shipped):
+        index = report["index"]
         crate = f"crate{index}"
         identity = (f"RUSTSEC-2099-{index:04d}", crate, "1.0.0")
-        return {(crate, "1.0.0"): "1.1.0"}, [], {identity}, {identity}
+        return {(crate, "1.0.0"): "1.1.0"}, [], {identity}, {identity}, set()
 
     def run_command(arguments, _cwd, capture=False, report=False):
         assert arguments[0] == "omnibump" and report and not capture
@@ -1170,12 +1528,21 @@ def test_pass_limit(module, root: Path) -> None:
     module.verify_tool = lambda *_args, **_kwargs: None
     module.report_diagnostics = lambda *_args, **_kwargs: None
     module.scan = scan
+    module.shipped_instances = lambda *_args, **_kwargs: set()
     module.derive_fixes = derive_fixes
     module.locked_instances = lambda *_args, **_kwargs: dict(state)
     module.run_command = run_command
     module.verify = lambda *_args, **_kwargs: None
     previous_argv = sys.argv
-    sys.argv = ["remediate.py", "cargo-audit", str(project), "", str(tool_dir)]
+    sys.argv = [
+        "remediate.py",
+        "cargo-audit",
+        str(project),
+        "",
+        "true",
+        "host-tuple",
+        str(tool_dir),
+    ]
     try:
         assert_raises(
             module.RemediationError,
@@ -1187,6 +1554,7 @@ def test_pass_limit(module, root: Path) -> None:
     assert scans == limit + 1
 
 
+
 def test_argument_contract(module, root: Path) -> None:
     case = root / "arguments"
     case.mkdir()
@@ -1196,29 +1564,142 @@ def test_argument_contract(module, root: Path) -> None:
     try:
         sys.argv = ["remediate.py", "cargo-audit", str(project), ""]
         assert_raises(module.RemediationError, "usage: remediate.py", module.main)
-        sys.argv = ["remediate.py", "cargo-audit", str(case), "", str(tool_dir)]
+        sys.argv = ["remediate.py", "cargo-audit", str(case), "", "true", "host-tuple", str(tool_dir)]
         assert_raises(module.RemediationError, "no Cargo.lock in", module.main)
     finally:
         sys.argv = previous_argv
 
 
-def pipeline_script(crateroot: str = ".", features: str = "") -> str:
+def pipeline_script(
+    crateroot: str = ".",
+    features: str = "",
+    default_features: str = "true",
+    target: str = "host-tuple",
+) -> str:
     block = PIPELINE.read_text(encoding="utf-8").split("  - runs: |\n", 1)[1]
-    script = "\n".join(line.removeprefix("      ") for line in block.splitlines()) + "\n"
-    return script.replace("${{inputs.crateroot}}", crateroot).replace("${{inputs.features}}", features)
+    script = (
+        "\n".join(line.removeprefix("      ") for line in block.splitlines()) + "\n"
+    )
+    return (
+        script.replace("${{inputs.crateroot}}", crateroot)
+        .replace("${{inputs.features}}", features)
+        .replace("${{inputs.default-features}}", default_features)
+        .replace("${{inputs.target}}", target)
+    )
+
 
 
 def test_wrapper_contract(root: Path) -> None:
     case = root / "wrapper"
     case.mkdir()
+    wrapper = case / "cargo-wrapper"
+    wrapper.write_text(extract_cargo_wrapper(), encoding="utf-8")
+    wrapper.chmod(0o755)
+    real = case / "real-cargo"
+    real.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "with open(os.environ['WRAPPER_LOG'], 'a', encoding='utf-8') as stream:\n"
+        "    stream.write(json.dumps(sys.argv[1:]) + '\\n')\n",
+        encoding="utf-8",
+    )
+    real.chmod(0o755)
+    wrapper_log = case / "wrapper.log"
+    environment = dict(
+        os.environ,
+        CARGO_REMEDIATE_REAL_CARGO=str(real),
+        CARGO_REMEDIATE_DEFAULT_FEATURES="false",
+        CARGO_REMEDIATE_FEATURES="",
+        CARGO_REMEDIATE_TARGET="aarch64-unknown-linux-musl",
+        WRAPPER_LOG=str(wrapper_log),
+    )
+    for arguments in (
+        ["metadata", "--format-version", "1", "--all-features"],
+        ["+stable", "tree", "-e", "normal,build", "--all-features"],
+        ["update", "--locked"],
+        ["check", "--workspace", "--release", "--all-features"],
+    ):
+        assert (
+            subprocess.run(
+                [str(wrapper), *arguments], env=environment, check=False
+            ).returncode
+            == 0
+        )
+    environment["CARGO_REMEDIATE_DEFAULT_FEATURES"] = "true"
+    assert (
+        subprocess.run(
+            [str(wrapper), "metadata", "--format-version", "1", "--all-features"],
+            env=environment,
+            check=False,
+        ).returncode
+        == 0
+    )
+    environment["CARGO_REMEDIATE_FEATURES"] = "selected"
+    assert (
+        subprocess.run(
+            [str(wrapper), "metadata", "--features", "selected"],
+            env=environment,
+            check=False,
+        ).returncode
+        == 0
+    )
+    assert logged(wrapper_log) == [
+        [
+            "metadata",
+            "--filter-platform",
+            "aarch64-unknown-linux-musl",
+            "--locked",
+            "--format-version",
+            "1",
+            "--no-default-features",
+        ],
+        [
+            "+stable",
+            "tree",
+            "--target",
+            "aarch64-unknown-linux-musl",
+            "--locked",
+            "-e",
+            "normal,build",
+            "--no-default-features",
+        ],
+        ["update", "--locked"],
+        [
+            "check",
+            "--target",
+            "aarch64-unknown-linux-musl",
+            "--locked",
+            "--release",
+            "--no-default-features",
+        ],
+        [
+            "metadata",
+            "--filter-platform",
+            "aarch64-unknown-linux-musl",
+            "--locked",
+            "--format-version",
+            "1",
+        ],
+        [
+            "metadata",
+            "--filter-platform",
+            "aarch64-unknown-linux-musl",
+            "--locked",
+            "--features",
+            "selected",
+        ],
+    ]
     valid = case / "valid.sh"
     valid.write_text(pipeline_script(), encoding="utf-8")
     assert subprocess.run(["sh", "-n", str(valid)], capture_output=True).returncode == 0
     escaping = case / "escaping.sh"
     escaping.write_text(pipeline_script(crateroot="/"), encoding="utf-8")
-    completed = subprocess.run(["sh", str(escaping)], cwd=case, capture_output=True, text=True)
+    completed = subprocess.run(
+        ["sh", str(escaping)], cwd=case, capture_output=True, text=True
+    )
     assert completed.returncode == 1, completed
     assert "escapes workspace" in completed.stderr
+
 
 
 def test_pipeline_contract() -> None:
@@ -1250,6 +1731,14 @@ def main() -> None:
         test_crate_identity(module, root)
         test_captured_report(module)
         test_locked_instances(module, root)
+        test_optional_dependency_feature_selection(module)
+        test_release_dependency_kinds(module)
+        test_duplicate_source_identity_graph(module)
+        test_workspace_default_members(module)
+        test_target_conditioned_dependencies(module)
+        test_feature_argument_compatibility(module)
+        test_vector_release_graph(module)
+        test_malformed_graph_fails_closed(module)
         test_clean_audit_verifies(module, root)
         test_direct_fix(module, root)
         test_transitive_fix(module, root)
