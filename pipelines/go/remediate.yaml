@@ -231,55 +231,6 @@ pipeline:
               print(completed.stderr, end="", file=sys.stderr, flush=True)
           return completed.stdout if capture else ""
 
-      def analyzed_updates(root, requested, selected, workspace):
-          details = " ".join(f"{module}@{version}" for module, version in requested)
-          raw = run_go(
-              [
-                  "omnibump", "analyze", str(root), "--language", "go", "--output", "json",
-                  "--packages", details,
-              ],
-              root,
-              capture=True,
-              workspace=workspace,
-          )
-          try:
-              result = json.loads(raw)
-              recommendations = result["strategy"]["DirectUpdates"]
-          except (json.JSONDecodeError, KeyError, TypeError) as error:
-              raise RemediationError("invalid omnibump analysis output") from error
-          if not isinstance(recommendations, list):
-              raise RemediationError("invalid omnibump analysis updates")
-          expanded = dict(requested)
-          for recommendation in recommendations:
-              if not isinstance(recommendation, dict):
-                  raise RemediationError("invalid omnibump analysis update")
-              module = recommendation.get("Name")
-              version = recommendation.get("Version")
-              metadata = recommendation.get("Metadata") or {}
-              if (
-                  not isinstance(module, str)
-                  or not isinstance(version, str)
-                  or not isinstance(metadata, dict)
-                  or not compatible(module, version)
-              ):
-                  raise RemediationError("invalid omnibump analysis update")
-              reason = metadata.get("reason")
-              needed = module in expanded or (
-                  metadata.get("required_by") == "transitive dependency check"
-                  and isinstance(reason, str)
-                  and " but project has " in reason
-              )
-              if not needed:
-                  continue
-              current = selected.get(module)
-              if current is None:
-                  raise RemediationError(f"omnibump recommended module outside selected graph: {module}")
-              if version_key(current) < version_key(version):
-                  previous = expanded.get(module)
-                  if previous is None or version_key(previous) < version_key(version):
-                      expanded[module] = version
-          return sorted(expanded.items())
-
 
       def available_upgrades(root, module, current):
           values = []
@@ -507,11 +458,12 @@ pipeline:
       def reconcile(workspace_root, root, packages, workspace, vendor_patches, required_sums=()):
           module_vendor = root.joinpath("vendor").is_dir()
           workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
-          run_go(["go", "mod", "tidy"], root, workspace=workspace)
-          if workspace:
-              run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
           for module, version in required_sums:
               run_go(["go", "mod", "download", f"{module}@{version}"], root)
+          if workspace:
+              run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
+          else:
+              run_go(["go", "list", "-deps", "-mod=mod", *packages], root)
           if module_vendor and not workspace_vendor:
               run_go(["go", "mod", "vendor"], root)
           if workspace_vendor:
@@ -551,7 +503,6 @@ pipeline:
                       raise RemediationError(
                           f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                       ) from error
-                  requested = analyzed_updates(root, requested, selected, workspace)
                   apply_updates(root, requested, workspace, action="repairing compatibility")
                   passes += 1
                   previous = selected
@@ -601,7 +552,6 @@ pipeline:
                   raise RemediationError(
                       f"go remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                   )
-              requested = analyzed_updates(root, requested, selected, workspace)
               apply_updates(root, requested, workspace)
               passes += 1
               remediated.update(fixable)

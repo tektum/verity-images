@@ -133,6 +133,7 @@ def add_proxy_module(
     version: str,
     requirements: dict[str, str] | None = None,
     source: str = "package dependency\nfunc Value() int { return 1 }\n",
+    files: dict[str, str] | None = None,
 ) -> None:
     directory = proxy / module / "@v"
     directory.mkdir(parents=True, exist_ok=True)
@@ -145,7 +146,8 @@ def add_proxy_module(
     prefix = f"{module}@{version}/"
     with zipfile.ZipFile(directory / f"{version}.zip", "w") as archive:
         archive.writestr(prefix + "go.mod", mod)
-        archive.writestr(prefix + "dependency.go", source)
+        for path, content in (files or {"dependency.go": source}).items():
+            archive.writestr(prefix + path, content)
 
 
 def prepare_project(
@@ -248,7 +250,6 @@ def install_command_wrappers(root: Path) -> tuple[Path, Path, str]:
         "assert args[args.index('--language') + 1] == 'go'\n"
         "assert os.environ.get('GOTOOLCHAIN') == 'local'\n"
         "if args[0] == 'analyze':\n"
-        "    assert args[args.index('--output') + 1] == 'json'\n"
         "    packages = args[args.index('--packages') + 1].split()\n"
         "    updates = [{'Name': item.rsplit('@', 1)[0], 'Version': item.rsplit('@', 1)[1]} for item in packages]\n"
         "    updates.extend(json.loads(os.environ.get('OMNIBUMP_COUPDATES', '[]')))\n"
@@ -295,7 +296,6 @@ def run_resolver(
     omnibump_error: str | None = None,
     root_workspace: bool = False,
     vendor_patches: str = "",
-    co_updates: list[dict[str, str]] | None = None,
 ) -> tuple[Path, Path, str]:
     workspace_root, module_root, environment = prepare_project(root, workspace, vendor)
     if root_workspace:
@@ -325,8 +325,6 @@ def run_resolver(
     )
     if omnibump_error is not None:
         os.environ["OMNIBUMP_ERROR"] = omnibump_error
-    if co_updates is not None:
-        os.environ["OMNIBUMP_COUPDATES"] = json.dumps(co_updates)
     sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), vendor_patches, package]
     output = io.StringIO()
     try:
@@ -358,33 +356,144 @@ def test_reconciliation_modes(module, root: Path) -> None:
             "--packages", "example.com/dependency@v1.2.0", "--tidy=false",
         ]]
         assert "omnibump: transitive co-update analysis complete" in output
-        assert "mod tidy" in commands
         assert any(command.startswith(f"build -mod={expected_mode} -o ") and command.endswith(" .") for command in commands)
         if workspace:
             assert "work sync" in commands
             assert workspace_root.joinpath("vendor/modules.txt").is_file()
-        elif vendor:
-            assert "mod vendor" in commands
-            assert module_root.joinpath("vendor/modules.txt").is_file()
+        else:
+            assert "list -deps -mod=mod ." in commands
+            if vendor:
+                assert "mod vendor" in commands
+                assert module_root.joinpath("vendor/modules.txt").is_file()
         assert "go remediation: applying example.com/dependency@v1.2.0" in output
 
 
-def test_analyzed_graph_updates_are_applied(module, root: Path) -> None:
-    _, module_root, _ = run_resolver(
-        module,
-        root,
-        co_updates=[{"Name": "example.com/dependency", "Version": "v1.3.0"}],
-    )
-    assert "example.com/dependency v1.3.0" in module_root.joinpath("go.mod").read_text(encoding="utf-8")
+def test_requested_updates_populate_sums(module, root: Path) -> None:
+    _, module_root, _ = run_resolver(module, root)
+    assert "example.com/dependency v1.2.0" in module_root.joinpath("go.mod").read_text(encoding="utf-8")
     assert omnibump_commands(root) == [[
         "--language", "go", "--dir", str(module_root),
-        "--packages", "example.com/dependency@v1.3.0", "--tidy=false",
+        "--packages", "example.com/dependency@v1.2.0", "--tidy=false",
     ]]
     commands = root.joinpath("go.log").read_text(encoding="utf-8").splitlines()
-    download = "mod download example.com/dependency@v1.3.0"
+    download = "mod download example.com/dependency@v1.2.0"
     assert download in commands
-    assert commands.index("mod tidy") < commands.index(download) < commands.index("list -deps -mod=readonly .")
-    assert "example.com/dependency v1.3.0/go.mod" in module_root.joinpath("go.sum").read_text(encoding="utf-8")
+    assert commands.index(download) < commands.index("list -deps -mod=mod .")
+    assert commands.index("list -deps -mod=mod .") < commands.index("list -deps -mod=readonly .")
+    assert "example.com/dependency v1.2.0/go.mod" in module_root.joinpath("go.sum").read_text(encoding="utf-8")
+
+
+def test_package_scoped_reconciliation_ignores_broken_tests(module, root: Path) -> None:
+    root.joinpath("go.mod").write_text("module example.com/app\n\ngo 1.25\n", encoding="utf-8")
+    root.joinpath("main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    root.joinpath("main_test.go").write_text(
+        'package main\nimport _ "example.com/removed/package"\n',
+        encoding="utf-8",
+    )
+    environment = dict(os.environ, GOPROXY="off", GOSUMDB="off", GOTOOLCHAIN="local", GOWORK="off")
+    failed = subprocess.run(
+        ["go", "mod", "tidy"], cwd=root, env=environment, check=False, capture_output=True
+    )
+    assert failed.returncode != 0
+    previous_environ = os.environ.copy()
+    os.environ.update(environment)
+    try:
+        module.reconcile(root, root, ["."], None, [])
+    finally:
+        os.environ.clear()
+        os.environ.update(previous_environ)
+
+
+def test_requested_update_preserves_split_pattern_types(module, root: Path) -> None:
+    proxy = root / "proxy"
+    runtime = "example.com/family/runtime"
+    component = "example.com/family/component"
+    patterns = "example.com/patterns"
+    for version in ("v1.0.0", "v1.2.0"):
+        add_proxy_module(proxy, runtime, version)
+    add_proxy_module(
+        proxy,
+        patterns,
+        "v1.0.0",
+        files={"gitignore/pattern.go": "package gitignore\ntype Pattern struct{}\n"},
+    )
+    add_proxy_module(
+        proxy,
+        component,
+        "v0.1.0",
+        {patterns: "v1.0.0"},
+        files={
+            "sourceignore/source.go": (
+                'package sourceignore\nimport "example.com/patterns/gitignore"\n'
+                "func Accept(_ []gitignore.Pattern) {}\n"
+            )
+        },
+    )
+    add_proxy_module(
+        proxy,
+        component,
+        "v0.2.0",
+        files={
+            "sourceignore/source.go": (
+                "package sourceignore\ntype Pattern struct{}\nfunc Accept(_ []Pattern) {}\n"
+            )
+        },
+    )
+    project = root / "checkout"
+    project.mkdir()
+    project.joinpath("go.mod").write_text(
+        "module example.com/app\n\ngo 1.25\n\nrequire (\n"
+        f"\t{runtime} v1.0.0\n\t{component} v0.1.0\n\t{patterns} v1.0.0\n)\n",
+        encoding="utf-8",
+    )
+    project.joinpath("main.go").write_text(
+        "package main\n"
+        f'import runtime "{runtime}"\n'
+        f'import "{component}/sourceignore"\n'
+        f'import "{patterns}/gitignore"\n'
+        "func main() { sourceignore.Accept([]gitignore.Pattern{}); _ = runtime.Value() }\n",
+        encoding="utf-8",
+    )
+    environment = dict(
+        os.environ,
+        GOPROXY=proxy.resolve().as_uri(),
+        GOSUMDB="off",
+        GOMODCACHE=str(root / "cache"),
+        GOTOOLCHAIN="local",
+        GOWORK="off",
+    )
+    subprocess.run(["go", "mod", "tidy"], cwd=project, env=environment, check=True, capture_output=True)
+    vulnerable = stream(osv("GO-1", runtime, "v1.2.0"), finding("GO-1", runtime, "v1.0.0"))
+    scanner = sequence_scanner(root, [(vulnerable, 3), (stream(), 0)])
+    binary_dir, _, real_go = install_command_wrappers(root)
+    previous_environ = os.environ.copy()
+    previous_argv = sys.argv
+    os.environ.update(
+        environment,
+        PATH=f"{binary_dir}:{os.environ['PATH']}",
+        REAL_GO=real_go,
+        GO_LOG=str(root / "go.log"),
+        OMNIBUMP_LOG=str(root / "omnibump.log"),
+        OMNIBUMP_COUPDATES=json.dumps([{
+            "Name": component,
+            "Version": "v0.2.0",
+            "Metadata": {
+                "required_by": "transitive dependency check",
+                "reason": f"{runtime}@v1.2.0 requires {component}@v0.2.0 but project has v0.1.0",
+            },
+        }]),
+    )
+    sys.argv = ["remediate.py", str(scanner), str(project), str(project), "", "."]
+    try:
+        module.main()
+    finally:
+        sys.argv = previous_argv
+        os.environ.clear()
+        os.environ.update(previous_environ)
+    go_mod = project.joinpath("go.mod").read_text(encoding="utf-8")
+    assert f"{runtime} v1.2.0" in go_mod
+    assert f"{component} v0.1.0" in go_mod
+    assert omnibump_commands(root)[0][5] == f"{runtime}@v1.2.0"
 
 
 def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> None:
@@ -431,7 +540,6 @@ def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> 
 
     module.selected_modules = selected_modules
     module.reconcile = lambda *_args, **_kwargs: None
-    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     binary_dir, _, real_go = install_command_wrappers(root)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
@@ -480,152 +588,6 @@ def test_workspace_escape_rejected(module, root: Path) -> None:
         sys.argv = previous_argv
 
 
-def test_split_module_family_analysis(module, root: Path) -> None:
-    selected = {
-        "example.com/telemetry": "v1.0.0",
-        "example.com/telemetry/sdk": "v1.0.0",
-        "example.com/telemetry/sdk/log": "v0.1.0",
-    }
-    recommendations = [
-        {"Name": "example.com/telemetry/sdk", "Version": "v1.2.0"},
-        {
-            "Name": "example.com/telemetry",
-            "Version": "v1.2.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": (
-                    "example.com/telemetry/sdk@v1.2.0 requires example.com/telemetry@v1.2.0 "
-                    "but project has v1.0.0"
-                ),
-            },
-        },
-        {
-            "Name": "example.com/telemetry/sdk/log",
-            "Version": "v0.2.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": "cross-major ecosystem package: optional family alignment",
-            },
-        },
-    ]
-
-    def run_go(arguments, *_args, **kwargs):
-        assert arguments[:2] == ["omnibump", "analyze"]
-        assert kwargs["capture"]
-        return json.dumps({"strategy": {"DirectUpdates": recommendations}})
-
-    module.run_go = run_go
-    assert module.analyzed_updates(
-        root,
-        [("example.com/telemetry/sdk", "v1.2.0")],
-        selected,
-        None,
-    ) == [
-        ("example.com/telemetry", "v1.2.0"),
-        ("example.com/telemetry/sdk", "v1.2.0"),
-    ]
-
-
-def test_transitive_family_analysis(module, root: Path) -> None:
-    selected = {
-        "example.com/schema/v6": "v6.0.0",
-        "example.com/client": "v1.0.0",
-        "example.com/gateway": "v1.0.0",
-    }
-    recommendations = [
-        {"Name": "example.com/schema/v6", "Version": "v6.1.0"},
-        {
-            "Name": "example.com/client",
-            "Version": "v1.4.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": (
-                    "example.com/schema/v6@v6.1.0 requires example.com/client@v1.4.0 "
-                    "but project has v1.0.0"
-                ),
-            },
-        },
-        {
-            "Name": "example.com/gateway",
-            "Version": "v1.3.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": (
-                    "example.com/schema/v6@v6.1.0 requires example.com/gateway@v1.3.0 "
-                    "but project has v1.0.0"
-                ),
-            },
-        },
-    ]
-    module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
-    assert module.analyzed_updates(
-        root,
-        [("example.com/schema/v6", "v6.1.0")],
-        selected,
-        None,
-    ) == [
-        ("example.com/client", "v1.4.0"),
-        ("example.com/gateway", "v1.3.0"),
-        ("example.com/schema/v6", "v6.1.0"),
-    ]
-
-
-def test_unrelated_api_consumers_are_not_upgraded(module, root: Path) -> None:
-    selected = {
-        "example.com/runtime": "v1.0.0",
-        "example.com/runtime/sdk": "v1.0.0",
-        "example.com/runtime/unused": "v1.0.0",
-        "example.com/unrelated": "v1.0.0",
-        "example.com/project": "v1.0.0",
-        "example.com/project/component": "v0.3.0",
-    }
-    recommendations = [
-        {"Name": "example.com/runtime", "Version": "v1.2.0"},
-        {
-            "Name": "example.com/runtime/sdk",
-            "Version": "v1.2.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": (
-                    "example.com/runtime@v1.2.0 requires example.com/runtime/sdk@v1.2.0 "
-                    "but project has v1.0.0"
-                ),
-            },
-        },
-        {
-            "Name": "example.com/runtime/unused",
-            "Version": "v1.2.0",
-            "Metadata": {
-                "required_by": "transitive dependency check",
-                "reason": "version group with example.com/runtime (both at v1.0.0)",
-            },
-        },
-        {
-            "Name": "example.com/unrelated",
-            "Version": "v1.15.0",
-            "Metadata": {"required_by": "api compatibility check"},
-        },
-        {
-            "Name": "example.com/project",
-            "Version": "v1.9.0",
-            "Metadata": {"required_by": "api compatibility check"},
-        },
-        {
-            "Name": "example.com/project/component",
-            "Version": "v0.4.0",
-            "Metadata": {"fixes_indirect": "example.com/runtime"},
-        },
-    ]
-    module.run_go = lambda *_args, **_kwargs: json.dumps({"strategy": {"DirectUpdates": recommendations}})
-    assert module.analyzed_updates(
-        root,
-        [("example.com/runtime", "v1.2.0")],
-        selected,
-        None,
-    ) == [
-        ("example.com/runtime", "v1.2.0"),
-        ("example.com/runtime/sdk", "v1.2.0"),
-    ]
 
 
 def test_build_failure_targets_package_preserving_consumer(module, root: Path) -> None:
@@ -677,7 +639,6 @@ def test_build_failure_reconciliation_is_bounded_and_targeted(module, root: Path
     module.reconcile = reconcile
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
     module.build_failure_updates = lambda *_args, **_kwargs: [(dependency, "v1.2.0")]
-    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     module.apply_updates = apply_updates
     assert module.reconcile_with_compatibility(root, root, ["."], None, [], 0) == 1
     assert attempts == 2
@@ -707,23 +668,22 @@ def test_disjoint_vulnerability_ranges_continue_to_fixed_point(module, root: Pat
     vulnerable = module.parse_stream(stream(record, finding("GO-RANGES", dependency, "v1.0.0")))
     scans = iter((vulnerable, vulnerable, module.parse_stream(stream())))
     selected = {dependency: "v1.0.0"}
-    expanded = iter(([(dependency, "v1.3.0")], [(dependency, "v1.4.0")]))
     commands = []
     module.scan = lambda *_args, **_kwargs: next(scans)
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
-    module.analyzed_updates = lambda *_args, **_kwargs: next(expanded)
     module.reconcile = lambda *_args, **_kwargs: None
 
     def run_go(arguments, *_args, **_kwargs):
         commands.append(arguments)
         request = arguments[arguments.index("--packages") + 1]
-        selected[dependency] = request.rsplit("@", 1)[1]
+        target = request.rsplit("@", 1)[1]
+        selected[dependency] = "v1.3.0" if target == "v1.2.0" else target
         return ""
 
     module.run_go = run_go
     invoke_main(module, root)
     assert [command[command.index("--packages") + 1] for command in commands] == [
-        f"{dependency}@v1.3.0",
+        f"{dependency}@v1.2.0",
         f"{dependency}@v1.4.0",
     ]
 
@@ -805,7 +765,6 @@ def test_incompatible_candidate_reaches_omnibump(module, root: Path) -> None:
     module.scan = lambda *_args, **_kwargs: next(scans)
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
     module.reconcile = lambda *_args, **_kwargs: None
-    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
 
     def run_go(arguments, _root, capture=False, workspace=None, report=False):
         assert workspace is None
@@ -931,8 +890,7 @@ def test_omnibump_errors_are_loud(module, root: Path) -> None:
     assert root.joinpath("scan-state").read_text(encoding="utf-8") == "1"
     assert len(omnibump_commands(root)) == 1
     commands = root.joinpath("go.log").read_text(encoding="utf-8").splitlines()
-    assert "mod tidy" not in commands
-    assert not any(command.startswith("list -deps ") for command in commands)
+    assert not any(command.startswith("list -deps -mod=mod ") for command in commands)
 
 
 def invoke_main(module, root: Path) -> None:
@@ -976,7 +934,6 @@ def test_outer_pass_limit(module, root: Path) -> None:
     module.scan = scan
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
     module.derive_fixes = derive_fixes
-    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     module.run_go = run_go
     module.reconcile = lambda *_args, **_kwargs: None
     assert_raises(
@@ -1002,7 +959,6 @@ def test_outer_no_progress(module, root: Path) -> None:
         return ""
 
     module.run_go = run_go
-    module.analyzed_updates = lambda _root, requested, _selected, _workspace: requested
     module.reconcile = lambda *_args, **_kwargs: None
     assert_raises(
         module.RemediationError,
@@ -1072,6 +1028,7 @@ def test_package_inputs(module, root: Path) -> None:
     glob.mkdir()
     _, _, _ = run_resolver(module, glob, package="./...")
     commands = glob.joinpath("go.log").read_text(encoding="utf-8").splitlines()
+    assert "list -deps -mod=mod ./..." in commands
     assert "list -deps -mod=readonly ./..." in commands
     assert any(command.startswith("build -mod=readonly -o ") and command.endswith(" ./...") for command in commands)
 
@@ -1097,7 +1054,7 @@ def test_pipeline_contract() -> None:
     assert "go-remediation-evidence" not in pipeline and "lockContentHash" not in pipeline
     assert "default: ./..." in pipeline and "github.com/gorilla/websocket" not in pipeline
     assert "set -f" in pipeline and 'package.startswith("-")' in pipeline
-    assert '"omnibump", "analyze"' in pipeline and "DirectUpdates" in pipeline
+    assert '"omnibump", "analyze"' not in pipeline and "DirectUpdates" not in pipeline
     assert "vendor-patches:" in pipeline and "- patch" in pipeline
     assert "- uses: go/remediate" in ROOT.joinpath("images/etcd/melange.yaml").read_text(encoding="utf-8")
 
@@ -1119,7 +1076,15 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
-        test_analyzed_graph_updates_are_applied(module, root)
+        test_requested_updates_populate_sums(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_package_scoped_reconciliation_ignores_broken_tests(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_requested_update_preserves_split_pattern_types(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
@@ -1129,18 +1094,6 @@ def main() -> None:
         module = load_resolver(root)
         test_workspace_escape_rejected(module, root)
         test_vendor_patch_escape_rejected(module, root)
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        module = load_resolver(root)
-        test_split_module_family_analysis(module, root)
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        module = load_resolver(root)
-        test_transitive_family_analysis(module, root)
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        module = load_resolver(root)
-        test_unrelated_api_consumers_are_not_upgraded(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
