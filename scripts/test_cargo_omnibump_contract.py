@@ -167,17 +167,29 @@ def skip(reason: str) -> None:
     raise SystemExit(0)
 
 
-def image(work: Path) -> str:
-    if subprocess.run(
-        ["docker", "image", "inspect", IMAGE], capture_output=True, cwd=work
+def image(work: Path, run_process=subprocess.run) -> str:
+    if run_process(
+        ["docker", "image", "inspect", IMAGE], capture_output=True, cwd=work, timeout=TIMEOUT
     ).returncode == 0:
         return IMAGE
-    if subprocess.run(
-        ["docker", "pull", "-q", IMAGE], capture_output=True, text=True, cwd=work
+    if run_process(
+        ["docker", "pull", "-q", IMAGE], capture_output=True, text=True, cwd=work, timeout=TIMEOUT
     ).returncode == 0:
         return IMAGE
     skip(f"cannot pull pinned image {IMAGE}")
     raise AssertionError("unreachable")
+
+
+def test_image_timeouts(work: Path) -> None:
+    calls = []
+
+    def run_process(arguments, **options):
+        calls.append((arguments, options))
+        return subprocess.CompletedProcess(arguments, 1 if arguments[2] == "inspect" else 0)
+
+    assert image(work, run_process) == IMAGE
+    assert [arguments[1:3] for arguments, _ in calls] == [["image", "inspect"], ["pull", "-q"]]
+    assert [options["timeout"] for _, options in calls] == [TIMEOUT, TIMEOUT]
 
 
 def run(work: Path) -> dict[str, str]:
@@ -217,6 +229,7 @@ def run(work: Path) -> dict[str, str]:
 
 
 def main() -> None:
+    test_image_timeouts(ROOT)
     assert "@sha256:" in IMAGE and ":latest" not in IMAGE
     if not shutil.which("docker"):
         skip("docker is unavailable")
