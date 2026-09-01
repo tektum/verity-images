@@ -144,56 +144,36 @@ def main() -> None:
         (directory, gen_matrix.parse_metadata(directory / "metadata.yaml"))
         for directory in gen_matrix.image_directories()
     ]
+    enabled_image_paths = {
+        directory.relative_to(ROOT).as_posix()
+        for directory, metadata in image_catalog
+        if metadata.enabled
+    }
 
-    def shared_pipeline_policies():
+    def non_cargo_pipeline_policies():
         return (
-            (
-                gen_matrix.GO_BUMP_PATHS,
-                gen_matrix.uses_go_bump,
-                gen_matrix.GO_BUMP_SAMPLE,
-            ),
-            (
-                gen_matrix.GO_REMEDIATE_PATHS,
-                gen_matrix.uses_go_remediate,
-                gen_matrix.GO_REMEDIATE_SAMPLE,
-            ),
-            (
-                gen_matrix.COREPACK_INSTALL_PATHS,
-                gen_matrix.uses_corepack_install,
-                gen_matrix.COREPACK_INSTALL_SAMPLE,
-            ),
-            (
-                gen_matrix.CARGO_REMEDIATE_PATHS,
-                gen_matrix.uses_cargo_remediate,
-                None,
-            ),
+            (gen_matrix.GO_BUMP_PATHS, gen_matrix.GO_BUMP_SAMPLE),
+            (gen_matrix.GO_REMEDIATE_PATHS, gen_matrix.GO_REMEDIATE_SAMPLE),
+            (gen_matrix.COREPACK_INSTALL_PATHS, gen_matrix.COREPACK_INSTALL_SAMPLE),
         )
-    def expected_shared_consumers(changed_path: str) -> set[str]:
+
+    def expected_non_cargo_consumers(changed_path: str) -> set[str]:
         expected: set[str] = set()
-        for paths, uses_pipeline, configured_sample in shared_pipeline_policies():
+        for paths, configured_sample in non_cargo_pipeline_policies():
             if changed_path not in paths:
                 continue
-            consumers = {
-                directory.relative_to(ROOT).as_posix()
-                for directory, metadata in image_catalog
-                if metadata.enabled and uses_pipeline(directory)
-            }
-            if configured_sample is None:
-                if consumers:
-                    expected.add(min(consumers))
-            else:
-                assert configured_sample in consumers
-                expected.add(configured_sample)
+            assert configured_sample in enabled_image_paths
+            expected.add(configured_sample)
         return expected
 
     shared_paths = set().union(
-        *(paths for paths, _, _ in shared_pipeline_policies())
+        *(paths for paths, _ in non_cargo_pipeline_policies())
     )
     for changed_path in shared_paths:
         with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
             shared_samples = gen_matrix.generate("base")["include"]
         assert {sample["context"] for sample in shared_samples} == (
-            expected_shared_consumers(changed_path)
+            expected_non_cargo_consumers(changed_path)
         )
 
     consumer_variants = [
@@ -226,37 +206,80 @@ def main() -> None:
         content = read_bytes(path)
         return content + b"\n" if path == cargo_pipeline else content
 
-    # Model the first Cargo consumer independently of the repository catalog.
-    # Every Cargo shared path must select it, including paths shared with the
-    # Go and Corepack pipelines, without selecting an unrelated image.
-    consumer = ROOT / "images/vector"
-    unrelated = ROOT / "images/static"
-    assert gen_matrix.parse_metadata(consumer / "metadata.yaml").enabled
-    assert consumer != unrelated
+    fixed_shared_samples = {
+        configured_sample for _, configured_sample in non_cargo_pipeline_policies()
+    }
+    enabled_candidates = sorted(
+        (
+            (directory, metadata)
+            for directory, metadata in image_catalog
+            if metadata.enabled
+            and directory.relative_to(ROOT).as_posix() not in fixed_shared_samples
+        ),
+        key=lambda item: item[0].relative_to(ROOT).as_posix(),
+    )
+    assert len(enabled_candidates) >= 3
+    cargo_catalog = enabled_candidates[:2]
+    unrelated, unrelated_metadata = enabled_candidates[2]
+    cargo_consumers = tuple(directory for directory, _ in cargo_catalog)
+    cargo_candidate_paths = tuple(
+        directory.relative_to(ROOT).as_posix() for directory in cargo_consumers
+    )
+    unrelated_path = unrelated.relative_to(ROOT).as_posix()
+    assert cargo_candidate_paths[0] < cargo_candidate_paths[1]
+
+    for active_consumers in ((), cargo_consumers[:1], cargo_consumers):
+        active_consumer_set = set(active_consumers)
+        active_paths = {
+            directory.relative_to(ROOT).as_posix() for directory in active_consumers
+        }
+        expected_cargo = {min(active_paths)} if active_paths else set()
+        with patch.object(
+            gen_matrix,
+            "uses_cargo_remediate",
+            side_effect=lambda directory: directory in active_consumer_set,
+        ):
+            for changed_path in gen_matrix.CARGO_REMEDIATE_PATHS:
+                with patch.object(
+                    gen_matrix, "changed_paths", return_value={changed_path}
+                ):
+                    cargo_samples = gen_matrix.generate("base")["include"]
+                selected = {sample["context"] for sample in cargo_samples}
+                assert selected == (
+                    expected_non_cargo_consumers(changed_path) | expected_cargo
+                )
+                assert selected & set(cargo_candidate_paths) == expected_cargo
+                assert unrelated_path not in selected
+
+    cargo_consumer_set = set(cargo_consumers)
     with patch.object(
         gen_matrix,
         "uses_cargo_remediate",
-        side_effect=lambda directory: directory == consumer,
+        side_effect=lambda directory: directory in cargo_consumer_set,
     ):
-        for changed_path in gen_matrix.CARGO_REMEDIATE_PATHS:
-            with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
-                cargo_samples = gen_matrix.generate("base")["include"]
-            selected = {sample["context"] for sample in cargo_samples}
-            assert selected == expected_shared_consumers(changed_path)
-            assert consumer.relative_to(ROOT).as_posix() in selected
-            assert unrelated.relative_to(ROOT).as_posix() not in selected
-
-        consumer_flavors = gen_matrix.parse_metadata(consumer / "metadata.yaml").flavors
+        consumer_variants = [
+            (directory, flavor)
+            for directory, metadata in cargo_catalog
+            for flavor in metadata.flavors
+        ]
         consumer_fingerprints = {
-            flavor: gen_matrix.input_digest(consumer, flavor) for flavor in consumer_flavors
+            variant: gen_matrix.input_digest(*variant) for variant in consumer_variants
         }
-        unrelated_fingerprint = gen_matrix.input_digest(unrelated, "plain")
+        unrelated_variants = [
+            (unrelated, flavor) for flavor in unrelated_metadata.flavors
+        ]
+        unrelated_fingerprints = {
+            variant: gen_matrix.input_digest(*variant) for variant in unrelated_variants
+        }
         with patch.object(Path, "read_bytes", changed_cargo_pipeline):
             assert all(
-                gen_matrix.input_digest(consumer, flavor) != consumer_fingerprints[flavor]
-                for flavor in consumer_flavors
+                gen_matrix.input_digest(*variant) != consumer_fingerprints[variant]
+                for variant in consumer_variants
             )
-            assert gen_matrix.input_digest(unrelated, "plain") == unrelated_fingerprint
+            assert all(
+                gen_matrix.input_digest(*variant) == unrelated_fingerprints[variant]
+                for variant in unrelated_variants
+            )
     with patch.object(
         gen_matrix, "changed_paths", return_value={".github/workflows/build.yaml"}
     ):
