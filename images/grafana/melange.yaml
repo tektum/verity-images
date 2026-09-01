@@ -80,21 +80,11 @@ pipeline:
         -e 's|errs.Err()|stderrors.Join(errs...)|' \
         third_party/loki/pkg/util/metrics_helper.go
       sed -i \
-        -e 's|parser.ParseExpr(rawExpr)|parser.NewParser(parser.Options{}).ParseExpr(rawExpr)|' \
-        pkg/promlib/models/scope.go
-      sed -i \
-        -e 's|parser.ParseExpr(expr)|parser.NewParser(parser.Options{}).ParseExpr(expr)|' \
-        pkg/promlib/resource/resource.go
-      old='parser.ParseMetricSelector(labelSelector)'
-      new='parser.NewParser(parser.Options{}).ParseMetricSelector(labelSelector)'
-      sed -i "s|$old|$new|" pkg/tsdb/grafana-pyroscope-datasource/instance.go
-      sed -i \
         -e 's|promql_parser.ParseMetric(lbs)|promql_parser.NewParser(promql_parser.Options{}).ParseMetric(lbs)|' \
         third_party/loki/pkg/logql/syntax/parser.go
       go mod edit -require=github.com/grafana/tempo@v2.10.3+incompatible
       go mod edit -replace=github.com/grafana/tempo=./third_party/tempo
       go mod edit -replace=github.com/grafana/loki/v3=./third_party/loki
-      go mod edit -replace=github.com/olekukonko/tablewriter=github.com/olekukonko/tablewriter@v0.0.5
       go mod edit -dropreplace=github.com/prometheus/prometheus
   - uses: go/remediate
     with:
