@@ -48,11 +48,11 @@ pipeline:
         github.com/sigstore/sigstore-go@v1.3.0
         github.com/go-git/go-git/v5@v5.19.2
         github.com/sigstore/fulcio@v1.8.8
-        go.opentelemetry.io/otel/sdk/log@v0.20.0
+        go.opentelemetry.io/otel/sdk/log@v0.22.0
         github.com/Azure/go-ntlmssp@v0.1.1
         github.com/containerd/containerd@v1.7.34
         github.com/moby/spdystream@v0.5.1
-        google.golang.org/grpc@v1.82.1
+        google.golang.org/grpc@v1.83.2
         oras.land/oras-go/v2@v2.6.2
   - uses: go/remediate
     with:
