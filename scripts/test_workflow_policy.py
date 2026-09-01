@@ -144,37 +144,97 @@ def main() -> None:
         (directory, gen_matrix.parse_metadata(directory / "metadata.yaml"))
         for directory in gen_matrix.image_directories()
     ]
-    enabled_image_paths = {
-        directory.relative_to(ROOT).as_posix()
+
+    fixed_pipeline_policies = (
+        (gen_matrix.GO_BUMP_PATHS, gen_matrix.GO_BUMP_SAMPLE),
+        (gen_matrix.GO_REMEDIATE_PATHS, gen_matrix.GO_REMEDIATE_SAMPLE),
+        (gen_matrix.COREPACK_INSTALL_PATHS, gen_matrix.COREPACK_INSTALL_SAMPLE),
+    )
+    fixed_shared_samples = {
+        configured_sample for _, configured_sample in fixed_pipeline_policies
+    }
+    enabled_catalog = [
+        (directory, metadata)
         for directory, metadata in image_catalog
         if metadata.enabled
+    ]
+    enabled_metadata = {
+        directory.relative_to(ROOT).as_posix(): metadata
+        for directory, metadata in enabled_catalog
     }
 
-    def non_cargo_pipeline_policies():
-        return (
-            (gen_matrix.GO_BUMP_PATHS, gen_matrix.GO_BUMP_SAMPLE),
-            (gen_matrix.GO_REMEDIATE_PATHS, gen_matrix.GO_REMEDIATE_SAMPLE),
-            (gen_matrix.COREPACK_INSTALL_PATHS, gen_matrix.COREPACK_INSTALL_SAMPLE),
-        )
+    def variants_for(context: str) -> set[tuple[str, str]]:
+        assert context in enabled_metadata
+        return {(context, flavor) for flavor in enabled_metadata[context].flavors}
 
-    def expected_non_cargo_consumers(changed_path: str) -> set[str]:
-        expected: set[str] = set()
-        for paths, configured_sample in non_cargo_pipeline_policies():
-            if changed_path not in paths:
-                continue
-            assert configured_sample in enabled_image_paths
-            expected.add(configured_sample)
-        return expected
+    def global_shared_variants() -> set[tuple[str, str]]:
+        samples = {
+            (metadata.track, flavor): gen_matrix.GLOBAL_SAMPLES.get(
+                (metadata.track, flavor)
+            )
+            or min(
+                candidate.relative_to(ROOT).as_posix()
+                for candidate, candidate_metadata in enabled_catalog
+                if candidate_metadata.track == metadata.track
+                and flavor in candidate_metadata.flavors
+            )
+            for _, metadata in enabled_catalog
+            for flavor in metadata.flavors
+        }
+        return {
+            (context, flavor) for (_, flavor), context in samples.items()
+        }
+
+    def shared_policy_contributions(
+        changed_path: str,
+    ) -> list[set[tuple[str, str]]]:
+        contributions: list[set[tuple[str, str]]] = []
+        if changed_path in gen_matrix.GLOBAL_PATHS:
+            contributions.append(global_shared_variants())
+        if changed_path in gen_matrix.OPENSSL_FIPS_PATHS:
+            contributions.append(
+                {
+                    (directory.relative_to(ROOT).as_posix(), flavor)
+                    for directory, metadata in enabled_catalog
+                    if metadata.track == "wolfi"
+                    for flavor in metadata.flavors
+                    if gen_matrix.uses_openssl_fips_provider(directory, flavor)
+                }
+            )
+        for paths, configured_sample in fixed_pipeline_policies:
+            if changed_path in paths:
+                contributions.append(variants_for(configured_sample))
+        if changed_path in gen_matrix.CARGO_REMEDIATE_PATHS:
+            cargo_sample = min(
+                (
+                    directory.relative_to(ROOT).as_posix()
+                    for directory, _ in enabled_catalog
+                    if gen_matrix.uses_cargo_remediate(directory)
+                ),
+                default="",
+            )
+            contributions.append(variants_for(cargo_sample) if cargo_sample else set())
+        return contributions
+
+    def expected_shared_variants(changed_path: str) -> set[tuple[str, str]]:
+        return set().union(*shared_policy_contributions(changed_path))
+
+    def assert_shared_matrix(changed_path: str) -> list[tuple[str, str]]:
+        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
+            entries = gen_matrix.generate("base")["include"]
+        actual = [(entry["context"], entry["flavor"]) for entry in entries]
+        assert len(actual) == len(set(actual))
+        assert set(actual) == expected_shared_variants(changed_path)
+        return actual
 
     shared_paths = set().union(
-        *(paths for paths, _ in non_cargo_pipeline_policies())
+        gen_matrix.GLOBAL_PATHS,
+        gen_matrix.OPENSSL_FIPS_PATHS,
+        gen_matrix.CARGO_REMEDIATE_PATHS,
+        *(paths for paths, _ in fixed_pipeline_policies),
     )
     for changed_path in shared_paths:
-        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
-            shared_samples = gen_matrix.generate("base")["include"]
-        assert {sample["context"] for sample in shared_samples} == (
-            expected_non_cargo_consumers(changed_path)
-        )
+        assert_shared_matrix(changed_path)
 
     consumer_variants = [
         (directory, flavor)
@@ -206,24 +266,26 @@ def main() -> None:
         content = read_bytes(path)
         return content + b"\n" if path == cargo_pipeline else content
 
-    fixed_shared_samples = {
-        configured_sample for _, configured_sample in non_cargo_pipeline_policies()
-    }
-    enabled_candidates = sorted(
+    multi_flavor_candidates = sorted(
         (
             (directory, metadata)
-            for directory, metadata in image_catalog
-            if metadata.enabled
+            for directory, metadata in enabled_catalog
+            if len(metadata.flavors) > 1
             and directory.relative_to(ROOT).as_posix() not in fixed_shared_samples
         ),
         key=lambda item: item[0].relative_to(ROOT).as_posix(),
     )
-    assert len(enabled_candidates) >= 3
-    cargo_catalog = enabled_candidates[:2]
-    unrelated, unrelated_metadata = enabled_candidates[2]
+    assert len(multi_flavor_candidates) >= 2
+    cargo_catalog = multi_flavor_candidates[:2]
     cargo_consumers = tuple(directory for directory, _ in cargo_catalog)
     cargo_candidate_paths = tuple(
         directory.relative_to(ROOT).as_posix() for directory in cargo_consumers
+    )
+    unrelated, unrelated_metadata = next(
+        (directory, metadata)
+        for directory, metadata in enabled_catalog
+        if directory not in cargo_consumers
+        and directory.relative_to(ROOT).as_posix() not in fixed_shared_samples
     )
     unrelated_path = unrelated.relative_to(ROOT).as_posix()
     assert cargo_candidate_paths[0] < cargo_candidate_paths[1]
@@ -233,24 +295,79 @@ def main() -> None:
         active_paths = {
             directory.relative_to(ROOT).as_posix() for directory in active_consumers
         }
-        expected_cargo = {min(active_paths)} if active_paths else set()
+        expected_cargo = variants_for(min(active_paths)) if active_paths else set()
         with patch.object(
             gen_matrix,
             "uses_cargo_remediate",
             side_effect=lambda directory: directory in active_consumer_set,
         ):
             for changed_path in gen_matrix.CARGO_REMEDIATE_PATHS:
-                with patch.object(
-                    gen_matrix, "changed_paths", return_value={changed_path}
-                ):
-                    cargo_samples = gen_matrix.generate("base")["include"]
-                selected = {sample["context"] for sample in cargo_samples}
-                assert selected == (
-                    expected_non_cargo_consumers(changed_path) | expected_cargo
+                selected = set(assert_shared_matrix(changed_path))
+                cargo_candidate_variants = set().union(
+                    *(variants_for(path) for path in cargo_candidate_paths)
                 )
-                assert selected & set(cargo_candidate_paths) == expected_cargo
-                assert unrelated_path not in selected
+                assert selected & cargo_candidate_variants == expected_cargo
+                assert not selected & variants_for(unrelated_path)
 
+    cargo_consumer_set = set(cargo_consumers)
+    with patch.object(
+        gen_matrix,
+        "uses_cargo_remediate",
+        side_effect=lambda directory: directory in cargo_consumer_set,
+    ):
+        cargo_only = set(assert_shared_matrix("pipelines/cargo/remediate.yaml"))
+        max_sample_mutation = variants_for(max(cargo_candidate_paths))
+        assert cargo_only != max_sample_mutation
+
+        go_cargo_path = "pipelines/go/remediate.yaml"
+        with patch.object(
+            gen_matrix,
+            "CARGO_REMEDIATE_PATHS",
+            gen_matrix.CARGO_REMEDIATE_PATHS | {go_cargo_path},
+        ):
+            contributions = shared_policy_contributions(go_cargo_path)
+            selected = set(assert_shared_matrix(go_cargo_path))
+            assert len(contributions) == 2
+            for omitted in range(len(contributions)):
+                without_one = set().union(
+                    *(contribution for index, contribution in enumerate(contributions) if index != omitted)
+                )
+                assert selected != without_one
+
+        build_candidate_contributions = shared_policy_contributions(
+            "scripts/build_candidate.sh"
+        )
+        build_candidate_variants = set(
+            assert_shared_matrix("scripts/build_candidate.sh")
+        )
+        assert len(build_candidate_contributions) == 4
+        for omitted in range(len(build_candidate_contributions)):
+            without_one = set().union(
+                *(
+                    contribution
+                    for index, contribution in enumerate(build_candidate_contributions)
+                    if index != omitted
+                )
+            )
+            assert build_candidate_variants != without_one
+
+    go_cargo_path = "pipelines/go/remediate.yaml"
+    overlapping_consumer = ROOT / gen_matrix.GO_REMEDIATE_SAMPLE
+    with (
+        patch.object(
+            gen_matrix,
+            "CARGO_REMEDIATE_PATHS",
+            gen_matrix.CARGO_REMEDIATE_PATHS | {go_cargo_path},
+        ),
+        patch.object(
+            gen_matrix,
+            "uses_cargo_remediate",
+            side_effect=lambda directory: directory == overlapping_consumer,
+        ),
+    ):
+        overlapping = assert_shared_matrix(go_cargo_path)
+    for variant in variants_for(gen_matrix.GO_REMEDIATE_SAMPLE):
+        assert overlapping.count(variant) == 1
     cargo_consumer_set = set(cargo_consumers)
     with patch.object(
         gen_matrix,
