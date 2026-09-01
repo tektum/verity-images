@@ -131,38 +131,70 @@ def main() -> None:
         "pipelines/go/remediate.yaml",
         "scripts/build_candidate.sh",
     }
-    assert gen_matrix.uses_go_remediate(ROOT / gen_matrix.GO_REMEDIATE_SAMPLE)
-    for changed_path in gen_matrix.GO_BUMP_PATHS:
-        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
-            go_bump_samples = gen_matrix.generate("base")["include"]
-        expected = {gen_matrix.GO_BUMP_SAMPLE}
-        if changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
-            expected.add(gen_matrix.COREPACK_INSTALL_SAMPLE)
-        if changed_path in gen_matrix.GO_REMEDIATE_PATHS:
-            expected.add(gen_matrix.GO_REMEDIATE_SAMPLE)
-        assert {sample["context"] for sample in go_bump_samples} == expected
     assert gen_matrix.COREPACK_INSTALL_PATHS == {
         "pipelines/corepack/install.yaml",
         "scripts/build_candidate.sh",
     }
-    for changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
+    assert gen_matrix.CARGO_REMEDIATE_PATHS == {
+        "pipelines/cargo/remediate.yaml",
+        "scripts/build_candidate.sh",
+    }
+
+    image_catalog = [
+        (directory, gen_matrix.parse_metadata(directory / "metadata.yaml"))
+        for directory in gen_matrix.image_directories()
+    ]
+
+    def shared_pipeline_policies():
+        return (
+            (
+                gen_matrix.GO_BUMP_PATHS,
+                gen_matrix.uses_go_bump,
+                gen_matrix.GO_BUMP_SAMPLE,
+            ),
+            (
+                gen_matrix.GO_REMEDIATE_PATHS,
+                gen_matrix.uses_go_remediate,
+                gen_matrix.GO_REMEDIATE_SAMPLE,
+            ),
+            (
+                gen_matrix.COREPACK_INSTALL_PATHS,
+                gen_matrix.uses_corepack_install,
+                gen_matrix.COREPACK_INSTALL_SAMPLE,
+            ),
+            (
+                gen_matrix.CARGO_REMEDIATE_PATHS,
+                gen_matrix.uses_cargo_remediate,
+                None,
+            ),
+        )
+    def expected_shared_consumers(changed_path: str) -> set[str]:
+        expected: set[str] = set()
+        for paths, uses_pipeline, configured_sample in shared_pipeline_policies():
+            if changed_path not in paths:
+                continue
+            consumers = {
+                directory.relative_to(ROOT).as_posix()
+                for directory, metadata in image_catalog
+                if metadata.enabled and uses_pipeline(directory)
+            }
+            if configured_sample is None:
+                if consumers:
+                    expected.add(min(consumers))
+            else:
+                assert configured_sample in consumers
+                expected.add(configured_sample)
+        return expected
+
+    shared_paths = set().union(
+        *(paths for paths, _, _ in shared_pipeline_policies())
+    )
+    for changed_path in shared_paths:
         with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
-            corepack_samples = gen_matrix.generate("base")["include"]
-        expected = {gen_matrix.COREPACK_INSTALL_SAMPLE}
-        if changed_path in gen_matrix.GO_BUMP_PATHS:
-            expected.add(gen_matrix.GO_BUMP_SAMPLE)
-        if changed_path in gen_matrix.GO_REMEDIATE_PATHS:
-            expected.add(gen_matrix.GO_REMEDIATE_SAMPLE)
-        assert {sample["context"] for sample in corepack_samples} == expected
-    for changed_path in gen_matrix.GO_REMEDIATE_PATHS:
-        with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
-            go_remediate_samples = gen_matrix.generate("base")["include"]
-        expected = {gen_matrix.GO_REMEDIATE_SAMPLE}
-        if changed_path in gen_matrix.GO_BUMP_PATHS:
-            expected.add(gen_matrix.GO_BUMP_SAMPLE)
-        if changed_path in gen_matrix.COREPACK_INSTALL_PATHS:
-            expected.add(gen_matrix.COREPACK_INSTALL_SAMPLE)
-        assert {sample["context"] for sample in go_remediate_samples} == expected
+            shared_samples = gen_matrix.generate("base")["include"]
+        assert {sample["context"] for sample in shared_samples} == (
+            expected_shared_consumers(changed_path)
+        )
 
     consumer_variants = [
         (directory, flavor)
@@ -187,50 +219,33 @@ def main() -> None:
             for variant in consumer_variants
         )
 
-    assert gen_matrix.CARGO_REMEDIATE_PATHS == {
-        "pipelines/cargo/remediate.yaml",
-        "scripts/build_candidate.sh",
-    }
     cargo_pipeline = ROOT / "pipelines/cargo/remediate.yaml"
     assert cargo_pipeline.is_file()
-    # Conditional invariant: no consumer today means a shared cargo change
-    # selects nothing, and the deterministic consumer sample takes over as soon
-    # as an image adopts the pipeline.
-    cargo_consumers = [
-        directory.relative_to(ROOT).as_posix()
-        for directory in gen_matrix.image_directories()
-        if gen_matrix.parse_metadata(directory / "metadata.yaml").enabled
-        and gen_matrix.uses_cargo_remediate(directory)
-    ]
-    with patch.object(
-        gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
-    ):
-        cargo_samples = gen_matrix.generate("base")["include"]
-    assert {sample["context"] for sample in cargo_samples} == (
-        {min(cargo_consumers)} if cargo_consumers else set()
-    )
 
     def changed_cargo_pipeline(path: Path) -> bytes:
         content = read_bytes(path)
         return content + b"\n" if path == cargo_pipeline else content
 
-    # A simulated consumer keeps the once-adopted behavior covered while the
-    # catalog has none, and stays valid after the first real consumer lands.
-    consumer = ROOT / (min(cargo_consumers) if cargo_consumers else gen_matrix.GO_REMEDIATE_SAMPLE)
-    unrelated = ROOT / gen_matrix.GO_BUMP_SAMPLE
+    # Model the first Cargo consumer independently of the repository catalog.
+    # Every Cargo shared path must select it, including paths shared with the
+    # Go and Corepack pipelines, without selecting an unrelated image.
+    consumer = ROOT / "images/vector"
+    unrelated = ROOT / "images/static"
+    assert gen_matrix.parse_metadata(consumer / "metadata.yaml").enabled
     assert consumer != unrelated
     with patch.object(
         gen_matrix,
         "uses_cargo_remediate",
         side_effect=lambda directory: directory == consumer,
     ):
-        with patch.object(
-            gen_matrix, "changed_paths", return_value={"pipelines/cargo/remediate.yaml"}
-        ):
-            cargo_samples = gen_matrix.generate("base")["include"]
-        assert {sample["context"] for sample in cargo_samples} == {
-            consumer.relative_to(ROOT).as_posix()
-        }
+        for changed_path in gen_matrix.CARGO_REMEDIATE_PATHS:
+            with patch.object(gen_matrix, "changed_paths", return_value={changed_path}):
+                cargo_samples = gen_matrix.generate("base")["include"]
+            selected = {sample["context"] for sample in cargo_samples}
+            assert selected == expected_shared_consumers(changed_path)
+            assert consumer.relative_to(ROOT).as_posix() in selected
+            assert unrelated.relative_to(ROOT).as_posix() not in selected
+
         consumer_flavors = gen_matrix.parse_metadata(consumer / "metadata.yaml").flavors
         consumer_fingerprints = {
             flavor: gen_matrix.input_digest(consumer, flavor) for flavor in consumer_flavors
