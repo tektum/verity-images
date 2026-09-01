@@ -3,7 +3,7 @@ package:
   # renovate: datasource=github-tags depName=bitnami/sealed-secrets versioning=semver-coerced
   version: "0.39.1"
   # First Verity-owned source build for the existing Sealed Secrets v0 family.
-  epoch: 0
+  epoch: 1
   description: Bitnami Sealed Secrets controller and kubeseal CLI
   copyright:
     - license: Apache-2.0
@@ -28,6 +28,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -38,10 +39,10 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: af17f829e4647765d5c576837261bf44863c96cc
 
-  - uses: go/bump
+  - uses: go/remediate
     with:
-      deps: golang.org/x/text@v0.39.0
-
+      modroot: .
+      packages: './cmd/controller ./cmd/kubeseal'
   - uses: go/build
     with:
       go-package: go-1.26
