@@ -292,21 +292,23 @@ def audit_arguments(lockfile: Path, database: Path) -> list[str]:
 
 def fake_scanner(
     case: Path,
-    outputs: list[tuple[str, int]],
+    outputs: list[tuple[str | bytes, int]],
     lockfile: Path,
     database: Path,
     version: str = "cargo-audit 0.22.2",
-    stderr: str = "",
+    stderr: str | bytes = "",
 ) -> Path:
     scanner = case / "cargo-audit"
     paths = []
     statuses = []
     for index, (raw, status) in enumerate(outputs):
         path = case / f"scan-{index}.json"
-        path.write_text(raw, encoding="utf-8")
+        path.write_bytes(raw.encode() if isinstance(raw, str) else raw)
         paths.append(str(path))
         statuses.append(status)
     state = case / "scan-state"
+    stderr_path = case / "scan-stderr"
+    stderr_path.write_bytes(stderr.encode() if isinstance(stderr, str) else stderr)
     scanner.write_text(
         "#!/usr/bin/env python3\n"
         "import json, os, pathlib, sys\n"
@@ -326,8 +328,8 @@ def fake_scanner(
         f"paths = {paths!r}\n"
         f"statuses = {statuses!r}\n"
         "index = min(index, len(paths) - 1)\n"
-        "sys.stdout.write(pathlib.Path(paths[index]).read_text())\n"
-        f"sys.stderr.write({stderr!r})\n"
+        "sys.stdout.buffer.write(pathlib.Path(paths[index]).read_bytes())\n"
+        f"sys.stderr.buffer.write(pathlib.Path({str(stderr_path)!r}).read_bytes())\n"
         "raise SystemExit(statuses[index])\n",
         encoding="utf-8",
     )
@@ -406,7 +408,7 @@ def test_scan_contract(module, root: Path) -> None:
     _, workdir, database = prepare_tool_dir(case)
     vulnerable = report(vulnerability("RUSTSEC-2099-0001", "directvuln", "1.0.0", (">=1.2.0",)))
 
-    def run(raw: str, status: int, version: str = "cargo-audit 0.22.2", stderr: str = ""):
+    def run(raw: str | bytes, status: int, version: str = "cargo-audit 0.22.2", stderr: str | bytes = ""):
         scanner = fake_scanner(case, [(raw, status)], lockfile, database, version, stderr)
         return module.scan(scanner, lockfile, workdir, database)
 
@@ -442,6 +444,18 @@ def test_scan_contract(module, root: Path) -> None:
     assert_raises(module.RemediationError, "invalid cargo-audit vulnerability summary", lambda: run(inconsistent, 1))
     settings_missing = json.dumps({"vulnerabilities": {"found": False, "count": 0, "list": []}, "warnings": {}})
     assert_raises(module.RemediationError, "has no settings section", lambda: run(settings_missing, 0))
+    assert_raises(
+        module.RemediationError,
+        "malformed cargo-audit UTF-8 output",
+        lambda: run(b"\xff", 0),
+    )
+    oversized = b"x" * (module.MAX_OUTPUT_BYTES + 1)
+    assert_raises(module.RemediationError, "cargo-audit stdout exceeds 32 MiB", lambda: run(oversized, 0))
+    assert_raises(
+        module.RemediationError,
+        "cargo-audit stderr exceeds 32 MiB",
+        lambda: run(report(), 0, stderr=oversized),
+    )
 
     scanner = fake_scanner(case, [(report(), 0)], lockfile, database)
     module.verify_tool(scanner)
@@ -476,6 +490,11 @@ def test_policy_overrides_rejected(module, root: Path) -> None:
         message = caught(module, lambda scanner=scanner: module.scan(scanner, lockfile, workdir, database))
         assert "cargo-audit policy overrides rejected" in message, message
         assert next(iter(override)) in message, message
+    missing_severity = dict(DEFAULT_SETTINGS)
+    missing_severity.pop("severity")
+    scanner = fake_scanner(case, [(report(settings=missing_severity), 0)], lockfile, database)
+    message = caught(module, lambda: module.scan(scanner, lockfile, workdir, database))
+    assert "cargo-audit policy overrides rejected" in message and "severity" in message, message
 
 
 def test_audit_isolation(module, root: Path) -> None:
@@ -706,6 +725,15 @@ def test_blocking_classifications(module) -> None:
         {"train": registry("2.0.0-rc.1")},
     )
     assert updates == {("train", "2.0.0-rc.1"): "2.0.1-rc.1"}
+    for version in ("1.3.0-rc.1", "2.0.0-rc.1"):
+        entry = vulnerability("RUSTSEC-2099-0040", "train", "1.2.0-rc.1", (f">={version}",))
+        assert_raises(
+            module.RemediationError,
+            "known fix for RUSTSEC-2099-0040 in train@1.2.0-rc.1 requires a prerelease",
+            lambda entry=entry: module.derive_fixes(
+                json.loads(report(entry)), {"train": registry("1.2.0-rc.1")}
+            ),
+        )
 
 
 def test_crate_identity(module, root: Path) -> None:
@@ -1017,6 +1045,21 @@ def test_no_progress(module, root: Path) -> None:
         ),
     )
 
+def test_persisted_vulnerable_identity(module, root: Path) -> None:
+    vulnerable = findings(vulnerability("RUSTSEC-2099-0041", "partial", "1.0.0", (">=1.2.0",)))
+    assert_raises(
+        module.RemediationError,
+        "vulnerable crate versions remain after remediation: RUSTSEC-2099-0041:partial@1.0.0",
+        lambda: remediate(
+            module,
+            root,
+            "partial-update",
+            [vulnerable, vulnerable],
+            (("app", "0.1.0"), ("partial", "1.0.0"), ("partial", "1.0.0")),
+            environment={"OMNIBUMP_MODE": "partial"},
+        ),
+    )
+
 
 def test_downgrade_rejected(module, root: Path) -> None:
     vulnerable = findings(vulnerability("RUSTSEC-2099-0012", "regressed", "1.0.0", (">=1.2.0",)))
@@ -1216,6 +1259,7 @@ def main() -> None:
         test_coordinated_multi_crate(module, root)
         test_newly_exposed_finding(module, root)
         test_no_progress(module, root)
+        test_persisted_vulnerable_identity(module, root)
         test_downgrade_rejected(module, root)
         test_unapplied_fix_is_loud(module, root)
         test_argument_contract(module, root)
