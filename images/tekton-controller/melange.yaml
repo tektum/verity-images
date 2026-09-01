@@ -37,17 +37,17 @@ pipeline:
   - uses: go/bump
     with:
       deps: |-
-        github.com/Azure/azure-sdk-for-go/sdk/azidentity@v1.6.0-beta.4.0.20240610221955-50774cd97099
+        github.com/Azure/azure-sdk-for-go/sdk/azidentity@v1.14.1
         github.com/containerd/containerd@v1.7.34
         github.com/go-jose/go-jose/v3@v3.0.5
         github.com/go-jose/go-jose/v4@v4.1.4
         github.com/google/go-containerregistry@v0.22.0
-        github.com/hashicorp/go-retryablehttp@v0.7.7
-        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.43.0
-        go.opentelemetry.io/otel/sdk@v1.43.0
-        golang.org/x/net@v0.57.0
-        golang.org/x/text@v0.40.0
-        google.golang.org/grpc@v1.82.1
+        github.com/hashicorp/go-retryablehttp@v0.7.8
+        go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.46.0
+        go.opentelemetry.io/otel/sdk@v1.46.0
+        golang.org/x/net@v0.58.0
+        golang.org/x/text@v0.41.0
+        google.golang.org/grpc@v1.83.2
 
   - runs: |
       install -d "${{targets.destdir}}/ko-app"
