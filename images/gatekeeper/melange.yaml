@@ -1,7 +1,7 @@
 package:
   name: verity-gatekeeper-3.19
   version: "3.19.3"
-  epoch: 0
+  epoch: 1
   description: Policy controller for Kubernetes admission and audit
   copyright:
     - license: Apache-2.0
@@ -22,6 +22,7 @@ environment:
     packages:
       - busybox
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOTOOLCHAIN: local
@@ -32,22 +33,20 @@ pipeline:
       repository: https://github.com/open-policy-agent/gatekeeper
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - uses: go/bump
-    with:
-      deps: |-
-        github.com/google/cel-go@v0.29.0
-        go.opentelemetry.io/otel@v1.43.0
-        go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp@v1.43.0
-        go.opentelemetry.io/otel/metric@v1.43.0
-        go.opentelemetry.io/otel/sdk@v1.43.0
-        go.opentelemetry.io/otel/sdk/metric@v1.43.0
-        go.opentelemetry.io/otel/trace@v1.43.0
-        golang.org/x/net@v0.56.0
-        golang.org/x/text@v0.39.0
-        google.golang.org/grpc@v1.82.1
   - runs: |
-      sed -i 's/UnversionedLib(ext.TwoVarComprehensions)/ext.TwoVarComprehensions()/' \
-        vendor/k8s.io/apiserver/pkg/cel/environment/base.go
+      patch_file=vendor/k8s.io/apiserver/pkg/cel/environment/base.go
+      patched_file=$(mktemp)
+      cp "$patch_file" "$patched_file"
+      sed -i 's/UnversionedLib(ext.TwoVarComprehensions)/ext.TwoVarComprehensions()/' "$patched_file"
+      diff -u --label "a/$patch_file" --label "b/$patch_file" \
+        "$patch_file" "$patched_file" > cel-vendor.patch || test $? -eq 1
+      rm -f "$patched_file"
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+      vendor-patches: cel-vendor.patch
+  - runs: |
       go build -mod=vendor -p 4 -trimpath \
         -ldflags="-s -w -X github.com/open-policy-agent/gatekeeper/v3/pkg/version.Version=v${{package.version}}" \
         -o manager .
