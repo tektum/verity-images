@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf '%s\n' 'package version not found' >&2; exit 1; }
 container="verity-rqlite-test-$$"
 volume="verity-rqlite-data-$$"
 
@@ -42,7 +45,7 @@ start() {
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/rqlite/data"]' ] || fail 'unexpected command'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected user'
 [ "$(docker image inspect --format '{{json .Config.Volumes}}' "$image")" = '{"/rqlite/data":{}}' ] || fail 'missing /rqlite/data volume'
-docker run --rm "$image" -version 2>&1 | grep -Fq 'rqlited v8.43.4' || fail 'unexpected rqlite version'
+docker run --rm "$image" -version 2>&1 | grep -Fq "rqlited v$expected_version" || fail 'unexpected rqlite version'
 
 docker run --name "$container" -d --read-only --user 65532 "$image" >/dev/null
 sleep 2
