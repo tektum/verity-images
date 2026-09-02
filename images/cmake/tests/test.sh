@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^\"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 
 cleanup() {
@@ -29,7 +32,7 @@ chmod -R a+rX "$work"
 chmod a+rwx "$work/build" "$work/invalid-build"
 
 version=$(docker run --rm "$image" --version)
-printf '%s\n' "$version" | grep -Fxq 'cmake version 4.1.6'
+printf '%s\n' "$version" | grep -Fxq "cmake version $expected_version"
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/cmake"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
 
