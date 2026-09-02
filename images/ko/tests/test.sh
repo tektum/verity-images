@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^versions: \[\([^]]*\)\]$/\1/p' "$(dirname "$0")/../metadata.yaml")
+expected_version=$(sed -n 's/^[[:space:]]*versions:[[:space:]]*\[\([^]]*\)\][[:space:]]*$/\1/p' "$(dirname "$0")/../metadata.yaml")
 [ -n "$expected_version" ] || { echo 'metadata version not found' >&2; exit 1; }
 work=$(mktemp -d)
 built=
