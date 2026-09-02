@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
 work=$(mktemp -d)
 container=
-source_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+source_dir=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
 source_image=$(awk '$1 == "image:" {print $2}' "$source_dir/source.yaml")
 source_tag=${source_image##*:}
 expected_version=${source_tag#v}
@@ -47,7 +47,7 @@ docker run --rm --network none "$image" manager --help >"$work/manager-help.log"
 grep -q 'Start the Elastic Cloud on Kubernetes operator' "$work/manager-help.log" || fail 'manager help output is invalid'
 
 docker run --rm --network none "$image" >"$work/startup.log" 2>&1 || fail 'default manager startup failed'
-grep -q '"service.version":"'$expected_version'+' "$work/startup.log" || fail 'default command did not start ECK manager'
+grep -q '"service.version":"'"$expected_version"'+' "$work/startup.log" || fail 'default command did not start ECK manager'
 grep -q 'Required configuration missing' "$work/startup.log" || fail 'manager did not reach configuration validation'
 
 # ECK reports Cobra argument errors on stderr while preserving its upstream zero exit status.
