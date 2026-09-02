@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^\"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 tmp=$(mktemp -d)
 
 cleanup() {
@@ -18,7 +21,7 @@ test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" =
   printf '%s\n' 'unexpected image entrypoint' >&2
   exit 1
 }
-docker run --rm --entrypoint /usr/bin/vector "$image" --version | grep -F 'vector 0.57.0' >/dev/null || {
+docker run --rm --entrypoint /usr/bin/vector "$image" --version | grep -F "vector $expected_version" >/dev/null || {
   printf '%s\n' 'unexpected Vector version' >&2
   exit 1
 }
