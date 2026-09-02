@@ -3,7 +3,9 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
-expected_runtime='17.0.19-internal+0-wolfi-r4'
+metadata=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)/metadata.yaml
+expected_version=$(awk '$1 == "versions:" { gsub(/[\[\]]/, "", $2); print $2; exit }' "$metadata")
+[ -n "$expected_version" ]
 
 case "$flavor" in
   plain|jre) ;;
@@ -28,8 +30,12 @@ property() {
     { name = $1; sub(/^[[:space:]]*/, "", name); if (name == key) print $2 }
   '
 }
-[ "$(property java.runtime.version)" = "$expected_runtime" ]
-[ "$(property java.specification.version)" = 17 ]
+runtime=$(property java.runtime.version)
+case "$runtime" in
+  "$expected_version".*) ;;
+  *) exit 1 ;;
+esac
+[ "$(property java.specification.version)" = "$expected_version" ]
 [ "$(property file.encoding)" = UTF-8 ]
 [ "$(property user.language)" = en ]
 [ "$(property user.country)" = US ]
