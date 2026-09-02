@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container="verity-alertmanager-test-$$"
 config=$(mktemp)
 invalid_config=$(mktemp)
@@ -15,7 +18,7 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/alertmanager"]' ]
 case $(docker image inspect --format '{{json .Config.Cmd}}' "$image") in null|'[]') ;; *) exit 1;; esac
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ]
-docker run --rm "$image" --version | grep -Fq 'version 0.33.1'
+docker run --rm "$image" --version | grep -Fq "version $expected_version"
 
 cat >"$config" <<'EOF'
 route:
