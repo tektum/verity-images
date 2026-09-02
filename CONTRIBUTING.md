@@ -201,11 +201,10 @@ while minor and major transitions require review. Renovate still offers those
 transitions instead of silently filtering them through duplicated
 `allowedVersions` strings.
 
-Explicit Go dependency overrides are different from upstream image versions.
-A Go module major upgrade changes its import path and requires a source
-migration, so Renovate does not update `go/bump` or versioned `go get`
-overrides across majors. Same-major override updates remain eligible. Source
-image major releases still open reviewable pull requests.
+Versioned `go get` overrides are compatibility constraints rather than upstream
+image versions. A Go module major upgrade changes its import path and requires a
+source migration, so Renovate only updates these overrides within their current
+major version. Source image major releases still open reviewable pull requests.
 
 ### Rust vulnerability remediation
 

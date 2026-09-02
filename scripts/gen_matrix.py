@@ -28,12 +28,10 @@ GLOBAL_PATHS: Final = {
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
 }
-GO_BUMP_PATHS: Final = {"pipelines/go/bump.yaml", "scripts/build_candidate.sh"}
 GO_REMEDIATE_PATHS: Final = {"pipelines/go/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}
 CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
-GO_BUMP_SAMPLE: Final = "images/kube-bench"
 GO_REMEDIATE_SAMPLE: Final = "images/rqlite"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 OPENSSL_FIPS_PATHS: Final = {
@@ -297,8 +295,6 @@ def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
     return config.is_file() and "openssl-fips-provider=3.1.2-r3" in config.read_text(encoding="utf-8")
 
 
-def uses_go_bump(directory: Path) -> bool:
-    return any("uses: go/bump" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
 
 
 def uses_go_remediate(directory: Path) -> bool:
@@ -325,8 +321,6 @@ def input_digest(directory: Path, flavor: str) -> str:
     shared_paths = set(GLOBAL_PATHS)
     if uses_openssl_fips_provider(directory, flavor):
         shared_paths |= OPENSSL_FIPS_PATHS
-    if uses_go_bump(directory):
-        shared_paths |= GO_BUMP_PATHS
     if uses_go_remediate(directory):
         shared_paths |= GO_REMEDIATE_PATHS
     if uses_corepack_install(directory):
@@ -411,7 +405,6 @@ def generate(
     )
     global_changed = bool(changed & GLOBAL_PATHS)
     openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
-    go_bump_changed = bool(changed & GO_BUMP_PATHS)
     go_remediate_changed = bool(changed & GO_REMEDIATE_PATHS)
     corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
     cargo_remediate_changed = bool(changed & CARGO_REMEDIATE_PATHS)
@@ -481,7 +474,6 @@ def generate(
             if catalog_path is None and base_ref and not directly_changed and (
                 not provider_changed
                 and not (published_catalog is not None and (metadata.name, tag_version) not in published)
-                and not (go_bump_changed and relative == GO_BUMP_SAMPLE)
                 and not (go_remediate_changed and relative == GO_REMEDIATE_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
                 and not (cargo_remediate_changed and relative == cargo_remediate_sample)

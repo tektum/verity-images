@@ -6,7 +6,6 @@ import os
 import shutil
 import subprocess
 import tempfile
-import textwrap
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -17,78 +16,6 @@ def executable(path: Path, contents: str) -> None:
     path.chmod(0o755)
 
 
-def test_go_bump_cap(root: Path) -> None:
-    pipeline = (ROOT / "pipelines/go/bump.yaml").read_text(encoding="utf-8")
-    script = textwrap.dedent(pipeline.split("  - runs: |\n", 1)[1])
-    module = root / "module"
-    binaries = root / "bin"
-    module.mkdir()
-    binaries.mkdir()
-    log = root / "omnibump.log"
-    executable(
-        binaries / "go",
-        """#!/bin/sh
-set -eu
-if [ "$1 $2" = 'env GOVERSION' ]; then
-  printf 'go1.26.7\\n'
-elif [ "$1 $2 ${3:-}" = 'work edit -json' ]; then
-  printf '{"Use":[\n{"DiskPath":"one"},\n{"DiskPath":"two"}\n]}\n'
-elif [ "$1 $2" = 'work edit' ] || [ "$1 $2" = 'work sync' ] || [ "$1 $2" = 'work vendor' ]; then
-  printf '%s %s %s\n' "$1" "$2" "${3:-}" >>"$OMNIBUMP_LOG"
-elif [ "$1" = -C ]; then
-  [ -f "$2/go.mod" ] || exit 1
-  printf '%s %s %s %s %s\\n' "$1" "$2" "$3" "$4" "${5:-}" >>"$OMNIBUMP_LOG"
-else
-  [ -f go.mod ] || exit 1
-  printf '%s\\n' "$*" >>"$OMNIBUMP_LOG"
-fi
-""",
-    )
-    executable(
-        binaries / "omnibump",
-        "#!/bin/sh\nprintf '%s\\n' \"$*\" >>\"$OMNIBUMP_LOG\"\n",
-    )
-
-    replacements = {
-        "${{inputs.modroot}}": str(module),
-        "${{inputs.deps}}": "example.com/module@v1.2.3",
-        "${{inputs.replaces}}": "",
-        "${{inputs.tidy}}": "true",
-        "${{inputs.show-diff}}": "false",
-        "${{inputs.tidy-compat}}": "",
-        "${{inputs.work}}": "false",
-    }
-    environment = os.environ | {
-        "PATH": f"{binaries}:{os.environ['PATH']}",
-        "OMNIBUMP_LOG": str(log),
-    }
-    module.joinpath("go.mod").write_text("module example.com/root\n", encoding="utf-8")
-    for requested, expected in (("", "1.26.7"), ("1.27.0", "1.26.7"), ("1.25.0", "1.25.0")):
-        log.write_text("", encoding="utf-8")
-        rendered = script.replace("${{inputs.go-version}}", requested)
-        for source, target in replacements.items():
-            rendered = rendered.replace(source, target)
-        subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
-        calls = log.read_text(encoding="utf-8")
-        assert f"mod edit -go={expected}" in calls
-        assert "--language go --dir . --packages example.com/module@v1.2.3" in calls
-
-    module.joinpath("go.mod").unlink()
-    for name in ("one", "two"):
-        child = module / name
-        child.mkdir()
-        child.joinpath("go.mod").write_text(f"module example.com/{name}\\n", encoding="utf-8")
-    module.joinpath("go.work").write_text("go 1.26\\nuse ./one\\nuse ./two\\n", encoding="utf-8")
-    log.write_text("", encoding="utf-8")
-    rendered = script.replace("${{inputs.go-version}}", "1.27.0")
-    for source, target in replacements.items():
-        rendered = rendered.replace(source, target)
-    subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
-    calls = log.read_text(encoding="utf-8")
-    assert "work edit -go=1.26.7\n" in calls
-    for name in ("one", "two"):
-        assert f"-C {name} mod edit -go=1.26.7" in calls
-    assert "gobump" not in pipeline
 
 
 def test_smoke_versions(root: Path) -> None:
@@ -135,9 +62,7 @@ esac
 
 def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        test_go_bump_cap(root)
-        test_smoke_versions(root)
+        test_smoke_versions(Path(temporary))
     print("passed scripts/test_shared_ci.py")
 
 

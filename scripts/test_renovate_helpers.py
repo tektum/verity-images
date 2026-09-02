@@ -10,7 +10,6 @@ import shutil
 import subprocess
 import tempfile
 import textwrap
-import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -25,158 +24,8 @@ def pipeline_script(path: Path) -> str:
     return textwrap.dedent(path.read_text(encoding="utf-8").split("  - runs: |\n", 1)[1])
 
 
-def test_go_reconciliation(root: Path) -> None:
-    script = pipeline_script(ROOT / "pipelines/go/bump.yaml")
-    module = root / "go-module"
-    binaries = root / "go-bin"
-    module.mkdir()
-    binaries.mkdir()
-    log = root / "go.log"
-    executable(
-        binaries / "go",
-        """#!/bin/sh
-set -eu
-printf '%s\n' "$*" >>"$GO_LOG"
-case "$*" in
-  'env GOVERSION') printf 'go1.26.7\n' ;;
-  'env GOWORK') printf '%s\n' "${GOWORK:-}" ;;
-  'work edit -json') printf '{"Use":[\n{"DiskPath":"one"},\n{"DiskPath":"two"}\n]}\n' ;;
-esac
-""",
-    )
-    executable(binaries / "omnibump", "#!/bin/sh\nprintf 'omnibump %s\\n' \"$*\" >>\"$GO_LOG\"\n")
-    replacements = {
-        "${{inputs.modroot}}": str(module),
-        "${{inputs.go-version}}": "",
-        "${{inputs.deps}}": "example.com/dependency@v1.2.3",
-        "${{inputs.replaces}}": "",
-        "${{inputs.tidy}}": "true",
-        "${{inputs.show-diff}}": "false",
-        "${{inputs.tidy-compat}}": "1.25",
-        "${{inputs.work}}": "false",
-    }
-    rendered = script
-    for source, target in replacements.items():
-        rendered = rendered.replace(source, target)
-    environment = os.environ | {"PATH": f"{binaries}:{os.environ['PATH']}", "GO_LOG": str(log)}
-
-    module.joinpath("go.mod").write_text("module example.com/root\n", encoding="utf-8")
-    module.joinpath("go.sum").write_text("sum\n", encoding="utf-8")
-    module.joinpath("vendor").mkdir()
-    subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
-    calls = log.read_text(encoding="utf-8")
-    assert "-C . mod tidy -compat=1.25" in calls
-    assert "mod vendor" in calls
-
-    log.write_text("", encoding="utf-8")
-    untidy = (
-        rendered.replace("--tidy=true", "--tidy=false")
-        .replace('[ "true" = true ]', '[ "false" = true ]')
-        .replace('[ "true" = false ]', '[ "false" = false ]')
-    )
-    subprocess.run(["sh", "-eu", "-c", untidy], check=True, env=environment)
-    calls = log.read_text(encoding="utf-8")
-    assert "mod tidy" not in calls
-    assert calls.count("-C . list -mod=mod all") == 1, calls
-    assert calls.count("-C . list -mod=readonly all") == 1
-    assert "mod vendor" in calls
-
-    log.write_text("", encoding="utf-8")
-    module.joinpath("go.mod").unlink()
-    module.joinpath("vendor").rmdir()
-    for child in ("one", "two"):
-        module.joinpath(child).mkdir()
-        module.joinpath(child, "go.mod").write_text(f"module example.com/{child}\n", encoding="utf-8")
-    module.joinpath("go.work").write_text("go 1.26\nuse ./one\nuse ./two\n", encoding="utf-8")
-    module.joinpath("vendor").mkdir()
-    subprocess.run(["sh", "-eu", "-c", rendered], check=True, env=environment)
-    calls = log.read_text(encoding="utf-8")
-    assert "work sync" in calls
-    assert "-C one mod tidy -compat=1.25" in calls
-    assert "-C two mod tidy -compat=1.25" in calls
-    assert "work vendor" in calls
-
-    log.write_text("", encoding="utf-8")
-    untidy_workspace = (
-        rendered.replace("--tidy=true", "--tidy=false")
-        .replace('[ "true" = true ]', '[ "false" = true ]')
-        .replace('[ "true" = false ]', '[ "false" = false ]')
-    )
-    subprocess.run(["sh", "-eu", "-c", untidy_workspace], check=True, env=environment)
-    calls = log.read_text(encoding="utf-8")
-    assert "mod tidy" not in calls
-    assert calls.count("-C one list -mod=mod all") == 1
-    assert calls.count("-C two list -mod=mod all") == 1
-    assert "work sync" in calls
-    assert "work vendor" in calls
 
 
-def test_go_reconciliation_completes_sums(root: Path) -> None:
-    script = pipeline_script(ROOT / "pipelines/go/bump.yaml")
-    module = root / "checkout/cluster-autoscaler"
-    proxy = root / "proxy"
-    binaries = root / "go-bin"
-    module.mkdir(parents=True)
-    module.joinpath("vendor").mkdir()
-    binaries.mkdir()
-
-    def proxy_module(name: str, version: str, go_mod: str, files: dict[str, str]) -> None:
-        versions = proxy / name / "@v"
-        versions.mkdir(parents=True)
-        versions.joinpath("list").write_text(f"{version}\n", encoding="utf-8")
-        versions.joinpath(f"{version}.mod").write_text(go_mod, encoding="utf-8")
-        versions.joinpath(f"{version}.info").write_text(
-            f'{{"Version":"{version}","Time":"2020-01-01T00:00:00Z"}}\n', encoding="utf-8"
-        )
-        with zipfile.ZipFile(versions / f"{version}.zip", "w") as archive:
-            prefix = f"{name}@{version}/"
-            archive.writestr(f"{prefix}go.mod", go_mod)
-            for relative, contents in files.items():
-                archive.writestr(f"{prefix}{relative}", contents)
-
-    proxy_module(
-        "example.com/transitive",
-        "v1.0.0",
-        "module example.com/transitive\ngo 1.20\n",
-        {"pkg/pkg.go": "package pkg\nconst Value = 1\n"},
-    )
-    proxy_module(
-        "example.com/direct",
-        "v1.0.0",
-        "module example.com/direct\ngo 1.20\nrequire example.com/transitive v1.0.0\n",
-        {"direct.go": 'package direct\nimport "example.com/transitive/pkg"\nvar Value = pkg.Value\n'},
-    )
-    module.joinpath("go.mod").write_text(
-        "module example.com/autoscaler\ngo 1.20\nrequire example.com/direct v1.0.0\n", encoding="utf-8"
-    )
-    module.joinpath("main.go").write_text(
-        'package main\nimport _ "example.com/direct"\nfunc main() {}\n', encoding="utf-8"
-    )
-    executable(binaries / "omnibump", "#!/bin/sh\nexit 0\n")
-    replacements = {
-        "${{inputs.modroot}}": str(module),
-        "${{inputs.go-version}}": "",
-        "${{inputs.deps}}": "example.com/direct@v1.0.0",
-        "${{inputs.replaces}}": "",
-        "${{inputs.tidy}}": "false",
-        "${{inputs.show-diff}}": "false",
-        "${{inputs.tidy-compat}}": "",
-        "${{inputs.work}}": "false",
-    }
-    for source, target in replacements.items():
-        script = script.replace(source, target)
-    environment = os.environ | {
-        "PATH": f"{binaries}:{os.environ['PATH']}",
-        "GOPROXY": proxy.as_uri(),
-        "GOSUMDB": "off",
-    }
-
-    subprocess.run(["sh", "-eu", "-c", script], check=True, env=environment)
-    subprocess.run(["go", "list", "-mod=readonly", "all"], cwd=module, check=True, env=environment)
-    subprocess.run(["go", "list", "-mod=vendor", "all"], cwd=module, check=True, env=environment)
-    sums = module.joinpath("go.sum").read_text(encoding="utf-8")
-    assert "example.com/transitive v1.0.0 h1:" in sums
-    assert module.joinpath("vendor/example.com/transitive/pkg/pkg.go").is_file()
 
 
 def load_checksum_updater():
@@ -291,7 +140,11 @@ def test_corepack_install(root: Path) -> None:
 def test_renovate_configuration() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     managers = renovate["customManagers"]
-    assert any(manager.get("datasourceTemplate") == "go" and "go/bump" in manager["matchStrings"][0] for manager in managers)
+    assert all(
+        "go/bump" not in match
+        for manager in managers
+        for match in manager.get("matchStrings", [])
+    )
     assert any(manager.get("datasourceTemplate") == "crate" and "--precise" in manager["matchStrings"][0] for manager in managers)
     source_manager = next(
         manager for manager in managers if manager.get("datasourceTemplate") == "git-tags" and "package\\.version" in manager["matchStrings"][0]
@@ -311,11 +164,6 @@ def test_renovate_configuration() -> None:
     }
     assert "matchUpdateTypes" not in image_rule
     assert all("postUpgradeTasks" not in rule for rule in renovate["packageRules"])
-    go_manager = next(manager for manager in managers if manager.get("datasourceTemplate") == "go")
-    assert go_manager["managerFilePatterns"] == [r"/^images/[^/]+(?:/[^/]+)?/melange\.yaml$/"]
-    assert go_manager["matchStringsStrategy"] == "recursive"
-    assert "- uses: go/bump" in go_manager["matchStrings"][0]
-    assert "(?<depName>" in go_manager["matchStrings"][1]
 
     go_get_manager = next(
         manager for manager in managers if "argo-workflows|gitlab-runner" in manager["managerFilePatterns"][0]
@@ -434,11 +282,6 @@ def test_checksum_workflow() -> None:
 
 
 def main() -> None:
-    with tempfile.TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        test_go_reconciliation(root)
-    with tempfile.TemporaryDirectory() as temporary:
-        test_go_reconciliation_completes_sums(Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         test_checksum_updater(Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
