@@ -161,6 +161,8 @@ def test_module_scan_contract(module, root: Path) -> None:
     finally:
         module.MAX_OUTPUT_BYTES = previous_limit
 
+    assert module.version_key("v19.03.0") == module.version_key("v19.3.0")
+
 
 def test_fix_selection(module) -> None:
     dependency = "example.com/dependency"

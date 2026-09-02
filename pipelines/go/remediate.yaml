@@ -55,7 +55,7 @@ pipeline:
       MAX_REMEDIATION_PASSES = 8
       MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
       VERSION = re.compile(
-          r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+          r"^v([0-9]+)\.([0-9]+)\.([0-9]+)"
           r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
       )
 
@@ -474,14 +474,23 @@ pipeline:
           path.write_text("\n".join(lines) + ("\n" if content.endswith("\n") else ""), encoding="utf-8")
 
       def selected_modules(root, workspace=None):
+          module_file = root / "go.mod"
+          module_directives = language_directives(module_file)
+          workspace_directives = language_directives(workspace) if workspace else None
+          try:
+              if workspace:
+                  run_go(["go", "work", "sync"], workspace.parent, workspace=workspace)
+                  command = ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"]
+              else:
+                  command = ["go", "list", "-mod=mod", "-m", "-f", "{{.Path}} {{.Version}}", "all"]
+              output = run_go(command, root, capture=True, workspace=workspace)
+          finally:
+              restore_language_directives(module_file, module_directives)
+              if workspace_directives is not None:
+                  restore_language_directives(workspace, workspace_directives)
           return {
               fields[0]: fields[1]
-              for line in run_go(
-                  ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"],
-                  root,
-                  capture=True,
-                  workspace=workspace,
-              ).splitlines()
+              for line in output.splitlines()
               if len(fields := line.split()) == 2
           }
 
