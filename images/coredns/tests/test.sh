@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container="verity-coredns-test-$$"
 config=$(mktemp)
 invalid=$(mktemp)
@@ -29,7 +32,7 @@ chmod 644 "$config" "$invalid"
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/coredns"]'
 test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["-conf","/Corefile"]'
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532
-docker run --rm --entrypoint /coredns "$image" -version | grep -Fq CoreDNS-1.14.6
+docker run --rm --entrypoint /coredns "$image" -version | grep -Fq "CoreDNS-$expected_version"
 
 if docker run --rm "$image" >/dev/null 2>&1; then
   printf '%s\n' 'missing Corefile unexpectedly succeeded' >&2
