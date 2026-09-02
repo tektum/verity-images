@@ -3,7 +3,9 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
-expected_runtime='21.0.11+-wolfi-r3'
+metadata_dir=$(dirname "$0")/..
+supported_version=$(awk -F'[][]' '/^versions:/ {print $2; exit}' "$metadata_dir/metadata.yaml")
+expected_specification=${supported_version%%.*}
 case "$flavor" in
   plain|jre) ;;
   *) exit 2 ;;
@@ -13,8 +15,8 @@ esac
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ]
 env=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image")
 for value in \
-  'JAVA_HOME=/usr/lib/jvm/java-21-openjdk' \
-  'PATH=/usr/lib/jvm/java-21-openjdk/bin:/usr/bin:/bin' \
+  "JAVA_HOME=/usr/lib/jvm/java-$expected_specification-openjdk" \
+  "PATH=/usr/lib/jvm/java-$expected_specification-openjdk/bin:/usr/bin:/bin" \
   'LANG=en_US.UTF-8' \
   'LC_ALL=en_US.UTF-8' \
   'TZ=UTC'; do
@@ -27,8 +29,12 @@ property() {
     { name = $1; sub(/^[[:space:]]*/, "", name); if (name == key) print $2 }
   '
 }
-[ "$(property java.runtime.version)" = "$expected_runtime" ]
-[ "$(property java.specification.version)" = 21 ]
+runtime_version=$(property java.runtime.version)
+case "$runtime_version" in
+  "$expected_specification".*-wolfi-r*) ;;
+  *) exit 1 ;;
+esac
+[ "$(property java.specification.version)" = "$expected_specification" ]
 [ "$(property file.encoding)" = UTF-8 ]
 [ "$(property user.language)" = en ]
 [ "$(property user.country)" = US ]
