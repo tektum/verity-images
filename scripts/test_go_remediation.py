@@ -71,8 +71,9 @@ def fake_scanner(root: Path, raw: str, status: int, expected: list[str] | None =
     scanner = root / "govulncheck"
     scanner.write_text(
         "#!/usr/bin/env python3\n"
-        "import sys\n"
+        "import os, sys\n"
         f"assert sys.argv[1:] == {expected or ['-json', '.']!r}\n"
+        "assert os.environ.get('GOFLAGS') == '-mod=mod'\n"
         f"sys.stdout.write({raw!r})\n"
         f"sys.stderr.write({stderr!r})\n"
         f"raise SystemExit({status})\n",
@@ -654,6 +655,78 @@ def test_workspace_transitive_candidate_uses_module_root(module, root: Path) -> 
     assert tuple(line for line in go_work.splitlines() if line.startswith(("go ", "toolchain "))) == original_workspace_directives
 
 
+def test_workspace_sync_preserves_all_language_directives(module, root: Path) -> None:
+    workspace_root = root / "workspace-directives"
+    app = workspace_root / "app"
+    sibling = workspace_root / "sibling"
+    app.mkdir(parents=True)
+    sibling.mkdir()
+    app.joinpath("go.mod").write_text(
+        "module example.com/app\n\ngo 1.25 // app policy\n\ntoolchain go1.25.0 // app pin\n",
+        encoding="utf-8",
+    )
+    app.joinpath("main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    sibling.joinpath("go.mod").write_text(
+        "module example.com/sibling\n\ngo 1.24 // sibling policy\n\ntoolchain go1.24.0 // sibling pin\n",
+        encoding="utf-8",
+    )
+    sibling.joinpath("main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    workspace = workspace_root / "go.work"
+    workspace.write_text(
+        "go 1.25 // workspace policy\n\ntoolchain go1.25.0 // workspace pin\n\nuse (\n\t./app\n\t./sibling\n)\n",
+        encoding="utf-8",
+    )
+    files = (app / "go.mod", sibling / "go.mod", workspace)
+    originals = {path: path.read_text(encoding="utf-8") for path in files}
+    real_run_go = module.run_go
+
+    def mutating_run_go(arguments, *args, **kwargs):
+        output = real_run_go(arguments, *args, **kwargs)
+        if arguments == ["go", "work", "sync"]:
+            for path in files:
+                lines = path.read_text(encoding="utf-8").splitlines()
+                lines = [
+                    "go 1.26" if line.startswith("go ") else
+                    "toolchain go1.26.0" if line.startswith("toolchain ") else line
+                    for line in lines
+                ]
+                path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return output
+
+    module.run_go = mutating_run_go
+    try:
+        module.selected_modules(app, workspace)
+        assert {path: path.read_text(encoding="utf-8") for path in files} == originals
+        module.reconcile(workspace_root, app, ["."], workspace, [])
+        assert {path: path.read_text(encoding="utf-8") for path in files} == originals
+    finally:
+        module.run_go = real_run_go
+
+
+def test_stale_workspace_language_version_rejected(module, root: Path) -> None:
+    workspace_root = root / "stale-workspace"
+    app = workspace_root / "app"
+    sibling = workspace_root / "sibling"
+    app.mkdir(parents=True)
+    sibling.mkdir()
+    app.joinpath("go.mod").write_text("module example.com/app\n\ngo 1.25\n", encoding="utf-8")
+    app.joinpath("main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    sibling.joinpath("go.mod").write_text("module example.com/sibling\n\ngo 1.26\n", encoding="utf-8")
+    sibling.joinpath("main.go").write_text("package main\nfunc main() {}\n", encoding="utf-8")
+    workspace = workspace_root / "go.work"
+    workspace.write_text("go 1.25\n\nuse (\n\t./app\n\t./sibling\n)\n", encoding="utf-8")
+    files = (app / "go.mod", sibling / "go.mod", workspace)
+    originals = {path: path.read_text(encoding="utf-8") for path in files}
+    expected = "go.work Go version is older than workspace module requirement: 1.25.0 < 1.26.0"
+    assert_raises(module.RemediationError, expected, lambda: module.selected_modules(app, workspace))
+    assert_raises(
+        module.RemediationError,
+        expected,
+        lambda: module.reconcile(workspace_root, app, ["."], workspace, []),
+    )
+    assert {path: path.read_text(encoding="utf-8") for path in files} == originals
+
+
 def test_workspace_root_module_supported(module, root: Path) -> None:
     workspace_root, module_root, _ = run_resolver(module, root, vendor=True, root_workspace=True)
     assert workspace_root == module_root
@@ -1170,6 +1243,11 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_workspace_transitive_candidate_uses_module_root(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_workspace_sync_preserves_all_language_directives(module, root)
+        test_stale_workspace_language_version_rejected(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
