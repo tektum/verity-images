@@ -285,6 +285,13 @@ pipeline:
                           if active and version_key(current) < version_key(candidate):
                               candidates.append(candidate)
                           active = False
+                      elif "last_affected" in event or "limit" in event:
+                          name = "last_affected" if "last_affected" in event else "limit"
+                          boundary = event[name]
+                          if not isinstance(boundary, str):
+                              raise RemediationError(f"invalid {name} version")
+                          version_key("v" + boundary.removeprefix("v"))
+                          active = False
                       else:
                           raise RemediationError("OSV event has no boundary")
           compatible_fixes = [candidate for candidate in candidates if compatible(module, candidate)]

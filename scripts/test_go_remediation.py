@@ -203,6 +203,28 @@ def test_fix_selection(module) -> None:
     assert updates == {} and fixable == set()
     assert unresolved == [("GO-4", dependency, "v1.3.0", "no-fix")]
 
+    for boundary in ("last_affected", "limit"):
+        identifier = f"GO-{boundary.upper()}"
+        record = {
+            "osv": {
+                "id": identifier,
+                "affected": [{
+                    "package": {"name": dependency, "ecosystem": "Go"},
+                    "ranges": [{
+                        "type": "SEMVER",
+                        "events": [{"introduced": "0"}, {boundary: "1.3.0"}],
+                    }],
+                }],
+            },
+        }
+        updates, unresolved, detected, fixable = module.derive_fixes(
+            module.parse_stream(stream(record, finding(identifier, dependency, "v1.2.0"))),
+            {dependency: "v1.2.0"},
+        )
+        assert updates == {} and fixable == set()
+        assert unresolved == [(identifier, dependency, "v1.2.0", "no-fix")]
+        assert detected == {(identifier, dependency)}
+
 
 def add_proxy_module(
     proxy: Path,
