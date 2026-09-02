@@ -31,8 +31,12 @@ property() {
 }
 runtime=$(property java.runtime.version)
 case "$runtime" in
-  "${expected_runtime_prefix}"*-wolfi-r[0-9]*) ;;
+  "${expected_runtime_prefix}"*-wolfi-r*) ;;
   *) exit 1 ;;
+esac
+wolfi_revision=${runtime##*-wolfi-r}
+case "$wolfi_revision" in
+  ''|*[!0-9]*) exit 1 ;;
 esac
 [ "$(property java.specification.version)" = "$supported_version" ]
 [ "$(property file.encoding)" = UTF-8 ]
