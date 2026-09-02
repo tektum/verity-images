@@ -2,6 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^versions: \[\([^]]*\)\]$/\1/p' "$(dirname "$0")/../metadata.yaml")
+[ -n "$expected_version" ] || { echo 'metadata version not found' >&2; exit 1; }
 work=$(mktemp -d)
 built=
 
@@ -19,7 +21,7 @@ fail() {
 [ "$(docker image inspect -f '{{.Config.Entrypoint}}' "$image")" = '[/usr/bin/ko]' ] || fail 'unexpected OCI entrypoint'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ] || fail 'unexpected OCI working directory'
 version=$(docker run --rm --network none "$image" version)
-[ "$version" = 0.19.1 ] || fail 'unexpected ko version'
+[ "$version" = "$expected_version" ] || fail 'unexpected ko version'
 
 cat > "$work/go.mod" <<'EOF'
 module example.com/ko-smoke
