@@ -104,17 +104,6 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^images/[^/]+(?:/[^/]+)?/melange\\.yaml$/"],
-      "matchStringsStrategy": "recursive",
-      "matchStrings": [
-        "- uses: go/bump\\n\\s+with:\\n(?<bump>(?: {6,}[^\\n]*(?:\\n|$))+)",
-        "(?:^|\\n)\\s+(?<depName>[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)+)@(?<currentValue>v[^\\s]+)"
-      ],
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
       "managerFilePatterns": [
         "/^images/(?:argo-workflows|gitlab-runner|otel-collector|tekton-controller)/melange\\.yaml$/"
       ],

@@ -123,10 +123,13 @@ def main() -> None:
 
     assert ".github/workflows/build.yaml" in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_matrix.py" not in gen_matrix.GLOBAL_PATHS
-    assert gen_matrix.GO_BUMP_PATHS == {
-        "pipelines/go/bump.yaml",
-        "scripts/build_candidate.sh",
-    }
+    assert not (ROOT / "pipelines/go/bump.yaml").exists()
+    assert not [
+        path
+        for root in ("images", "patched")
+        for path in (ROOT / root).glob("**/*melange.yaml")
+        if "uses: go/bump" in path.read_text(encoding="utf-8")
+    ]
     assert gen_matrix.GO_REMEDIATE_PATHS == {
         "pipelines/go/remediate.yaml",
         "scripts/build_candidate.sh",
@@ -146,7 +149,6 @@ def main() -> None:
     ]
 
     fixed_pipeline_policies = (
-        (gen_matrix.GO_BUMP_PATHS, gen_matrix.GO_BUMP_SAMPLE),
         (gen_matrix.GO_REMEDIATE_PATHS, gen_matrix.GO_REMEDIATE_SAMPLE),
         (gen_matrix.COREPACK_INSTALL_PATHS, gen_matrix.COREPACK_INSTALL_SAMPLE),
     )
@@ -340,7 +342,7 @@ def main() -> None:
         build_candidate_variants = set(
             assert_shared_matrix("scripts/build_candidate.sh")
         )
-        assert len(build_candidate_contributions) == 4
+        assert len(build_candidate_contributions) == 3
         for omitted in range(len(build_candidate_contributions)):
             without_one = set().union(
                 *(
