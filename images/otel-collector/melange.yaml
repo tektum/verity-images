@@ -1,6 +1,6 @@
 package:
   name: verity-otel-collector
-  version: "0.135.0"
+  version: "0.160.0"
   epoch: 1  # Go remediation
   description: OpenTelemetry Collector core distribution.
   copyright:
@@ -33,7 +33,7 @@ pipeline:
     with:
       repository: https://github.com/open-telemetry/opentelemetry-collector
       tag: v${{package.version}}
-      expected-commit: a56655d1b5a074f9cf01ca727e5db51da3e9ac8a
+      expected-commit: cd3455cf3a7f672208140b1ebb1581c542b2b0ed
 
   - uses: go/remediate
     with:
