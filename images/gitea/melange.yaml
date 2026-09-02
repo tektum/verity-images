@@ -1,6 +1,6 @@
 package:
   name: gitea-1.24
-  version: "1.27.2"
+  version: "1.27.3"
   epoch: 0
   description: Self-hosted Git service
   copyright:
@@ -50,7 +50,7 @@ pipeline:
     with:
       repository: https://github.com/go-gitea/gitea
       tag: v${{package.version}}
-      expected-commit: 1dac1bb2f8593d4319125fa6bca9283000a2ddc2
+      expected-commit: 146cc3eec57174711eac0e0a0c7b38670c6e3922
   - runs: |
       make build TAGS="bindata sqlite sqlite_unlock_notify"
       install -m755 -D gitea "${{targets.destdir}}/usr/bin/gitea"
