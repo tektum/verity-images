@@ -55,7 +55,7 @@ pipeline:
       MAX_REMEDIATION_PASSES = 8
       MODULE = re.compile(r"^(?=.{1,255}$)[A-Za-z0-9][A-Za-z0-9._~-]*(?:/[A-Za-z0-9._~+-]+)+$")
       VERSION = re.compile(
-          r"^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
+          r"^v([0-9]+)\.([0-9]+)\.([0-9]+)"
           r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
       )
 
@@ -168,6 +168,9 @@ pipeline:
 
       def scan(binary, root, packages, workspace=None):
           environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
+          if workspace is None and not root.joinpath("vendor").is_dir():
+              flags = [flag for flag in environment.get("GOFLAGS", "").split() if not flag.startswith("-mod=")]
+              environment["GOFLAGS"] = " ".join([*flags, "-mod=mod"])
           environment.setdefault("GOVULNDB", "https://vuln.go.dev")
           returncode, stdout, stderr = capture_command(
               [str(binary), "-json", *packages], root, environment, "govulncheck"
@@ -473,15 +476,75 @@ pipeline:
                   lines.insert(index + 1, directives[name])
           path.write_text("\n".join(lines) + ("\n" if content.endswith("\n") else ""), encoding="utf-8")
 
+      def parsed_go_version(path, directives):
+          directive = directives.get("go")
+          if directive is None:
+              return ()
+          value = directive.split("//", 1)[0].split()[1]
+          match = re.match(r"^([0-9]+)\.([0-9]+)(?:\.([0-9]+))?", value)
+          if match is None:
+              raise RemediationError(f"invalid {path.name} Go version: {value}")
+          return tuple(int(part or 0) for part in match.groups())
+
+      def language_snapshot(workspace_root, root, workspace):
+          files = [root / "go.mod"]
+          if workspace:
+              raw = run_go(["go", "work", "edit", "-json"], workspace_root, capture=True, workspace=workspace)
+              try:
+                  uses = json.loads(raw).get("Use", [])
+              except (AttributeError, json.JSONDecodeError) as error:
+                  raise RemediationError("invalid go.work JSON") from error
+              if not isinstance(uses, list):
+                  raise RemediationError("invalid go.work use directives")
+              for use in uses:
+                  disk_path = use.get("DiskPath") if isinstance(use, dict) else None
+                  if not isinstance(disk_path, str):
+                      raise RemediationError("invalid go.work module path")
+                  module_root = Path(disk_path)
+                  if not module_root.is_absolute():
+                      module_root = workspace_root / module_root
+                  module_file = module_root.resolve() / "go.mod"
+                  try:
+                      module_file.relative_to(workspace_root)
+                  except ValueError as error:
+                      raise RemediationError(f"workspace module escapes workspace: {disk_path}") from error
+                  if not module_file.is_file():
+                      raise RemediationError(f"workspace module has no go.mod: {disk_path}")
+                  files.append(module_file)
+              files.append(workspace)
+          snapshots = {path: language_directives(path) for path in dict.fromkeys(files)}
+          if workspace:
+              workspace_version = parsed_go_version(workspace, snapshots[workspace])
+              required_version = max(
+                  (parsed_go_version(path, directives) for path, directives in snapshots.items() if path != workspace),
+                  default=(),
+              )
+              if workspace_version and required_version and workspace_version < required_version:
+                  raise RemediationError(
+                      f"go.work Go version is older than workspace module requirement: "
+                      f"{'.'.join(map(str, workspace_version))} < {'.'.join(map(str, required_version))}"
+                  )
+          return snapshots
+
+      def restore_language_snapshot(snapshots):
+          for path, directives in snapshots.items():
+              restore_language_directives(path, directives)
+
       def selected_modules(root, workspace=None):
+          workspace_root = workspace.parent if workspace else root
+          snapshots = language_snapshot(workspace_root, root, workspace)
+          try:
+              if workspace:
+                  run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
+                  command = ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"]
+              else:
+                  command = ["go", "list", "-mod=mod", "-m", "-f", "{{.Path}} {{.Version}}", "all"]
+              output = run_go(command, root, capture=True, workspace=workspace)
+          finally:
+              restore_language_snapshot(snapshots)
           return {
               fields[0]: fields[1]
-              for line in run_go(
-                  ["go", "list", "-mod=readonly", "-m", "-f", "{{.Path}} {{.Version}}", "all"],
-                  root,
-                  capture=True,
-                  workspace=workspace,
-              ).splitlines()
+              for line in output.splitlines()
               if len(fields := line.split()) == 2
           }
 
@@ -526,27 +589,33 @@ pipeline:
           return updates, sorted(unresolved), detected, fixable
 
       def reconcile(workspace_root, root, packages, workspace, vendor_patches, required_sums=()):
-          module_vendor = root.joinpath("vendor").is_dir()
-          workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
-          for module, version in required_sums:
-              run_go(["go", "mod", "download", f"{module}@{version}"], root)
-          if workspace:
-              run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
-          else:
-              run_go(["go", "list", "-deps", "-mod=mod", *packages], root)
-          if module_vendor and not workspace_vendor:
-              run_go(["go", "mod", "vendor"], root)
-          if workspace_vendor:
-              run_go(["go", "work", "vendor"], workspace_root, workspace=workspace)
-          vendor_root = workspace_root if workspace_vendor else root if module_vendor and workspace is None else None
-          if vendor_patches:
-              if vendor_root is None:
-                  raise RemediationError("vendor patches require an active vendor directory")
-              apply_vendor_patches(vendor_root, vendor_patches)
-          mode = "vendor" if vendor_root is not None else "readonly"
-          run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
-          with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
-              run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
+          snapshots = language_snapshot(workspace_root, root, workspace)
+          try:
+              module_vendor = root.joinpath("vendor").is_dir()
+              workspace_vendor = workspace_root.joinpath("vendor").is_dir() if workspace else False
+              for module, version in required_sums:
+                  run_go(["go", "mod", "download", f"{module}@{version}"], root)
+              if workspace:
+                  run_go(["go", "work", "sync"], workspace_root, workspace=workspace)
+              else:
+                  run_go(["go", "list", "-deps", "-mod=mod", *packages], root)
+              if module_vendor and not workspace_vendor:
+                  run_go(["go", "mod", "vendor"], root)
+              if workspace_vendor:
+                  run_go(["go", "work", "vendor"], workspace_root, workspace=workspace)
+              vendor_root = (
+                  workspace_root if workspace_vendor else root if module_vendor and workspace is None else None
+              )
+              if vendor_patches:
+                  if vendor_root is None:
+                      raise RemediationError("vendor patches require an active vendor directory")
+                  apply_vendor_patches(vendor_root, vendor_patches)
+              mode = "vendor" if vendor_root is not None else "readonly"
+              run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
+              with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
+                  run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
+          finally:
+              restore_language_snapshot(snapshots)
 
       def reconcile_with_compatibility(
           workspace_root, root, packages, workspace, vendor_patches, passes, required_sums=()
