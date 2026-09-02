@@ -3,6 +3,9 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
+recipe_dir=$(dirname "$0")/..
+recipe="$recipe_dir/melange.yaml"
+version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' "$recipe")
 
 cleanup() {
   rm -rf "$work"
@@ -26,7 +29,7 @@ docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$imag
 
 docker run --rm --network none --read-only "$image" --help >"$work/help" 2>&1
 grep -F 'Usage:' "$work/help" >/dev/null || fail 'controller help is missing usage text'
-grep -F 'cert-manager-acmesolver:v1.19.6' "$work/help" >/dev/null ||
+grep -F "cert-manager-acmesolver:v${version}" "$work/help" >/dev/null ||
   fail 'controller version is not embedded in defaults'
 
 if docker run --rm --network none --read-only "$image" --definitely-invalid \
@@ -40,7 +43,7 @@ if docker run --rm --network none --read-only "$image" \
   --kubeconfig=/definitely-missing --v=2 >"$work/startup" 2>&1; then
   fail 'missing kubeconfig unexpectedly succeeded'
 fi
-grep -F 'version="v1.19.6"' "$work/startup" >/dev/null ||
+grep -F "version=\"v${version}\"" "$work/startup" >/dev/null ||
   fail 'startup version log is missing'
 grep -F 'git_commit="60b0447cc9a64885d42567ea590862b88a62d1ad"' \
   "$work/startup" >/dev/null || fail 'startup commit log is missing'
