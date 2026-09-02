@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^\"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 fixture='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 container="verity-node-exporter-test-$$"
 work=$(mktemp -d)
@@ -55,7 +58,7 @@ stop_exporter() {
 
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/bin/node_exporter"]' ] || fail 'unexpected image entrypoint'
-docker run --rm "$image" --version 2>&1 | grep -F 'version 1.10.2' >/dev/null || fail 'node_exporter version check failed'
+docker run --rm "$image" --version 2>&1 | grep -F "version $expected_version" >/dev/null || fail 'node_exporter version check failed'
 
 start_exporter --collector.disable-defaults --collector.cpu --collector.netclass
 metrics=$(curl_metrics)
