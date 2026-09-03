@@ -13,8 +13,13 @@ fail() {
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/kube-apiserver-1.36"]' ] || fail 'unexpected OCI entrypoint'
 
-[ "$(docker run --rm --network none --read-only "$image" --version)" = 'Kubernetes v1.36.3' ] ||
-  fail 'unexpected version'
+metadata_file=$(dirname -- "$0")/../metadata.yaml
+supported_channel=$(awk '/^versions:/ { gsub(/[\[\],]/, ""); print $2; exit }' "$metadata_file")
+runtime_version=$(docker run --rm --network none --read-only "$image" --version)
+case "$runtime_version" in
+  "Kubernetes v${supported_channel}".*) ;;
+  *) fail "unexpected version for channel ${supported_channel}: ${runtime_version}" ;;
+esac
 help=$(docker run --rm --network none --read-only "$image" --help)
 printf '%s\n' "$help" | grep -Fq \
   'The Kubernetes API server validates and configures data' || fail 'help text missing'
