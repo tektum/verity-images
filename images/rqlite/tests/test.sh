@@ -45,7 +45,10 @@ start() {
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/rqlite/data"]' ] || fail 'unexpected command'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected user'
 [ "$(docker image inspect --format '{{json .Config.Volumes}}' "$image")" = '{"/rqlite/data":{}}' ] || fail 'missing /rqlite/data volume'
-docker run --rm "$image" -version 2>&1 | grep -Eq "rqlited v$expected_version([[:space:]]|$)" || fail 'unexpected rqlite version'
+docker run --rm "$image" -version 2>&1 | awk -v expected="rqlited v$expected_version" \
+  'index($0, expected) == 1 && (length($0) == length(expected) || \
+    substr($0, length(expected) + 1, 1) ~ /[[:space:]]/) { found=1 } \
+    END { exit !found }' || fail 'unexpected rqlite version'
 
 docker run --name "$container" -d --read-only --user 65532 "$image" >/dev/null
 sleep 2
