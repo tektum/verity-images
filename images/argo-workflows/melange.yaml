@@ -1,6 +1,6 @@
 package:
   name: verity-argo-workflows
-  version: "3.7.18"
+  version: "4.1.2"
   epoch: 1
   description: Argo Workflows executor.
   copyright:
@@ -37,7 +37,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj/argo-workflows
       tag: v${{package.version}}
-      expected-commit: 66e32e5cc367f223e2ecf4fbe852b95eaed83034
+      expected-commit: 16a52d67daf2f4a8a76fa8bec02a76a46aa46257
 
   - uses: go/remediate
     with:
