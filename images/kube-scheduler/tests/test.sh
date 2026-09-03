@@ -14,8 +14,11 @@ user=$(docker image inspect --format '{{.Config.User}}' "$image")
 [ -z "$user" ] || [ "$user" = 0 ] || fail "unexpected image user: $user"
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/kube-scheduler-1.36"]' ] \
   || fail 'unexpected image entrypoint'
-docker run --rm "$image" --version 2>&1 | grep -Fx 'Kubernetes v1.36.3' >/dev/null \
-  || fail 'kube-scheduler version check failed'
+metadata=$(dirname "$0")/../metadata.yaml
+supported_channel=$(sed -n 's/^versions: *\[\([^]]*\)\].*/\1/p' "$metadata")
+[ -n "$supported_channel" ] || fail 'supported version channel missing from metadata'
+docker run --rm "$image" --version 2>&1 | grep -E "^Kubernetes v${supported_channel}\.[0-9]+$" >/dev/null \
+  || fail 'kube-scheduler version channel check failed'
 
 cat >"$config" <<'EOF'
 apiVersion: kubescheduler.config.k8s.io/v99
