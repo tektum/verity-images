@@ -2,6 +2,11 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+recipe=$(dirname "$0")/../melange.yaml
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' "$recipe")
+expected_commit=$(sed -n 's/^[[:space:]]*expected-commit:[[:space:]]*\([0-9a-f]*\)$/\1/p' "$recipe" | sed -n '1p')
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
+[ -n "$expected_commit" ] || { printf 'source commit not found\n' >&2; exit 1; }
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -17,10 +22,9 @@ fail() {
 
 version_output=$(docker run --rm --cpus=4 --network none \
   "$image" argocd version --client 2>&1)
-printf '%s\n' "$version_output" | grep -F 'argocd: v3.3.14+' >/dev/null \
+printf '%s\n' "$version_output" | grep -F "argocd: v$expected_version+" >/dev/null \
   || fail 'argocd version check failed'
-printf '%s\n' "$version_output" | grep -F \
-  'GitCommit: a0a99e187cb6126ef0f3be82d90705513d8f6f3e' >/dev/null \
+printf '%s\n' "$version_output" | grep -F "GitCommit: $expected_commit" >/dev/null \
   || fail 'argocd source commit check failed'
 printf '%s\n' "$version_output" | grep -F 'GitTreeState: dirty' >/dev/null \
   || fail 'argocd did not disclose the security-remediated build'
