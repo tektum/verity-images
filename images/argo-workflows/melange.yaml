@@ -49,11 +49,11 @@ pipeline:
 
       go build -trimpath \
         -ldflags="-s -w \
-          -X github.com/argoproj/argo-workflows/v3.version=v${{package.version}} \
-          -X github.com/argoproj/argo-workflows/v3.buildDate=$build_date \
-          -X github.com/argoproj/argo-workflows/v3.gitCommit=$source_commit \
-          -X github.com/argoproj/argo-workflows/v3.gitTreeState=dirty \
-          -X github.com/argoproj/argo-workflows/v3.gitTag=v${{package.version}}" \
+          -X github.com/argoproj/argo-workflows/v4.version=v${{package.version}} \
+          -X github.com/argoproj/argo-workflows/v4.buildDate=$build_date \
+          -X github.com/argoproj/argo-workflows/v4.gitCommit=$source_commit \
+          -X github.com/argoproj/argo-workflows/v4.gitTreeState=dirty \
+          -X github.com/argoproj/argo-workflows/v4.gitTag=v${{package.version}}" \
         -o argoexec ./cmd/argoexec
 
       install -Dm755 argoexec "${{targets.destdir}}/usr/bin/argoexec"
@@ -83,5 +83,5 @@ update:
   github:
     identifier: argoproj/argo-workflows
     strip-prefix: v
-    tag-filter-prefix: v3.7.
+    tag-filter-prefix: v4.1.
     use-tag: true
