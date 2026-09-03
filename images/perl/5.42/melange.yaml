@@ -1,6 +1,6 @@
 package:
   name: verity-perl-5.42
-  version: "5.42.2"
+  version: "5.45.2"
   epoch: 0
   description: Perl 5.42 runtime with upstream security fixes
   copyright:
@@ -32,7 +32,7 @@ pipeline:
     with:
       repository: https://github.com/Perl/perl5.git
       tag: v${{package.version}}
-      expected-commit: b62845c7186b0b6a8e4e83419e6b5ef64ceef3ed
+      expected-commit: 6f488b9e12b015c5b1b2827a5621991e8bd30e04
   - uses: patch
     with:
       patches: CVE-2026-8376.patch
