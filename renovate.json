@@ -154,6 +154,14 @@
       "addLabels": ["image-stream-update", "review-required"]
     },
     {
+      "description": "Image-local Cargo remediation pins may advance within their current patch line, but dependency-stream changes require build review.",
+      "matchFileNames": ["images/deno/melange.yaml"],
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["crate"],
+      "matchUpdateTypes": ["minor", "major"],
+      "enabled": false
+    },
+    {
       "matchFileNames": ["patched/**/source.yaml"],
       "matchUpdateTypes": ["major"],
       "enabled": false

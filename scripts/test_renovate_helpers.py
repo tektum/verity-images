@@ -266,6 +266,22 @@ def test_renovate_nested_stream_brake() -> None:
         "image-stream-update",
         "review-required",
     }
+    cargo_brake = next(
+        rule
+        for rule in rules
+        if rule.get("matchFileNames") == ["images/deno/melange.yaml"]
+    )
+    assert cargo_brake == {
+        "description": (
+            "Image-local Cargo remediation pins may advance within their current patch line, "
+            "but dependency-stream changes require build review."
+        ),
+        "matchFileNames": ["images/deno/melange.yaml"],
+        "matchManagers": ["custom.regex"],
+        "matchDatasources": ["crate"],
+        "matchUpdateTypes": ["minor", "major"],
+        "enabled": False,
+    }
     assert all("allowedVersions" not in rule for rule in rules)
 
 
