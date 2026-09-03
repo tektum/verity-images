@@ -6,11 +6,13 @@ fail() {
   printf '%s\n' "$1" >&2
   exit 1
 }
+recipe_version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' "$(dirname "$0")/../melange.yaml")
+[ -n "$recipe_version" ] || fail 'Gradle package version is missing'
 
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /home/gradle ] || fail 'unexpected OCI working directory'
 version=$(docker run --rm --network none "$image" --version) || fail 'gradle --version failed'
-printf '%s\n' "$version" | grep -q '^Gradle 9.7.0$' || fail 'unexpected Gradle version'
+printf '%s\n' "$version" | grep -q "^Gradle ${recipe_version}$" || fail 'unexpected Gradle version'
 docker run --rm --network none --entrypoint /bin/sh "$image" -c \
   'test -r /usr/share/licenses/gradle/LICENSE' || fail 'Gradle license is missing'
 
@@ -48,5 +50,4 @@ if output=$(docker run --rm --network none -e GRADLE_USER_HOME=/tmp/gradle-home 
   fail 'malformed build.gradle unexpectedly succeeded'
 fi
 printf '%s\n' "$output" | grep -q 'build.gradle' || fail 'failure did not identify build.gradle'
-
-printf 'SMOKE PASS version=9.7.0 image=%s\n' "$image"
+printf 'SMOKE PASS version=%s image=%s\n' "$recipe_version" "$image"
