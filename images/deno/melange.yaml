@@ -1,6 +1,6 @@
 package:
   name: deno
-  version: "2.9.4"
+  version: "2.9.6"
   epoch: 2
   description: A modern runtime for JavaScript and TypeScript.
   copyright:
@@ -38,13 +38,13 @@ pipeline:
     with:
       repository: https://github.com/denoland/deno
       tag: v${{package.version}}
-      expected-commit: 14eea3160ae5834476aa3b9d317b8d41d991b982
+      expected-commit: e518fbd66dda5debcbdefc0beb0b3756b37b64fa
   - uses: patch
     with:
       patches: rand-pin-bump.patch
   - runs: |
-      cargo update -p rand@0.9 --precise 0.9.3
-      cargo update -p quinn-proto@0.11 --precise 0.11.15
+      cargo update -p rand@0.8.5 --precise 0.8.6
+      cargo update -p quinn-proto --precise 0.11.17
   - uses: cargo/build
     with:
       output: deno
