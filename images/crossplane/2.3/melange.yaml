@@ -1,6 +1,6 @@
 package:
   name: crossplane-2.3
-  version: "2.3.4"
+  version: "2.4.0"
   epoch: 2
   description: Cloud native control plane
   copyright:
@@ -23,7 +23,7 @@ pipeline:
     with:
       repository: https://github.com/crossplane/crossplane
       tag: v${{package.version}}
-      expected-commit: c2670a735103660d7f436585447f2071bc1de973
+      expected-commit: 61fa450c0c14a75bf5632872bd4a5b6945ec5a26
   - uses: go/remediate
     with:
       modroot: .
