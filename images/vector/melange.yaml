@@ -39,7 +39,6 @@ pipeline:
   - runs: |
       patch -p1 --fuzz=0 < tonic-0.12.patch
       cargo update -p tonic@0.11.0 --precise 0.12.3
-      cargo update -p quinn-proto@0.11.14 --precise 0.11.16
       cargo auditable build --release --locked --no-default-features --features sources-stdin,sinks-console
       install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
   - uses: strip
