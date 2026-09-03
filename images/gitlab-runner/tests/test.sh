@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^" ]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 
 cleanup() {
@@ -30,7 +33,7 @@ docker run --rm --cpus 4 --network none --entrypoint /bin/sh "$image" -c \
   || fail 'required runner files are missing'
 
 docker run --rm --cpus 4 --network none "$image" --version 2>&1 \
-  | grep -F 'Version:      18.3.0' >/dev/null \
+  | grep -F "Version:      $expected_version" >/dev/null \
   || fail 'runner version check failed'
 docker run --rm --cpus 4 --network none "$image" --help 2>&1 \
   | grep -F 'run' >/dev/null \
