@@ -1,6 +1,6 @@
 package:
   name: kubectl-1.35
-  version: "1.35.7"
+  version: "1.37.0"
   epoch: 1
   description: Kubernetes command-line client
   copyright:
@@ -35,7 +35,7 @@ pipeline:
     with:
       repository: https://github.com/kubernetes/kubernetes
       tag: v${{package.version}}
-      expected-commit: 96cb9ab4201d88ce5e549fde047a686171838fdb
+      expected-commit: f54c212e3a2f75d674b717a9b29052b20b60aefc
   - uses: go/remediate
     with:
       modroot: .
