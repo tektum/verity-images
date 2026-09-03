@@ -5,6 +5,11 @@ image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
 work=$(mktemp -d)
 container=
+source_dir=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
+source_image=$(awk '$1 == "image:" {print $2}' "$source_dir/source.yaml")
+source_tag=${source_image##*:}
+expected_version=${source_tag#v}
+expected_version=${expected_version%%-*}
 
 cleanup() {
   [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1 || true
@@ -22,7 +27,7 @@ case $flavor in plain) ;; *) fail "unsupported flavor $flavor" ;; esac
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/elastic-operator"]' ] || fail 'unexpected entrypoint'
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["manager"]' ] || fail 'unexpected command'
-[ "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" = 3.5.0 ] || fail 'unexpected image version label'
+[ "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" = "$expected_version" ] || fail 'unexpected image version label'
 
 env=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image")
 printf '%s\n' "$env" | grep -qx 'SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' || fail 'missing CA configuration'
@@ -42,7 +47,7 @@ docker run --rm --network none "$image" manager --help >"$work/manager-help.log"
 grep -q 'Start the Elastic Cloud on Kubernetes operator' "$work/manager-help.log" || fail 'manager help output is invalid'
 
 docker run --rm --network none "$image" >"$work/startup.log" 2>&1 || fail 'default manager startup failed'
-grep -q '"service.version":"3.5.0+' "$work/startup.log" || fail 'default command did not start ECK 3.5.0 manager'
+grep -q '"service.version":"'"$expected_version"'+' "$work/startup.log" || fail 'default command did not start ECK manager'
 grep -q 'Required configuration missing' "$work/startup.log" || fail 'manager did not reach configuration validation'
 
 # ECK reports Cobra argument errors on stderr while preserving its upstream zero exit status.
