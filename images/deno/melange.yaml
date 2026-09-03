@@ -43,8 +43,8 @@ pipeline:
     with:
       patches: rand-pin-bump.patch
   - runs: |
-      cargo update -p rand@0.9 --precise 0.10.2
-      cargo update -p quinn-proto@0.11 --precise 0.11.17
+      cargo update -p rand@0.8.5 --precise 0.8.6
+      cargo update -p quinn-proto --precise 0.11.17
   - uses: cargo/build
     with:
       output: deno
