@@ -78,20 +78,6 @@ pipeline:
       modroot: third_party/git-lfs
       packages: .
 
-  - name: Declare upstream package manager
-    runs: |
-      node -e '
-        const fs = require("fs");
-        const path = "ui/package.json";
-        const contents = JSON.parse(fs.readFileSync(path, "utf8"));
-        const yarn = contents.devDependencies?.yarn;
-        const match = typeof yarn === "string" && yarn.match(/^\^?(1\.[0-9]+\.[0-9]+)$/);
-        if (!match) {
-          throw new Error("ui/package.json must declare a supported Yarn version");
-        }
-        contents.packageManager = `yarn@${match[1]}`;
-        fs.writeFileSync(path, `${JSON.stringify(contents, null, 2)}\n`);
-      '
   - uses: corepack/install
     with:
       directory: ui
@@ -105,7 +91,7 @@ pipeline:
       HOST_ARCH=$(go env GOARCH) \
         NODE_ENV=production \
         NODE_ONLINE_ENV=online \
-        corepack yarn --cwd ui build
+        corepack pnpm --dir ui build
 
       rm -rf .git
       GIT_COMMIT="$source_commit" \
