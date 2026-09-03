@@ -1,7 +1,7 @@
 package:
   name: traefik
   version: "3.7.12"
-  epoch: 0
+  epoch: 1
   description: Cloud native application proxy
   copyright:
     - license: MIT
@@ -14,6 +14,7 @@ environment:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -32,6 +33,10 @@ pipeline:
       directory: release
   - runs: |
       cp -R release/webui/static/. webui/static/
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/traefik
   - uses: go/build/v2
     with:
       packages: ./cmd/traefik
