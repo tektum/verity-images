@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^\"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 api_pid=
 container=
@@ -24,7 +27,7 @@ fail() {
 }
 
 docker run --rm --network none "$image" version --client-only 2>&1 |
-  grep -F 'v1.18.2' >/dev/null || fail 'Velero client version mismatch'
+  grep -F "v$expected_version" >/dev/null || fail 'Velero client version mismatch'
 docker run --rm --network none --entrypoint /velero "$image" --help >/dev/null ||
   fail '/velero is not executable'
 docker run --rm --network none --entrypoint /usr/bin/restic "$image" version >/dev/null ||
