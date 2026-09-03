@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 
 fail() {
@@ -22,7 +25,7 @@ trap cleanup EXIT HUP INT TERM
   || fail 'unexpected OCI user'
 
 docker run --rm --network none "$image" version 2>&1 \
-  | grep -F 'v1.33.5' >/dev/null \
+  | grep -F "v$expected_version" >/dev/null \
   || fail 'contour version check failed'
 docker run --rm --network none "$image" serve --help >/dev/null \
   || fail 'contour serve help failed without cluster credentials'
