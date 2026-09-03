@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 postgres='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
 backend="verity-pgweb-postgres-$$"
 web="verity-pgweb-web-$$"
@@ -18,7 +21,7 @@ trap cleanup EXIT HUP INT TERM
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/pgweb","--bind","0.0.0.0","--listen","8081","--skip-open"]'
 docker run --rm --entrypoint /usr/bin/pgweb "$image" --version |
-  grep -F 'Pgweb v0.17.0' >/dev/null
+  grep -F "Pgweb v$expected_version" >/dev/null
 
 docker network create "$network" >/dev/null
 docker run --name "$backend" -d --network "$network" --network-alias postgres \
