@@ -1,6 +1,6 @@
 package:
   name: gitlab-runner
-  version: "18.3.0"
+  version: "19.3.1"
   epoch: 1
   description: GitLab Runner with the shell executor
   copyright:
@@ -32,7 +32,7 @@ pipeline:
     with:
       repository: https://github.com/gitlabhq/gitlab-runner
       tag: v${{package.version}}
-      expected-commit: 9ba718cdb6a9060dda9e3e5cd724fb5f97f27570
+      expected-commit: a16f5092084b0373ebc30c6910f8972997e44b70
 
   - runs: |
       sed -i \
@@ -61,7 +61,7 @@ pipeline:
   - runs: |
       # gRPC remediation exposes a newer OpenTelemetry fix requirement.
       go get \
-        go.opentelemetry.io/otel@v1.44.0
+        go.opentelemetry.io/otel@v1.46.0
 
   - uses: go/remediate
     with:
