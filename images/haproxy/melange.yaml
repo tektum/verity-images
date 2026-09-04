@@ -1,6 +1,6 @@
 package:
   name: haproxy
-  version: "3.3.12"
+  version: "3.4.4"
   epoch: 0
   description: Reliable, high performance TCP/HTTP load balancer
   copyright:
@@ -28,8 +28,8 @@ environment:
 pipeline:
   - uses: fetch
     with:
-      uri: https://www.haproxy.org/download/3.3/src/haproxy-${{package.version}}.tar.gz
-      expected-sha256: 6ef0d2510ba46d89e0773bbc5bdd99c1fd5ba2067a35332c49f985233159331b
+      uri: https://www.haproxy.org/download/3.4/src/haproxy-${{package.version}}.tar.gz
+      expected-sha256: b0c5053c4d46840ecdee3925736fe9a3de6472559b43c69183d70e593d9133df
 
   - runs: |
       make -j$(nproc) \
