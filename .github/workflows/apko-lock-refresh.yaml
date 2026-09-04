@@ -1,0 +1,65 @@
+name: Refresh APKO locks
+
+on:
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: One pure APKO image context, or empty for every eligible image.
+        required: false
+        type: string
+
+permissions: {}
+
+# One refresh at a time: concurrent runs would race on the same automation branches.
+# Never cancelled, because a cancelled run can leave a branch without its pull request.
+concurrency:
+  group: apko-lock-refresh
+  cancel-in-progress: false
+
+env:
+  APKO_VERSION: 1.2.31
+  APKO_SHA256: abd57139139f4f5ce567f914bd168b7b2f4a3d39851711f0b1dd0c83c518f867
+  MELANGE_VERSION: 0.56.5
+  MELANGE_SHA256: 40e17d259c9fd7bce8e000a59239d7b9ebf13971117334ad117ae6eefd98f92b
+  GRYPE_VERSION: 0.116.1
+  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458
+
+jobs:
+  refresh:
+    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted refresher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned image tools
+        run: scripts/install_image_tools.sh wolfi
+
+      - name: Discover refreshable pure APKO locks
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: |
+          set -euo pipefail
+          if [[ -n "$IMAGE" ]]; then
+            python3 scripts/gen_apko_lock_targets.py --image "$IMAGE" > apko-lock-targets.json
+          else
+            python3 scripts/gen_apko_lock_targets.py --all > apko-lock-targets.json
+          fi
+
+      # The workflow token is deliberately absent: a pull request it creates never starts
+      # the required lint, build-gate, and apk-gate checks, so the refresh fails closed
+      # until an operator provides APKO_LOCK_REFRESH_TOKEN.
+      - name: Propose one lock refresh per changed image
+        env:
+          BASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ secrets.APKO_LOCK_REFRESH_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: scripts/refresh_apko_locks.sh apko-lock-targets.json
