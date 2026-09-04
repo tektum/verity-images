@@ -105,6 +105,10 @@ for pin in arguments[arguments.index("--packages") + 1].split():
     pins.append((crate, current, requested))
 if blocked := os.environ.get("OMNIBUMP_BLOCKED_PACKAGE"):
     if any(crate == blocked for crate, _, _ in pins):
+        if os.environ.get("OMNIBUMP_BLOCKED_MUTATES") == "1":
+            for name in ("Cargo.toml", "Cargo.lock"):
+                path = directory / name
+                path.write_text(path.read_text(encoding="utf-8") + "\n# partial omnibump mutation\n", encoding="utf-8")
         print(
             f"no dependent version permits the target: {blocked} has no compatible dependency graph",
             file=sys.stderr,
@@ -1514,11 +1518,16 @@ def test_graph_incompatible_fix_is_diagnostic(module, root: Path) -> None:
         [findings(blocked, movable), findings(blocked)],
         (("app", "0.1.0"), ("blocked", "1.0.0"), ("movable", "1.0.0")),
         dependencies=(("blocked", "1.0.0"), ("movable", "1.0.0")),
-        environment={"OMNIBUMP_BLOCKED_PACKAGE": "blocked"},
+        environment={
+            "OMNIBUMP_BLOCKED_PACKAGE": "blocked",
+            "OMNIBUMP_BLOCKED_MUTATES": "1",
+        },
     )
     locked = module.locked_instances(project / "Cargo.lock")
     assert locked["blocked"] == registry("1.0.0")
     assert locked["movable"] == registry("1.2.0")
+    assert "partial omnibump mutation" not in project.joinpath("Cargo.toml").read_text(encoding="utf-8")
+    assert "partial omnibump mutation" not in project.joinpath("Cargo.lock").read_text(encoding="utf-8")
     assert [entry[5] for entry in logged(case / "omnibump.log")] == [
         "blocked@1.0.0=2.0.0 movable@1.0.0=1.2.0",
         "blocked@1.0.0=2.0.0",

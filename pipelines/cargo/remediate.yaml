@@ -663,10 +663,24 @@ pipeline:
               print(completed.stdout, end="", flush=True)
               print(completed.stderr, end="", file=sys.stderr, flush=True)
           return completed.stdout if capture else ""
+      def cargo_project_paths(root):
+          return sorted({*root.rglob("Cargo.toml"), root / "Cargo.lock"})
+
       def cargo_project_snapshot(root):
-          paths = sorted(root.rglob("Cargo.toml"))
-          paths.append(root / "Cargo.lock")
-          return {str(path.relative_to(root)): path.read_bytes() for path in paths}
+          return {
+              str(path.relative_to(root)): path.read_bytes()
+              for path in cargo_project_paths(root)
+          }
+
+      def restore_cargo_project(root, snapshot):
+          current = {str(path.relative_to(root)): path for path in cargo_project_paths(root)}
+          for relative, path in current.items():
+              if relative not in snapshot:
+                  path.unlink()
+          for relative, content in snapshot.items():
+              path = root / relative
+              path.parent.mkdir(parents=True, exist_ok=True)
+              path.write_bytes(content)
 
       def omnibump_arguments(root, requested, features):
           details = " ".join(f"{crate}@{current}={fixed}" for crate, current, fixed in requested)
@@ -683,9 +697,10 @@ pipeline:
               before = cargo_project_snapshot(root)
               try:
                   run_command(omnibump_arguments(root, batch, features), root, report=True)
-              except RemediationError as error:
+              except RemediationError:
+                  restore_cargo_project(root, before)
                   if cargo_project_snapshot(root) != before:
-                      raise RemediationError("omnibump failed after modifying the Cargo project") from error
+                      raise RemediationError("failed to restore Cargo project after omnibump error")
                   raise
 
           try:
