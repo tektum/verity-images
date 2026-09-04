@@ -1,7 +1,7 @@
 package:
-  name: verity-source-controller
-  version: "1.6.2"
-  epoch: 2
+  name: verity-source-controller-1.9
+  version: "1.9.5"
+  epoch: 0
   description: Kubernetes controller for Flux source artifacts.
   copyright:
     - license: Apache-2.0
@@ -13,7 +13,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: 254ef2ec92b4855d2a09bf61a1a6e8b1ac34d4a5
+  source-commit: 53194ad4730ebf07718b29d58f66efd6938fd3da
 
 environment:
   contents:
@@ -22,28 +22,26 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
-      - build-base
       - busybox
       - ca-certificates-bundle
       - go-1.26
       - python3
   environment:
     CGO_ENABLED: "0"
-    GOFLAGS: -p=4
-    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
 
 pipeline:
   - uses: fetch
     with:
       uri: https://github.com/fluxcd/source-controller/archive/${{vars.source-commit}}.tar.gz
-      expected-sha256: 3359acd2c9b13ee726e6140f01682acd343d7f5ba76c58ea982c3bfe561987c1
+      expected-sha256: 8c63658daf156ecdff63f3f37e24656b80203b88dea616fce242da1f8068c190
   - uses: go/remediate
     with:
       modroot: .
       packages: .
   - runs: |
-      go build -trimpath -a -ldflags "-s -w" \
-        -tags netgo,osusergo,static_build -o manager main.go
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" \
+        -tags netgo,osusergo,static_build -o manager .
       install -Dm755 manager "${{targets.destdir}}/manager"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
@@ -51,8 +49,7 @@ pipeline:
 test:
   pipeline:
     - runs: |
-        status=0
-        output=$(/manager --help 2>&1) || status=$?
-        test "$status" -eq 0 || test "$status" -eq 2
-        printf '%s\n' "$output" | grep -F 'Usage of /manager:'
+        help_output=$(/manager --help 2>&1)
+        printf '%s\n' "$help_output" | grep -F 'Usage of /manager:'
+        printf '%s\n' "$help_output" | grep -F -- '--default-service-account string'
         test -f /usr/share/licenses/${{package.name}}/LICENSE
