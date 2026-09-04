@@ -116,7 +116,6 @@ pipeline:
       MAX_REMEDIATION_PASSES = 8
       BLOCKING_REASONS = {
           "unnameable-fix": "names no exact release",
-          "prerelease-fix": "requires a prerelease",
           "downgrade-fix": "requires a downgrade",
       }
       CRATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
