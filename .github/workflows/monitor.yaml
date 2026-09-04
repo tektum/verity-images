@@ -10,8 +10,10 @@ on:
 
 permissions: {}
 
+# Distinct findings run independently. A duplicate delivery id is serialized so two
+# read-then-create reconciliations cannot race and create duplicate issues.
 concurrency:
-  group: monitor-published-images
+  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}
   cancel-in-progress: false
 
 jobs:
