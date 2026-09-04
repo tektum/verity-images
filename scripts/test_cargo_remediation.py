@@ -103,6 +103,13 @@ for pin in arguments[arguments.index("--packages") + 1].split():
     crate, transition = pin.rsplit("@", 1)
     current, requested = transition.split("=", 1)
     pins.append((crate, current, requested))
+if blocked := os.environ.get("OMNIBUMP_BLOCKED_PACKAGE"):
+    if any(crate == blocked for crate, _, _ in pins):
+        print(
+            f"no dependent version permits the target: {blocked} has no compatible dependency graph",
+            file=sys.stderr,
+        )
+        raise SystemExit(42)
 mode = os.environ.get("OMNIBUMP_MODE", "collapse")
 if mode == "noop":
     raise SystemExit(0)
@@ -1496,6 +1503,29 @@ def test_unapplied_fix_is_loud(module, root: Path) -> None:
     assert len(logged(case / "omnibump.log")) == 1
     assert logged(case / "cargo.log") == [METADATA]
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "1"
+
+def test_graph_incompatible_fix_is_diagnostic(module, root: Path) -> None:
+    blocked = vulnerability("RUSTSEC-2099-0042", "blocked", "1.0.0", (">=2.0.0",))
+    movable = vulnerability("RUSTSEC-2099-0043", "movable", "1.0.0", (">=1.2.0",))
+    case, project, output = remediate(
+        module,
+        root,
+        "graph-incompatible",
+        [findings(blocked, movable), findings(blocked)],
+        (("app", "0.1.0"), ("blocked", "1.0.0"), ("movable", "1.0.0")),
+        dependencies=(("blocked", "1.0.0"), ("movable", "1.0.0")),
+        environment={"OMNIBUMP_BLOCKED_PACKAGE": "blocked"},
+    )
+    locked = module.locked_instances(project / "Cargo.lock")
+    assert locked["blocked"] == registry("1.0.0")
+    assert locked["movable"] == registry("1.2.0")
+    assert [entry[5] for entry in logged(case / "omnibump.log")] == [
+        "blocked@1.0.0=2.0.0 movable@1.0.0=1.2.0",
+        "blocked@1.0.0=2.0.0",
+        "movable@1.0.0=1.2.0",
+    ]
+    assert "cargo remediation: diagnostic incompatible blocked@1.0.0=2.0.0" in output
+    assert logged(case / "cargo.log") == [METADATA, METADATA, *VERIFICATION]
 
 
 def test_pass_limit(module, root: Path) -> None:
