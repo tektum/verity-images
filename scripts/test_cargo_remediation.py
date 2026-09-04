@@ -103,13 +103,6 @@ for pin in arguments[arguments.index("--packages") + 1].split():
     crate, transition = pin.rsplit("@", 1)
     current, requested = transition.split("=", 1)
     pins.append((crate, current, requested))
-if blocked := os.environ.get("OMNIBUMP_BLOCKED_PACKAGE"):
-    if any(crate == blocked for crate, _, _ in pins):
-        print(
-            f"no dependent version permits the target: {blocked} has no compatible dependency graph",
-            file=sys.stderr,
-        )
-        raise SystemExit(42)
 mode = os.environ.get("OMNIBUMP_MODE", "collapse")
 if mode == "noop":
     raise SystemExit(0)
@@ -798,6 +791,14 @@ def test_blocking_classifications(module) -> None:
             "known fix for RUSTSEC-2099-0012 in stuck@1.3.0 requires a downgrade",
         ),
         (
+            vulnerability("RUSTSEC-2099-0013", "stable", "0.9.0", (">=1.0.0-rc.2",)),
+            "known fix for RUSTSEC-2099-0013 in stable@0.9.0 requires a prerelease",
+        ),
+        (
+            vulnerability("RUSTSEC-2099-0019", "stable-same-line", "1.2.0", (">=1.2.1-rc.1",)),
+            "known fix for RUSTSEC-2099-0019 in stable-same-line@1.2.0 requires a prerelease",
+        ),
+        (
             vulnerability("RUSTSEC-2099-0014", "stuck", "1.3.0", ("1.*",)),
             "RUSTSEC-2099-0014 in stuck@1.3.0: unsupported version requirement: '1.*'",
         ),
@@ -811,23 +812,6 @@ def test_blocking_classifications(module) -> None:
             message,
             lambda entry=entry: module.derive_fixes(json.loads(report(entry)), locked),
         )
-    # Stable builds do not jump to prereleases. They report the advisory and
-    # automatically remediate it once the advisory names a stable release.
-    for entry, expected in (
-        (
-            vulnerability("RUSTSEC-2099-0013", "stable", "0.9.0", (">=1.0.0-rc.2",)),
-            ("RUSTSEC-2099-0013", "stable", "0.9.0", "prerelease-fix"),
-        ),
-        (
-            vulnerability("RUSTSEC-2099-0019", "stable-same-line", "1.2.0", (">=1.2.1-rc.1",)),
-            ("RUSTSEC-2099-0019", "stable-same-line", "1.2.0", "prerelease-fix"),
-        ),
-    ):
-        updates, unresolved, _, fixable, _ = module.derive_fixes(
-            json.loads(report(entry)), locked
-        )
-        assert updates == {} and fixable == set()
-        assert unresolved == [expected]
 
     # A prerelease fix is acceptable only on the line the lock already occupies.
     updates, _, _, _, _ = module.derive_fixes(
@@ -853,11 +837,13 @@ def test_blocking_classifications(module) -> None:
     assert updates == {("train", "2.0.0-rc.1"): "2.0.1-rc.1"}
     for version in ("1.3.0-rc.1", "2.0.0-rc.1"):
         entry = vulnerability("RUSTSEC-2099-0040", "train", "1.2.0-rc.1", (f">={version}",))
-        updates, unresolved, _, fixable, _ = module.derive_fixes(
-            json.loads(report(entry)), {"train": registry("1.2.0-rc.1")}
+        assert_raises(
+            module.RemediationError,
+            "known fix for RUSTSEC-2099-0040 in train@1.2.0-rc.1 requires a prerelease",
+            lambda entry=entry: module.derive_fixes(
+                json.loads(report(entry)), {"train": registry("1.2.0-rc.1")}
+            ),
         )
-        assert updates == {} and fixable == set()
-        assert unresolved == [("RUSTSEC-2099-0040", "train", "1.2.0-rc.1", "prerelease-fix")]
 
 
 def test_crate_identity(module, root: Path) -> None:
@@ -1503,29 +1489,6 @@ def test_unapplied_fix_is_loud(module, root: Path) -> None:
     assert len(logged(case / "omnibump.log")) == 1
     assert logged(case / "cargo.log") == [METADATA]
     assert case.joinpath("scan-state").read_text(encoding="utf-8") == "1"
-
-def test_graph_incompatible_fix_is_diagnostic(module, root: Path) -> None:
-    blocked = vulnerability("RUSTSEC-2099-0042", "blocked", "1.0.0", (">=2.0.0",))
-    movable = vulnerability("RUSTSEC-2099-0043", "movable", "1.0.0", (">=1.2.0",))
-    case, project, output = remediate(
-        module,
-        root,
-        "graph-incompatible",
-        [findings(blocked, movable), findings(blocked)],
-        (("app", "0.1.0"), ("blocked", "1.0.0"), ("movable", "1.0.0")),
-        dependencies=(("blocked", "1.0.0"), ("movable", "1.0.0")),
-        environment={"OMNIBUMP_BLOCKED_PACKAGE": "blocked"},
-    )
-    locked = module.locked_instances(project / "Cargo.lock")
-    assert locked["blocked"] == registry("1.0.0")
-    assert locked["movable"] == registry("1.2.0")
-    assert [entry[5] for entry in logged(case / "omnibump.log")] == [
-        "blocked@1.0.0=2.0.0 movable@1.0.0=1.2.0",
-        "blocked@1.0.0=2.0.0",
-        "movable@1.0.0=1.2.0",
-    ]
-    assert "cargo remediation: diagnostic incompatible blocked@1.0.0=2.0.0" in output
-    assert logged(case / "cargo.log") == [METADATA, METADATA, *VERIFICATION]
 
 
 def test_pass_limit(module, root: Path) -> None:
