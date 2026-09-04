@@ -59,6 +59,18 @@ PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
 grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
 grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"
 
+# Squawk persists advisory severity as either a normalized label, a CVSS vector, or null.
+# All three are valid; the issue body preserves the vector and renders null as unknown.
+jq '.severity = "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H"' \
+  "$work/payload.json" > "$work/cvss.json"
+PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/cvss.json"
+grep -Fq 'Severity: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' \
+  "$work/bodies/issue-edit.md"
+
+jq '.severity = null' "$work/payload.json" > "$work/null-severity.json"
+PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/null-severity.json"
+grep -Fq 'Severity: unknown' "$work/bodies/issue-edit.md"
+
 : > "$GH_LOG"
 export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"<!-- squawk-delivery:$delivery -->\"},{\"number\":9,\"state\":\"open\",\"body\":\"<!-- squawk-delivery:$delivery -->\"}]]"
 if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"; then
