@@ -10,10 +10,6 @@ on:
 
 permissions: {}
 
-concurrency:
-  group: monitor-published-images
-  cancel-in-progress: false
-
 jobs:
   monitor:
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor/runner=4cpu-linux-x64
