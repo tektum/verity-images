@@ -112,6 +112,58 @@ def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
     )
 
 
+def env_pins(workflow: str) -> dict[str, str]:
+    return dict(
+        line.strip().split(": ", maxsplit=1)
+        for line in between(workflow, "\nenv:\n", "\njobs:\n").splitlines()
+        if line.startswith("  ") and ": " in line
+    )
+
+
+def check_lock_refresh_policy(build: str) -> None:
+    refresh = (ROOT / ".github/workflows/apko-lock-refresh.yaml").read_text(encoding="utf-8")
+    triggers = between(refresh, "\non:\n", "\npermissions: {}\n")
+    # Scheduled and manual only: no pull request event ever runs this trusted refresher.
+    assert '  schedule:\n    - cron: "17 4 * * *"\n' in triggers
+    assert "  workflow_dispatch:\n" in triggers
+    assert "pull_request" not in refresh and "workflow_run" not in refresh
+    assert "\n  push:\n" not in refresh
+    assert between(refresh, "permissions: {}\n", "\nenv:\n").endswith(
+        "\nconcurrency:\n  group: apko-lock-refresh\n  cancel-in-progress: false\n"
+    )
+    job = refresh.split("\n  refresh:\n", maxsplit=1)[1]
+    assert runner(job) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 60\n" in job
+    assert "\n    permissions:\n      contents: read\n    steps:\n" in job
+    assert (
+        "    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'\n"
+    ) in job
+    assert "persist-credentials: false\n" in job
+    # The pinned toolchain has one source of truth, so a build.yaml bump cannot drift.
+    pins = env_pins(refresh)
+    assert set(pins) == {
+        "APKO_VERSION",
+        "APKO_SHA256",
+        "MELANGE_VERSION",
+        "MELANGE_SHA256",
+        "GRYPE_VERSION",
+        "GRYPE_SHA256",
+    }
+    assert all(env_pins(build)[name] == value for name, value in pins.items())
+    assert "scripts/install_image_tools.sh wolfi\n" in job
+    # Untrusted-looking input reaches the shell only through the environment.
+    assert "          IMAGE: ${{ inputs.image }}\n" in job
+    assert 'python3 scripts/gen_apko_lock_targets.py --image "$IMAGE"' in job
+    assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
+    # Only an operator credential may propose a pull request that starts the required checks.
+    assert "          GH_TOKEN: ${{ secrets.APKO_LOCK_REFRESH_TOKEN }}\n" in job
+    assert "github.token" not in refresh
+    # Refresh automation is not an image build input, so it never rebuilds sample images.
+    assert ".github/workflows/apko-lock-refresh.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/refresh_apko_locks.sh" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/gen_apko_lock_targets.py" not in gen_matrix.GLOBAL_PATHS
+
+
 def main() -> None:
     action = (ROOT / ".github/actions/publish-image/action.yaml").read_text(
         encoding="utf-8"
@@ -704,6 +756,8 @@ def main() -> None:
     # image has been published, so an authority change cannot prune a live entry.
     assert "($expected | any(.[0] == $image.name))" in inventory_filter
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
+
+    check_lock_refresh_policy(workflow)
 
 
 if __name__ == "__main__":
