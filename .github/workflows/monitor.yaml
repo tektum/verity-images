@@ -10,6 +10,12 @@ on:
 
 permissions: {}
 
+# Distinct findings run independently. A duplicate delivery id is serialized so two
+# read-then-create reconciliations cannot race and create duplicate issues.
+concurrency:
+  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}
+  cancel-in-progress: false
+
 jobs:
   monitor:
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor/runner=4cpu-linux-x64

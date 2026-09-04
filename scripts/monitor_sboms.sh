@@ -14,9 +14,9 @@ jq -e '
   (.vuln_id | type == "string" and test("^[A-Za-z0-9._-]{1,64}$")) and
   ((if has("severity") then .severity else "unknown" end) as $severity |
     ($severity == null) or
-    (($severity | type == "string") and
+    (($severity | type == "string") and ($severity | length <= 256) and
       ((["unknown", "negligible", "low", "medium", "high", "critical"] | index($severity) != null) or
-       ($severity | test("^CVSS:[0-9.]+(/[A-Z]+:[A-Z0-9]+)+$"))))) and
+       ($severity | test("^((CVSS:[0-9.]{1,8}/)?[A-Za-z]{1,4}:[A-Za-z0-9._-]{1,16})(/[A-Za-z]{1,4}:[A-Za-z0-9._-]{1,16})+$"))))) and
   (.platforms | type == "array" and length > 0) and
   all(.platforms[]; (.platform | test("^linux/(amd64|arm64)$")) and (.image_ref | test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$")))
 ' "$payload" >/dev/null

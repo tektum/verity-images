@@ -515,10 +515,13 @@ def main() -> None:
     assert "        required: true\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
     assert "scripts/monitor_sboms.sh squawk-payload.json\n" in monitor
-    # Every delivery has its own immutable id and issue reconciliation. A global
-    # concurrency group keeps only one pending run, so burst dispatches silently cancel
-    # findings even when cancel-in-progress is false.
-    assert "\nconcurrency:\n" not in monitor
+    # Distinct findings must not share a group (new pending runs replace old ones), while
+    # the same immutable delivery id must serialize its read-then-create reconciliation.
+    assert (
+        "\nconcurrency:\n"
+        "  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}\n"
+        "  cancel-in-progress: false\n"
+    ) in monitor
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
