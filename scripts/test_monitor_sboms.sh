@@ -95,12 +95,13 @@ if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json";
   exit 1
 fi
 
-for invalid in marker severity severity-type severity-long; do
+for invalid in marker severity severity-type severity-vector severity-long; do
   case $invalid in
     marker) jq --arg marker $'openssl\n<!-- squawk-delivery:bad -->' '.package_name = $marker' "$work/payload.json" ;;
     severity) jq '.severity = "urgent"' "$work/payload.json" ;;
     severity-type) jq '.severity = false' "$work/payload.json" ;;
-    severity-long) jq --arg severity "CVSS:3.1/$(printf 'AB:C%.0s' {1..70})" '.severity = $severity' "$work/payload.json" ;;
+    severity-vector) jq '.severity = "foo:bar/baz:qux"' "$work/payload.json" ;;
+    severity-long) jq --arg severity "CVSS:3.1$(printf '/AV:N%.0s' {1..70})" '.severity = $severity' "$work/payload.json" ;;
   esac > "$work/invalid.json"
   : > "$GH_LOG"
   if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json"; then
