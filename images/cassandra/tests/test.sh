@@ -43,6 +43,7 @@ start_server() {
     }
     sleep 1
   done
+  docker exec "$container" sh -c "grep -q 'libjemalloc\\.so' /proc/1/maps" || fail 'Cassandra did not preload libjemalloc'
 }
 
 start_server
