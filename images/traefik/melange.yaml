@@ -29,7 +29,7 @@ pipeline:
     with:
       uri: >-
         https://github.com/traefik/traefik/releases/download/v${{package.version}}/traefik-v${{package.version}}.src.tar.gz
-      expected-sha256: 2626c9a767fea03f22870f6ba28b550e8061fb6ce4a563839ef8e55a206c20d3
+      expected-sha256: a4c57bb9b68514075dd849f79354cf9c4b860be9330ece85ac8dad5372b82444
       directory: release
   - runs: |
       cp -R release/webui/static/. webui/static/
