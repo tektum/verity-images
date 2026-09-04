@@ -1,6 +1,6 @@
 package:
   name: traefik
-  version: "3.7.12"
+  version: "3.7.13"
   epoch: 1
   description: Cloud native application proxy
   copyright:
@@ -23,7 +23,7 @@ pipeline:
     with:
       repository: https://github.com/traefik/traefik
       tag: v${{package.version}}
-      expected-commit: e8f398ee30ca5643158ea9094b701b8eae9849e5
+      expected-commit: fc92cc118a0557a029c7019d5ee06665127b0f13
   - runs: mkdir release
   - uses: fetch
     with:
