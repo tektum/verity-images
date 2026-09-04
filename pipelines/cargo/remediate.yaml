@@ -118,6 +118,7 @@ pipeline:
           "unnameable-fix": "names no exact release",
           "downgrade-fix": "requires a downgrade",
       }
+      INCOMPATIBLE_UPDATE = "no dependent version permits the target:"
       CRATE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
       VERSION = re.compile(
           r"^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)"
@@ -662,6 +663,54 @@ pipeline:
               print(completed.stdout, end="", flush=True)
               print(completed.stderr, end="", file=sys.stderr, flush=True)
           return completed.stdout if capture else ""
+      def cargo_project_snapshot(root):
+          paths = sorted(root.rglob("Cargo.toml"))
+          paths.append(root / "Cargo.lock")
+          return {str(path.relative_to(root)): path.read_bytes() for path in paths}
+
+      def omnibump_arguments(root, requested, features):
+          details = " ".join(f"{crate}@{current}={fixed}" for crate, current, fixed in requested)
+          arguments = [
+              "omnibump", "--language", "rust", "--dir", str(root),
+              "--packages", details, "--fail-on-unapplied-pins",
+          ]
+          if features:
+              arguments += ["--features", ",".join(features)]
+          return arguments
+
+      def apply_updates(root, requested, features):
+          def apply(batch):
+              before = cargo_project_snapshot(root)
+              try:
+                  run_command(omnibump_arguments(root, batch, features), root, report=True)
+              except RemediationError as error:
+                  if cargo_project_snapshot(root) != before:
+                      raise RemediationError("omnibump failed after modifying the Cargo project") from error
+                  raise
+
+          try:
+              apply(requested)
+              return requested, set()
+          except RemediationError as error:
+              if INCOMPATIBLE_UPDATE not in str(error):
+                  raise
+          applied = []
+          blocked = set()
+          for request in requested:
+              try:
+                  apply([request])
+                  applied.append(request)
+              except RemediationError as error:
+                  if INCOMPATIBLE_UPDATE not in str(error):
+                      raise
+                  blocked.add(request)
+                  crate, current, fixed = request
+                  print(
+                      f"cargo remediation: diagnostic incompatible {crate}@{current}={fixed}",
+                      flush=True,
+                  )
+          return applied, blocked
+
 
       def verify_tool(binary):
           reported = run_command([str(binary), "--version"], None, capture=True).strip()
@@ -695,6 +744,7 @@ pipeline:
           remediated = set()
           reported_diagnostics = set()
           passes = 0
+          blocked = set()
           while True:
               report_diagnostics(report, reported_diagnostics)
               locked = locked_instances(lockfile)
@@ -715,6 +765,7 @@ pipeline:
                   (crate, current, fixed)
                   for (crate, current), fixed in updates.items()
                   if any(version == current for version, _ in locked[crate])
+                  and (crate, current, fixed) not in blocked
               )
               if not requested:
                   for identifier, crate, version, reason in unresolved:
@@ -730,19 +781,24 @@ pipeline:
                       f"cargo remediation pass limit reached after {MAX_REMEDIATION_PASSES} passes: {details}"
                   )
               print("cargo remediation: applying " + details, flush=True)
-              arguments = [
-                  "omnibump", "--language", "rust", "--dir", str(root),
-                  "--packages", details, "--fail-on-unapplied-pins",
-              ]
-              if features:
-                  arguments += ["--features", ",".join(features)]
-              run_command(arguments, root, report=True)
+              applied, newly_blocked = apply_updates(root, requested, features)
+              blocked.update(newly_blocked)
+              if not applied:
+                  continue
               passes += 1
-              remediated.update(fixable)
+              applied_identities = {(crate, current) for crate, current, _ in applied}
+              remediated.update(
+                  finding for finding in fixable if (finding[1], finding[2]) in applied_identities
+              )
               updated = locked_instances(lockfile)
               reject_downgrades(locked, updated)
+              applied_details = " ".join(
+                  f"{crate}@{current}={fixed}" for crate, current, fixed in applied
+              )
               if updated == locked:
-                  raise RemediationError(f"cargo remediation pass made no lock graph progress: {details}")
+                  raise RemediationError(
+                      f"cargo remediation pass made no lock graph progress: {applied_details}"
+                  )
               report = scan(binary, lockfile, workdir, database)
       if __name__ == "__main__":
           try:
