@@ -10,17 +10,27 @@ for version in $(find "$root/images/go" -mindepth 1 -maxdepth 1 -type d -printf 
   grep -Fxq '    - https://tektum.github.io/verity-images/apk' "$config"
   grep -Fxq '    - packages/keys/verity-apk-2026.rsa.pub' "$config"
   grep -Fxq '    - openssl-fips-provider=3.1.2-r3' "$config"
-  grep -Fxq '  command: /usr/bin/go-fips-entrypoint' "$root/images/go/$version/fips-wrapper.apko.yaml"
   grep -Fxq 'exec openssl-fips-activate /usr/bin/go "$@"' "$root/images/go/$version/fips-entrypoint"
   grep -Fxq '  GOFIPS140: v1.0.0' "$config"
   grep -Fxq '  OPENSSL_FIPS_RUNTIME_DIR: /run/openssl-fips' "$config"
-  jq -e '
-    [.contents.packages[] | select(
-      .name == "openssl-fips-provider" and
-      .version == "3.1.2-r3" and
-      (.url | startswith("https://tektum.github.io/verity-images/apk/"))
-    )] | length == 2
-  ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
+  if [ -f "$root/images/go/$version/melange.yaml" ]; then
+    grep -Fxq '    - "@local @LOCAL_REPOSITORY@"' "$config"
+    grep -Fxq "    - verity-go-$version@local" "$config"
+    grep -Fxq '    - go-fips-entrypoint@local' "$config"
+    grep -Fxq '  command: /usr/bin/go-fips-entrypoint' "$config"
+    [ ! -e "$root/images/go/$version/fips.apko.lock.json" ]
+    [ ! -e "$root/images/go/$version/fips-wrapper.apko.yaml" ]
+    [ ! -e "$root/images/go/$version/fips.melange.yaml" ]
+  else
+    grep -Fxq '  command: /usr/bin/go-fips-entrypoint' "$root/images/go/$version/fips-wrapper.apko.yaml"
+    jq -e '
+      [.contents.packages[] | select(
+        .name == "openssl-fips-provider" and
+        .version == "3.1.2-r3" and
+        (.url | startswith("https://tektum.github.io/verity-images/apk/"))
+      )] | length == 2
+    ' "$root/images/go/$version/fips.apko.lock.json" >/dev/null
+  fi
 done
 for version in 3.3 4.0; do
   recipe="$root/images/ruby/$version/fips.melange.yaml"

@@ -123,6 +123,15 @@
       ],
       "datasourceTemplate": "crate",
       "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/go/[^/]+/melange\\.yaml$/"],
+      "matchStrings": ["(?:^|\\n)  version:\\s*\"(?<currentValue>1\\.\\d+\\.\\d+)\""],
+      "depNameTemplate": "golang/go",
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^go(?<version>.*)$"
     }
   ],
   "packageRules": [
