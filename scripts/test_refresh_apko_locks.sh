@@ -61,6 +61,7 @@ case "$*" in
     branch=${2#*/git/ref/heads/}
     file="$STATE/branch-$(slug "$branch")"
     if [[ ! -f "$file" ]]; then
+      printf '{"message":"Not Found","status":"404"}\n'
       printf 'gh: Not Found\n' >&2
       exit 1
     fi
