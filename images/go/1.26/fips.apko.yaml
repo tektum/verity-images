@@ -1,18 +1,21 @@
 contents:
   repositories:
+    - "@local @LOCAL_REPOSITORY@"
     - https://tektum.github.io/verity-images/apk
     - https://packages.wolfi.dev/os
   keyring:
-    - packages/keys/verity-apk-2026.rsa.pub
+    - "@LOCAL_KEY@"
+    - "@REPOSITORY_KEY@"
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
+    - go-fips-entrypoint@local
+    - verity-go-1.26@local
     - ca-certificates-bundle
-    - go-1.26
     - openssl
     - openssl-fips-provider=3.1.2-r3
 
 entrypoint:
-  command: /usr/bin/go
+  command: /usr/bin/go-fips-entrypoint
 
 environment:
   GOFIPS140: v1.0.0
