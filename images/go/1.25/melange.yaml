@@ -32,11 +32,11 @@ pipeline:
       case "${{build.arch}}" in
         x86_64)
           archive=go${{package.version}}.linux-amd64.tar.gz
-          sha256=39042a078ea9ceebe3ecda4a7188f0f5b96e14a071d27923ba7f40b456e85ae3
+          sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
           ;;
         aarch64)
           archive=go${{package.version}}.linux-arm64.tar.gz
-          sha256=adad240fcb6bd180cf973b4b7c747baf4ec81d08b7d40ca35940ee4531971490
+          sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
           ;;
         *) exit 1 ;;
       esac
