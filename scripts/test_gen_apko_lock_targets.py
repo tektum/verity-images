@@ -190,8 +190,12 @@ def check_repository_targets() -> None:
     selected = {entry["context"]: entry for entry in images}
     # httpd publishes a pure APKO FIPS flavor from the signed repository.
     assert [lock["flavor"] for lock in selected["images/httpd"]["locks"]] == ["plain", "fips"]
-    # go/1.26 keeps a committed plain lock while its FIPS flavor is recipe-backed.
-    assert [lock["flavor"] for lock in selected["images/go/1.26"]["locks"]] == ["plain"]
+    # A Go stream is refreshable only while it remains a pure APKO image.
+    go_126 = ROOT / "images/go/1.26"
+    if (go_126 / "melange.yaml").is_file():
+        assert "images/go/1.26" not in selected
+    else:
+        assert [lock["flavor"] for lock in selected["images/go/1.26"]["locks"]] == ["plain"]
     # A melange-backed image and a quarantined definition are never refreshed.
     assert "images/caddy" not in selected
     assert "images/go/1.24" not in selected
