@@ -292,6 +292,9 @@ def test_checksum_workflow() -> None:
     assert "github.event.workflow_run.head_repository.full_name == github.repository" in workflow
     assert "ref: ${{ github.event.workflow_run.head_sha }}" not in workflow
     assert "python3 scripts/update_release_asset_checksum.py \"$recipe\"" in workflow
+    assert 'python3 scripts/update_go_release_checksums.py "$recipe"' in workflow
+    assert '[[ -n "$PR_NUMBER" ]]' in workflow
+    assert r"grep -E '^(images/traefik|images/go/[^/]+)/melange\.yaml$'" in workflow
     assert "repos/${REPOSITORY}/contents/${recipe}?ref=${HEAD_SHA}" in workflow
     assert "repos/${REPOSITORY}/contents/${recipe}" in workflow
     assert "contents: write" in workflow
