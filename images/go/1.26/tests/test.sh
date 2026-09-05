@@ -3,7 +3,11 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
-docker run --rm "$image" version | grep -q 'go1.26'
+expected_go_version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
+[ -n "$expected_go_version" ] || { printf 'package version not found\n' >&2; exit 1; }
+[ "$(docker run --rm "$image" version | awk '{print $3}')" = "go$expected_go_version" ]
+[ "$(docker run --rm "$image" env GOROOT)" = /usr/lib/go ]
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
