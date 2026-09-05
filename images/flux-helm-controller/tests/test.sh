@@ -12,8 +12,10 @@ fail() {
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/manager"]' ] || fail 'unexpected entrypoint'
 case $(docker image inspect -f '{{json .Config.Cmd}}' "$image") in null|'[]') ;; *) fail 'unexpected image command' ;; esac
 
-docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
-  "$image" --help >/dev/null || fail '/manager safe help path failed'
+help_output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
+  "$image" --help 2>&1) || fail '/manager safe help path failed'
+printf '%s\n' "$help_output" | grep -F -- '--http-timeout duration' >/dev/null \
+  || fail 'current HTTP timeout flag is missing'
 
 if output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
   -e KUBECONFIG=/tmp/missing "$image" 2>&1); then
@@ -21,6 +23,13 @@ if output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --p
 fi
 printf '%s\n' "$output" | grep -F 'unable to get kubeconfig' >/dev/null \
   || fail 'missing Kubernetes credentials did not report a kubeconfig error'
+
+if output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
+  -e KUBECONFIG=/tmp/missing "$image" --feature-gates=UseHelm3Defaults=true 2>&1); then
+  fail 'Helm 3 compatibility gate startup unexpectedly succeeded'
+fi
+printf '%s\n' "$output" | grep -F 'unable to get kubeconfig' >/dev/null \
+  || fail 'Helm 3 compatibility gate was not accepted'
 
 if output=$(docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
   "$image" --not-a-real-flag 2>&1); then
