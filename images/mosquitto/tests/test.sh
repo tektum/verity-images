@@ -41,7 +41,7 @@ wait_ready() {
 [ "$(docker image inspect --format '{{json .Config.Volumes}}' "$image" | grep -Fc '"/mosquitto/log"')" -eq 1 ] || fail 'missing log volume'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/mosquitto"]' ] || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["-c","/mosquitto/config/mosquitto.conf"]' ] || fail 'unexpected image command'
-docker run --rm --cpus 4 "$image" -h 2>&1 | grep -F 'mosquitto version 2.0.22' >/dev/null || fail 'mosquitto version check failed'
+docker run --rm --cpus 4 "$image" -h 2>&1 | grep -F 'mosquitto version 2.1.2' >/dev/null || fail 'mosquitto version check failed'
 
 docker run --name "$container" --cpus 4 --cap-drop=ALL --read-only -d "$image" >/dev/null
 wait_ready
