@@ -295,6 +295,7 @@ def test_checksum_workflow() -> None:
     assert 'python3 scripts/update_go_release_checksums.py "$recipe"' in workflow
     assert '[[ -n "$PR_NUMBER" ]]' in workflow
     assert r"grep -E '^(images/traefik|images/go/[^/]+)/melange\.yaml$'" in workflow
+    assert "    permissions:\n      contents: write\n      pull-requests: read\n" in workflow
     assert "repos/${REPOSITORY}/contents/${recipe}?ref=${HEAD_SHA}" in workflow
     assert "repos/${REPOSITORY}/contents/${recipe}" in workflow
     assert "contents: write" in workflow
