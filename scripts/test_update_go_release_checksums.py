@@ -74,10 +74,15 @@ def main() -> None:
             pass
         else:
             raise AssertionError("malformed upstream digest was accepted")
+        assert recipe.read_text(encoding="utf-8") == updated
+
+        class Truncated(io.BytesIO):
+            def read(self, *_args, **_kwargs):
+                raise IncompleteRead(b"partial")
 
         def incomplete(_url: str, *, timeout: int):
             assert timeout == 30
-            raise IncompleteRead(b"partial")
+            return Truncated(b"[")
 
         original_opener = update_go_release_checksums.urllib.request.urlopen
         original_argv = update_go_release_checksums.sys.argv
@@ -88,6 +93,7 @@ def main() -> None:
             with contextlib.redirect_stderr(error):
                 assert update_go_release_checksums.main() == 1
             assert error.getvalue().startswith("error: ")
+            assert recipe.read_text(encoding="utf-8") == updated
         finally:
             update_go_release_checksums.urllib.request.urlopen = original_opener
             update_go_release_checksums.sys.argv = original_argv
