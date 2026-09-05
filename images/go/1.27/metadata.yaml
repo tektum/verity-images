@@ -1,0 +1,9 @@
+name: go
+track: wolfi
+description: Go toolchain packaged from pinned upstream releases with plain and FIPS flavors.
+category: Languages & Build Tools
+upstream: https://go.dev/
+versions: [1.27]
+flavors: [plain, fips]
+owner: tektum
+enabled: true
