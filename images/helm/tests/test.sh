@@ -21,7 +21,7 @@ chmod -R a+rX "$work"
 
 version=$(docker run --rm "$image" version --short)
 case "$version" in
-  v4.2.3+*) ;;
+  v4.2.4+*) ;;
   *)
     printf 'unexpected Helm version: %s\n' "$version" >&2
     exit 1
