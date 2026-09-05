@@ -1,14 +1,14 @@
 package:
   name: cassandra-5.0
   version: "5.0.9"
-  epoch: 13
+  epoch: 14
   description: Open Source NoSQL Database
   copyright:
     - license: Apache-2.0
   dependencies:
     runtime:
       - curl
-      - jemalloc
+      - libjemalloc2
       - python-${{vars.python-version}}
     provides:
       - cassandra=${{package.full-version}}
