@@ -1,7 +1,7 @@
 package:
   name: verity-zot
   version: "2.1.20"
-  epoch: 0
+  epoch: 1
   description: Zot OCI registry
   copyright:
     - license: Apache-2.0
@@ -21,6 +21,7 @@ environment:
     packages:
       - busybox
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOEXPERIMENT: jsonv2
@@ -33,6 +34,10 @@ pipeline:
       repository: https://github.com/project-zot/zot
       tag: v${{package.version}}
       expected-commit: 3b5796d834e8661ea661a5fcc47add8d4405aebf
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/zot
   - runs: |
       flags="-s -w"
       flags="$flags -X zotregistry.dev/zot/v2/pkg/buildinfo.ReleaseTag=v${{package.version}}"
