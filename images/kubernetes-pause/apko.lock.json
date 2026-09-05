@@ -1,7 +1,7 @@
 {
   "version": "v1",
   "config": {
-    "name": "apko.yaml",
+    "name": "images/kubernetes-pause/apko.yaml",
     "checksum": "sha256-9LkEZu40iz4lzi5dlTNUdwf6RWw/h1TkYar1NHWm2Dw="
   },
   "contents": {
@@ -29,79 +29,79 @@
     "packages": [
       {
         "name": "kubernetes-pause-1.36",
-        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-1.36-1.36.3-r2.apk",
-        "version": "1.36.3-r2",
+        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-1.36-1.36.4-r7.apk",
+        "version": "1.36.4-r7",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13352",
-          "checksum": "sha1-B4ZZKmfE6o9XVHUTBqO8vs3ZdgM="
+          "range": "bytes=0-13829",
+          "checksum": "sha1-2Cbst+KIPW99mUoDr6uY9FdUVfg="
         },
         "data": {
-          "range": "bytes=13353-1569249",
-          "checksum": "sha256-UsYycz9HWjMNhyTpZHtq8744ZZSRTT3Alart6CqSYPo="
+          "range": "bytes=13830-1617392",
+          "checksum": "sha256-K+I0Z7RrJw4p619a4Dj+JRLovlVEHvksU6wtekbUyvY="
         },
-        "checksum": "Q1B4ZZKmfE6o9XVHUTBqO8vs3ZdgM="
+        "checksum": "Q12Cbst+KIPW99mUoDr6uY9FdUVfg="
       },
       {
         "name": "kubernetes-pause-compat-1.36",
-        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-compat-1.36-1.36.3-r2.apk",
-        "version": "1.36.3-r2",
+        "url": "https://packages.wolfi.dev/os/x86_64/kubernetes-pause-compat-1.36-1.36.4-r7.apk",
+        "version": "1.36.4-r7",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13349",
-          "checksum": "sha1-epag+bv9sFD6IjeZlUr8M/Onun0="
+          "range": "bytes=0-13823",
+          "checksum": "sha1-/3ScYZHNBl2DOmNQ8mqVV6j24Tg="
         },
         "data": {
-          "range": "bytes=13350-14869",
-          "checksum": "sha256-jHGV2oiygSIPBy16IfW3kPqrS1nDGH5L8oHAFaTD6Ds="
+          "range": "bytes=13824-15349",
+          "checksum": "sha256-Zly/o0sKsct4L+suY/gav3LF8B0k6kJL9LBwJPdJR10="
         },
-        "checksum": "Q1epag+bv9sFD6IjeZlUr8M/Onun0="
+        "checksum": "Q1/3ScYZHNBl2DOmNQ8mqVV6j24Tg="
       },
       {
         "name": "kubernetes-pause-1.36",
-        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-1.36-1.36.3-r2.apk",
-        "version": "1.36.3-r2",
+        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-1.36-1.36.4-r7.apk",
+        "version": "1.36.4-r7",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13377",
-          "checksum": "sha1-9K/EaOrh0qpPVjKRvghv2tHltek="
+          "range": "bytes=0-13859",
+          "checksum": "sha1-wTNGn8jPvoUFC0r5tURjoU2Qods="
         },
         "data": {
-          "range": "bytes=13378-1420498",
-          "checksum": "sha256-4dR+nSFXSY0ksXncOhTmPmu9Bz9yHBKuBf2N/tmzyoY="
+          "range": "bytes=13860-1466483",
+          "checksum": "sha256-q17nrFxcck/qXv51tQlXtToA8M9itdhlUlYP5gZl/9A="
         },
-        "checksum": "Q19K/EaOrh0qpPVjKRvghv2tHltek="
+        "checksum": "Q1wTNGn8jPvoUFC0r5tURjoU2Qods="
       },
       {
         "name": "kubernetes-pause-compat-1.36",
-        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-compat-1.36-1.36.3-r2.apk",
-        "version": "1.36.3-r2",
+        "url": "https://packages.wolfi.dev/os/aarch64/kubernetes-pause-compat-1.36-1.36.4-r7.apk",
+        "version": "1.36.4-r7",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13378",
-          "checksum": "sha1-Yc96yLFSfpIQAvZAw0skHZ5e1hw="
+          "range": "bytes=0-13854",
+          "checksum": "sha1-BJd9N9mbMXO01vvxwxSOpwPz40o="
         },
         "data": {
-          "range": "bytes=13379-14895",
-          "checksum": "sha256-dq28CxoEMi/X+9NaxyBcNsdaIDZ78bRyf4aJL2JtmCE="
+          "range": "bytes=13855-15372",
+          "checksum": "sha256-+GqUUqgCx61gm6UML/u8wyPS3F8B4lovWc1A1CGyo+M="
         },
-        "checksum": "Q1Yc96yLFSfpIQAvZAw0skHZ5e1hw="
+        "checksum": "Q1BJd9N9mbMXO01vvxwxSOpwPz40o="
       }
     ]
   }
