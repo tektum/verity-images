@@ -1,0 +1,61 @@
+package:
+  name: verity-go-1.27
+  version: "1.27.1"
+  epoch: 0
+  description: Go toolchain packaged from the pinned upstream release archive
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: BSD-3-Clause
+  dependencies:
+    runtime:
+      - build-base
+  options:
+    # The official toolchain archive contains foreign ELF fixtures under src/debug/elf/testdata.
+    # They are compiler test inputs, not runtime dependencies of the packaged toolchain.
+    no-depends: true
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - runs: |
+      case "${{build.arch}}" in
+        x86_64)
+          archive=go${{package.version}}.linux-amd64.tar.gz
+          sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
+          ;;
+        aarch64)
+          archive=go${{package.version}}.linux-arm64.tar.gz
+          sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
+          ;;
+        *) exit 1 ;;
+      esac
+      wget -q -O "/tmp/$archive" "https://go.dev/dl/$archive"
+      printf '%s  /tmp/%s\n' "$sha256" "$archive" | sha256sum -c -
+      install -d "${{targets.destdir}}/usr/lib" "${{targets.destdir}}/usr/bin"
+      tar -xzf "/tmp/$archive" -C "${{targets.destdir}}/usr/lib"
+      ln -s ../lib/go/bin/go "${{targets.destdir}}/usr/bin/go"
+      ln -s ../lib/go/bin/gofmt "${{targets.destdir}}/usr/bin/gofmt"
+
+subpackages:
+  - name: go-fips-entrypoint
+    description: FIPS activation entrypoint for Go images
+    pipeline:
+      - runs: |
+          install -m755 -D fips-entrypoint "${{targets.subpkgdir}}/usr/bin/go-fips-entrypoint"
+
+test:
+  pipeline:
+    - runs: |
+        test "$(go version | awk '{print $3}')" = "go${{package.version}}"
+        test "$(go env GOROOT)" = /usr/lib/go
