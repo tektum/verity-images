@@ -9,7 +9,13 @@ fail() {
 
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/kube-controller-manager"]' ] || fail 'unexpected OCI entrypoint'
-[ "$(docker run --rm --network none --read-only "$image" --version)" = 'Kubernetes v1.36.3' ] || fail 'unexpected kube-controller-manager version'
+channel=$(awk '/^versions:/ { gsub(/[\[\],]/, ""); print $2; exit }' "$(dirname -- "$0")/../metadata.yaml")
+[ -n "$channel" ] || fail 'supported version channel missing from metadata'
+version=$(docker run --rm --network none --read-only "$image" --version)
+case "$version" in
+  "Kubernetes v${channel}".*) ;;
+  *) fail "unexpected kube-controller-manager version for channel ${channel}: ${version}" ;;
+esac
 docker run --rm --network none --read-only "$image" --help >/dev/null || fail 'kube-controller-manager help failed'
 
 work=$(mktemp -d)
