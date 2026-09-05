@@ -1,7 +1,7 @@
 package:
   name: prometheus-operator
-  version: "0.93.0"
-  epoch: 0
+  version: "0.93.1"
+  epoch: 6
   description: Prometheus Operator creates and manages Prometheus clusters on Kubernetes
   copyright:
     - license: Apache-2.0
@@ -13,7 +13,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: f8fafd475f3d132e239432ae6172de60a6cb6516
+  source-commit: 51cc33a31bf3bd83dd22b1ae6efaf26e199194d9
 
 environment:
   contents:
@@ -27,6 +27,7 @@ environment:
       - ca-certificates-bundle
       - git
       - go-1.26
+      - python3
       - make
   environment:
     CGO_ENABLED: "0"
@@ -39,6 +40,10 @@ pipeline:
       repository: https://github.com/prometheus-operator/prometheus-operator
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/operator
   - runs: |
       make operator \
         VERSION=${{package.version}} \
