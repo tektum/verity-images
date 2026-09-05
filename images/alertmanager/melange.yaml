@@ -1,13 +1,13 @@
 package:
   name: prometheus-alertmanager
-  version: "0.33.1"
-  epoch: 4
+  version: "0.34.0"
+  epoch: 3
   description: Prometheus Alertmanager
   copyright:
     - license: Apache-2.0
 
 vars:
-  source-commit: 2c8da51e03f3dbbed24f9711ca2d76aab4eef9c5
+  source-commit: 085f0ef7eb41da24cab8cd000f1345b6250f2edb
 
 environment:
   contents:
@@ -19,6 +19,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
 
@@ -32,9 +33,13 @@ pipeline:
     with:
       uri: >-
         https://github.com/prometheus/alertmanager/releases/download/v${{package.version}}/alertmanager-web-ui-${{package.version}}.tar.gz
-      expected-sha256: 1f63344e196e47ba7bfe27276f44c1da77e39fb76493e42b2cf0a50ca8f04321
+      expected-sha256: 990d0be563b733bd0eae180dd609591164028f80cdf47ee8c1c3a1bfafff8d23
       directory: ui/app
       strip-components: 0
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: './cmd/alertmanager ./cmd/amtool'
   - runs: |
       flags="-s -w -X github.com/prometheus/common/version.Version=${{package.version}}"
       flags="$flags -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}"
