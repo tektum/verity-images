@@ -116,7 +116,9 @@ for image in "${images[@]}"; do
     continue
   fi
 
-  head_sha=$(gh api "repos/${repository}/git/ref/heads/${branch}" --jq .object.sha 2>/dev/null || true)
+  if ! head_sha=$(gh api "repos/${repository}/git/ref/heads/${branch}" --jq .object.sha 2>/dev/null); then
+    head_sha=
+  fi
   open=0
   if [[ -n "$head_sha" ]]; then
     open=$(open_pull_requests "$branch")
