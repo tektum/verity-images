@@ -26,7 +26,7 @@ run() {
 }
 
 run --version >"$work/version"
-grep -F 'prometheus-operator, version 0.93.0' "$work/version" >/dev/null ||
+grep -F 'prometheus-operator, version 0.93.1' "$work/version" >/dev/null ||
   fail 'unexpected operator version'
 
 run crds >"$work/crds"
