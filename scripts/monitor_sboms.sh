@@ -64,19 +64,66 @@ jq -e '
   all(.platforms[]; (.platform | test("^linux/(amd64|arm64)$")) and (.image_ref | test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$")))
 ' "$payload" >/dev/null
 delivery=$(jq -er .delivery_id "$payload")
-title=$(jq -r '"[CVE] \(.package_name)@\(.version) \(.vuln_id)"' "$payload")
+image=$(jq -er .logical_image_ref "$payload")
+image_marker="<!-- squawk-image:${image} -->"
+image_name=${image%%@sha256:*}
+digest=${image##*@sha256:}
+short_digest=${digest:0:12}
+title="[CVE] ${image_name#ghcr.io/} image vulnerabilities (${short_digest})"
 issues=$(gh api --paginate --slurp "repos/${repository}/issues?state=all&labels=squawk&per_page=100")
-issue=$(jq -c --arg delivery "$delivery" '[.[][] | select(has("pull_request") | not) | select((.body // "") | contains("<!-- squawk-delivery:" + $delivery + " -->"))] | if length > 1 then error("duplicate Squawk delivery issues") else .[0] // null end' <<<"$issues")
+issue=$(jq -c --arg marker "$image_marker" '
+  [.[][] |
+    select(has("pull_request") | not) |
+    select(.user.login == "github-actions[bot]") |
+    select((.body // "") | contains($marker))
+  ] | sort_by(.number) | .[0] // null
+' <<<"$issues")
 body=$(mktemp)
-trap 'rm -f "$body"' EXIT
+comment=$(mktemp)
+duplicate_body=$(mktemp)
+trap 'rm -f "$body" "$comment" "$duplicate_body"' EXIT
+cat > "$body" <<EOF
+$image_marker
+Squawk reported one or more vulnerabilities for this immutable image.
+
+- Logical image: $image
+- Latest workflow: $run_url
+
+Each finding is recorded below as a separate comment. Rebuilding this image should address the complete set in one pull request.
+EOF
 jq -r --arg run "$run_url" '
-  "<!-- squawk-delivery:\(.delivery_id) -->\nSquawk reported **\(.vuln_id)** for `\(.package_name)@\(.version)` in `\(.ecosystem)`.\n\n- Logical image: \(.logical_image_ref)\n- Severity: \(.severity // "unknown")\n- Workflow: \($run)\n\n| Platform | Digest |\n|---|---|\n" + ([.platforms[] | "| \(.platform) | `\(.image_ref)` |"] | join("\n"))
-' "$payload" > "$body"
+  "<!-- squawk-delivery:\(.delivery_id) -->\n### `\(.vuln_id)` in `\(.package_name)@\(.version)`\n\n- Ecosystem: \(.ecosystem)\n- Severity: \(.severity // "unknown")\n- Workflow: \($run)\n\n| Platform | Digest |\n|---|---|\n" +
+  ([.platforms[] | "| \(.platform) | `\(.image_ref)` |"] | join("\n"))
+' "$payload" > "$comment"
 number=$(jq -r '.number // empty' <<<"$issue")
 if [[ -z "$number" ]]; then
   gh label create squawk --repo "$repository" --color 5319E7 --description "Squawk vulnerability alert" --force
-  gh issue create --repo "$repository" --title "$title" --body-file "$body" --label squawk
-else
-  [[ $(jq -r .state <<<"$issue") != closed ]] || gh issue reopen "$number" --repo "$repository"
-  gh issue edit "$number" --repo "$repository" --body-file "$body"
+  created=$(gh issue create --repo "$repository" --title "$title" --body-file "$body" --label squawk)
+  number=${created##*/}
+  [[ $number =~ ^[0-9]+$ ]] || { printf 'could not determine created Squawk issue number\n' >&2; exit 1; }
+  issue=$(jq -cn --argjson number "$number" --arg marker "$image_marker" '{number: $number, state: "open", body: $marker, user: {login: "github-actions[bot]"}}')
 fi
+
+# Re-read after a possible create. Concurrent findings may each have observed no
+# issue; every run converges those races on the oldest bot-authored image issue.
+issues=$(gh api --paginate --slurp "repos/${repository}/issues?state=all&labels=squawk&per_page=100")
+candidates=$(jq -c --arg marker "$image_marker" --argjson seed "$issue" '
+  ([.[][] |
+    select(has("pull_request") | not) |
+    select(.user.login == "github-actions[bot]") |
+    select((.body // "") | contains($marker))
+  ] + [$seed]) | unique_by(.number) | sort_by(.number)
+' <<<"$issues")
+issue=$(jq -c '.[0]' <<<"$candidates")
+number=$(jq -r .number <<<"$issue")
+comments=$(gh api --paginate --slurp "repos/${repository}/issues/${number}/comments?per_page=100" | jq -c '[.[][]]')
+[[ $(jq -r .state <<<"$issue") != closed ]] || gh issue reopen "$number" --repo "$repository"
+gh issue edit "$number" --repo "$repository" --title "$title" --body-file "$body"
+comment_count=$(jq --arg delivery "$delivery" '[.[] | select(.user.login == "github-actions[bot]") | select((.body // "") | contains("<!-- squawk-delivery:" + $delivery + " -->"))] | length' <<<"$comments")
+(( comment_count <= 1 )) || { printf 'duplicate Squawk delivery comments\n' >&2; exit 1; }
+(( comment_count == 1 )) || gh issue comment "$number" --repo "$repository" --body-file "$comment"
+jq -r '.[1:][] | [.number, .state] | @tsv' <<<"$candidates" | while IFS=$'\t' read -r duplicate state; do
+  [[ $state == closed ]] || gh issue close "$duplicate" --repo "$repository" --reason "not planned"
+  printf '<!-- squawk-consolidated-into:%s -->\nConsolidated into #%s; Squawk tracks one remediation issue per immutable image.\n' "$number" "$number" > "$duplicate_body"
+  gh issue edit "$duplicate" --repo "$repository" --body-file "$duplicate_body"
+done

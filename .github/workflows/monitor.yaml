@@ -10,8 +10,8 @@ on:
 
 permissions: {}
 
-# Distinct findings run independently. A duplicate delivery id is serialized so two
-# read-then-create reconciliations cannot race and create duplicate issues.
+# Distinct findings must not share a group: GitHub keeps only one pending run per
+# group. Duplicate delivery ids serialize their idempotent reconciliation.
 concurrency:
   group: monitor-${{ fromJSON(inputs.payload).delivery_id }}
   cancel-in-progress: false

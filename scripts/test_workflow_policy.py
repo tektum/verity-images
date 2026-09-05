@@ -567,8 +567,8 @@ def main() -> None:
     assert "        required: true\n" in monitor
     assert "      contents: read\n      issues: write\n" in monitor
     assert "scripts/monitor_sboms.sh squawk-payload.json\n" in monitor
-    # Distinct findings must not share a group (new pending runs replace old ones), while
-    # the same immutable delivery id must serialize its read-then-create reconciliation.
+    # Distinct findings must not share a group because GitHub keeps only one pending
+    # run per group. Duplicate deliveries serialize their idempotent reconciliation.
     assert (
         "\nconcurrency:\n"
         "  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}\n"
