@@ -1,6 +1,6 @@
 package:
   name: verity-zot
-  version: "2.1.20"
+  version: "2.1.21"
   epoch: 1
   description: Zot OCI registry
   copyright:
@@ -33,7 +33,7 @@ pipeline:
     with:
       repository: https://github.com/project-zot/zot
       tag: v${{package.version}}
-      expected-commit: 3b5796d834e8661ea661a5fcc47add8d4405aebf
+      expected-commit: 6429ce645b13f5a72275d793ae42df51739bb0ca
   - uses: go/remediate
     with:
       modroot: .
