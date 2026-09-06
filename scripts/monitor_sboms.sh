@@ -328,7 +328,7 @@ This security-fixed state is based on authenticated, complete coverage for linux
 EOF
     gh issue edit "$number" --repo "$repository" --title "$title" --body-file "$body"
   fi
-  checkpoint_marker="<!-- squawk-checkpoint:${checkpoint_id} -->"
+  checkpoint_marker="<!-- squawk-checkpoint:${checkpoint_id}:${revision} -->"
   {
     printf '%s\nComplete Squawk checkpoint revision %s at %s with %s current finding(s).\n' \
       "$checkpoint_marker" "$revision" "$(date -u -d "@$evaluated_at" +%Y-%m-%dT%H:%M:%SZ)" "$active"
@@ -356,7 +356,7 @@ This immutable image was retired from Squawk monitoring after authoritative publ
 Historical retirement is not evidence that vulnerabilities in this digest were fixed.
 EOF
   gh issue edit "$number" --repo "$repository" --title "$title" --body-file "$body"
-  checkpoint_marker="<!-- squawk-checkpoint:${checkpoint_id} -->"
+  checkpoint_marker="<!-- squawk-checkpoint:${checkpoint_id}:${revision} -->"
   printf "%s\nRetired in favor of \`%s\` from authoritative source event \`%s\`. This is lifecycle retirement, not a security-fixed result.\n" \
     "$checkpoint_marker" "$replacement" "$source_event" > "$comment"
   post_canonical_once "$checkpoint_marker" "$comment"

@@ -50,6 +50,7 @@ jobs:
     if: >-
       fromJSON(inputs.payload).schema_version == 2 &&
       fromJSON(inputs.payload).event == 'reconcile' &&
+      vars.SQUAWK_RECONCILIATION_V2_REQUIRED == 'true' &&
       github.actor_id == '312570741' &&
       github.triggering_actor == github.actor
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor-v2/runner=4cpu-linux-x64
@@ -84,10 +85,11 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/squawk-tools:$PATH"
-          [[ "$SQUAWK_ORIGIN" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || {
-            printf 'SQUAWK_RECONCILIATION_ORIGIN must be a configured canonical HTTPS origin without a path\n' >&2
-            exit 1
-          }
+          jq -n --arg origin "$SQUAWK_ORIGIN" '{origin:$origin}' |
+            jq -e --arg mode origin -f scripts/validate_squawk_reconciliation.jq >/dev/null || {
+              printf 'SQUAWK_RECONCILIATION_ORIGIN must match the reviewed Squawk endpoint\n' >&2
+              exit 1
+            }
           printf '%s' "$SQUAWK_PAYLOAD" > squawk-payload.json
           jq -e --arg mode wakeup -f scripts/validate_squawk_reconciliation.jq \
             squawk-payload.json >/dev/null

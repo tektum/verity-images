@@ -578,6 +578,7 @@ def main() -> None:
     assert monitor.count("github.actor_id == '312570741'") == 2
     assert monitor.count("github.triggering_actor == github.actor") == 2
     assert "vars.SQUAWK_RECONCILIATION_V2_REQUIRED != 'true'" in finding_job
+    assert "vars.SQUAWK_RECONCILIATION_V2_REQUIRED == 'true'" in reconcile_job
     assert "scripts/monitor_sboms.sh squawk-payload.json\n" in finding_job
     assert "group: monitor-v1-${{ fromJSON(inputs.payload).delivery_id }}" in finding_job
     assert "fromJSON(inputs.payload).source.installation_id" in reconcile_job
@@ -585,6 +586,9 @@ def main() -> None:
     assert "fromJSON(inputs.payload).logical_image_ref" in reconcile_job
     assert "cancel-in-progress: false" in reconcile_job
     assert "SQUAWK_ORIGIN: ${{ vars.SQUAWK_RECONCILIATION_ORIGIN }}" in reconcile_job
+    assert "--arg mode origin" in reconcile_job
+    assert reconcile_job.index("--arg mode origin") < reconcile_job.index("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
+    assert '.origin == "https://squawk-staging.omerc.workers.dev"' in monitor_validator
     assert "audience=squawk:github-actions:reconciliation:v2" in reconcile_job
     assert '[[ "$status" == 409 ]]' in reconcile_job
     assert '[[ "$status" == 200 ]]' in reconcile_job
