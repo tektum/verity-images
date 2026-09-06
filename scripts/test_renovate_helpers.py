@@ -180,7 +180,7 @@ def test_renovate_configuration() -> None:
     grpc_floor_pattern = r'''google\.golang\.org/grpc@\$\{\{vars\.grpc-floor\}\}[\s\S]*?grpc-floor:\s*["']?(?<currentValue>v[^\s"']+)["']?'''
     assert grpc_floor_manager == {
         "customType": "regex",
-        "managerFilePatterns": [r"/^images/velero/melange\.yaml$/"],
+        "managerFilePatterns": [r"/^images/(?:restic|velero)/melange\.yaml$/"],
         "matchStrings": [grpc_floor_pattern],
         "depNameTemplate": "google.golang.org/grpc",
         "datasourceTemplate": "go",
@@ -200,11 +200,7 @@ def test_renovate_configuration() -> None:
         assert floor_match.group("currentValue") == "v1.83.2"
 
     velero_recipe = (ROOT / "images/velero/melange.yaml").read_text(encoding="utf-8")
-    literal_pin = re.search(
-        r"go get \\\n\s+google\.golang\.org/grpc@v\d\S*", velero_recipe
-    )
-    floor_anchor = re.search(floor_pattern, velero_recipe)
-    assert literal_pin is not None or floor_anchor is not None
+    assert re.search(floor_pattern, velero_recipe) is not None
 
 
 def test_renovate_image_groups() -> None:

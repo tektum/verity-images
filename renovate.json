@@ -117,7 +117,7 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^images/velero/melange\\.yaml$/"],
+      "managerFilePatterns": ["/^images/(?:restic|velero)/melange\\.yaml$/"],
       "matchStrings": ["google\\.golang\\.org/grpc@\\$\\{\\{vars\\.grpc-floor\\}\\}[\\s\\S]*?grpc-floor:\\s*[\"']?(?<currentValue>v[^\\s\"']+)[\"']?"],
       "depNameTemplate": "google.golang.org/grpc",
       "datasourceTemplate": "go",
