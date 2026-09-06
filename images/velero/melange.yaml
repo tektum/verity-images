@@ -1,7 +1,7 @@
 package:
   name: velero
   version: "1.18.2"
-  epoch: 9
+  epoch: 10
   description: Backup and migrate Kubernetes applications and their persistent volumes
   copyright:
     - license: Apache-2.0
@@ -35,13 +35,22 @@ pipeline:
       repository: https://github.com/velero-io/velero
       tag: v${{package.version}}
       expected-commit: c253c7fe37d78c9b7e55c68544f7c5b2608712d8
-  - runs: |
-      GOTOOLCHAIN=local go get \
-        google.golang.org/grpc@v1.83.2
   - uses: go/remediate
     with:
       modroot: .
       packages: ./cmd/velero
+  - runs: |
+      current="$(GOTOOLCHAIN=local go list -m -f '{{.Version}}' google.golang.org/grpc)"
+      if awk -v have="$current" -v want=${{vars.grpc-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get google.golang.org/grpc@${{vars.grpc-floor}}
+      fi
   - uses: go/build
     with:
       packages: ./cmd/velero
@@ -51,10 +60,23 @@ pipeline:
         -X main.version=v${{package.version}}
         -X github.com/vmware-tanzu/velero/pkg/buildinfo.Version=v${{package.version}}
   - runs: |
+      actual="$(go version -m "${{targets.destdir}}/usr/bin/velero" \
+        | awk '$1 == "dep" && $2 == "google.golang.org/grpc" { print $3 }')"
+      awk -v have="$actual" -v want=${{vars.grpc-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 > w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 1 : 0
+      }'
       "${{targets.destdir}}/usr/bin/velero" version --client-only 2>&1 \
         | grep -F "v${{package.version}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+vars:
+  grpc-floor: v1.83.2
 
 test:
   environment:
