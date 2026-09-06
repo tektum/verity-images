@@ -4,7 +4,7 @@ contents:
     - https://packages.wolfi.dev/os
     - "@local @LOCAL_REPOSITORY@"
   keyring:
-    - packages/keys/verity-apk-2026.rsa.pub
+    - "@REPOSITORY_KEY@"
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     - "@LOCAL_KEY@"
   packages:
