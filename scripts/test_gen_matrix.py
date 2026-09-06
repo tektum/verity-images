@@ -231,6 +231,43 @@ def check_published_gap_selection() -> None:
             assert gen_matrix.generate("base", published_catalog=catalog)["include"] == []
 
 
+def check_apk_repository_consumers() -> None:
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        consumer = root / "images/consumer"
+        other = root / "images/other"
+        write_image(consumer, name="consumer", versions="1", package_version="1.0.0")
+        write_image(other, name="other", versions="1", package_version="1.0.0")
+        consumer_config = consumer / "apko.yaml"
+        consumer_config.write_text(
+            "contents:\n  repositories:\n"
+            f"    - {gen_matrix.APK_REPOSITORY_URL}\n"
+            "  packages:\n    - consumer@local\n",
+            encoding="utf-8",
+        )
+        for relative in gen_matrix.APK_REPOSITORY_PATHS:
+            path = root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"{relative}: before\n", encoding="utf-8")
+
+        with patch.object(gen_matrix, "ROOT", root):
+            consumer_digest = gen_matrix.input_digest(consumer, "plain")
+            other_digest = gen_matrix.input_digest(other, "plain")
+            state = root / "packages/repository-state.json"
+            state.write_text("repository-state: after\n", encoding="utf-8")
+            assert consumer_digest != gen_matrix.input_digest(consumer, "plain")
+            assert other_digest == gen_matrix.input_digest(other, "plain")
+            with patch.object(
+                gen_matrix,
+                "changed_paths",
+                return_value={"packages/repository-state.json"},
+            ):
+                entries = gen_matrix.generate("base")["include"]
+        assert [(entry["name"], entry["context"]) for entry in entries] == [
+            ("consumer", "images/consumer")
+        ]
+
+
 def check_authority_drift() -> None:
     # Source-built metadata temporarily records channel granularity while
     # melange owns the version. A Renovate bump can therefore add drift until
@@ -441,6 +478,7 @@ def main() -> None:
     check_flavor_only_melange()
     check_published_gap_selection()
     check_authority_drift()
+    check_apk_repository_consumers()
 
 
 if __name__ == "__main__":

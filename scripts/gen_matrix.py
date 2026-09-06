@@ -34,7 +34,8 @@ CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
 GO_REMEDIATE_SAMPLE: Final = "images/rqlite"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
-OPENSSL_FIPS_PATHS: Final = {
+APK_REPOSITORY_URL: Final = "https://tektum.github.io/verity-images/apk"
+APK_REPOSITORY_PATHS: Final = {
     "packages/keys/verity-apk-2026.rsa.pub",
     "packages/repository-state.json",
     "packages/repository-state.pin.json",
@@ -288,11 +289,11 @@ def image_directories() -> list[Path]:
     return sorted(path.parent for root in ("images", "patched") for path in (ROOT / root).glob("**/metadata.yaml"))
 
 
-def uses_openssl_fips_provider(directory: Path, flavor: str) -> bool:
+def uses_apk_repository(directory: Path, flavor: str) -> bool:
     config = directory / ("apko.yaml" if flavor == "plain" else f"{flavor}.apko.yaml")
     if not config.is_file():
         config = directory / "apko.yaml"
-    return config.is_file() and "openssl-fips-provider=3.1.2-r3" in config.read_text(encoding="utf-8")
+    return config.is_file() and APK_REPOSITORY_URL in config.read_text(encoding="utf-8")
 
 
 
@@ -319,8 +320,8 @@ def input_digest(directory: Path, flavor: str) -> str:
     digest.update(b"\0")
     digest.update(flavor.encode())
     shared_paths = set(GLOBAL_PATHS)
-    if uses_openssl_fips_provider(directory, flavor):
-        shared_paths |= OPENSSL_FIPS_PATHS
+    if uses_apk_repository(directory, flavor):
+        shared_paths |= APK_REPOSITORY_PATHS
     if uses_go_remediate(directory):
         shared_paths |= GO_REMEDIATE_PATHS
     if uses_corepack_install(directory):
@@ -404,7 +405,7 @@ def generate(
         else set()
     )
     global_changed = bool(changed & GLOBAL_PATHS)
-    openssl_fips_changed = bool(changed & OPENSSL_FIPS_PATHS)
+    apk_repository_changed = bool(changed & APK_REPOSITORY_PATHS)
     go_remediate_changed = bool(changed & GO_REMEDIATE_PATHS)
     corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
     cargo_remediate_changed = bool(changed & CARGO_REMEDIATE_PATHS)
@@ -464,15 +465,15 @@ def generate(
         if metadata.track == "patched":
             platforms = ",".join(parse_source(required).platforms)
         for flavor in metadata.flavors:
-            provider_changed = (
-                openssl_fips_changed
+            repository_changed = (
+                apk_repository_changed
                 and metadata.track == "wolfi"
-                and uses_openssl_fips_provider(directory, flavor)
+                and uses_apk_repository(directory, flavor)
             )
             version = metadata.versions[0]
             tag_version = version if flavor == "plain" else f"{version}-{flavor}"
             if catalog_path is None and base_ref and not directly_changed and (
-                not provider_changed
+                not repository_changed
                 and not (published_catalog is not None and (metadata.name, tag_version) not in published)
                 and not (go_remediate_changed and relative == GO_REMEDIATE_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
