@@ -128,4 +128,5 @@ def ready_checkpoint:
     else false end);
 if $mode == "wakeup" then wakeup
 elif $mode == "checkpoint" then ready_checkpoint
+elif $mode == "origin" then .origin == "https://squawk-staging.omerc.workers.dev"
 else false end

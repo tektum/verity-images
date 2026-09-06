@@ -167,6 +167,33 @@ if grep -Fq 'issue comment' "$GH_LOG"; then
   exit 1
 fi
 
+# Closed sources may receive late bot evidence after their first consolidation.
+late_delivery=$(printf late-delivery | sha256sum | cut -d' ' -f1)
+COMMENTS_42=$(jq -cn --arg delivery "$late_delivery" '
+  [{body:"<!-- squawk-consolidated-into:8 -->",user:{login:"github-actions[bot]"}},
+   {id:422,html_url:"https://example.test/issues/42#issuecomment-422",
+    body:("<!-- squawk-delivery:" + $delivery + " -->\nlate finding evidence"),
+    user:{login:"github-actions[bot]"}}]')
+export COMMENTS_42
+: > "$GH_LOG"
+: > "$GH_BODY_LOG"
+PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
+grep -Fq "<!-- squawk-delivery:$late_delivery -->" "$GH_BODY_LOG"
+grep -Fq 'issue comment 8 --repo owner/repo' "$GH_LOG"
+
+# A mutable repository variable cannot select an unreviewed checkpoint server.
+jq -n --arg origin "https://squawk-staging.omerc.workers.dev" '{origin:$origin}' |
+  jq -e --arg mode origin -f "$root/scripts/validate_squawk_reconciliation.jq" >/dev/null
+for origin in '' 'https://attacker.test' 'http://squawk-staging.omerc.workers.dev' \
+  'https://squawk-staging.omerc.workers.dev/'; do
+  jq -n --arg origin "$origin" '{origin:$origin}' > "$work/invalid-origin.json"
+  if jq -e --arg mode origin -f "$root/scripts/validate_squawk_reconciliation.jq" \
+    "$work/invalid-origin.json" >/dev/null; then
+    printf 'unreviewed checkpoint origin was accepted\n' >&2
+    exit 1
+  fi
+done
+
 # When the oldest issue itself uses the legacy per-delivery body, its finding is
 # preserved as a canonical comment before the body is migrated to image scope.
 : > "$GH_LOG"
@@ -383,6 +410,25 @@ if grep -Fq 'issue close 8' "$GH_LOG"; then
 fi
 grep -Fq "<!-- squawk-delivery:$active_delivery -->" "$GH_BODY_LOG"
 grep -Fq "<!-- squawk-applied:11:22:2:$active_sha -->" "$GH_BODY_LOG"
+
+# Every higher revision gets an audit note even if a producer reuses its id.
+COMMENTS_8=$(jq -cn --arg checkpoint "$active_checkpoint" --arg sha "$active_sha" \
+  --arg delivery "$active_delivery" '
+  [{body:("<!-- squawk-checkpoint:" + $checkpoint + ":2 -->"),user:{login:"github-actions[bot]"}},
+   {body:("<!-- squawk-applied:11:22:2:" + $sha + " -->"),user:{login:"github-actions[bot]"}},
+   {body:("<!-- squawk-delivery:" + $delivery + " -->"),user:{login:"github-actions[bot]"}}]')
+export COMMENTS_8
+jq '.checkpoint.revision = 3' "$work/active-checkpoint.json" > "$work/reused-checkpoint.json"
+rehash_checkpoint "$work/reused-checkpoint.json"
+: > "$GH_LOG"
+: > "$GH_BODY_LOG"
+PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
+  "$work/wakeup.json" "$work/reused-checkpoint.json" "$work/reused-ack.json" "$work/oci-index.json"
+grep -Fq "<!-- squawk-checkpoint:$active_checkpoint:3 -->" "$GH_BODY_LOG"
+if grep -Fq "<!-- squawk-delivery:$active_delivery -->" "$GH_BODY_LOG"; then
+  printf 'higher checkpoint revision duplicated an existing finding\n' >&2
+  exit 1
+fi
 
 # Exact revision replay is an idempotent ACK-only path. The same revision with a
 # different digest and any older revision are rejected before issue mutation.
