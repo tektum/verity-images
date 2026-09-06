@@ -30,11 +30,13 @@ docker run --rm --network none "$image" version --client-only 2>&1 |
   grep -F "v$expected_version" >/dev/null || fail 'Velero client version mismatch'
 docker run --rm --network none --entrypoint /velero "$image" --help >/dev/null ||
   fail '/velero is not executable'
-docker run --rm --network none --entrypoint /usr/bin/restic "$image" version >/dev/null ||
-  fail 'restic is not executable'
+docker run --rm --network none --entrypoint /usr/bin/restic "$image" version 2>&1 |
+  grep -E '^restic 0\.18\.' >/dev/null || fail 'restic is not executable'
 container=$(docker create "$image")
 docker cp "$container:/plugins" - >/dev/null || fail 'plugin directory is missing'
 docker cp "$container:/usr/share/zoneinfo/UTC" - >/dev/null || fail 'timezone data is missing'
+docker cp "$container:/usr/share/licenses/verity-restic-0.18/LICENSE" - >/dev/null ||
+  fail 'restic does not come from the remediated verity-restic-0.18 package'
 docker rm "$container" >/dev/null
 container=
 
