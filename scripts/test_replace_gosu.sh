@@ -237,14 +237,20 @@ for forbidden in 'go build' 'go mod tidy' 'library/golang' 'tianon/gosu'; do
 done
 
 recipe="$root/packages/gosu/melange.yaml"
+grep -Fq 'epoch: 1' "$recipe"
 grep -Fq 'source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513' "$recipe"
 grep -Fq 'expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b' "$recipe"
+grep -Fq 'go-version: go1.27.1' "$recipe"
 grep -Fq 'x-sys-version: v0.44.0' "$recipe"
+grep -Fq 'toolchain_sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445' "$recipe"
+grep -Fq 'toolchain_sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec' "$recipe"
 grep -Fq 'expected=8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025' "$recipe"
 grep -Fq 'expected=420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859' "$recipe"
 grep -Fq 'go build -mod=readonly -trimpath -buildvcs=false' "$recipe"
 grep -Fq 'GOTOOLCHAIN=local' "$recipe"
-
+checksum_output_line=$(grep -nFx '      sha256sum gosu' "$recipe" | cut -d: -f1)
+binary_gate_line=$(grep -nF " \"\$expected\" | sha256sum -c -" "$recipe" | cut -d: -f1)
+[ "$checksum_output_line" -eq "$((binary_gate_line - 1))" ]
 consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie rabbitmq-4"
 for consumer in $consumers; do
   consumer_source="$root/patched/$consumer/source.yaml"

@@ -1,7 +1,7 @@
 package:
   name: gosu
   version: "1.19"
-  epoch: 0
+  epoch: 1
   description: Deterministic gosu build with patched golang.org/x/sys
   target-architecture:
     - x86_64
@@ -11,7 +11,7 @@ package:
 
 vars:
   source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513
-  go-version: go1.26.5
+  go-version: go1.27.1
   x-sys-version: v0.44.0
 
 environment:
@@ -37,12 +37,12 @@ pipeline:
       case "${{build.arch}}" in
         x86_64)
           toolchain=${{vars.go-version}}.linux-amd64.tar.gz
-          toolchain_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053
+          toolchain_sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445
           expected=8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025
           ;;
         aarch64)
           toolchain=${{vars.go-version}}.linux-arm64.tar.gz
-          toolchain_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49
+          toolchain_sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec
           expected=420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859
           ;;
         *) exit 1 ;;
@@ -56,5 +56,6 @@ pipeline:
       go mod edit -require="golang.org/x/sys@${{vars.x-sys-version}}"
       go mod tidy
       go build -mod=readonly -trimpath -buildvcs=false -ldflags '-d -w' -o gosu .
+      sha256sum gosu
       printf '%s  gosu\n' "$expected" | sha256sum -c -
       install -m755 -D gosu "${{targets.destdir}}/usr/bin/gosu"
