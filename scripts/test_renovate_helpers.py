@@ -170,6 +170,7 @@ def test_renovate_configuration() -> None:
     )
     assert go_get_manager["matchStringsStrategy"] == "recursive"
     assert go_get_manager["matchStrings"][0].startswith(r"go get [\\]\n")
+    assert "|velero)" in go_get_manager["managerFilePatterns"][0]
 
 
 def test_renovate_image_groups() -> None:
