@@ -1,7 +1,7 @@
 package:
   name: kube-state-metrics
-  version: "2.19.1"
-  epoch: 7
+  version: "2.20.0"
+  epoch: 3  # First revision recognized as fixed by the vulnerability feed.
   description: Add-on agent to generate and expose cluster-level metrics
   copyright:
     - license: Apache-2.0
@@ -16,6 +16,9 @@ package:
   test-resources:
     cpu: "1"
     memory: 1Gi
+
+vars:
+  source-commit: 4ffeda2ef866b0fef372849825a803296483b336
 
 environment:
   contents:
@@ -32,8 +35,8 @@ environment:
 pipeline:
   - uses: fetch
     with:
-      uri: https://github.com/kubernetes/kube-state-metrics/archive/45e1513e95beaaa2f2df92af9958cd9837bb66ab.tar.gz
-      expected-sha256: cbe6345fe3b927d0c8f7732eca5d14af300f928511d09548181d437210f99ca7
+      uri: https://github.com/kubernetes/kube-state-metrics/archive/${{vars.source-commit}}.tar.gz
+      expected-sha256: fffdaa8e6bbb0e2e9b2d07886bd70ef2f4b6507901ffb0de678b5486b6a46eba
   - uses: go/remediate
     with:
       modroot: .
@@ -45,10 +48,10 @@ pipeline:
       go-package: go-1.26
       ldflags: |
         -X github.com/prometheus/common/version.Version=${{package.version}}
-        -X github.com/prometheus/common/version.Revision=45e1513e95beaaa2f2df92af9958cd9837bb66ab
+        -X github.com/prometheus/common/version.Revision=${{vars.source-commit}}
         -X github.com/prometheus/common/version.Branch=v${{package.version}}
         -X github.com/prometheus/common/version.BuildUser=verity
-        -X github.com/prometheus/common/version.BuildDate=2026-06-11T18:22:59Z
+        -X github.com/prometheus/common/version.BuildDate=2026-08-17T20:49:04Z
   - runs: |
       "${{targets.destdir}}/usr/bin/kube-state-metrics" version | grep -F "${{package.version}}"
       "${{targets.destdir}}/usr/bin/kube-state-metrics" --help >/dev/null
