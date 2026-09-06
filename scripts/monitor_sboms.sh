@@ -30,12 +30,8 @@ else
     printf 'schema-v2 reconciliation requires checkpoint and ack paths\n' >&2
     exit 1
   }
-  jq -e --arg mode checkpoint -f "$validator" "$checkpoint_envelope" >/dev/null
-  jq -e --slurpfile wakeup "$payload" '
-    .checkpoint.logical_image_ref == $wakeup[0].logical_image_ref and
-    .checkpoint.source.installation_id == $wakeup[0].source.installation_id and
-    .checkpoint.source.repository_id == $wakeup[0].source.repository_id
-  ' "$checkpoint_envelope" >/dev/null
+  jq -e --slurp --arg mode bound_checkpoint -f "$validator" \
+    "$payload" "$checkpoint_envelope" >/dev/null
   event_document="$work/checkpoint.json"
   jq -c .checkpoint "$checkpoint_envelope" > "$event_document"
   event=$(jq -er .kind "$event_document")

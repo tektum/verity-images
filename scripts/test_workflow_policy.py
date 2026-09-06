@@ -595,6 +595,10 @@ def main() -> None:
     assert '[[ "$status" == 204 ]]' in reconcile_job
     assert "content_type == application/json" in reconcile_job
     assert 'raw_index=$(docker buildx imagetools inspect --raw "$logical_image")' in reconcile_job
+    assert "--arg mode bound_checkpoint" in reconcile_job
+    assert reconcile_job.index("--arg mode bound_checkpoint") < reconcile_job.index("docker buildx imagetools inspect")
+    assert 'logical_image=$(jq -er .logical_image_ref squawk-payload.json)' in reconcile_job
+    assert "--arg mode bound_checkpoint" in monitor_script
     assert "printf '%s' \"$raw_index\" > squawk-oci-index.json" in reconcile_job
     assert "scripts/monitor_sboms.sh squawk-payload.json squawk-checkpoint.json" in reconcile_job
     assert 'squawk-ack.json "${index[@]}"' in reconcile_job

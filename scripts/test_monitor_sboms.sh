@@ -355,7 +355,7 @@ fi
 
 # Missing, incomplete, unsupported, stale, or identity-mismatched coverage fails
 # before any GitHub operation and cannot close the issue.
-for invalid in digest-mismatch missing incomplete unsupported duplicate-feed stale-evaluation stale-feed source-mismatch platform-repository platform-index; do
+for invalid in digest-mismatch missing incomplete unsupported duplicate-feed stale-evaluation stale-feed source-mismatch image-mismatch platform-repository platform-index; do
   case $invalid in
     digest-mismatch) jq '.checkpoint.revision = 2' "$work/checkpoint.json" ;;
     missing) jq '.checkpoint.platforms = [.checkpoint.platforms[0]]' "$work/checkpoint.json" ;;
@@ -365,10 +365,21 @@ for invalid in digest-mismatch missing incomplete unsupported duplicate-feed sta
     stale-evaluation) jq '.checkpoint.coverage.evaluated_at = 1999978399 | .checkpoint.coverage.advisory_feed_checked_at = 1999978300' "$work/checkpoint.json" ;;
     stale-feed) jq '.checkpoint.coverage.advisory_feed_checked_at = 1999978399' "$work/checkpoint.json" ;;
     source-mismatch) jq '.checkpoint.source.repository_id = "23"' "$work/checkpoint.json" ;;
+    image-mismatch) jq '.checkpoint.logical_image_ref |= sub("tektum/demo"; "tektum/other") | .checkpoint.platforms[].image_ref |= sub("tektum/demo"; "tektum/other")' "$work/checkpoint.json" ;;
     platform-repository) jq '.checkpoint.platforms[1].image_ref |= sub("tektum/demo"; "tektum/other")' "$work/checkpoint.json" ;;
     platform-index) jq '.checkpoint.platforms[1].image_ref = ("ghcr.io/tektum/demo@sha256:" + ("c" * 64))' "$work/checkpoint.json" ;;
   esac > "$work/invalid-checkpoint.json"
   [[ $invalid == digest-mismatch ]] || rehash_checkpoint "$work/invalid-checkpoint.json"
+  if [[ $invalid == source-mismatch || $invalid == image-mismatch ]]; then
+    # Valid documents for a different source/image must fail the registry preflight.
+    jq -e --arg mode checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" \
+      "$work/invalid-checkpoint.json" >/dev/null
+    if jq -e --slurp --arg mode bound_checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" \
+      "$work/wakeup.json" "$work/invalid-checkpoint.json" >/dev/null; then
+      printf 'unbound checkpoint passed registry preflight\n' >&2
+      exit 1
+    fi
+  fi
   : > "$GH_LOG"
   rm -f "$work/invalid-ack.json"
   if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \

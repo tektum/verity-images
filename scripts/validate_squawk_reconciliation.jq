@@ -126,7 +126,15 @@ def ready_checkpoint:
     if .kind == "inventory_snapshot" then inventory_checkpoint
     elif .kind == "retirement" then retirement_checkpoint
     else false end);
+def bound_checkpoint:
+  type == "array" and length == 2 and
+  (.[0].schema_version == 2) and
+  (.[0] | wakeup) and (.[1] | ready_checkpoint) and
+  (.[1].checkpoint.logical_image_ref == .[0].logical_image_ref) and
+  (.[1].checkpoint.source.installation_id == .[0].source.installation_id) and
+  (.[1].checkpoint.source.repository_id == .[0].source.repository_id);
 if $mode == "wakeup" then wakeup
 elif $mode == "checkpoint" then ready_checkpoint
+elif $mode == "bound_checkpoint" then bound_checkpoint
 elif $mode == "origin" then .origin == "https://squawk-staging.omerc.workers.dev"
 else false end
