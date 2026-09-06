@@ -170,6 +170,10 @@ def main() -> None:
     )
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
+    monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
+    monitor_validator = (ROOT / "scripts/validate_squawk_reconciliation.jq").read_text(
+        encoding="utf-8"
+    )
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
@@ -565,15 +569,47 @@ def main() -> None:
     assert "  workflow_dispatch:\n" in monitor
     assert "      payload:\n" in monitor
     assert "        required: true\n" in monitor
-    assert "      contents: read\n      issues: write\n" in monitor
-    assert "scripts/monitor_sboms.sh squawk-payload.json\n" in monitor
-    # Distinct findings must not share a group because GitHub keeps only one pending
-    # run per group. Duplicate deliveries serialize their idempotent reconciliation.
-    assert (
-        "\nconcurrency:\n"
-        "  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}\n"
-        "  cancel-in-progress: false\n"
-    ) in monitor
+    finding_job = between(monitor, "\n  finding:\n", "\n  reconcile:\n")
+    reconcile_job = monitor.split("\n  reconcile:\n", maxsplit=1)[1]
+    assert "      contents: read\n      issues: write\n" in finding_job
+    assert "id-token: write" not in finding_job
+    assert "      contents: read\n      id-token: write\n      issues: write\n" in reconcile_job
+    assert "github.actor == 'tektum-squawk[bot]'" not in monitor
+    assert monitor.count("github.actor_id == '312570741'") == 2
+    assert monitor.count("github.triggering_actor == github.actor") == 2
+    assert "vars.SQUAWK_RECONCILIATION_V2_REQUIRED != 'true'" in finding_job
+    assert "scripts/monitor_sboms.sh squawk-payload.json\n" in finding_job
+    assert "group: monitor-v1-${{ fromJSON(inputs.payload).delivery_id }}" in finding_job
+    assert "fromJSON(inputs.payload).source.installation_id" in reconcile_job
+    assert "fromJSON(inputs.payload).source.repository_id" in reconcile_job
+    assert "fromJSON(inputs.payload).logical_image_ref" in reconcile_job
+    assert "cancel-in-progress: false" in reconcile_job
+    assert "SQUAWK_ORIGIN: ${{ vars.SQUAWK_RECONCILIATION_ORIGIN }}" in reconcile_job
+    assert "audience=squawk:github-actions:reconciliation:v2" in reconcile_job
+    assert '[[ "$status" == 409 ]]' in reconcile_job
+    assert '[[ "$status" == 200 ]]' in reconcile_job
+    assert '[[ "$status" == 204 ]]' in reconcile_job
+    assert "content_type == application/json" in reconcile_job
+    assert 'raw_index=$(docker buildx imagetools inspect --raw "$logical_image")' in reconcile_job
+    assert "printf '%s' \"$raw_index\" > squawk-oci-index.json" in reconcile_job
+    assert "scripts/monitor_sboms.sh squawk-payload.json squawk-checkpoint.json" in reconcile_job
+    assert 'squawk-ack.json "${index[@]}"' in reconcile_job
+    assert "/v1/actions/reconciliations/$delivery/ack" in reconcile_job
+    assert "canonical_checkpoint=$(jq -cS 'del(.payload_sha256)'" in monitor_script
+    assert '[[ $computed_payload_sha256 == "$payload_sha256" ]]' in monitor_script
+    assert monitor_script.index("computed_payload_sha256=") < monitor_script.index("issues=$(load_issues)")
+    assert "def finding_platforms($image):" in monitor_validator
+    assert ".platforms | finding_platforms($image)" in monitor_validator
+    assert monitor.count("uses: ./.github/actions/setup-jq") == 2
+    for job in (finding_job, reconcile_job):
+        assert job.index("uses: ./.github/actions/setup-jq") < job.index("scripts/monitor_sboms.sh")
+    jq_setup = (ROOT / ".github/actions/setup-jq/action.yaml").read_text(encoding="utf-8")
+    assert "jq-1.8.2/jq-linux-amd64" in jq_setup
+    assert "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f" in jq_setup
+    assert '"$tools/jq" | sha256sum --check' in jq_setup
+    assert "GITHUB_PATH" not in jq_setup
+    assert monitor.count('export PATH="$RUNNER_TEMP/squawk-tools:$PATH"') == 2
+    assert '"jq@1.8.2"' in (ROOT / "devbox.json").read_text(encoding="utf-8")
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
@@ -599,7 +635,8 @@ def main() -> None:
     assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
-    assert runner(monitor) == f"{RUNS_ON_PREFIX}monitor/runner=4cpu-linux-x64"
+    assert runner(finding_job) == f"{RUNS_ON_PREFIX}monitor-v1/runner=4cpu-linux-x64"
+    assert runner(reconcile_job) == f"{RUNS_ON_PREFIX}monitor-v2/runner=4cpu-linux-x64"
     assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
 
     assert "needs: matrix\n" in stall_guard_job

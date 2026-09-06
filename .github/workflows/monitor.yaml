@@ -4,36 +4,139 @@ on:
   workflow_dispatch:
     inputs:
       payload:
-        description: Versioned Squawk finding payload.
+        description: Versioned Squawk finding or reconciliation wakeup.
         required: true
         type: string
 
 permissions: {}
 
-# Distinct findings must not share a group: GitHub keeps only one pending run per
-# group. Duplicate delivery ids serialize their idempotent reconciliation.
-concurrency:
-  group: monitor-${{ fromJSON(inputs.payload).delivery_id }}
-  cancel-in-progress: false
-
 jobs:
-  monitor:
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor/runner=4cpu-linux-x64
+  finding:
+    if: >-
+      fromJSON(inputs.payload).schema_version == 1 &&
+      vars.SQUAWK_RECONCILIATION_V2_REQUIRED != 'true' &&
+      github.actor_id == '312570741' &&
+      github.triggering_actor == github.actor
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor-v1/runner=4cpu-linux-x64
     timeout-minutes: 15
     permissions:
       contents: read
       issues: write
+    concurrency:
+      # Distinct findings must not share a group: GitHub keeps only one pending run
+      # per group. Duplicate delivery ids serialize idempotent v1 reconciliation.
+      group: monitor-v1-${{ fromJSON(inputs.payload).delivery_id }}
+      cancel-in-progress: false
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Reconcile Squawk delivery
+      - name: Set up validated jq runtime
+        uses: ./.github/actions/setup-jq
+
+      - name: Reconcile Squawk finding
         env:
           GH_TOKEN: ${{ github.token }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SQUAWK_PAYLOAD: ${{ inputs.payload }}
         run: |
+          export PATH="$RUNNER_TEMP/squawk-tools:$PATH"
           printf '%s' "$SQUAWK_PAYLOAD" > squawk-payload.json
           scripts/monitor_sboms.sh squawk-payload.json
+
+  reconcile:
+    if: >-
+      fromJSON(inputs.payload).schema_version == 2 &&
+      fromJSON(inputs.payload).event == 'reconcile' &&
+      github.actor_id == '312570741' &&
+      github.triggering_actor == github.actor
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-monitor-v2/runner=4cpu-linux-x64
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      issues: write
+    concurrency:
+      # v2 wakeups are cumulative. Serialize application for one source image;
+      # Squawk durably coalesces revisions while this run owns the slot.
+      group: >-
+        monitor-v2-${{ fromJSON(inputs.payload).source.installation_id }}-
+        ${{ fromJSON(inputs.payload).source.repository_id }}-
+        ${{ fromJSON(inputs.payload).logical_image_ref }}
+      cancel-in-progress: false
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up validated jq runtime
+        uses: ./.github/actions/setup-jq
+
+      - name: Fetch, apply, and acknowledge Squawk checkpoint
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SQUAWK_ORIGIN: ${{ vars.SQUAWK_RECONCILIATION_ORIGIN }}
+          SQUAWK_PAYLOAD: ${{ inputs.payload }}
+        run: |
+          set -euo pipefail
+          export PATH="$RUNNER_TEMP/squawk-tools:$PATH"
+          [[ "$SQUAWK_ORIGIN" =~ ^https://[A-Za-z0-9.-]+(:[0-9]+)?$ ]] || {
+            printf 'SQUAWK_RECONCILIATION_ORIGIN must be a configured canonical HTTPS origin without a path\n' >&2
+            exit 1
+          }
+          printf '%s' "$SQUAWK_PAYLOAD" > squawk-payload.json
+          jq -e --arg mode wakeup -f scripts/validate_squawk_reconciliation.jq \
+            squawk-payload.json >/dev/null
+          delivery=$(jq -er .delivery_id squawk-payload.json)
+          oidc_response=$(curl --fail --silent --show-error --get \
+            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --data-urlencode 'audience=squawk:github-actions:reconciliation:v2' \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")
+          oidc_token=$(jq -er .value <<<"$oidc_response")
+          response=$(curl --silent --show-error --proto '=https' --tlsv1.2 \
+            --header "Authorization: Bearer $oidc_token" \
+            --output squawk-checkpoint.json --write-out '%{http_code} %{content_type}' \
+            "$SQUAWK_ORIGIN/v1/actions/reconciliations/$delivery")
+          read -r status content_type <<<"$response"
+          [[ $content_type == application/json* ]] || {
+            printf 'Squawk checkpoint response has invalid content type %s\n' "$content_type" >&2
+            exit 1
+          }
+          if [[ "$status" == 409 ]]; then
+            jq -r '"Squawk reconciliation blocked at revision \(.revision): \(.reason)"' \
+              squawk-checkpoint.json >&2
+            exit 1
+          fi
+          [[ "$status" == 200 ]] || {
+            printf 'Squawk checkpoint fetch failed with HTTP %s\n' "$status" >&2
+            exit 1
+          }
+          index=()
+          if [[ $(jq -er .checkpoint.kind squawk-checkpoint.json) == inventory_snapshot ]]; then
+            logical_image=$(jq -er .checkpoint.logical_image_ref squawk-checkpoint.json)
+            # Match publication: command substitution removes the CLI display newline,
+            # then printf preserves the registry manifest bytes used for digesting.
+            raw_index=$(docker buildx imagetools inspect --raw "$logical_image")
+            printf '%s' "$raw_index" > squawk-oci-index.json
+            index=(squawk-oci-index.json)
+          fi
+          scripts/monitor_sboms.sh squawk-payload.json squawk-checkpoint.json \
+            squawk-ack.json "${index[@]}"
+          oidc_response=$(curl --fail --silent --show-error --get \
+            --header "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            --data-urlencode 'audience=squawk:github-actions:reconciliation:v2' \
+            "$ACTIONS_ID_TOKEN_REQUEST_URL")
+          oidc_token=$(jq -er .value <<<"$oidc_response")
+          status=$(curl --silent --show-error --proto '=https' --tlsv1.2 \
+            --request POST --header "Authorization: Bearer $oidc_token" \
+            --header 'content-type: application/json' --data-binary @squawk-ack.json \
+            --output squawk-ack-response --write-out '%{http_code}' \
+            "$SQUAWK_ORIGIN/v1/actions/reconciliations/$delivery/ack")
+          [[ "$status" == 204 ]] || {
+            printf 'Squawk checkpoint acknowledgment failed with HTTP %s\n' "$status" >&2
+            exit 1
+          }
