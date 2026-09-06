@@ -176,6 +176,19 @@ def unit_tests() -> None:
         assert str(error) == "invalid package recipe"
     else:
         raise AssertionError("nested package identity was accepted")
+    expanded = b"package:\n  name: example-package\n  version: 1.0.0\n  epoch: 1\n" + b"# expanded pipeline\n" * 4096
+    recipe = apk_archive.recipe_info(expanded)
+    assert (recipe.name, recipe.version, recipe.epoch) == ("example-package", "1.0.0", 1)
+    assert recipe.contents == expanded
+    bounded = expanded + b" " * (apk_archive.MAX_MELANGE_RECIPE_SIZE - len(expanded))
+    assert apk_archive.recipe_info(bounded).contents == bounded
+    for invalid in (b"", bounded + b" "):
+        try:
+            apk_archive.recipe_info(invalid)
+        except ValueError as error:
+            assert str(error) == "invalid package recipe"
+        else:
+            raise AssertionError("empty or oversized package recipe was accepted")
     signature, _, data = apk_archive.gzip_members(valid, 3)
     missing_pkginfo = signature.compressed + gzip_member(pack_tar((entry(".melange.yaml", b"recipe"),), final=False)) + data.compressed
     rejects_package(missing_pkginfo)

@@ -130,9 +130,20 @@ def main() -> None:
                     try:
                         gen_apk_matrix.package_recipes()
                     except gen_apk_matrix.PackageDiscoveryError as error:
-                        assert "invalid package recipe link" in str(error)
+                        assert "invalid package recipe path" in str(error)
                     else:
                         raise AssertionError("outside or dangling recipe link was admitted")
+                directory_link = root / "packages/outside"
+                directory_link.symlink_to(outside_directory, target_is_directory=True)
+                linked.unlink()
+                linked.symlink_to("../../images/caddy/melange.yaml")
+                try:
+                    gen_apk_matrix.package_recipes()
+                except gen_apk_matrix.PackageDiscoveryError as error:
+                    assert "packages/outside/melange.yaml" in str(error)
+                else:
+                    raise AssertionError("outside directory recipe link was admitted")
+                directory_link.unlink()
             linked.unlink()
             linked.symlink_to("../../images/caddy/melange.yaml")
 

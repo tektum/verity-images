@@ -13,7 +13,8 @@ MAX_ARCHIVE_SIZE: Final = 64 * 1024 * 1024
 MAX_MEMBER_SIZE: Final = 32 * 1024 * 1024
 MAX_ENTRIES: Final = 128
 MAX_ENTRY_SIZE: Final = 16 * 1024 * 1024
-MAX_MELANGE_RECIPE_SIZE: Final = 8 * 1024
+# Melange embeds expanded pipelines, not just the short source recipe.
+MAX_MELANGE_RECIPE_SIZE: Final = 1024 * 1024
 MELANGE_RECIPE: Final = ".melange.yaml"
 
 
