@@ -245,14 +245,14 @@ def main() -> None:
         contributions: list[set[tuple[str, str]]] = []
         if changed_path in gen_matrix.GLOBAL_PATHS:
             contributions.append(global_shared_variants())
-        if changed_path in gen_matrix.OPENSSL_FIPS_PATHS:
+        if changed_path in gen_matrix.APK_REPOSITORY_PATHS:
             contributions.append(
                 {
                     (directory.relative_to(ROOT).as_posix(), flavor)
                     for directory, metadata in enabled_catalog
                     if metadata.track == "wolfi"
                     for flavor in metadata.flavors
-                    if gen_matrix.uses_openssl_fips_provider(directory, flavor)
+                    if gen_matrix.uses_apk_repository(directory, flavor)
                 }
             )
         for paths, configured_sample in fixed_pipeline_policies:
@@ -283,7 +283,7 @@ def main() -> None:
 
     shared_paths = set().union(
         gen_matrix.GLOBAL_PATHS,
-        gen_matrix.OPENSSL_FIPS_PATHS,
+        gen_matrix.APK_REPOSITORY_PATHS,
         gen_matrix.CARGO_REMEDIATE_PATHS,
         *(paths for paths, _ in fixed_pipeline_policies),
     )
