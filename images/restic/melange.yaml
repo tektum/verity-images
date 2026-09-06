@@ -1,7 +1,7 @@
 package:
   name: verity-restic-0.18
   version: "0.18.1"
-  epoch: 2  # Go remediation
+  epoch: 3  # Go remediation
   description: Fast, secure, and efficient backup program
   copyright:
     - license: BSD-2-Clause
@@ -12,8 +12,6 @@ package:
     cpu: "2"
     memory: 2Gi
 
-vars:
-  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423
 
 environment:
   contents:
@@ -39,10 +37,48 @@ pipeline:
       modroot: .
       packages: ./cmd/restic
   - runs: |
+      if current="$(GOTOOLCHAIN=local go list -m -f '{{.Version}}' google.golang.org/grpc 2>&1)"; then
+        selected="$(printf '%s\n' "$current" | grep -E '^v[0-9]' | tail -n 1)"
+        if awk -v have="$selected" -v want=${{vars.grpc-floor}} 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'; then
+          GOTOOLCHAIN=local go get google.golang.org/grpc@${{vars.grpc-floor}}
+        fi
+      elif printf '%s\n' "$current" | grep -Fq 'not a known dependency'; then
+        echo "google.golang.org/grpc is not required by the Restic module"
+      else
+        printf '%s\n' "$current" >&2
+        exit 1
+      fi
+  - runs: |
       go run build.go --output "${{targets.destdir}}/usr/bin/restic"
+      modules="$(go version -m "${{targets.destdir}}/usr/bin/restic")"
+      actual="$(printf '%s\n' "$modules" \
+        | awk '$1 == "dep" && $2 == "google.golang.org/grpc" { print $3 }')"
+      if [ -z "$actual" ]; then
+        echo "google.golang.org/grpc is not linked into /usr/bin/restic"
+      else
+        awk -v have="$actual" -v want=${{vars.grpc-floor}} 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 > w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 1 : 0
+        }'
+      fi
       "${{targets.destdir}}/usr/bin/restic" version | grep -F "restic ${{package.version}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+vars:
+  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423
+  grpc-floor: v1.83.2
 
 subpackages:
   - name: verity-restic-0.18-build-metadata
