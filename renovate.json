@@ -118,7 +118,11 @@
     {
       "customType": "regex",
       "managerFilePatterns": ["/^images/(?:restic|velero)/melange\\.yaml$/"],
-      "matchStrings": ["google\\.golang\\.org/grpc@\\$\\{\\{vars\\.grpc-floor\\}\\}[\\s\\S]*?grpc-floor:\\s*[\"']?(?<currentValue>v[^\\s\"']+)[\"']?"],
+      "matchStringsStrategy": "recursive",
+      "matchStrings": [
+        "[\\s\\S]*google\\.golang\\.org/grpc@\\$\\{\\{vars\\.grpc-floor\\}\\}[\\s\\S]*",
+        "(?:^|\\n)\\s*grpc-floor:\\s*[\"']?(?<currentValue>v[^\\s\"']+)[\"']?"
+      ],
       "depNameTemplate": "google.golang.org/grpc",
       "datasourceTemplate": "go",
       "versioningTemplate": "semver"

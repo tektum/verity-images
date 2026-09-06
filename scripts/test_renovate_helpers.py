@@ -177,30 +177,40 @@ def test_renovate_configuration() -> None:
         for manager in managers
         if manager.get("depNameTemplate") == "google.golang.org/grpc"
     )
-    grpc_floor_pattern = r'''google\.golang\.org/grpc@\$\{\{vars\.grpc-floor\}\}[\s\S]*?grpc-floor:\s*["']?(?<currentValue>v[^\s"']+)["']?'''
+    grpc_floor_patterns = [
+        r"[\s\S]*google\.golang\.org/grpc@\$\{\{vars\.grpc-floor\}\}[\s\S]*",
+        r'''(?:^|\n)\s*grpc-floor:\s*["']?(?<currentValue>v[^\s"']+)["']?''',
+    ]
     assert grpc_floor_manager == {
         "customType": "regex",
         "managerFilePatterns": [r"/^images/(?:restic|velero)/melange\.yaml$/"],
-        "matchStrings": [grpc_floor_pattern],
+        "matchStringsStrategy": "recursive",
+        "matchStrings": grpc_floor_patterns,
         "depNameTemplate": "google.golang.org/grpc",
         "datasourceTemplate": "go",
         "versioningTemplate": "semver",
     }
-    floor_pattern = grpc_floor_manager["matchStrings"][0].replace(
+    floor_pattern = grpc_floor_patterns[1].replace(
         "(?<currentValue>", "(?P<currentValue>"
     )
+    usage = "go get google.golang.org/grpc@${{vars.grpc-floor}}"
     for declaration in (
         "grpc-floor: v1.83.2",
         'grpc-floor: "v1.83.2"',
         "grpc-floor: 'v1.83.2'",
     ):
-        declaration = "go get google.golang.org/grpc@${{vars.grpc-floor}}\n" + declaration
-        floor_match = re.search(floor_pattern, declaration)
-        assert floor_match is not None
-        assert floor_match.group("currentValue") == "v1.83.2"
+        for sample in (f"{usage}\n{declaration}", f"{declaration}\n{usage}"):
+            scope_match = re.search(grpc_floor_patterns[0], sample)
+            assert scope_match is not None
+            floor_match = re.search(floor_pattern, scope_match.group(0))
+            assert floor_match is not None
+            assert floor_match.group("currentValue") == "v1.83.2"
 
     velero_recipe = (ROOT / "images/velero/melange.yaml").read_text(encoding="utf-8")
-    assert re.search(floor_pattern, velero_recipe) is not None
+    scope_match = re.search(grpc_floor_patterns[0], velero_recipe)
+    assert scope_match is not None
+    assert re.search(floor_pattern, scope_match.group(0)) is not None
+
 
 
 def test_renovate_image_groups() -> None:
