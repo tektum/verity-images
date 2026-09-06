@@ -1,0 +1,18 @@
+name: Set up locked jq
+description: Install verified jq under RUNNER_TEMP/squawk-tools for callers to prepend to PATH.
+
+runs:
+  using: composite
+  steps:
+    - name: Install verified jq 1.8.2
+      shell: bash
+      run: |
+        tools="$RUNNER_TEMP/squawk-tools"
+        mkdir -p "$tools"
+        curl --fail --location --silent --show-error \
+          https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64 \
+          --output "$tools/jq"
+        printf '%s  %s\n' \
+          b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f \
+          "$tools/jq" | sha256sum --check
+        chmod 0755 "$tools/jq"
