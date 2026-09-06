@@ -117,6 +117,14 @@
     },
     {
       "customType": "regex",
+      "managerFilePatterns": ["/^images/velero/melange\\.yaml$/"],
+      "matchStrings": ["google\\.golang\\.org/grpc@\\$\\{\\{vars\\.grpc-floor\\}\\}[\\s\\S]*?grpc-floor:\\s*[\"']?(?<currentValue>v[^\\s\"']+)[\"']?"],
+      "depNameTemplate": "google.golang.org/grpc",
+      "datasourceTemplate": "go",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
       "managerFilePatterns": ["/^images/deno/melange\\.yaml$/"],
       "matchStrings": [
         "cargo update -p (?<depName>[A-Za-z0-9_-]+)(?:@[^\\s]+)? --precise (?<currentValue>[^\\s]+)"
