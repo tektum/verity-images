@@ -117,9 +117,11 @@ jobs:
             printf 'Squawk checkpoint fetch failed with HTTP %s\n' "$status" >&2
             exit 1
           }
+          jq -e --slurp --arg mode bound_checkpoint -f scripts/validate_squawk_reconciliation.jq \
+            squawk-payload.json squawk-checkpoint.json >/dev/null
           index=()
           if [[ $(jq -er .checkpoint.kind squawk-checkpoint.json) == inventory_snapshot ]]; then
-            logical_image=$(jq -er .checkpoint.logical_image_ref squawk-checkpoint.json)
+            logical_image=$(jq -er .logical_image_ref squawk-payload.json)
             # Match publication: command substitution removes the CLI display newline,
             # then printf preserves the registry manifest bytes used for digesting.
             raw_index=$(docker buildx imagetools inspect --raw "$logical_image")
