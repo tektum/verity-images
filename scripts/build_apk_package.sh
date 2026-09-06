@@ -62,7 +62,7 @@ fi
 recipe_sha256=$(sha256sum "$recipe" | cut -d' ' -f1)
 
 melange build "$recipe" --arch "$architecture" --runner docker \
-  --out-dir "$work_dir/out" --cache-dir "$work_dir/cache"
+  --out-dir "$work_dir/out" --cache-dir "$work_dir/cache" --pipeline-dir "$root/pipelines"
 if ! current_source_sha=$(git rev-parse --verify HEAD) || \
   ! source_state=$(git status --porcelain --untracked-files=all); then
   printf 'cannot recheck source worktree\n' >&2

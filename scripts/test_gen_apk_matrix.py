@@ -99,6 +99,54 @@ def main() -> None:
                 ]
             }
 
+        source = root / "images/caddy/melange.yaml"
+        source.write_text("package:\n  name: linked\npipeline:\n  - uses: go/remediate\n", encoding="utf-8")
+        linked = root / "packages/linked/melange.yaml"
+        linked.parent.mkdir()
+        linked.symlink_to("../../images/caddy/melange.yaml")
+        with patch.object(gen_apk_matrix, "ROOT", root):
+            assert gen_apk_matrix.package_recipes()["linked"] == "packages/linked/melange.yaml"
+            for changed in (
+                {"images/caddy/melange.yaml"},
+                {"packages/linked/melange.yaml"},
+                {"pipelines/go/remediate.yaml"},
+            ):
+                with patch.object(gen_apk_matrix, "changed_paths", return_value=changed):
+                    entries = gen_apk_matrix.generate("base", "head")["include"]
+                    assert [(entry["package"], entry["architecture"]) for entry in entries] == [
+                        ("linked", "aarch64"),
+                        ("linked", "x86_64"),
+                    ]
+            for changed in ({"images/traefik/melange.yaml"}, {"pipelines/unrelated.yaml"}):
+                with patch.object(gen_apk_matrix, "changed_paths", return_value=changed):
+                    assert gen_apk_matrix.generate("base", "head") == {"include": []}
+
+            with TemporaryDirectory() as outside_directory:
+                outside = Path(outside_directory) / "melange.yaml"
+                outside.write_text("package:\n  name: outside\n", encoding="utf-8")
+                for target in (outside, root / "missing.yaml"):
+                    linked.unlink()
+                    linked.symlink_to(target)
+                    try:
+                        gen_apk_matrix.package_recipes()
+                    except gen_apk_matrix.PackageDiscoveryError as error:
+                        assert "invalid package recipe path" in str(error)
+                    else:
+                        raise AssertionError("outside or dangling recipe link was admitted")
+                directory_link = root / "packages/outside"
+                directory_link.symlink_to(outside_directory, target_is_directory=True)
+                linked.unlink()
+                linked.symlink_to("../../images/caddy/melange.yaml")
+                try:
+                    gen_apk_matrix.package_recipes()
+                except gen_apk_matrix.PackageDiscoveryError as error:
+                    assert "packages/outside/melange.yaml" in str(error)
+                else:
+                    raise AssertionError("outside directory recipe link was admitted")
+                directory_link.unlink()
+            linked.unlink()
+            linked.symlink_to("../../images/caddy/melange.yaml")
+
         subprocess.run(["git", "init", "-q", str(root)], check=True)
         subprocess.run(["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True)
         subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)

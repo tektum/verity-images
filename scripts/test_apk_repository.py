@@ -176,6 +176,31 @@ def unit_tests() -> None:
         assert str(error) == "invalid package recipe"
     else:
         raise AssertionError("nested package identity was accepted")
+    expanded = b"package:\n  name: example-package\n  version: 1.0.0\n  epoch: 1\n" + b"# expanded pipeline\n" * 4096
+    recipe = apk_archive.recipe_info(expanded)
+    assert (recipe.name, recipe.version, recipe.epoch) == ("example-package", "1.0.0", 1)
+    assert recipe.contents == expanded
+    bounded = expanded + b" " * (apk_archive.MAX_MELANGE_RECIPE_SIZE - len(expanded))
+    assert apk_archive.recipe_info(bounded).contents == bounded
+    for invalid in (b"", bounded + b" "):
+        try:
+            apk_archive.recipe_info(invalid)
+        except ValueError as error:
+            assert str(error) == "invalid package recipe"
+        else:
+            raise AssertionError("empty or oversized package recipe was accepted")
+    large_binary = b"x" * (16 * 1024 * 1024 + 1)
+    entries = apk_archive.tar_entries(pack_tar((entry("usr/bin/tool", large_binary),), final=True))
+    assert entries[0].contents == large_binary
+    del entries, large_binary
+    oversized = tarfile.TarInfo("usr/bin/oversized")
+    oversized.size = apk_archive.MAX_ENTRY_SIZE + 1
+    try:
+        apk_archive.tar_entries(oversized.tobuf() + b"\0" * 1024)
+    except ValueError as error:
+        assert str(error) == "oversized tar entry"
+    else:
+        raise AssertionError("oversized tar entry was accepted")
     signature, _, data = apk_archive.gzip_members(valid, 3)
     missing_pkginfo = signature.compressed + gzip_member(pack_tar((entry(".melange.yaml", b"recipe"),), final=False)) + data.compressed
     rejects_package(missing_pkginfo)

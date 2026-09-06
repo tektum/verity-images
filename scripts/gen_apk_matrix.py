@@ -50,10 +50,19 @@ def changed_paths(base_ref: str, head_ref: str) -> set[str]:
     return {os.fsdecode(path) for path in result.stdout.split(b"\0") if path}
 
 
+def _source_recipe(recipe: Path) -> str:
+    try:
+        return recipe.resolve(strict=True).relative_to(ROOT.resolve()).as_posix()
+    except (OSError, ValueError, RuntimeError) as error:
+        raise PackageDiscoveryError(f"invalid package recipe path: {recipe}") from error
+
+
 def package_recipes() -> dict[str, str]:
     recipes: dict[str, str] = {}
     for recipe in sorted((ROOT / "packages").glob("*/melange.yaml")):
         package = recipe.parent.name
+        if recipe.is_file() or recipe.is_symlink():
+            _source_recipe(recipe)
         if recipe.is_file() and PACKAGE_PATTERN.fullmatch(package) is None:
             raise PackageDiscoveryError(f"invalid package directory: {package}")
         if recipe.is_file():
@@ -74,6 +83,15 @@ def generate(base_ref: str | None, head_ref: str | None) -> Matrix:
                 and parts[0] == "packages"
                 and parts[1] in recipes
             }
+            pipeline_changes = {path for path in changed if path.startswith("pipelines/")}
+            for package, recipe in recipes.items():
+                source = _source_recipe(ROOT / recipe)
+                if source in changed:
+                    selected.add(package)
+                elif pipeline_changes:
+                    pipelines = re.findall(r"(?m)^\s*-\s+uses:\s*(\S+)", (ROOT / source).read_text(encoding="utf-8"))
+                    if any(f"pipelines/{pipeline}.yaml" in pipeline_changes for pipeline in pipelines):
+                        selected.add(package)
     return {
         "include": [
             {

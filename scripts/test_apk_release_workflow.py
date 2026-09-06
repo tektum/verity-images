@@ -100,7 +100,7 @@ def main() -> None:
     assert "  merge_group:\n    types: [checks_requested]\n" in workflow
     assert "    branches: [main]\n" in workflow
     assert "python3 scripts/gen_apk_matrix.py" in matrix
-    assert "        options: [openssl-fips-provider, gosu]\n" in workflow
+    assert "        options: [openssl-fips-provider, gosu, verity-restic-0.18]\n" in workflow
     assert "PACKAGE: ${{ inputs.package }}" in matrix
     assert '[[ -f "packages/${PACKAGE}/melange.yaml" ]]' in matrix
     assert 'select(.package == $package)' in matrix
@@ -121,9 +121,10 @@ def main() -> None:
     for build_job in (x86_64, aarch64):
         assert "needs: [apk-matrix]" in build_job
         assert "github.event_name != 'merge_group'" in build_job
+        assert "PACKAGE: ${{ matrix.package }}" in build_job
+        assert 'bash scripts/build_apk_package.sh "$PACKAGE" "$ARCHITECTURE"' in build_job
     assert "fromJSON(needs.apk-matrix.outputs.x86_64)" in x86_64
     assert "fromJSON(needs.apk-matrix.outputs.aarch64)" in aarch64
-    assert 'bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"' in x86_64 + aarch64
     assert "apk-build-${{ matrix.package }}-x86_64" in x86_64
     assert "apk-build-${{ matrix.package }}-aarch64" in aarch64
     assert "environment:" not in x86_64 + aarch64
