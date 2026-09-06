@@ -19,7 +19,7 @@ on:
         type: choice
       package:
         description: Package published in replacement mode.
-        options: [openssl-fips-provider, gosu]
+        options: [openssl-fips-provider, gosu, verity-restic-0.18]
         required: true
         type: choice
       source-sha:
@@ -116,9 +116,10 @@ jobs:
         id: package
         env:
           ARCHITECTURE: x86_64
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "$PACKAGE" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload x86_64 build artifact
@@ -169,9 +170,10 @@ jobs:
         id: package
         env:
           ARCHITECTURE: aarch64
+          PACKAGE: ${{ matrix.package }}
         run: |
           set -euo pipefail
-          bash scripts/build_apk_package.sh "${{ matrix.package }}" "$ARCHITECTURE"
+          bash scripts/build_apk_package.sh "$PACKAGE" "$ARCHITECTURE"
           printf 'package-digest=%s\n' "$(cut -d' ' -f1 artifact/SHA256SUMS)" >> "$GITHUB_OUTPUT"
 
       - name: Upload aarch64 build artifact
