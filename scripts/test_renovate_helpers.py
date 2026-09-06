@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -171,6 +172,39 @@ def test_renovate_configuration() -> None:
     assert go_get_manager["matchStringsStrategy"] == "recursive"
     assert go_get_manager["matchStrings"][0].startswith(r"go get [\\]\n")
     assert "|velero)" in go_get_manager["managerFilePatterns"][0]
+    grpc_floor_manager = next(
+        manager
+        for manager in managers
+        if manager.get("depNameTemplate") == "google.golang.org/grpc"
+    )
+    grpc_floor_pattern = r'''google\.golang\.org/grpc@\$\{\{vars\.grpc-floor\}\}[\s\S]*?grpc-floor:\s*["']?(?<currentValue>v[^\s"']+)["']?'''
+    assert grpc_floor_manager == {
+        "customType": "regex",
+        "managerFilePatterns": [r"/^images/velero/melange\.yaml$/"],
+        "matchStrings": [grpc_floor_pattern],
+        "depNameTemplate": "google.golang.org/grpc",
+        "datasourceTemplate": "go",
+        "versioningTemplate": "semver",
+    }
+    floor_pattern = grpc_floor_manager["matchStrings"][0].replace(
+        "(?<currentValue>", "(?P<currentValue>"
+    )
+    for declaration in (
+        "grpc-floor: v1.83.2",
+        'grpc-floor: "v1.83.2"',
+        "grpc-floor: 'v1.83.2'",
+    ):
+        declaration = "go get google.golang.org/grpc@${{vars.grpc-floor}}\n" + declaration
+        floor_match = re.search(floor_pattern, declaration)
+        assert floor_match is not None
+        assert floor_match.group("currentValue") == "v1.83.2"
+
+    velero_recipe = (ROOT / "images/velero/melange.yaml").read_text(encoding="utf-8")
+    literal_pin = re.search(
+        r"go get \\\n\s+google\.golang\.org/grpc@v\d\S*", velero_recipe
+    )
+    floor_anchor = re.search(floor_pattern, velero_recipe)
+    assert literal_pin is not None or floor_anchor is not None
 
 
 def test_renovate_image_groups() -> None:
