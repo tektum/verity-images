@@ -1,0 +1,45 @@
+package:
+  name: verity-bat
+  version: "0.26.1"
+  epoch: 0
+  description: Syntax-highlighting cat replacement
+  copyright:
+    - license: MIT OR Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 7Gi
+
+vars:
+  source-commit: 979ba22628bc9d8171f2cffca2bd5c90c9fc0a9e
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - glibc-2.44-dev
+      - rust-1.94
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sharkdp/bat
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: cargo/remediate
+  - runs: |
+      cargo auditable build --release --locked
+      install -m755 -D target/release/bat "${{targets.destdir}}/usr/bin/bat"
+      rm -rf .cargo
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: /usr/bin/bat --version
