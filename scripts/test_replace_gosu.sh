@@ -4,23 +4,29 @@ set -eu
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
-mkdir -p "$work/bin" "$work/apk" "$work/repo/scripts" "$work/repo/packages"
+mkdir -p "$work/bin" "$work/packages" "$work/archive/apk" "$work/repo/scripts" "$work/repo/packages"
 
-version=1.19-r0
+version=1.19-r1
+release_tag=apk-repo-v0006
+asset_name=verity-apk-repository.tar.zst
+tar_bin=$(command -v tar)
 cp "$root/scripts/replace_gosu.sh" "$work/repo/scripts/replace_gosu.sh"
 
 # One fixture package per architecture; the payload encodes the architecture so
 # the extracted binary differs the way the real per-architecture packages do.
 for pair in x86_64:amd64 aarch64:arm64; do
   apk_arch=${pair%:*}
-  mkdir -p "$work/payload/usr/bin"
+  mkdir -p "$work/payload/usr/bin" "$work/archive/apk/$apk_arch"
   printf '%s' "${pair#*:}" > "$work/payload/usr/bin/gosu"
-  tar -czf "$work/apk/$apk_arch.apk" -C "$work/payload" usr/bin/gosu
+  tar -czf "$work/packages/$apk_arch.apk" -C "$work/payload" usr/bin/gosu
+  cp "$work/packages/$apk_arch.apk" "$work/archive/apk/$apk_arch/gosu-$version.apk"
 done
 amd64_checksum=$(printf amd64 | sha256sum | cut -d' ' -f1)
 arm64_checksum=$(printf arm64 | sha256sum | cut -d' ' -f1)
-x86_64_package=$(sha256sum "$work/apk/x86_64.apk" | cut -d' ' -f1)
-aarch64_package=$(sha256sum "$work/apk/aarch64.apk" | cut -d' ' -f1)
+x86_64_package=$(sha256sum "$work/packages/x86_64.apk" | cut -d' ' -f1)
+aarch64_package=$(sha256sum "$work/packages/aarch64.apk" | cut -d' ' -f1)
+tar --zstd -cf "$work/$asset_name" -C "$work/archive" apk
+archive_checksum=$(sha256sum "$work/$asset_name" | cut -d' ' -f1)
 
 cat > "$work/bin/curl" <<'EOF'
 #!/bin/sh
@@ -41,7 +47,14 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 printf '%s\n' "$url" >> "$CURL_LOG"
-cp "$APK_DIR/$(basename "$(dirname "$url")").apk" "$output"
+cp "$ARCHIVE" "$output"
+EOF
+
+cat > "$work/bin/tar" <<'EOF'
+#!/bin/sh
+set -eu
+printf '%s\n' "$*" >> "$TAR_LOG"
+exec "$REAL_TAR" "$@"
 EOF
 
 cat > "$work/bin/docker" <<'EOF'
@@ -66,7 +79,7 @@ stat -c '%a' "$context/gosu" >> "$MODE_LOG"
 sha256sum "$context/gosu" | cut -d' ' -f1 >> "$BINARY_LOG"
 cat >> "$DOCKERFILE_LOG"
 EOF
-chmod +x "$work/bin/curl" "$work/bin/docker"
+chmod +x "$work/bin/curl" "$work/bin/tar" "$work/bin/docker"
 
 write_source() {
   cat > "$work/source.yaml" <<EOF
@@ -78,29 +91,36 @@ EOF
 }
 
 write_state() {
+  state_version=${1:-$version}
+  state_archive_checksum=${2:-$archive_checksum}
+  state_x86_64_package=${3:-$x86_64_package}
+  state_aarch64_package=${4:-$aarch64_package}
   cat > "$work/repo/packages/repository-state.json" <<EOF
 {
+  "repository": "tektum/verity-images",
+  "release": {"tag": "$release_tag"},
+  "asset": {
+    "name": "$asset_name",
+    "sha256": "sha256:$state_archive_checksum"
+  },
+  "archive": {
+    "root": "apk",
+    "sha256": "sha256:$state_archive_checksum"
+  },
   "packages": [
     {
       "architecture": "x86_64",
       "name": "gosu",
-      "version": "${1:-$version}",
-      "path": "x86_64/gosu-${1:-$version}.apk",
-      "sha256": "${2:-$x86_64_package}"
+      "version": "$state_version",
+      "path": "x86_64/gosu-$state_version.apk",
+      "sha256": "$state_x86_64_package"
     },
     {
       "architecture": "aarch64",
       "name": "gosu",
-      "version": "${1:-$version}",
-      "path": "aarch64/gosu-${1:-$version}.apk",
-      "sha256": "${3:-$aarch64_package}"
-    },
-    {
-      "architecture": "x86_64",
-      "name": "openssl-fips-provider",
-      "version": "3.1.2-r3",
-      "path": "x86_64/openssl-fips-provider-3.1.2-r3.apk",
-      "sha256": "$x86_64_package"
+      "version": "$state_version",
+      "path": "aarch64/gosu-$state_version.apk",
+      "sha256": "$state_aarch64_package"
     }
   ]
 }
@@ -109,6 +129,7 @@ EOF
 
 reset_logs() {
   : > "$work/curl.log"
+  : > "$work/tar.log"
   : > "$work/docker.log"
   : > "$work/dockerfile.log"
   : > "$work/mode.log"
@@ -116,9 +137,9 @@ reset_logs() {
 }
 
 run_helper() {
-  APK_DIR="$work/apk" CURL_LOG="$work/curl.log" DOCKER_LOG="$work/docker.log" \
-    DOCKERFILE_LOG="$work/dockerfile.log" MODE_LOG="$work/mode.log" \
-    BINARY_LOG="$work/binary.log" PATH="$work/bin:$PATH" \
+  ARCHIVE="$work/$asset_name" CURL_LOG="$work/curl.log" TAR_LOG="$work/tar.log" \
+    REAL_TAR="$tar_bin" DOCKER_LOG="$work/docker.log" DOCKERFILE_LOG="$work/dockerfile.log" \
+    MODE_LOG="$work/mode.log" BINARY_LOG="$work/binary.log" PATH="$work/bin:$PATH" \
     "$work/repo/scripts/replace_gosu.sh" "$@"
 }
 
@@ -131,8 +152,17 @@ run_replacement() {
   write_source "$replacement_path"
   write_state
   run_helper "$work/source.yaml" "$replacement_arch" base-image target-image
-  grep -Fxq "https://tektum.github.io/verity-images/apk/$expected_apk_arch/gosu-$version.apk" \
+  grep -Fxq "https://github.com/tektum/verity-images/releases/download/$release_tag/$asset_name" \
     "$work/curl.log"
+  if grep -Fq 'tektum.github.io/verity-images/apk' "$work/curl.log"; then
+    printf 'mutable Pages URL was requested\n' >&2
+    exit 1
+  fi
+  [ "$(grep -c . "$work/curl.log")" -eq 1 ]
+  [ "$(grep -c . "$work/tar.log")" -eq 2 ]
+  grep -Fq -- "--zstd -xOf" "$work/tar.log"
+  grep -Fq -- "apk/$expected_apk_arch/gosu-$version.apk" "$work/tar.log"
+  grep -Fq -- '-xzOf' "$work/tar.log"
   grep -Fq -- "--platform linux/$replacement_arch" "$work/docker.log"
   grep -Fq -- '--build-arg BASE=base-image' "$work/docker.log"
   grep -Fq -- "--build-arg GOSU_PATH=$replacement_path" "$work/docker.log"
@@ -168,6 +198,11 @@ remove_field() {
 replace_field() {
   sed "s|^$1:.*|$1: $2|" "$work/source.yaml" > "$work/source.tmp"
   mv "$work/source.tmp" "$work/source.yaml"
+}
+
+replace_state() {
+  jq "$1" "$work/repo/packages/repository-state.json" > "$work/repository-state.tmp"
+  mv "$work/repository-state.tmp" "$work/repo/packages/repository-state.json"
 }
 
 write_state
@@ -211,13 +246,55 @@ run_failure 'unknown key gosu-extra' "$work/source.yaml" amd64 base target
 [ ! -s "$work/curl.log" ]
 
 write_source /usr/sbin/gosu
-write_state 1.18-r0
-run_failure 'gosu 1.19-r0 is not pinned for x86_64' "$work/source.yaml" amd64 base target
+write_state
+replace_state '.repository = "tektum/verity-images/../../attacker"'
+run_failure 'unsupported immutable release repository' "$work/source.yaml" amd64 base target
 [ ! -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
+
+write_state
+replace_state '.release.tag = "apk-repo-v0006/../../latest"'
+run_failure 'invalid immutable release tag' "$work/source.yaml" amd64 base target
+[ ! -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
+
+write_state
+replace_state '.asset.name = "../verity-apk-repository.tar.zst"'
+run_failure 'unsupported immutable release asset' "$work/source.yaml" amd64 base target
+[ ! -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
+
+write_state
+replace_state '.archive.root = "../apk"'
+run_failure 'unsupported immutable release archive root' "$work/source.yaml" amd64 base target
+[ ! -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
+
+write_source /usr/sbin/gosu
+write_state
+jq 'del(.packages[] | select(.architecture == "x86_64"))' \
+  "$work/repo/packages/repository-state.json" > "$work/repository-state.tmp"
+mv "$work/repository-state.tmp" "$work/repo/packages/repository-state.json"
+run_failure "gosu $version is not pinned for x86_64" "$work/source.yaml" amd64 base target
+[ ! -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
 
 write_state "$version" 0000000000000000000000000000000000000000000000000000000000000000
+run_failure 'release archive checksum mismatch' "$work/source.yaml" amd64 base target
+[ -s "$work/curl.log" ]
+[ ! -s "$work/tar.log" ]
+[ ! -s "$work/docker.log" ]
+
+write_state "$version" "$archive_checksum" \
+  0000000000000000000000000000000000000000000000000000000000000000
 run_failure 'gosu package checksum mismatch' "$work/source.yaml" amd64 base target
 [ -s "$work/curl.log" ]
+[ "$(grep -c . "$work/tar.log")" -eq 1 ]
 [ ! -s "$work/docker.log" ]
 
 write_state
@@ -225,6 +302,7 @@ replace_field gosu-amd64-sha256 \
   0000000000000000000000000000000000000000000000000000000000000000
 run_failure 'gosu-amd64 checksum mismatch' "$work/source.yaml" amd64 base target
 [ -s "$work/curl.log" ]
+[ "$(grep -c . "$work/tar.log")" -eq 2 ]
 [ ! -s "$work/docker.log" ]
 
 # The binary is now built once per architecture by the signed APK repository,
@@ -252,9 +330,9 @@ consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-
 for consumer in $consumers; do
   consumer_source="$root/patched/$consumer/source.yaml"
   grep -Fxq "gosu-version: $version" "$consumer_source"
-  grep -Fxq "gosu-amd64-sha256: 8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025" \
+  grep -Fxq "gosu-amd64-sha256: 80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3" \
     "$consumer_source"
-  grep -Fxq "gosu-arm64-sha256: 420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859" \
+  grep -Fxq "gosu-arm64-sha256: 0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be" \
     "$consumer_source"
   [ "$(grep -c '^gosu-' "$consumer_source")" -eq 4 ]
 done

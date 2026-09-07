@@ -6,7 +6,6 @@ arch=${2:?usage: replace_gosu.sh SOURCE ARCH BASE TARGET}
 base=${3:?usage: replace_gosu.sh SOURCE ARCH BASE TARGET}
 target=${4:?usage: replace_gosu.sh SOURCE ARCH BASE TARGET}
 
-repository_url=https://tektum.github.io/verity-images/apk
 repository_state=$(cd "$(dirname "$0")/.." && pwd)/packages/repository-state.json
 
 fail() {
@@ -47,11 +46,30 @@ case "$arch" in
   *) fail "unsupported architecture $arch" ;;
 esac
 
-# The pinned repository state is produced by the signed, attested APK release
-# process, so the digest recorded there is the trust anchor for the download.
+# The reviewed repository state is the trust anchor for one immutable release
+# archive and the package selected within it.
+repository=$(jq -er '.repository | select(type == "string" and length > 0)' "$repository_state") \
+  || fail "immutable release repository is not pinned"
+release_tag=$(jq -er '.release.tag | select(type == "string" and length > 0)' "$repository_state") \
+  || fail "immutable release tag is not pinned"
+asset_name=$(jq -er '.asset.name | select(type == "string" and length > 0)' "$repository_state") \
+  || fail "immutable release asset is not pinned"
+archive_digest=$(jq -er '.asset.sha256 | select(type == "string" and length > 0)' "$repository_state") \
+  || fail "immutable release archive checksum is not pinned"
+archive_root=$(jq -er '.archive.root | select(type == "string" and length > 0)' "$repository_state") \
+  || fail "immutable release archive root is not pinned"
+[ "$repository" = "tektum/verity-images" ] || fail "unsupported immutable release repository"
+printf '%s\n' "$release_tag" | grep -Eq '^apk-repo-v[0-9]{4}$' \
+  || fail "invalid immutable release tag"
+[ "$asset_name" = "verity-apk-repository.tar.zst" ] || fail "unsupported immutable release asset"
+[ "$archive_root" = "apk" ] || fail "unsupported immutable release archive root"
+archive_checksum=${archive_digest#sha256:}
+[ "sha256:$archive_checksum" = "$archive_digest" ] || fail "invalid release archive checksum"
+printf '%s\n' "$archive_checksum" | grep -Eq '^[0-9a-f]{64}$' || fail "invalid release archive checksum"
+
 package_path="$apk_arch/gosu-$version.apk"
-package_checksum=$(jq -r --arg architecture "$apk_arch" --arg path "$package_path" '
-  [.packages[] | select(.name == "gosu" and .architecture == $architecture and .path == $path)]
+package_checksum=$(jq -r --arg architecture "$apk_arch" --arg version "$version" --arg path "$package_path" '
+  [.packages[] | select(.name == "gosu" and .version == $version and .architecture == $architecture and .path == $path)]
   | if length == 1 then .[0].sha256 else "" end
 ' "$repository_state")
 printf '%s\n' "$package_checksum" | grep -Eq '^[0-9a-f]{64}$' || fail "gosu $version is not pinned for $apk_arch"
@@ -59,12 +77,22 @@ printf '%s\n' "$package_checksum" | grep -Eq '^[0-9a-f]{64}$' || fail "gosu $ver
 work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
 mkdir "$work/install"
-curl -fsSL "$repository_url/$package_path" -o "$work/gosu.apk"
+archive="$work/$asset_name"
+curl -fsSL "https://github.com/$repository/releases/download/$release_tag/$asset_name" -o "$archive"
+if ! printf '%s  %s\n' "$archive_checksum" "$archive" \
+  | sha256sum -c - >/dev/null 2>&1; then
+  fail "release archive checksum mismatch"
+fi
+if ! tar --zstd -xOf "$archive" "$archive_root/$package_path" > "$work/gosu.apk"; then
+  fail "gosu package is missing from release archive"
+fi
 if ! printf '%s  %s\n' "$package_checksum" "$work/gosu.apk" \
   | sha256sum -c - >/dev/null 2>&1; then
   fail "gosu package checksum mismatch"
 fi
-tar --warning=no-unknown-keyword -xzOf "$work/gosu.apk" usr/bin/gosu > "$work/install/gosu"
+if ! tar --warning=no-unknown-keyword -xzOf "$work/gosu.apk" usr/bin/gosu > "$work/install/gosu"; then
+  fail "gosu binary is missing from package"
+fi
 if ! printf '%s  %s\n' "$checksum" "$work/install/gosu" \
   | sha256sum -c - >/dev/null 2>&1; then
   fail "gosu-$arch checksum mismatch"
