@@ -48,10 +48,20 @@ def severity:
     ((["unknown", "negligible", "low", "medium", "high", "critical"] | index($severity) != null) or
      ($severity | cvss)));
 def digest_ref:
-  type == "string" and test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$");
+  type == "string" and length <= 512 and test("^[A-Za-z0-9._/@:+-]+@sha256:[a-f0-9]{64}$");
 def decimal_string: type == "string" and test("^[1-9][0-9]*$");
 def hex: type == "string" and test("^[a-f0-9]{64}$");
 def integer: type == "number" and floor == . and . >= -9007199254740991 and . <= 9007199254740991;
+def normalize_safe_integers:
+  walk(
+    if type == "number" then
+      if (floor != .) or (. < -9007199254740991) or (. > 9007199254740991) then
+        error("checkpoint contains a non-safe integer")
+      elif . == 0 then 0
+      else floor
+      end
+    else . end
+  );
 def identifier($maximum):
   type == "string" and length > 0 and length <= $maximum and test("^[A-Za-z0-9._/@:+~-]+$");
 def finding:
@@ -136,5 +146,6 @@ def bound_checkpoint:
 if $mode == "wakeup" then wakeup
 elif $mode == "checkpoint" then ready_checkpoint
 elif $mode == "bound_checkpoint" then bound_checkpoint
+elif $mode == "normalize_checkpoint" then normalize_safe_integers
 elif $mode == "origin" then .origin == "https://squawk-staging.omerc.workers.dev"
 else false end

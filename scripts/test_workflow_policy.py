@@ -603,9 +603,21 @@ def main() -> None:
     assert "scripts/monitor_sboms.sh squawk-payload.json squawk-checkpoint.json" in reconcile_job
     assert 'squawk-ack.json "${index[@]}"' in reconcile_job
     assert "/v1/actions/reconciliations/$delivery/ack" in reconcile_job
-    assert "canonical_checkpoint=$(jq -cS 'del(.payload_sha256)'" in monitor_script
+    assert "jq -cjS 'del(.payload_sha256)'" in monitor_script
     assert '[[ $computed_payload_sha256 == "$payload_sha256" ]]' in monitor_script
-    assert monitor_script.index("computed_payload_sha256=") < monitor_script.index("issues=$(load_issues)")
+    assert monitor_script.index("computed_payload_sha256=") < monitor_script.index(
+        'load_issues "$issues_file"'
+    )
+    assert 'elif $mode == "normalize_checkpoint" then normalize_safe_integers' in monitor_validator
+    assert monitor_script.index("--arg mode normalize_checkpoint") < monitor_script.index(
+        "computed_payload_sha256="
+    )
+    assert "--argjson all" not in monitor_script
+    assert "--argjson more" not in monitor_script
+    assert '--slurpfile direct "$direct_candidates_file"' in monitor_script
+    assert '--slurpfile more "$work/comments/${ordering_number}.json"' in monitor_script
+    assert '--rawfile body "$file"' in monitor_script
+    assert 'temporary=$(mktemp "$work/comments/${number}.XXXXXX")' in monitor_script
     assert "def finding_platforms($image):" in monitor_validator
     assert ".platforms | finding_platforms($image)" in monitor_validator
     assert monitor.count("uses: ./.github/actions/setup-jq") == 2

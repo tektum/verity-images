@@ -16,7 +16,10 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 jq -e --arg mode wakeup -f "$validator" "$payload" >/dev/null
-schema=$(jq -er .schema_version "$payload")
+schema=$(jq -er '.schema_version |
+  if type == "number" and floor == . and . >= -9007199254740991 and . <= 9007199254740991 then
+    (if . == 0 then "0" else (floor | tostring) end)
+  else error("schema version is not a safe integer") end' "$payload")
 event_document=$payload
 checkpoint_id=
 revision=
@@ -32,23 +35,32 @@ else
   }
   jq -e --slurp --arg mode bound_checkpoint -f "$validator" \
     "$payload" "$checkpoint_envelope" >/dev/null
+  raw_event_document="$work/checkpoint.raw.json"
   event_document="$work/checkpoint.json"
-  jq -c .checkpoint "$checkpoint_envelope" > "$event_document"
+  jq -c .checkpoint "$checkpoint_envelope" > "$raw_event_document"
+  normalized_event_document="$work/checkpoint.normalized.json"
+  if ! jq -cS --arg mode normalize_checkpoint -f "$validator" \
+    "$raw_event_document" > "$normalized_event_document"; then
+    rm -f "$normalized_event_document"
+    printf 'Squawk checkpoint contains an invalid numeric value\n' >&2
+    exit 1
+  fi
+  mv "$normalized_event_document" "$event_document"
   event=$(jq -er .kind "$event_document")
   checkpoint_id=$(jq -er .checkpoint_id "$event_document")
-  revision=$(jq -er .revision "$event_document")
+  revision=$(jq -er '.revision | tostring' "$event_document")
   payload_sha256=$(jq -er .payload_sha256 "$event_document")
   source_installation=$(jq -er .source.installation_id "$event_document")
   source_repository=$(jq -er .source.repository_id "$event_document")
-  canonical_checkpoint=$(jq -cS 'del(.payload_sha256)' "$event_document")
-  computed_payload_sha256=$(printf '%s' "$canonical_checkpoint" | sha256sum | cut -d' ' -f1)
+  computed_payload_sha256=$(jq -cjS 'del(.payload_sha256)' "$event_document" |
+    sha256sum | cut -d' ' -f1)
   [[ $computed_payload_sha256 == "$payload_sha256" ]] || {
     printf 'Squawk checkpoint payload digest does not match canonical content\n' >&2
     exit 1
   }
   if [[ $event == inventory_snapshot ]]; then
-    evaluated_at=$(jq -er .coverage.evaluated_at "$event_document")
-    feed_checked_at=$(jq -er .coverage.advisory_feed_checked_at "$event_document")
+    evaluated_at=$(jq -er '.coverage.evaluated_at | tostring' "$event_document")
+    feed_checked_at=$(jq -er '.coverage.advisory_feed_checked_at | tostring' "$event_document")
     (( evaluated_at <= now + 300 && evaluated_at >= now - max_snapshot_age )) || {
       printf 'Squawk evaluation is stale or from the future\n' >&2
       exit 1
@@ -102,25 +114,43 @@ comment="$work/comment.md"
 mkdir "$work/comments"
 
 load_issues() {
-  gh api --paginate --slurp "repos/${repository}/issues?state=all&labels=squawk&per_page=100"
+  local destination=$1 temporary
+  temporary=$(mktemp "$work/issues.XXXXXX")
+  if ! gh api --paginate --slurp "repos/${repository}/issues?state=all&labels=squawk&per_page=100" |
+    jq -ce 'if type == "array" then . else error("invalid issue inventory") end' > "$temporary"; then
+    rm -f "$temporary"
+    return 1
+  fi
+  mv "$temporary" "$destination"
 }
 
 load_comments() {
-  local cached="$work/comments/$1.json"
-  if [[ ! -f $cached ]]; then
-    gh api --paginate --slurp "repos/${repository}/issues/$1/comments?per_page=100" | jq -c '[.[][]]' > "$cached"
+  local number=$1 cached="$work/comments/$1.json" temporary
+  if [[ -f $cached ]]; then
+    if ! jq -e 'type == "array"' "$cached" >/dev/null; then
+      rm -f "$cached"
+      return 1
+    fi
+    return 0
   fi
-  cat "$cached"
+  temporary=$(mktemp "$work/comments/${number}.XXXXXX")
+  if ! gh api --paginate --slurp "repos/${repository}/issues/${number}/comments?per_page=100" |
+    jq -ce '[.[][]]' > "$temporary"; then
+    rm -f "$temporary"
+    return 1
+  fi
+  mv "$temporary" "$cached"
 }
 
 select_candidates() {
+  local inventory=$1 destination=$2
   jq -c --arg marker "$image_marker" --arg legacy "$legacy_image_line" '
     [.[][] |
       select(has("pull_request") | not) |
       select(.user.login == "github-actions[bot]") |
       select(((.body // "") | contains($marker)) or (((.body // "") | split("\n")) | index($legacy) != null))
     ] | unique_by(.number) | sort_by(.number)
-  '
+  ' "$inventory" > "$destination"
 }
 
 write_active_body() {
@@ -142,10 +172,13 @@ write_finding_comment() {
   ' > "$comment"
 }
 
-issues=$(load_issues)
-candidates=$(select_candidates <<<"$issues")
-issue=$(jq -c '.[0] // null' <<<"$candidates")
-number=$(jq -r '.number // empty' <<<"$issue")
+issues_file="$work/issues.initial.json"
+candidates_file="$work/candidates.initial.json"
+issue_file="$work/issue.json"
+load_issues "$issues_file"
+select_candidates "$issues_file" "$candidates_file"
+jq -c '.[0] // null' "$candidates_file" > "$issue_file"
+number=$(jq -r '.number // empty' "$issue_file")
 needs_issue=true
 if [[ $event == inventory_snapshot && $(jq -r '.findings | length' "$event_document") -eq 0 ]] || [[ $event == retirement ]]; then
   needs_issue=false
@@ -156,8 +189,8 @@ if [[ -z $number && $needs_issue == true ]]; then
   created=$(gh issue create --repo "$repository" --title "$title" --body-file "$body" --label squawk)
   number=${created##*/}
   [[ $number =~ ^[0-9]+$ ]] || { printf 'could not determine created Squawk issue number\n' >&2; exit 1; }
-  issue=$(jq -cn --argjson number "$number" --arg marker "$image_marker" \
-    '{number: $number, state: "open", body: $marker, user: {login: "github-actions[bot]"}}')
+  jq -cn --argjson number "$number" --arg marker "$image_marker" \
+    '{number: $number, state: "open", body: $marker, user: {login: "github-actions[bot]"}}' > "$issue_file"
 fi
 if [[ -z $number ]]; then
   write_ack
@@ -166,30 +199,39 @@ fi
 
 # Re-read after a possible create. Distinct deliveries retain independent workflow
 # concurrency, then converge any create race on the oldest bot-authored image issue.
-issues=$(load_issues)
-candidates=$(select_candidates <<<"$issues")
-candidates=$(jq -cn --argjson direct "$candidates" \
-  --argjson all "$(jq -c '[.[][]]' <<<"$issues")" --argjson seed "$issue" '
-  (($direct + [$seed]) | unique_by(.number) | sort_by(.number)) as $seeded |
+issues_file="$work/issues.latest.json"
+direct_candidates_file="$work/candidates.direct.json"
+candidates_file="$work/candidates.json"
+load_issues "$issues_file"
+select_candidates "$issues_file" "$direct_candidates_file"
+jq -cn --slurpfile direct "$direct_candidates_file" --slurpfile all "$issues_file" \
+  --slurpfile seed "$issue_file" '
+  (($direct[0] + [$seed[0]]) | unique_by(.number) | sort_by(.number)) as $seeded |
   ($seeded | map(.number | tostring)) as $targets |
-  ($seeded + [$all[] |
+  ($seeded + [$all[0][][] |
     select(has("pull_request") | not) |
     select(.user.login == "github-actions[bot]") |
-    select((.body // "") as $body | any($targets[]; . as $target | $body | contains("<!-- squawk-consolidated-into:" + $target + " -->")))
+    select((.body // "") as $body |
+      any($targets[]; . as $target | $body | contains("<!-- squawk-consolidated-into:" + $target + " -->")))
   ]) | unique_by(.number) | sort_by(.number)
-')
-issue=$(jq -c '.[0]' <<<"$candidates")
-number=$(jq -r .number <<<"$issue")
-canonical_comments=$(load_comments "$number")
-ordering_comments=$canonical_comments
-if [[ $schema -eq 2 ]]; then
-  while IFS= read -r ordering_issue; do
-    ordering_number=$(jq -r .number <<<"$ordering_issue")
-    [[ $ordering_number != "$number" ]] || continue
-    ordering_comments=$(jq -c --argjson more "$(load_comments "$ordering_number")" '. + $more' \
-      <<<"$ordering_comments")
-  done < <(jq -c '.[]' <<<"$candidates")
-fi
+' > "$candidates_file"
+jq -c '.[0]' "$candidates_file" > "$issue_file"
+number=$(jq -r .number "$issue_file")
+issue_state=$(jq -r .state "$issue_file")
+load_comments "$number"
+canonical_comments_file="$work/comments/${number}.json"
+ordering_comments_file="$work/ordering-comments.json"
+cp "$canonical_comments_file" "$ordering_comments_file"
+while IFS= read -r ordering_number; do
+  [[ $ordering_number != "$number" ]] || continue
+  load_comments "$ordering_number"
+  if [[ $schema -eq 2 ]]; then
+    combined_comments="$work/ordering-comments.next.json"
+    jq -c --slurpfile more "$work/comments/${ordering_number}.json" '. + $more[0]' \
+      "$ordering_comments_file" > "$combined_comments"
+    mv "$combined_comments" "$ordering_comments_file"
+  fi
+done < <(jq -r '.[].number' "$candidates_file")
 if [[ $schema -eq 2 ]]; then
   applied_state=$(jq -c --arg installation "$source_installation" --arg repository "$source_repository" '
     [.[] |
@@ -200,7 +242,7 @@ if [[ $schema -eq 2 ]]; then
     ] as $markers |
     {conflict:([$markers | group_by(.revision)[] | select([.[].sha] | unique | length > 1)] | length > 0),
      latest:($markers | sort_by(.revision) | last // null)}
-  ' <<<"$ordering_comments")
+  ' "$ordering_comments_file")
   [[ $(jq -r .conflict <<<"$applied_state") == false ]] || {
     printf 'conflicting applied checkpoint markers exist\n' >&2
     exit 1
@@ -224,53 +266,75 @@ if [[ $schema -eq 2 ]]; then
 fi
 
 post_canonical_once() {
-  local marker=$1 file=$2
+  local marker=$1 file=$2 updated
   if jq -e --arg marker "$marker" \
     'any(.[]; .user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))' \
-    <<<"$canonical_comments" >/dev/null; then
+    "$canonical_comments_file" >/dev/null; then
     return
   fi
   gh issue comment "$number" --repo "$repository" --body-file "$file"
-  canonical_comments=$(jq -c --arg body "$(cat "$file")" \
-    '. + [{body: $body, user: {login: "github-actions[bot]"}}]' <<<"$canonical_comments")
+  updated=$(mktemp "$work/comments/${number}.updated.XXXXXX")
+  if ! jq -c --rawfile body "$file" \
+    '. + [{body: $body, user: {login: "github-actions[bot]"}}]' \
+    "$canonical_comments_file" > "$updated"; then
+    rm -f "$updated"
+    return 1
+  fi
+  mv "$updated" "$canonical_comments_file"
 }
 
 preserve_body() {
-  local source=$1 source_body=$2 marker="<!-- squawk-migrated-body:${1} -->"
-  if [[ $source_body != *'<!-- squawk-delivery:'* ]]; then
+  local source=$1 source_body_file=$2 marker="<!-- squawk-migrated-body:${1} -->"
+  if ! grep -Fq '<!-- squawk-delivery:' "$source_body_file"; then
     return 0
   fi
   {
     printf '%s\nPreserved from the original body of #%s before consolidation:\n\n' "$marker" "$source"
-    printf '%s\n' "$source_body"
+    cat "$source_body_file"
+    printf '\n'
   } > "$comment"
   post_canonical_once "$marker" "$comment"
 }
 
 copy_finding_comments() {
-  local source=$1 source_comments=$2 row marker source_body
-  while IFS= read -r row; do
-    marker=$(jq -r '.body | match("<!-- squawk-delivery:[a-f0-9]{64} -->").string' <<<"$row")
-    source_body=$(jq -r .body <<<"$row")
+  local source=$1 source_comments_file=$2 index marker source_body_file source_id source_url
+  while IFS= read -r index; do
+    marker=$(jq -r --argjson index "$index" \
+      '.[$index].body | match("<!-- squawk-delivery:[a-f0-9]{64} -->").string' \
+      "$source_comments_file")
+    source_body_file="$work/source-comment-${source}-${index}.md"
+    jq -r --argjson index "$index" '.[$index].body' "$source_comments_file" > "$source_body_file"
+    source_id=$(jq -r --argjson index "$index" '.[$index].id // 0' "$source_comments_file")
+    source_url=$(jq -r --argjson index "$index" '.[$index].html_url // ""' "$source_comments_file")
     {
       printf '<!-- squawk-migrated-comment:%s:%s -->\nPreserved from #%s' \
-        "$source" "$(jq -r '.id // 0' <<<"$row")" "$source"
-      if [[ $(jq -r '.html_url // ""' <<<"$row") != "" ]]; then
-        printf ' ([source](%s))' "$(jq -r .html_url <<<"$row")"
+        "$source" "$source_id" "$source"
+      if [[ -n $source_url ]]; then
+        printf ' ([source](%s))' "$source_url"
       fi
-      printf ':\n\n%s\n' "$source_body"
+      printf ':\n\n'
+      cat "$source_body_file"
+      printf '\n'
     } > "$comment"
     post_canonical_once "$marker" "$comment"
-  done < <(jq -c '.[] | select(.user.login == "github-actions[bot]") | select((.body // "") | test("<!-- squawk-delivery:[a-f0-9]{64} -->"))' <<<"$source_comments")
+  done < <(jq -r 'to_entries[] |
+    select(.value.user.login == "github-actions[bot]") |
+    select((.value.body // "") | test("<!-- squawk-delivery:[a-f0-9]{64} -->")) |
+    .key' "$source_comments_file")
 }
 
-preserve_body "$number" "$(jq -r '.body // ""' <<<"$issue")"
-while IFS= read -r duplicate; do
-  duplicate_number=$(jq -r .number <<<"$duplicate")
+canonical_body_file="$work/issue-${number}.body"
+jq -r '.body // ""' "$issue_file" > "$canonical_body_file"
+preserve_body "$number" "$canonical_body_file"
+while IFS=$'\t' read -r duplicate_number duplicate_state; do
   [[ $duplicate_number != "$number" ]] || continue
-  duplicate_comments=$(load_comments "$duplicate_number")
-  preserve_body "$duplicate_number" "$(jq -r '.body // ""' <<<"$duplicate")"
-  copy_finding_comments "$duplicate_number" "$duplicate_comments"
+  load_comments "$duplicate_number"
+  duplicate_comments_file="$work/comments/${duplicate_number}.json"
+  duplicate_body_file="$work/issue-${duplicate_number}.body"
+  jq -r --argjson number "$duplicate_number" \
+    '.[] | select(.number == $number) | .body // ""' "$candidates_file" > "$duplicate_body_file"
+  preserve_body "$duplicate_number" "$duplicate_body_file"
+  copy_finding_comments "$duplicate_number" "$duplicate_comments_file"
 
   source_marker="<!-- squawk-source-issue:${duplicate_number} -->"
   {
@@ -283,17 +347,17 @@ while IFS= read -r duplicate; do
   tombstone_marker="<!-- squawk-consolidated-into:${number} -->"
   if ! jq -e --arg marker "$tombstone_marker" \
     'any(.[]; .user.login == "github-actions[bot]" and ((.body // "") | contains($marker)))' \
-    <<<"$duplicate_comments" >/dev/null; then
+    "$duplicate_comments_file" >/dev/null; then
     printf '%s\nConsolidated into #%s; original evidence and discussion remain above.\n' \
       "$tombstone_marker" "$number" > "$comment"
     gh issue comment "$duplicate_number" --repo "$repository" --body-file "$comment"
   fi
-  [[ $(jq -r .state <<<"$duplicate") == closed ]] || \
+  [[ $duplicate_state == closed ]] || \
     gh issue close "$duplicate_number" --repo "$repository" --reason "not planned"
-done < <(jq -c '.[]' <<<"$candidates")
+done < <(jq -r '.[] | [.number, .state] | @tsv' "$candidates_file")
 
 if [[ $event == finding ]]; then
-  [[ $(jq -r .state <<<"$issue") != closed ]] || gh issue reopen "$number" --repo "$repository"
+  [[ $issue_state != closed ]] || gh issue reopen "$number" --repo "$repository"
   write_active_body
   gh issue edit "$number" --repo "$repository" --title "$title" --body-file "$body"
   write_finding_comment < "$payload"
@@ -301,7 +365,7 @@ if [[ $event == finding ]]; then
 elif [[ $event == inventory_snapshot ]]; then
   active=$(jq -r '.findings | length' "$event_document")
   if (( active > 0 )); then
-    [[ $(jq -r .state <<<"$issue") != closed ]] || gh issue reopen "$number" --repo "$repository"
+    [[ $issue_state != closed ]] || gh issue reopen "$number" --repo "$repository"
     write_active_body
     gh issue edit "$number" --repo "$repository" --title "$title" --body-file "$body"
     while IFS= read -r finding; do
@@ -332,11 +396,11 @@ EOF
       "$(date -u -d "@$feed_checked_at" +%Y-%m-%dT%H:%M:%SZ)"
   } > "$comment"
   post_canonical_once "$checkpoint_marker" "$comment"
-  (( active > 0 )) || { [[ $(jq -r .state <<<"$issue") == closed ]] || gh issue close "$number" --repo "$repository" --reason "completed"; }
+  (( active > 0 )) || { [[ $issue_state == closed ]] || gh issue close "$number" --repo "$repository" --reason "completed"; }
 else
   replacement=$(jq -er .replacement.logical_image_ref "$event_document")
-  retired_at=$(jq -er .retired_at "$event_document")
-  published_at=$(jq -er .replacement.published_at "$event_document")
+  retired_at=$(jq -er '.retired_at | tostring' "$event_document")
+  published_at=$(jq -er '.replacement.published_at | tostring' "$event_document")
   source_event=$(jq -er .authoritative_source_event_id "$event_document")
   publisher_run=$(jq -er .replacement.run_url "$event_document")
   cat > "$body" <<EOF
@@ -356,7 +420,7 @@ EOF
   printf "%s\nRetired in favor of \`%s\` from authoritative source event \`%s\`. This is lifecycle retirement, not a security-fixed result.\n" \
     "$checkpoint_marker" "$replacement" "$source_event" > "$comment"
   post_canonical_once "$checkpoint_marker" "$comment"
-  [[ $(jq -r .state <<<"$issue") == closed ]] || gh issue close "$number" --repo "$repository" --reason "not planned"
+  [[ $issue_state == closed ]] || gh issue close "$number" --repo "$repository" --reason "not planned"
 fi
 
 if [[ $schema -eq 2 ]]; then
