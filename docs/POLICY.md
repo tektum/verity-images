@@ -6,10 +6,42 @@ Pushes to `main` rebuild published images. Pull requests build, scan, and
 smoke-test affected images but never authenticate to GHCR, publish, sign,
 attest, or move tags.
 
-After publication, Squawk stores each platform SBOM once and compares its
-components with incremental OSV updates. New findings dispatch the monitor
-workflow, which opens or updates one issue per vulnerable image version. The
-monitor does not pull image layers, rescan images, or rebuild images.
+After publication, the external [`tektum/squawk`](https://github.com/tektum/squawk)
+service stores each platform SBOM once and compares its components with incremental
+OSV updates. Finding deliveries open or update one issue per immutable image. They
+can add or reopen findings, but their absence never closes an issue.
+
+Resolution uses a separate authenticated reconciliation protocol. A wakeup from
+the pinned Squawk GitHub App identity carries only the immutable image and source
+key. The workflow exchanges a GitHub Actions OIDC token with the Squawk origin
+pinned in reviewed repository code, fetches the latest durable checkpoint, serializes application per
+source image, persists its monotonic revision on the issue, and acknowledges that
+exact revision only after every issue mutation succeeds. The workflow fails closed
+when the origin is unconfigured or the checkpoint is blocked, stale, incomplete,
+unsupported, out of order, or bound to different OCI index children.
+OIDC authenticates the workflow to Squawk; TLS authenticates the pinned server.
+The checkpoint digest verifies content integrity, not a detached signature. A
+repository variable cannot redirect reconciliation to an unreviewed server.
+
+A security-fixed closure requires a fresh complete inventory checkpoint: both
+attested linux/amd64 and linux/arm64 SBOMs, child digests verified against the
+published index, complete package evaluation, a fresh advisory-feed check, and the
+full current unsuppressed finding set. Historical retirement is a distinct
+authoritative lifecycle event and never asserts that findings in the retired digest
+were fixed. Consolidation copies unique bot finding evidence into the canonical
+thread and links each untouched duplicate body and discussion before closing it.
+Closed source threads are rechecked because late bot findings and applied-revision
+evidence can arrive after consolidation; a prior migration marker is not a fence.
+The monitor does not pull image layers, rescan images, or rebuild images.
+
+Operators set the repository variable `SQUAWK_RECONCILIATION_ORIGIN` to the reviewed
+endpoint `https://squawk-staging.omerc.workers.dev`; any other value blocks version 2
+before an OIDC token is requested. Version 1 and version 2 jobs are mutually
+exclusive: `SQUAWK_RECONCILIATION_V2_REQUIRED` remains unset while version 1 findings
+drain. After the producer has an eligible full checkpoint, operators set it to
+`true` for the initial OIDC-bound canary and keep it enabled only after verifying
+the acknowledgement. Once set, stale version 1 dispatches are rejected rather
+than reopening an already reconciled image.
 
 ## Vulnerability gates
 
