@@ -10,14 +10,32 @@ from pathlib import Path
 
 RECIPE_VARS = {
     "openssl-fips-provider": "vars:\n  source-commit: 17a2c5111864d8e016c5f2d29c40a3746b559e9d\n  certificate: \"4985\"\n",
-    "gosu": "vars:\n  go-version: go1.26.5\n  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n  x-sys-version: v0.44.0\n",
+}
+GOSU_RECIPE_VARS = {
+    "1.19-r0": (
+        "vars:\n  go-version: go1.26.5\n  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n"
+        "  x-sys-version: v0.44.0\nexpected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n"
+        "toolchain_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053\n"
+        "toolchain_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49\n"
+        "expected=8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025\n"
+        "expected=420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859\n"
+    ),
+    "1.19-r1": (
+        "vars:\n  go-version: go1.27.1\n  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n"
+        "  x-sys-version: v0.44.0\nexpected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n"
+        "toolchain_sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445\n"
+        "toolchain_sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec\n"
+        "expected=80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3\n"
+        "expected=0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be\n"
+    ),
 }
 
 
 def recipe(name: str, version: str, recipe_vars: str | None = None) -> bytes:
     package_version, epoch = version.rsplit("-r", maxsplit=1)
     identity = f"package:\n  name: {name}\n  version: {package_version}\n  epoch: {epoch}\n"
-    return (identity + (RECIPE_VARS.get(name, "") if recipe_vars is None else recipe_vars)).encode()
+    default_vars = GOSU_RECIPE_VARS.get(version, "") if name == "gosu" else RECIPE_VARS.get(name, "")
+    return (identity + (default_vars if recipe_vars is None else recipe_vars)).encode()
 
 
 def gzip_member(raw: bytes) -> bytes:

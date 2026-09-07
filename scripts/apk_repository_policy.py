@@ -50,19 +50,44 @@ PAYLOAD_DIRECTORIES: Final = frozenset(
         "var/lib/db/sbom",
     }
 )
-GOSU_RECIPE_FIELDS: Final = (
-    b"vars:\n",
-    b"  go-version: go1.26.5\n",
-    b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
-    b"  x-sys-version: v0.44.0\n",
-)
-GOSU_VERSION: Final = "1.19-r0"
+GOSU_REVISIONS: Final = {
+    "1.19-r0": (
+        (
+            b"vars:\n",
+            b"  go-version: go1.26.5\n",
+            b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
+            b"  x-sys-version: v0.44.0\n",
+            b"expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n",
+            b"toolchain_sha256=5c2c3b16caefa1d968a94c1daca04a7ca301a496d9b086e17ad77bb81393f053\n",
+            b"toolchain_sha256=fe4789e92b1f33358680864bbe8704289e7bb5fc207d80623c308935bd696d49\n",
+            b"expected=8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025\n",
+            b"expected=420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859\n",
+        ),
+        {
+            "x86_64": "8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025",
+            "aarch64": "420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859",
+        },
+    ),
+    "1.19-r1": (
+        (
+            b"vars:\n",
+            b"  go-version: go1.27.1\n",
+            b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
+            b"  x-sys-version: v0.44.0\n",
+            b"expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n",
+            b"toolchain_sha256=63d339f0da5ab53635a56f2490a7984dfe12dfcff22ad749f63edaf590168445\n",
+            b"toolchain_sha256=3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec\n",
+            b"expected=80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3\n",
+            b"expected=0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be\n",
+        ),
+        {
+            "x86_64": "80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3",
+            "aarch64": "0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be",
+        },
+    ),
+}
 GOSU_REQUIRED_FILES: Final = frozenset({"usr/bin/gosu"})
 GOSU_PAYLOAD_DIRECTORIES: Final = frozenset({"usr", "usr/bin", "var", "var/lib", "var/lib/db", "var/lib/db/sbom"})
-GOSU_BINARY_SHA256: Final = {
-    "x86_64": "8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025",
-    "aarch64": "420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859",
-}
 
 
 def safe_name(name: str) -> bool:
@@ -121,16 +146,18 @@ def validate_openssl_fips(info: PackageInfo) -> None:
 
 
 def validate_gosu(info: PackageInfo) -> None:
-    if info.version != GOSU_VERSION:
+    revision = GOSU_REVISIONS.get(info.version)
+    if revision is None:
         raise ValueError("unexpected gosu package version")
-    if not all(field in info.recipe.contents for field in GOSU_RECIPE_FIELDS):
+    recipe_fields, binary_sha256 = revision
+    if not all(field in info.recipe.contents for field in recipe_fields):
         raise ValueError("invalid gosu recipe")
     binary = payload_files(info, GOSU_REQUIRED_FILES, GOSU_PAYLOAD_DIRECTORIES).get("usr/bin/gosu", b"")
     if not native_elf(binary, info.architecture):
         raise ValueError("invalid gosu ELF")
     if not all(entry.mode & 0o111 for entry in info.payload if entry.name == "usr/bin/gosu"):
         raise ValueError("gosu binary is not executable")
-    if hashlib.sha256(binary).hexdigest() != GOSU_BINARY_SHA256[info.architecture]:
+    if hashlib.sha256(binary).hexdigest() != binary_sha256[info.architecture]:
         raise ValueError("unexpected gosu binary checksum")
 
 
