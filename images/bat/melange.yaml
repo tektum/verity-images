@@ -9,9 +9,6 @@ package:
     cpu: "4"
     memory: 7Gi
 
-vars:
-  source-commit: 979ba22628bc9d8171f2cffca2bd5c90c9fc0a9e
-
 environment:
   contents:
     repositories:
@@ -32,7 +29,7 @@ pipeline:
     with:
       repository: https://github.com/sharkdp/bat
       tag: v${{package.version}}
-      expected-commit: ${{vars.source-commit}}
+      expected-commit: 979ba22628bc9d8171f2cffca2bd5c90c9fc0a9e
   - runs: |
       omnibump --language rust --dir . \
         --packages "plist@1.7.0=1.10.0 git2@0.20.2=0.20.4" \
