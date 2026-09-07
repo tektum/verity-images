@@ -19,7 +19,7 @@ from pathlib import Path
 
 import apk_archive
 import apk_repository_policy
-from apk_test_fixtures import elf, entry, gzip_member, pack_tar, signed_shape, unsigned_package, write_unsigned
+from apk_test_fixtures import GOSU_RECIPE_VARS, elf, entry, gzip_member, pack_tar, signed_shape, unsigned_package, write_unsigned
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -133,28 +133,67 @@ def rejects_repository(root: Path, keys: Path, digest: str) -> None:
 
 
 def gosu_tests() -> None:
-    binary = elf("x86_64") + b"\0" * 64
-    arm_binary = elf("aarch64") + b"\0" * 64
-    digests = {"x86_64": hashlib.sha256(binary).hexdigest(), "aarch64": hashlib.sha256(arm_binary).hexdigest()}
-    # The published binary digests cannot be forged, so the pinned table is
-    # swapped for the fixture digests to exercise every other gosu rule.
-    with patch.dict(apk_repository_policy.GOSU_BINARY_SHA256, digests):
-        info = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(binary)), "x86_64"))
+    old_binary = elf("x86_64") + b"\0" * 64
+    old_arm_binary = elf("aarch64") + b"\0" * 64
+    new_binary = elf("x86_64") + b"\1" * 64
+    new_arm_binary = elf("aarch64") + b"\1" * 64
+    old_digests = {"x86_64": hashlib.sha256(old_binary).hexdigest(), "aarch64": hashlib.sha256(old_arm_binary).hexdigest()}
+    new_digests = {"x86_64": hashlib.sha256(new_binary).hexdigest(), "aarch64": hashlib.sha256(new_arm_binary).hexdigest()}
+    revisions = apk_repository_policy.GOSU_REVISIONS
+    assert set(revisions) == {"1.19-r0", "1.19-r1"}
+    assert revisions["1.19-r0"][1] == {
+        "x86_64": "8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025",
+        "aarch64": "420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859",
+    }
+    assert revisions["1.19-r1"][1] == {
+        "x86_64": "80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3",
+        "aarch64": "0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be",
+    }
+    # Fixture digests exercise the policy around the immutable production pins.
+    with patch.dict(revisions["1.19-r0"][1], old_digests), patch.dict(revisions["1.19-r1"][1], new_digests):
+        info = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(old_binary)), "x86_64"))
         assert (info.name, info.version, info.epoch, info.architecture) == ("gosu", "1.19-r0", 0, "x86_64")
-        arm = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(arm_binary), "aarch64"), "aarch64"))
+        arm = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(old_arm_binary), "aarch64"), "aarch64"))
         assert (arm.name, arm.version, arm.epoch, arm.architecture) == ("gosu", "1.19-r0", 0, "aarch64")
-        rejects_package(gosu_package(gosu_payload(arm_binary)))
-        rejects_package(gosu_package(gosu_payload(binary) + (entry("etc/evil", b"bad"),)))
-        rejects_package(gosu_package(gosu_payload(binary)[:-1]))
-        rejects_package(gosu_package(gosu_payload(binary) + (entry("usr/bin/other", b"extra"),)))
-        rejects_package(gosu_package(gosu_payload(binary), recipe_vars="vars:\n  x-sys-version: v0.43.0\n"))
-        rejects_package(gosu_package(gosu_payload(binary), "aarch64"), "aarch64")
+        revision = apk_repository_policy.validate_package(
+            apk_archive.package_info(gosu_package(gosu_payload(new_binary, "1.19-r1"), version="1.19-r1"), "x86_64")
+        )
+        assert (revision.name, revision.version, revision.epoch, revision.architecture) == ("gosu", "1.19-r1", 1, "x86_64")
+        revision_arm = apk_repository_policy.validate_package(
+            apk_archive.package_info(
+                gosu_package(gosu_payload(new_arm_binary, "1.19-r1"), "aarch64", version="1.19-r1"), "aarch64"
+            )
+        )
+        assert (revision_arm.name, revision_arm.version, revision_arm.epoch, revision_arm.architecture) == (
+            "gosu",
+            "1.19-r1",
+            1,
+            "aarch64",
+        )
+        rejects_package(gosu_package(gosu_payload(old_arm_binary)))
+        rejects_package(gosu_package(gosu_payload(old_binary) + (entry("etc/evil", b"bad"),)))
+        rejects_package(gosu_package(gosu_payload(old_binary)[:-1]))
+        rejects_package(gosu_package(gosu_payload(old_binary) + (entry("usr/bin/other", b"extra"),)))
+        rejects_package(gosu_package(gosu_payload(old_binary), recipe_vars="vars:\n  x-sys-version: v0.43.0\n"))
+        rejects_package(gosu_package(gosu_payload(old_binary), "aarch64"), "aarch64")
         # A non-executable binary is unusable once installed.
-        rejects_package(gosu_package(gosu_payload(binary, mode=0o644)))
-        # The published identity is pinned, so a rebuilt version cannot be reserved.
-        rejects_package(gosu_package(gosu_payload(binary, version="1.20-r0"), version="1.20-r0"))
-    # The real pinned digests reject any other binary.
-    rejects_package(gosu_package(gosu_payload(binary)))
+        rejects_package(gosu_package(gosu_payload(old_binary, mode=0o644)))
+        # Only explicitly approved revisions may be reserved.
+        rejects_package(gosu_package(gosu_payload(old_binary, version="1.20-r0"), version="1.20-r0"))
+        # Recipe and binary pins cannot be relabeled across approved revisions.
+        rejects_package(
+            gosu_package(
+                gosu_payload(new_binary, "1.19-r1"), version="1.19-r1", recipe_vars=GOSU_RECIPE_VARS["1.19-r0"]
+            )
+        )
+        rejects_package(gosu_package(gosu_payload(old_binary, "1.19-r1"), version="1.19-r1"))
+        rejects_package(
+            gosu_package(gosu_payload(old_binary), recipe_vars=GOSU_RECIPE_VARS["1.19-r1"])
+        )
+        rejects_package(gosu_package(gosu_payload(new_binary)))
+    # The real pinned digests reject any other binary for either revision.
+    rejects_package(gosu_package(gosu_payload(old_binary)))
+    rejects_package(gosu_package(gosu_payload(new_binary, "1.19-r1"), version="1.19-r1"))
 
 
 def unit_tests() -> None:
