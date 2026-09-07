@@ -33,6 +33,11 @@ printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
 tar -xzf /tmp/grype.tar.gz -C /tmp
 sudo install /tmp/grype /usr/local/bin/grype
 
+syft_url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
+curl -fsSL "${syft_url}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
+printf '%s  %s\n' "$SYFT_SHA256" /tmp/syft.tar.gz | sha256sum --check
+tar -xzf /tmp/syft.tar.gz -C /tmp
+
 if [[ "$track" == wolfi ]]; then
   melange_sha256=${MELANGE_SHA256:?MELANGE_SHA256 is required for the Wolfi track}
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
@@ -45,8 +50,8 @@ if [[ "$track" == wolfi ]]; then
     -o "/tmp/${melange_archive}"
   printf '%s  %s\n' "$melange_sha256" "/tmp/${melange_archive}" | sha256sum --check
   tar -xzf "/tmp/${melange_archive}" -C /tmp
-  sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" /usr/local/bin/apko
-  sudo install "/tmp/melange_${MELANGE_VERSION}_linux_amd64/melange" /usr/local/bin/melange
+  sudo install "/tmp/apko_${APKO_VERSION}_linux_amd64/apko" \
+    "/tmp/melange_${MELANGE_VERSION}_linux_amd64/melange" /tmp/syft /usr/local/bin/
   exit
 fi
 
@@ -54,11 +59,6 @@ if [[ "$track" != patched ]]; then
   printf 'unsupported track: %s\n' "$track" >&2
   exit 2
 fi
-
-syft_url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
-curl -fsSL "${syft_url}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
-printf '%s  %s\n' "$SYFT_SHA256" /tmp/syft.tar.gz | sha256sum --check
-tar -xzf /tmp/syft.tar.gz -C /tmp
 
 copa_url="https://github.com/project-copacetic/copacetic/releases/download/v${COPA_VERSION}"
 trivy_url="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"

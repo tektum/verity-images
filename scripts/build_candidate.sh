@@ -32,6 +32,7 @@ ensure_image_history() {
 mkdir -p "${output}/sbom"
 
 if [[ "$track" == wolfi ]]; then
+  mkdir -p "${output}/apko-sbom"
   config="${context}/apko.yaml"
   lockfile="${context}/apko.lock.json"
   if [[ "$flavor" != plain && -f "${context}/${flavor}.apko.yaml" ]]; then
@@ -74,8 +75,11 @@ if [[ "$track" == wolfi ]]; then
     cp "$lockfile" "${output}/apko.lock.json"
   fi
   apko build "$config" "$candidate" "${output}/image.tar" \
-    --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/sbom"
+    --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/apko-sbom"
   docker load < "${output}/image.tar"
+  for arch in amd64 arm64; do
+    syft "docker:${candidate}-${arch}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
+  done
   printf '%s\n' "${output}/apko.lock.json" > "${output}/evidence-path"
   exit
 fi
