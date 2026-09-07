@@ -54,5 +54,19 @@ docker run --name "$container" -d --read-only --user 1000 \
 port=$(docker port "$container" 10250/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || { docker logs "$container" >&2 || true; exit 1; }
 
-sleep 2
-docker logs "$container" 2>&1 | grep -F 'Generated self-signed cert (/tmp/apiserver.crt, /tmp/apiserver.key)'
+i=0
+until docker logs "$container" 2>&1 \
+  | grep -F 'Generated self-signed cert (/tmp/apiserver.crt, /tmp/apiserver.key)' >/dev/null; do
+  [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || {
+    docker logs "$container" >&2 || true
+    printf '%s\n' 'metrics-server exited before generating its self-signed certificate' >&2
+    exit 1
+  }
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || {
+    docker logs "$container" >&2 || true
+    printf '%s\n' 'metrics-server did not generate its self-signed certificate' >&2
+    exit 1
+  }
+  sleep 1
+done
