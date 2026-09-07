@@ -6,7 +6,7 @@ script="$root/scripts/build_candidate.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
-export APKO_LOG="$work/apko.log" MELANGE_LOG="$work/melange.log"
+export APKO_LOG="$work/apko.log" MELANGE_LOG="$work/melange.log" SYFT_LOG="$work/syft.log"
 
 cat >"$work/bin/melange" <<'EOF'
 #!/bin/bash
@@ -49,6 +49,16 @@ case "$1" in
     ;;
   build)
     : >"$4"
+    while [[ $# -gt 0 ]]; do
+      if [[ "$1" == --sbom-path ]]; then
+        mkdir -p "$2"
+        printf '%s\n' '{"name":"apko-index","packages":[]}' >"$2/sbom-index.spdx.json"
+        printf '%s\n' '{"name":"apko-amd64","packages":[]}' >"$2/sbom-x86_64.spdx.json"
+        printf '%s\n' '{"name":"apko-arm64","packages":[]}' >"$2/sbom-aarch64.spdx.json"
+        break
+      fi
+      shift
+    done
     ;;
 esac
 EOF
@@ -58,6 +68,25 @@ cat >"$work/bin/docker" <<'EOF'
 set -eu
 [ "$1" = load ]
 cat >/dev/null
+EOF
+
+cat >"$work/bin/syft" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+image=${1#docker:}
+arch=${image##*-}
+[[ "${SYFT_FAIL_ARCH:-}" != "$arch" ]]
+[[ "$2" == -o && "$3" == spdx-json=* ]]
+output=${3#spdx-json=}
+jq -n --arg image "$image" --arg arch "$arch" '{
+  name: $image,
+  packages: [
+    {name: "crossbeam-epoch", externalRefs: [{referenceType: "purl", referenceLocator: "pkg:cargo/crossbeam-epoch@0.9.20"}]},
+    {name: "google.golang.org/grpc", externalRefs: [{referenceType: "purl", referenceLocator: "pkg:golang/google.golang.org/grpc@v1.83.2"}]}
+  ],
+  creationInfo: {comment: ("syft-final-image-" + $arch)}
+}' >"$output"
+printf '%s %s\n' "$image" "$output" >>"$SYFT_LOG"
 EOF
 chmod +x "$work/bin/"*
 
@@ -78,6 +107,20 @@ EOF
 : >"$work/caddy/melange.yaml"
 printf 'GOFIPS140=v1.0.0\n' >"$work/caddy/fips.env"
 run_candidate "$work/caddy" caddy plain
+for arch in amd64 arm64; do
+  sbom="$work/dist/caddy/sbom/sbom-${arch}.spdx.json"
+  [[ -f "$sbom" ]]
+  [[ $(jq -r '.creationInfo.comment' "$sbom") == "syft-final-image-${arch}" ]]
+  jq -e '.packages | map(.name) | contains(["crossbeam-epoch", "google.golang.org/grpc"])' "$sbom" >/dev/null
+done
+[[ $(find "$work/dist/caddy/sbom" -maxdepth 1 -name 'sbom-*.spdx.json' | wc -l) -eq 2 ]]
+[[ -f "$work/dist/caddy/apko-sbom/sbom-index.spdx.json" ]]
+[[ -f "$work/dist/caddy/apko-sbom/sbom-x86_64.spdx.json" ]]
+[[ -f "$work/dist/caddy/apko-sbom/sbom-aarch64.spdx.json" ]]
+if grep -R -q 'apko-' "$work/dist/caddy/sbom"; then
+  printf 'APKO-native SBOM replaced a signed platform inventory\n' >&2
+  exit 1
+fi
 grep -q '^variant: caddy$' "$APKO_LOG"
 grep -q '^godebug: fips140=off$' "$APKO_LOG"
 
@@ -165,3 +208,10 @@ grep -Fq -- "--platform \"linux/\$image_arch\" --snapshotter overlayfs \"\$archi
 unpack_line=$(grep -nF 'images import' "$script" | cut -d: -f1)
 scan_line=$(grep -nF 'trivy image --image-src docker --scanners vuln --pkg-types library' "$script" | cut -d: -f1)
 [[ "$unpack_line" -lt "$scan_line" ]]
+
+if SYFT_FAIL_ARCH=arm64 run_candidate "$work/caddy" syft-failure plain; then
+  printf 'Wolfi candidate accepted a failed platform SBOM scan\n' >&2
+  exit 1
+fi
+[[ -f "$work/dist/syft-failure/sbom/sbom-amd64.spdx.json" ]]
+[[ ! -e "$work/dist/syft-failure/sbom/sbom-arm64.spdx.json" ]]

@@ -148,6 +148,8 @@ def check_lock_refresh_policy(build: str) -> None:
         "MELANGE_SHA256",
         "GRYPE_VERSION",
         "GRYPE_SHA256",
+        "SYFT_VERSION",
+        "SYFT_SHA256",
     }
     assert all(env_pins(build)[name] == value for name, value in pins.items())
     assert "scripts/install_image_tools.sh wolfi\n" in job
@@ -168,6 +170,9 @@ def main() -> None:
     action = (ROOT / ".github/actions/publish-image/action.yaml").read_text(
         encoding="utf-8"
     )
+    assert action.count(
+        "          ${{ inputs.build-directory }}/apko-sbom/*.spdx.json\n"
+    ) == 1
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
     monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
