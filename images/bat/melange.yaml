@@ -33,7 +33,6 @@ pipeline:
       repository: https://github.com/sharkdp/bat
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - runs: omnibump --language rust --dir . --update --features application,git
   - uses: cargo/remediate
     with:
       features: application git
