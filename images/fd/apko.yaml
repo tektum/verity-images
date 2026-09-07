@@ -1,10 +1,12 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
-    - fd
+    - verity-fd@local
 
 entrypoint:
   command: /usr/bin/fd

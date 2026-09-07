@@ -1,0 +1,42 @@
+package:
+  name: verity-fd
+  version: "10.5.0"
+  epoch: 0
+  description: Fast and user-friendly alternative to find
+  copyright:
+    - license: MIT OR Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - glibc-2.44-dev
+      - rust-1.95
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sharkdp/fd
+      tag: v${{package.version}}
+      expected-commit: 4f81778774463bf414a184cbe6d5219ad2229646
+  - uses: cargo/remediate
+  - runs: |
+      cargo auditable build --release --locked
+      install -m755 -D target/release/fd "${{targets.destdir}}/usr/bin/fd"
+      rm -rf .cargo
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: /usr/bin/fd --version
