@@ -43,7 +43,7 @@ SCRIPT = r"""#!/bin/sh
 set -eu
 # The container runs as root; hand /work back so the host can clean it up.
 trap 'chown -R "$HOST_UID:$HOST_GID" /work 2>/dev/null || true' EXIT INT TERM
-apk add -q %(packages)s
+apk add --no-cache -q %(packages)s
 export CARGO_HOME=/work/cargo-home
 cd /work
 
