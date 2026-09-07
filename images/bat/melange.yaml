@@ -33,9 +33,7 @@ pipeline:
       repository: https://github.com/sharkdp/bat
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - uses: patch
-    with:
-      patches: plist-1.10.patch
+  - runs: cargo update -p plist@1.7.0 --precise 1.10.0
   - uses: cargo/remediate
     with:
       features: application git
