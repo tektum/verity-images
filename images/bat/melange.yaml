@@ -33,7 +33,10 @@ pipeline:
       repository: https://github.com/sharkdp/bat
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-  - runs: cargo update -p plist@1.7.0 --precise 1.10.0
+  - runs: |
+      omnibump --language rust --dir . \
+        --packages "plist@1.7.0=1.10.0 git2@0.20.2=0.20.4" \
+        --fail-on-unapplied-pins --features application,git
   - uses: cargo/remediate
     with:
       features: application git
