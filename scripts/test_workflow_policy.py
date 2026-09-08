@@ -521,12 +521,26 @@ def main() -> None:
         in workflow
     )
     assert (
+        "      image:\n"
+        "        description: Exact vulnerable image stream as NAME@VERSION\n"
+        "        required: false\n"
+        "        type: string\n"
+        in workflow
+    )
+
+    assert (
         "          BASE_SHA: >-\n"
         "            ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||\n"
         "            github.event.merge_group.base_sha || github.event.before }}\n"
         in workflow
     )
-    assert '          if [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then\n' in workflow
+    assert "          IMAGE: ${{ inputs.image }}\n" in workflow
+    assert '          if [[ "$EVENT" == workflow_dispatch && -n "$IMAGE" ]]; then\n' in workflow
+    assert '            [[ -z "$BASE_SHA" ]] || {\n' in workflow
+    assert '            args=(--remediate "$IMAGE")\n' in workflow
+    assert '            [[ ! -f catalog.json ]] || args+=(--catalog catalog.json --max-age-hours 24)\n' in workflow
+    assert '            matrix=$(python3 scripts/gen_matrix.py "${args[@]}")\n' in workflow
+    assert '          elif [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then\n' in workflow
     assert "scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24" in workflow
     assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
     assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow

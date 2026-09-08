@@ -333,7 +333,7 @@ def dashboard_row(
         visible += f", +{len(ordered_packages) - 6} more"
     context = subject["context"]
     cells = (
-        f"{markdown(subject['name'])} {markdown(subject['version'])}",
+        f"`{markdown(subject['name'])}@{markdown(subject['version'])}`",
         f"[{markdown(context)}]({definition_url(repository, commit, context)})",
         f"`{subject['digest'][7:19]}`",
         "/".join(str(counts[severity]) for severity in SEVERITIES),
