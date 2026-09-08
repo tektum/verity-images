@@ -116,7 +116,8 @@ if [[ ${1:-} == db && ${2:-} == update && $# -eq 2 ]]; then
 fi
 if [[ ${1:-} == db && ${2:-} == status && ${3:-} == --output && ${4:-} == json && $# -eq 4 ]]; then
   jq -cn --arg path "$GRYPE_DB_FILE" '
-    {schemaVersion:"6.0.0",from:"https://example.test/grype-db.tar.zst",
+    {schemaVersion:"6.0.0",
+     from:"https://example.test/grype-db.tar.zst?checksum=sha256%3Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
      built:"2026-09-08T00:00:00Z",path:$path,valid:true}'
   exit 0
 fi
@@ -199,7 +200,6 @@ export FORBIDDEN_LOG=$work/forbidden.log
 export SBOM_COPY_DIR=$work/scanned
 export GRYPE_DB_FILE=$work/grype.db
 printf 'fixture vulnerability database\n' >"$GRYPE_DB_FILE"
-db_checksum="sha256:$(sha256sum "$GRYPE_DB_FILE" | cut -d' ' -f1)"
 
 mkdir -p "$SBOM_COPY_DIR"
 : >"$COSIGN_LOG"
@@ -274,9 +274,7 @@ assert_manifest() {
   local manifest=$output/manifest.json
   local scan
   [[ -f $manifest ]] || fail "monitor did not write $manifest"
-  jq -e --arg catalogHash "$catalog_hash" --arg inventoryHash "$inventory_hash" \
-    --arg databaseChecksum "$db_checksum" '
-
+  jq -e --arg catalogHash "$catalog_hash" --arg inventoryHash "$inventory_hash" '
     (.shard == 0 or .shard == 1) and
     .shards == 2 and
     .catalog.schemaVersion == 2 and
@@ -286,8 +284,8 @@ assert_manifest() {
     .catalog.sha256 == $catalogHash and
     .catalog.inventorySha256 == $inventoryHash and
     .database == {schemaVersion:"6.0.0",built:"2026-09-08T00:00:00Z",
-                  from:"https://example.test/grype-db.tar.zst",checksum:$databaseChecksum} and
-
+                  from:"https://example.test/grype-db.tar.zst?checksum=sha256%3Aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                  checksum:"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"} and
     (.subjects | length > 0) and
     all(.subjects[];
       .version == "1.0" and

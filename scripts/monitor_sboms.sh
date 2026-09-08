@@ -48,8 +48,9 @@ mkdir -p "$output"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# Record the exact database file evaluated by this shard. The dashboard writer
-# rejects a sweep whose shards used different builds or checksums.
+# Grype hydrates one signed database archive into SQLite. The hydrated file is
+# not byte-deterministic across runners, so cross-shard identity uses the
+# archive checksum from status while a local before/after hash detects mutation.
 grype db update
 grype db status --output json >"$work/db-status.json"
 db_path=$(jq -er 'select(.valid == true) | .path' "$work/db-status.json")
@@ -57,8 +58,13 @@ db_path=$(jq -er 'select(.valid == true) | .path' "$work/db-status.json")
   printf 'Grype database path is not a file: %s\n' "$db_path" >&2
   exit 1
 }
-db_checksum="sha256:$(sha256sum "$db_path" | cut -d' ' -f1)"
-jq --arg checksum "$db_checksum" '
+local_db_checksum="sha256:$(sha256sum "$db_path" | cut -d' ' -f1)"
+archive_checksum=$(jq -er '
+  .from |
+  capture("[?&]checksum=sha256%3A(?<digest>[0-9a-f]{64})(?:&|$)"; "i") |
+  "sha256:" + .digest
+' "$work/db-status.json")
+jq --arg checksum "$archive_checksum" '
   {schemaVersion, built, from, checksum: $checksum} |
   select((.schemaVersion | length) > 0 and (.built | length) > 0)
 ' "$work/db-status.json" >"$work/database.json"
@@ -135,9 +141,9 @@ done < <(jq -r --slurpfile images "$images" '
 
 
 final_db_checksum="sha256:$(sha256sum "$db_path" | cut -d' ' -f1)"
-if [[ "$final_db_checksum" != "$db_checksum" ]]; then
+if [[ "$final_db_checksum" != "$local_db_checksum" ]]; then
   printf 'Grype database changed during shard scan: %s -> %s\n' \
-    "$db_checksum" "$final_db_checksum" >&2
+    "$local_db_checksum" "$final_db_checksum" >&2
   exit 1
 fi
 
