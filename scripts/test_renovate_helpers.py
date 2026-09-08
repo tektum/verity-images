@@ -6,7 +6,6 @@ import hashlib
 import importlib.util
 import json
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -141,205 +140,41 @@ def test_corepack_install(root: Path) -> None:
 def test_renovate_configuration() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     managers = renovate["customManagers"]
-    assert all(
-        "go/bump" not in match
-        for manager in managers
-        for match in manager.get("matchStrings", [])
-    )
-    assert any(manager.get("datasourceTemplate") == "crate" and "--precise" in manager["matchStrings"][0] for manager in managers)
-    source_manager = next(
-        manager for manager in managers if manager.get("datasourceTemplate") == "git-tags" and "package\\.version" in manager["matchStrings"][0]
-    )
-    assert source_manager["managerFilePatterns"] == [r"/^images/.+/melange\.yaml$/"]
 
-    image_rule = next(
-        rule
-        for rule in renovate["packageRules"]
-        if rule.get("matchFileNames") == ["images/**/melange.yaml"] and "groupName" in rule
-    )
-    assert image_rule == {
-        "matchFileNames": ["images/**/melange.yaml"],
-        "groupName": "image {{packageFileDir}}",
-        "groupSlug": "{{packageFileDir}}",
-        "separateMajorMinor": False,
-    }
-    assert "matchUpdateTypes" not in image_rule
-    assert all("postUpgradeTasks" not in rule for rule in renovate["packageRules"])
-
-    go_get_manager = next(
-        manager for manager in managers if "argo-workflows|gitlab-runner" in manager["managerFilePatterns"][0]
-    )
-    assert go_get_manager["matchStringsStrategy"] == "recursive"
-    assert go_get_manager["matchStrings"][0].startswith(r"go get [\\]\n")
-    assert "|velero)" in go_get_manager["managerFilePatterns"][0]
-    grpc_floor_manager = next(
-        manager
-        for manager in managers
-        if manager.get("depNameTemplate") == "google.golang.org/grpc"
-    )
-    grpc_floor_patterns = [
-        r"[\s\S]*google\.golang\.org/grpc@\$\{\{vars\.grpc-floor\}\}[\s\S]*",
-        r'''(?:^|\n)\s*grpc-floor:\s*["']?(?<currentValue>v[^\s"']+)["']?''',
+    assert renovate["automerge"] is False
+    assert renovate["platformAutomerge"] is False
+    assert len(managers) == 3
+    assert [manager["managerFilePatterns"] for manager in managers] == [
+        [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
+        [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
+        [r"/^packages/repository-state\.json$/"],
     ]
-    assert grpc_floor_manager == {
-        "customType": "regex",
-        "managerFilePatterns": [r"/^images/(?:restic|velero)/melange\.yaml$/"],
-        "matchStringsStrategy": "recursive",
-        "matchStrings": grpc_floor_patterns,
-        "depNameTemplate": "google.golang.org/grpc",
-        "datasourceTemplate": "go",
-        "versioningTemplate": "semver",
-    }
-    floor_pattern = grpc_floor_patterns[1].replace(
-        "(?<currentValue>", "(?P<currentValue>"
-    )
-    usage = "go get google.golang.org/grpc@${{vars.grpc-floor}}"
-    for declaration in (
-        "grpc-floor: v1.83.2",
-        'grpc-floor: "v1.83.2"',
-        "grpc-floor: 'v1.83.2'",
-    ):
-        for sample in (f"{usage}\n{declaration}", f"{declaration}\n{usage}"):
-            scope_match = re.search(grpc_floor_patterns[0], sample)
-            assert scope_match is not None
-            floor_match = re.search(floor_pattern, scope_match.group(0))
-            assert floor_match is not None
-            assert floor_match.group("currentValue") == "v1.83.2"
-
-    velero_recipe = (ROOT / "images/velero/melange.yaml").read_text(encoding="utf-8")
-    scope_match = re.search(grpc_floor_patterns[0], velero_recipe)
-    assert scope_match is not None
-    assert re.search(floor_pattern, scope_match.group(0)) is not None
-
-
-
-def test_renovate_image_groups() -> None:
-    renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-    image_rule = next(
-        rule
-        for rule in renovate["packageRules"]
-        if rule.get("matchFileNames") == ["images/**/melange.yaml"] and "groupName" in rule
-    )
-    group_template = image_rule["groupName"]
-
-    def group(path: str) -> str:
-        package_file_dir = path.rsplit("/", 1)[0]
-        return group_template.replace("{{packageFileDir}}", package_file_dir)
-
-    source = group("images/alpha/melange.yaml")
-    override = group("images/alpha/melange.yaml")
-    sibling = group("images/beta/melange.yaml")
-    nested = group("images/nested/1.0/melange.yaml")
-    assert source == override
-    assert source != sibling
-    assert nested not in {source, sibling}
-    assert nested.endswith("images/nested/1.0")
-
-
-def test_renovate_major_brake() -> None:
-    renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-    rules = renovate["packageRules"]
-    assert renovate["automerge"] is True
-    brake_index = next(
-        index
-        for index, rule in enumerate(rules)
-        if rule.get("matchFileNames") == ["images/**/melange.yaml"]
-        and rule.get("matchUpdateTypes") == ["major"]
-    )
-    brake = rules[brake_index]
-    assert brake["automerge"] is False
-    assert "review-required" in brake["addLabels"]
-    # Source-image major updates remain reviewable instead of disappearing.
-    assert "matchDatasources" not in brake
-    assert "matchPackageNames" not in brake
-    assert "enabled" not in brake
-    go_override_brake = next(
-        rule
-        for rule in rules
-        if rule.get("matchManagers") == ["custom.regex"]
-        and rule.get("matchDatasources") == ["go"]
-    )
-    assert go_override_brake == {
-        "description": (
-            "A Go module major upgrade changes its import path and requires source migration. "
-            "Do not rewrite explicit build overrides across module majors."
-        ),
-        "matchManagers": ["custom.regex"],
-        "matchDatasources": ["go"],
-        "matchUpdateTypes": ["major"],
-        "enabled": False,
-    }
-    assert rules.index(go_override_brake) > brake_index
+    assert [manager["datasourceTemplate"] for manager in managers] == [
+        "docker",
+        "docker",
+        "github-releases",
+    ]
+    assert all(manager["customType"] == "regex" for manager in managers)
     assert all(
-        rule.get("automerge") is not True
-        for rule in rules[brake_index + 1 :]
-        if rule.get("matchFileNames") in (None, ["images/**/melange.yaml"])
+        "images/" not in pattern and "patched/" not in pattern
+        for manager in managers
+        for pattern in manager["managerFilePatterns"]
     )
 
-
-def test_renovate_nested_stream_brake() -> None:
-    renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
-    rules = renovate["packageRules"]
-    brake = next(
-        rule
-        for rule in rules
-        if rule.get("matchFileNames") == ["images/*/*/melange.yaml"]
-    )
-    assert brake == {
-        "description": (
-            "A nested image directory owns a version stream. Keep patch updates automatic, "
-            "but require human review before changing its minor or major stream."
-        ),
-        "matchFileNames": ["images/*/*/melange.yaml"],
-        "matchUpdateTypes": ["minor", "major"],
-        "automerge": False,
-        "addLabels": ["image-stream-update", "review-required"],
-    }
-    major_brake = next(
-        rule
-        for rule in rules
-        if rule.get("matchFileNames") == ["images/**/melange.yaml"]
-        and rule.get("matchUpdateTypes") == ["major"]
-    )
-    nested_major_labels = set(brake["addLabels"]) | set(major_brake["addLabels"])
-    assert nested_major_labels == {
-        "image-major-update",
-        "image-stream-update",
-        "review-required",
-    }
-    cargo_brake = next(
-        rule
-        for rule in rules
-        if rule.get("matchFileNames") == ["images/deno/melange.yaml"]
-    )
-    assert cargo_brake == {
-        "description": (
-            "Image-local Cargo remediation pins may advance within their current patch line, "
-            "but dependency-stream changes require build review."
-        ),
-        "matchFileNames": ["images/deno/melange.yaml"],
-        "matchManagers": ["custom.regex"],
-        "matchDatasources": ["crate"],
-        "matchUpdateTypes": ["minor", "major"],
-        "enabled": False,
-    }
-    assert all("allowedVersions" not in rule for rule in rules)
+    assert renovate["packageRules"] == [
+        {
+            "matchFileNames": [".github/workflows/*.yaml"],
+            "automerge": True,
+            "platformAutomerge": True,
+        },
+        {
+            "matchFileNames": ["packages/repository-state.json"],
+            "automerge": False,
+            "labels": ["apk-repository-state", "review-required"],
+        },
+    ]
 
 
-def test_checksum_workflow() -> None:
-    workflow = (ROOT / ".github/workflows/renovate-checksum.yaml").read_text(encoding="utf-8")
-    assert "workflow_run:" in workflow
-    assert "github.event.workflow_run.actor.login == 'renovate[bot]'" in workflow
-    assert "github.event.workflow_run.head_repository.full_name == github.repository" in workflow
-    assert "ref: ${{ github.event.workflow_run.head_sha }}" not in workflow
-    assert "python3 scripts/update_release_asset_checksum.py \"$recipe\"" in workflow
-    assert 'python3 scripts/update_go_release_checksums.py "$recipe"' in workflow
-    assert '[[ -n "$PR_NUMBER" ]]' in workflow
-    assert r"grep -E '^(images/traefik|images/go/[^/]+)/melange\.yaml$'" in workflow
-    assert "    permissions:\n      contents: write\n      pull-requests: read\n" in workflow
-    assert "repos/${REPOSITORY}/contents/${recipe}?ref=${HEAD_SHA}" in workflow
-    assert "repos/${REPOSITORY}/contents/${recipe}" in workflow
-    assert "contents: write" in workflow
 
 
 def main() -> None:
@@ -348,10 +183,6 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         test_corepack_install(Path(temporary))
     test_renovate_configuration()
-    test_renovate_image_groups()
-    test_renovate_major_brake()
-    test_renovate_nested_stream_brake()
-    test_checksum_workflow()
     print("passed scripts/test_renovate_helpers.py")
 
 

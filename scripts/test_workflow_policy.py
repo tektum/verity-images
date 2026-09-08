@@ -123,11 +123,14 @@ def env_pins(workflow: str) -> dict[str, str]:
 def check_lock_refresh_policy(build: str) -> None:
     refresh = (ROOT / ".github/workflows/apko-lock-refresh.yaml").read_text(encoding="utf-8")
     triggers = between(refresh, "\non:\n", "\npermissions: {}\n")
-    # Scheduled and manual only: no pull request event ever runs this trusted refresher.
-    assert '  schedule:\n    - cron: "17 4 * * *"\n' in triggers
+    # Manual exact-image only: monitoring findings, not package novelty, drive refreshes.
+    assert "  schedule:\n" not in triggers
     assert "  workflow_dispatch:\n" in triggers
+    assert "      image:\n" in triggers
+    assert "        required: true\n" in triggers
     assert "pull_request" not in refresh and "workflow_run" not in refresh
     assert "\n  push:\n" not in refresh
+
     assert between(refresh, "permissions: {}\n", "\nenv:\n").endswith(
         "\nconcurrency:\n  group: apko-lock-refresh\n  cancel-in-progress: false\n"
     )
@@ -156,6 +159,9 @@ def check_lock_refresh_policy(build: str) -> None:
     # Untrusted-looking input reaches the shell only through the environment.
     assert "          IMAGE: ${{ inputs.image }}\n" in job
     assert 'python3 scripts/gen_apko_lock_targets.py --image "$IMAGE"' in job
+    assert "gen_apko_lock_targets.py --all" not in job
+    assert 'if [[ -n "$IMAGE" ]]' not in job
+
     assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
     # Only an operator credential may propose a pull request that starts the required checks.
     assert "          GH_TOKEN: ${{ secrets.APKO_LOCK_REFRESH_TOKEN }}\n" in job
@@ -179,6 +185,10 @@ def main() -> None:
     monitor_sarif = (ROOT / "scripts/build_monitor_sarif.py").read_text(
         encoding="utf-8"
     )
+    dashboard_script = (ROOT / "scripts/build_image_dashboard.py").read_text(
+        encoding="utf-8"
+    )
+
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
 
@@ -584,18 +594,40 @@ def main() -> None:
         "  cancel-in-progress: false\n"
     )
     monitor_pins = env_pins(monitor)
-    assert set(monitor_pins) == {"GRYPE_VERSION", "GRYPE_SHA256"}
-    assert all(env_pins(workflow)[name] == value for name, value in monitor_pins.items())
+    assert set(monitor_pins) == {
+        "GRYPE_VERSION",
+        "GRYPE_SHA256",
+        "IMAGE_DASHBOARD_ISSUE",
+    }
+    assert monitor_pins["IMAGE_DASHBOARD_ISSUE"] == '"1091"'
+    assert all(
+        env_pins(workflow)[name] == monitor_pins[name]
+        for name in ("GRYPE_VERSION", "GRYPE_SHA256")
+    )
 
-    assert "\njobs:\n  monitor:\n" in monitor
-    assert monitor.count("\n  monitor:\n") == 1
-    monitor_job = monitor.split("\n  monitor:\n", maxsplit=1)[1]
-    assert not [
-        line
-        for line in monitor_job.splitlines()
-        if line.startswith("  ") and not line.startswith("    ")
-    ]
-    assert "    if: github.repository == 'tektum/verity-images'\n" in monitor_job
+    snapshot_job = between(monitor, "\n  snapshot:\n", "\n  monitor:\n")
+    monitor_job = between(monitor, "\n  monitor:\n", "\n  dashboard:\n")
+    dashboard_job = monitor.split("\n  dashboard:\n", maxsplit=1)[1]
+
+    assert "    if: github.repository == 'tektum/verity-images'\n" in snapshot_job
+    assert runner(snapshot_job) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 10\n" in snapshot_job
+    assert "\n    permissions:\n      contents: read\n    steps:\n" in snapshot_job
+    snapshot_steps = (
+        "uses: actions/checkout@",
+        "persist-credentials: false",
+        "uses: ./.github/actions/setup-jq",
+        "https://tektum.github.io/verity-images/catalog.json",
+        "python3 scripts/gen_matrix.py --all > expected-images.json",
+        "uses: actions/upload-artifact@",
+        "name: monitor-input",
+    )
+    positions = tuple(snapshot_job.index(step) for step in snapshot_steps)
+    assert positions == tuple(sorted(positions))
+    assert "([.[0].images[] | [.name, .version]] | sort) ==" in snapshot_job
+    assert "([.[1].include[] | [.name, .tag_version]] | sort)" in snapshot_job
+
+    assert "    needs: snapshot\n" in monitor_job
     assert "\n    timeout-minutes: 60\n" in monitor_job
     assert (
         "\n    permissions:\n"
@@ -613,27 +645,25 @@ def main() -> None:
         "        shard: [0, 1, 2, 3, 4, 5, 6, 7]\n"
         in monitor_job
     )
-
     monitor_steps = (
         "uses: actions/checkout@",
         "persist-credentials: false",
+        "uses: actions/download-artifact@",
+        "name: monitor-input",
         "uses: ./.github/actions/setup-jq",
         "scripts/install_image_tools.sh monitor",
         "uses: sigstore/cosign-installer@",
-        "https://tektum.github.io/verity-images/catalog.json",
-        "python3 scripts/gen_matrix.py --all > expected-images.json",
         'scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor',
         "python3 scripts/build_monitor_sarif.py monitor/manifest.json",
         "uses: github/codeql-action/upload-sarif@",
+        "name: monitor-${{ matrix.shard }}",
+        "name: monitor-evidence-${{ matrix.shard }}",
     )
-    monitor_step_positions = tuple(monitor_job.index(step) for step in monitor_steps)
-    assert monitor_step_positions == tuple(sorted(monitor_step_positions))
-    assert monitor.count("uses: actions/checkout@") == 1
-    assert "          persist-credentials: false\n" in monitor_job
-    assert monitor.count("uses: ./.github/actions/setup-jq") == 1
+    positions = tuple(monitor_job.index(step) for step in monitor_steps)
+    assert positions == tuple(sorted(positions))
+    assert "https://tektum.github.io/verity-images/catalog.json" not in monitor_job
+    assert "python3 scripts/gen_matrix.py --all" not in monitor_job
     assert "          cosign-release: v3.0.6\n" in monitor_job
-    assert "--write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json" in monitor_job
-    assert 'if [[ "$status" != 200 ]]; then' in monitor_job
     scan_step = between(
         monitor_job,
         "      - name: Scan published SBOMs\n",
@@ -647,28 +677,49 @@ def main() -> None:
         '          scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor\n'
         in scan_step
     )
-    assert scan_step.count("SHARD: ${{ matrix.shard }}") == 1
-    assert scan_step.count("SHARDS: ${{ strategy.job-total }}") == 1
-    scan_shell = scan_step.split("        run: |\n", maxsplit=1)[1]
-    assert "${{" not in scan_shell
+    assert "${{" not in scan_step.split("        run: |\n", maxsplit=1)[1]
     assert (
         "python3 scripts/build_monitor_sarif.py monitor/manifest.json \\\n"
         "            monitor/results.sarif monitor/report.json\n"
         in monitor_job
     )
-    assert 'export PATH="$RUNNER_TEMP/verity-tools:$PATH"' in monitor
-
     sarif_upload = between(
         monitor_job,
         "      - name: Upload code scanning results\n",
-        "\n      - name: Upload monitor evidence\n",
+        "\n      - name: Upload dashboard shard report\n",
     )
     assert "uses: github/codeql-action/upload-sarif@" in sarif_upload
     assert "          sarif_file: monitor/results.sarif\n" in sarif_upload
     assert "          category: verity-monitor-${{ matrix.shard }}\n" in sarif_upload
-    assert monitor_job.index("scripts/build_monitor_sarif.py") < monitor_job.index(
-        "github/codeql-action/upload-sarif"
+
+    assert "needs.snapshot.result == 'success'" in dashboard_job
+    assert "needs.monitor.result == 'success'" in dashboard_job
+    assert "github.ref == 'refs/heads/main'" in dashboard_job
+    assert runner(dashboard_job) == "ubuntu-latest"
+    assert (
+        "\n    permissions:\n"
+        "      actions: read\n"
+        "      contents: read\n"
+        "      issues: write\n"
+        "    steps:\n"
+        in dashboard_job
     )
+    assert "pattern: monitor-[0-7]" in dashboard_job
+    assert "python3 scripts/build_image_dashboard.py dashboard-input" in dashboard_job
+    assert ".title == \"Image Dashboard\"" in dashboard_job
+    assert ".state == \"open\"" in dashboard_job
+    assert "<!-- verity-image-dashboard/v1 -->" in dashboard_job
+    assert 'gh issue edit "$DASHBOARD_ISSUE"' in dashboard_job
+    assert "gh issue create" not in dashboard_job
+    assert dashboard_job.index("scripts/build_image_dashboard.py") < dashboard_job.index(
+        'gh issue edit "$DASHBOARD_ISSUE"'
+    )
+
+    assert monitor.count("uses: actions/checkout@") == 3
+    assert monitor.count("uses: ./.github/actions/setup-jq") == 2
+    assert 'export PATH="$RUNNER_TEMP/verity-tools:$PATH"' in monitor
+    assert "verity-image-dashboard/v1" in dashboard_script
+
 
     jq_setup = (ROOT / ".github/actions/setup-jq/action.yaml").read_text(encoding="utf-8")
     assert all("squawk" not in text.lower() for text in (monitor, monitor_script, jq_setup))
@@ -701,6 +752,14 @@ def main() -> None:
     assert 'sort_by(.creationInfo.created // "") | last' in monitor_script
     assert "if ((selected == 0)); then" in monitor_script
     assert ".schemaVersion == 2 and (.images | length > 0)" in monitor_script
+    assert "grype db status --output json" in monitor_script
+    assert 'db_checksum="sha256:$(sha256sum "$db_path"' in monitor_script
+    assert ".inputDigest" in monitor_script
+    assert "database: $database[0]" in monitor_script
+    assert "export GRYPE_DB_AUTO_UPDATE=false" in monitor_script
+    assert 'if [[ "$final_db_checksum" != "$db_checksum" ]]; then' in monitor_script
+
+
     assert all(command not in monitor_script for command in ("gh ", "docker ", "curl "))
 
     assert "# Parity with scripts/evaluate_scan_gate.sh: a named fix version" in monitor_sarif
@@ -708,11 +767,23 @@ def main() -> None:
     assert "if not finding.fixed:\n                    continue" in monitor_sarif
     assert "if len(identities) != 1:" in monitor_sarif
     assert "monitor shard mixed vulnerability databases" in monitor_sarif
+    assert '"findings": [finding.report_record() for finding in ordered]' in monitor_sarif
+    assert "platformFixes" in monitor_sarif
+    assert "Apply compatible image inputs" in monitor_sarif
+    assert "Rebuild every affected image" not in monitor_sarif
+    assert "monitor scan database {key} does not match" in monitor_sarif
+
 
     # Monitoring observes published artifacts and cannot change the image matrix.
     assert ".github/workflows/monitor.yaml" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/monitor_sboms.sh" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_monitor_sarif.py" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/build_image_dashboard.py" not in gen_matrix.GLOBAL_PATHS
+    assert "BODY_LIMIT: Final = 60 * 1024" in dashboard_script
+    assert "report shard indices must be unique and exactly 0 through 7" in dashboard_script
+    assert "monitor reports contain mixed catalogs" in dashboard_script
+    assert "monitor reports contain mixed Grype identities" in dashboard_script
+    assert "[ ]" not in dashboard_script
     assert not (ROOT / "scripts/validate_squawk_reconciliation.jq").exists()
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
@@ -739,9 +810,11 @@ def main() -> None:
     assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
+    assert runner(snapshot_job) == "ubuntu-latest"
     assert runner(monitor_job) == (
         f"{RUNS_ON_PREFIX}monitor-${{{{ matrix.shard }}}}/runner=4cpu-linux-x64"
     )
+    assert runner(dashboard_job) == "ubuntu-latest"
     assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
 
     assert "needs: matrix\n" in stall_guard_job

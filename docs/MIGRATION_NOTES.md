@@ -88,10 +88,11 @@ Trivy does not generate an SBOM.
 
 ## Concepts carried forward
 
-- Reviewed rebuilds: source pins and package locks change through `main`, while
-  daily re-evaluation of every published digest's attested per-platform SPDX
-  SBOMs against the current vulnerability database detects new vulnerabilities
-  without rebuilding.
+- Reviewed, targeted image updates: daily re-evaluation of every published
+  digest's attested per-platform SPDX SBOMs detects new vulnerabilities without
+  rebuilding. Image sources, image-local Go and Cargo pins, and committed APKO
+  locks advance only for a reviewed image-local reason, not merely because a
+  newer version exists.
 - Separate minimal and compatible tracks: serves distinct consumer needs
   without weakening either contract.
 - Digest-first signing and attestations: verification must identify immutable
@@ -102,8 +103,9 @@ Trivy does not generate an SBOM.
   measurable upstream-to-patched CVE delta.
 - Keyless GitHub OIDC signing: avoids long-lived signing secrets.
 - Daily off-peak monitoring: eight shards run at 03:17 UTC and publish findings
-  with a published fix as code scanning alerts. Monitoring creates no GitHub
-  issues and depends on no external service or database.
+  with a published fix as finding-level Code Scanning evidence. The permanent,
+  pinned Image Dashboard is a read-only image-level projection that updates only
+  after one coherent complete scan.
 - Human-friendly version and date tags: supports discovery while documentation
   directs production consumers to digests.
 - Reports tied to image digests: makes vulnerability claims independently
@@ -111,6 +113,10 @@ Trivy does not generate an SBOM.
 - Melange package builds: images that need dependency remediation or build
   flavors use pinned source commits, explicit overrides, package provenance,
   and preserved resolved dependency metadata.
+- Vulnerability-driven remediation: a published package fix is a candidate for a
+  human-directed targeted rebuild or image-local pull request, not a reason for
+  bulk updates. Dashboard rows reflect the latest complete scan and can clear
+  after a gated replacement or a corrected advisory/fix record.
 
 ## Concepts deliberately dropped
 
@@ -128,6 +134,8 @@ Trivy does not generate an SBOM.
 - CycloneDX output: one SPDX JSON contract is simpler for consumers to verify.
 - Per-image workflow families and sharding: one generated matrix and one shared
   publish action are enough for the v1 catalog.
+- Latest-driven bulk image maintenance: there is no nightly all-image APKO lock
+  refresh or automatic source and language-pin upgrade.
 
 ## Melange build model
 
@@ -143,12 +151,13 @@ signed image digests.
 
 ## Rebuild decisions
 
-- Patched upstream digest updates are recorded in build metadata, not committed
-  to `source.yaml`. Each checked-in source remains pinned, and each publication run
-  records the resolved digest it actually used. This avoids write permission
-  and workflow loops while preserving reproducibility.
+- Patched source updates are reviewed image-local changes to `source.yaml`.
+  Each publication records the exact pinned digest it used in immutable build
+  metadata. This avoids write permission and workflow loops while preserving
+  reproducibility.
 - Wolfi streams may use reviewed public packages or reviewed Melange recipes.
-  Package revisions and locally built package digests are recorded by each build.
+  A committed APKO lock refresh is explicit and exact-image only. Package
+  revisions and locally built package digests are recorded by each build.
 - Images publish to flat names such as `ghcr.io/tektum/nginx`. The v1 names do
   not collide with existing repository names, and flat references are easier
   to consume.

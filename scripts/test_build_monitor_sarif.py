@@ -24,16 +24,26 @@ FINGERPRINT: Final = "verityMonitorFinding/v1"
 SEVERITIES: Final = ("critical", "high", "medium", "low", "negligible", "unknown")
 
 
+def database(*, built: str = "2026-09-08T00:00:00Z") -> dict:
+    return {
+        "built": built,
+        "schemaVersion": "6.0.0",
+        "from": "https://example.test/grype-db.tar.zst",
+        "checksum": "sha256:database",
+    }
+
+
 def descriptor(*, built: str = "2026-09-08T00:00:00Z", version: str = "0.104.1") -> dict:
     return {
         "name": "grype",
         "version": version,
         "db": {
-            "built": built,
-            "schemaVersion": 6,
-            "checksum": "sha256:database",
+            "status": database(built=built) | {"path": "/tmp/vulnerability.db", "valid": True},
+            "providers": {},
         },
     }
+
+
 
 
 def match(
@@ -86,9 +96,14 @@ def manifest(*, reference: str, digest: str) -> dict:
         "catalog": {
             "schemaVersion": 2,
             "publishedAt": "2026-09-08T03:17:00Z",
-            "source": "https://example.test/catalog.json",
-            "images": [{"name": "verity", "version": "1.0.0"}],
+            "source": {"commit": "e" * 40},
+            "images": 2,
+            "sha256": "sha256:" + "a" * 64,
+            "inventorySha256": "sha256:" + "b" * 64,
         },
+        "database": database(),
+
+
         "subjects": [
             {
                 "name": "verity",
@@ -96,6 +111,7 @@ def manifest(*, reference: str, digest: str) -> dict:
                 "track": "stable",
                 "reference": reference,
                 "digest": digest,
+                "inputDigest": "sha256:input-old",
                 "context": "images/verity",
                 "published": counts(1, 2, 3, 4, 5, 6),
                 "platforms": [
@@ -109,6 +125,7 @@ def manifest(*, reference: str, digest: str) -> dict:
                 "track": "edge",
                 "reference": "registry.example/verity-edge@sha256:edge",
                 "digest": "sha256:edge",
+                "inputDigest": "sha256:input-edge",
                 "context": "images/verity-edge",
                 "published": counts(6, 5, 4, 3, 2, 1),
                 "platforms": [
@@ -142,7 +159,7 @@ def run_builder(root: Path, document: dict, stem: str) -> tuple[dict, dict, byte
     )
 
 
-def reject_mixed_identity(root: Path, document: dict, stem: str) -> None:
+def reject_builder(root: Path, document: dict, stem: str, message: str) -> None:
     manifest_path = root / f"manifest-{stem}.json"
     sarif_path = root / f"results-{stem}.sarif"
     report_path = root / f"report-{stem}.json"
@@ -154,9 +171,10 @@ def reject_mixed_identity(root: Path, document: dict, stem: str) -> None:
         text=True,
     )
     assert result.returncode != 0
-    assert "mixed vulnerability databases" in result.stderr
+    assert message in result.stderr
     assert not sarif_path.exists()
     assert not report_path.exists()
+
 
 
 def fixture_scans() -> tuple[dict, dict, dict]:
@@ -254,7 +272,7 @@ def fixture_scans() -> tuple[dict, dict, dict]:
                 "CVE-2026-0001",
                 "merged",
                 "1.0-r0",
-                severity="High",
+                severity="Critical",
                 fixes=["4.0-r0", "2.0-r0"],
                 cvss=[{"version": "3.1", "metrics": {"baseScore": 9.1}}],
             )
@@ -309,11 +327,12 @@ def main() -> None:
         rules_by_id = {rule["id"]: rule for rule in rules}
 
         assert run["tool"]["driver"]["version"] == "0.104.1"
-        assert report["grype"] == descriptor()
+        assert report["grype"] == {"name": "grype", "version": "0.104.1", "db": database()}
+
         assert report["totals"] == {
             "subjects": 2,
             "platforms": 3,
-            "monitored": counts(2, 3, 1, 3, 1, 2),
+            "monitored": counts(3, 2, 1, 3, 1, 2),
             "published": counts(7, 7, 7, 7, 7, 7),
             "fixable": 10,
             "results": 9,
@@ -321,6 +340,47 @@ def main() -> None:
         }
         assert report["subjects"][0]["published"] == counts(1, 2, 3, 4, 5, 6)
         assert report["subjects"][1]["published"] == counts(6, 5, 4, 3, 2, 1)
+        findings = report["findings"]
+        merged_finding = next(
+            finding
+            for finding in findings
+            if finding["advisory"] == "CVE-2026-0001"
+            and finding["package"]["name"] == "merged"
+        )
+        assert merged_finding == {
+            "fingerprint": hashlib.sha256(
+                b"verity|1.0.0|CVE-2026-0001|apk|merged|1.0-r0"
+            ).hexdigest(),
+            "image": "verity",
+            "version": "1.0.0",
+            "track": "stable",
+            "context": "images/verity",
+            "reference": "registry.example/verity@sha256:old",
+            "digest": "sha256:old",
+            "inputDigest": "sha256:input-old",
+            "advisory": "CVE-2026-0001",
+            "package": {
+                "type": "apk",
+                "name": "merged",
+                "purl": "pkg:apk/wolfi/merged@1.0-r0",
+                "installedVersion": "1.0-r0",
+            },
+            "severity": "critical",
+            "fixedVersions": ["2.0-r0", "3.0-r0", "4.0-r0"],
+            "platforms": [
+                {
+                    "platform": "linux/amd64",
+                    "fixedVersions": ["2.0-r0", "3.0-r0"],
+                },
+                {
+                    "platform": "linux/arm64",
+                    "fixedVersions": ["2.0-r0", "4.0-r0"],
+                },
+            ],
+        }
+        assert report["subjects"][0]["context"] == "images/verity"
+        assert report["subjects"][0]["inputDigest"] == "sha256:input-old"
+
 
         rule_ids = [rule["id"] for rule in rules]
         assert rule_ids == sorted(rule_ids)
@@ -349,6 +409,8 @@ def main() -> None:
             "3.0-r0",
             "4.0-r0",
         ]
+        assert "Apply compatible image inputs" in merged["message"]["text"]
+        assert "Rebuild verity" not in merged["message"]["text"]
         assert merged["locations"] == [
             {
                 "physicalLocation": {
@@ -357,10 +419,12 @@ def main() -> None:
                 }
             }
         ]
+        assert merged["properties"]["severity"] == "critical"
         expected_fingerprint = hashlib.sha256(
             b"verity|1.0.0|CVE-2026-0001|apk|merged|1.0-r0"
         ).hexdigest()
         assert merged["partialFingerprints"][FINGERPRINT] == expected_fingerprint
+
 
         assert merged["level"] == "error"
         assert result_for(results, "CVE-2026-CRITICAL", "critical-severity")["level"] == "error"
@@ -402,16 +466,35 @@ def main() -> None:
             b"verity|1.0.0|CVE-2026-0001|apk|merged|1.0-r1"
         ).hexdigest()
 
+        invalid_database = copy.deepcopy(base_manifest)
+        invalid_database["database"]["checksum"] = ""
+        reject_builder(
+            root,
+            invalid_database,
+            "invalid-database",
+            "invalid vulnerability database identity",
+        )
+
         write_json(root / "verity-amd64.json", amd64)
-        different_built = copy.deepcopy(arm64)
-        different_built["descriptor"]["db"]["built"] = "2026-09-09T00:00:00Z"
-        write_json(root / "verity-arm64.json", different_built)
-        reject_mixed_identity(root, base_manifest, "mixed-built")
+        different_database = copy.deepcopy(arm64)
+        different_database["descriptor"]["db"]["status"]["built"] = "2026-09-09T00:00:00Z"
+        write_json(root / "verity-arm64.json", different_database)
+        reject_builder(
+            root,
+            base_manifest,
+            "scan-database-mismatch",
+            "monitor scan database built does not match",
+        )
 
         different_version = copy.deepcopy(arm64)
         different_version["descriptor"]["version"] = "0.105.0"
         write_json(root / "verity-arm64.json", different_version)
-        reject_mixed_identity(root, base_manifest, "mixed-version")
+        reject_builder(
+            root,
+            base_manifest,
+            "mixed-version",
+            "mixed vulnerability databases",
+        )
 
     print("passed scripts/test_build_monitor_sarif.py")
 

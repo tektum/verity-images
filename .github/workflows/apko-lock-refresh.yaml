@@ -1,13 +1,11 @@
 name: Refresh APKO locks
 
 on:
-  schedule:
-    - cron: "17 4 * * *"
   workflow_dispatch:
     inputs:
       image:
-        description: One pure APKO image context, or empty for every eligible image.
-        required: false
+        description: One enabled pure APKO image context.
+        required: true
         type: string
 
 permissions: {}
@@ -49,11 +47,7 @@ jobs:
           IMAGE: ${{ inputs.image }}
         run: |
           set -euo pipefail
-          if [[ -n "$IMAGE" ]]; then
-            python3 scripts/gen_apko_lock_targets.py --image "$IMAGE" > apko-lock-targets.json
-          else
-            python3 scripts/gen_apko_lock_targets.py --all > apko-lock-targets.json
-          fi
+          python3 scripts/gen_apko_lock_targets.py --image "$IMAGE" > apko-lock-targets.json
 
       # The workflow token is deliberately absent: a pull request it creates never starts
       # the required lint, build-gate, and apk-gate checks, so the refresh fails closed
