@@ -1,5 +1,5 @@
 name: Set up locked jq
-description: Install verified jq under RUNNER_TEMP/squawk-tools for callers to prepend to PATH.
+description: Install verified jq under RUNNER_TEMP/verity-tools for callers to prepend to PATH.
 
 runs:
   using: composite
@@ -7,7 +7,7 @@ runs:
     - name: Install verified jq 1.8.2
       shell: bash
       run: |
-        tools="$RUNNER_TEMP/squawk-tools"
+        tools="$RUNNER_TEMP/verity-tools"
         mkdir -p "$tools"
         curl --fail --location --silent --show-error \
           https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64 \

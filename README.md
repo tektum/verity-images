@@ -6,8 +6,10 @@
 Verity Images is an open registry of small container images rebuilt from public
 inputs. The repository contains the complete build, scan, test, signing, SBOM,
 and provenance pipeline. Published vulnerability reports are tied to image
-digests so every claim can be checked. Attached platform SBOMs are rescanned nightly;
-vulnerable image versions have automatically maintained GitHub issues.
+digests so every claim can be checked. Every published digest's attested
+per-platform SPDX SBOMs are re-evaluated daily against the current vulnerability
+database. Findings with a published fix appear as code scanning alerts in this
+repository. No GitHub issues are created.
 
 Container image publication is keyless: a fork can run it with only its GitHub
 workflow token. APK releases use a protected RSA signing secret; see [APK
