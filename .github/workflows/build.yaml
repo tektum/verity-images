@@ -95,7 +95,7 @@ jobs:
       github.ref != 'refs/heads/main' &&
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
-    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    runs-on: ${{ matrix.track == 'patched' && format('runs-on={0}-{1}-validate-{2}/family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false', github.run_id, github.run_attempt, strategy.job-index) || 'namespace-profile-verity-ci-heavy' }}  # yamllint disable-line rule:line-length
     permissions:
       contents: read
     strategy:
@@ -154,6 +154,7 @@ jobs:
           build-directory: dist/${{ matrix.build_name }}
           sbom-directory: dist/${{ matrix.build_name }}/sbom
           evidence-file: ${{ matrix.evidence_file }}
+          smoke-before-scan: ${{ matrix.track == 'wolfi' }}
 
       - name: Write build report
         shell: bash
