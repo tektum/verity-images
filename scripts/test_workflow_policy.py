@@ -631,6 +631,7 @@ def main() -> None:
     assert monitor.count("uses: actions/checkout@") == 1
     assert "          persist-credentials: false\n" in monitor_job
     assert monitor.count("uses: ./.github/actions/setup-jq") == 1
+    assert "          cosign-release: v3.0.6\n" in monitor_job
     assert "--write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json" in monitor_job
     assert 'if [[ "$status" != 200 ]]; then' in monitor_job
     scan_step = between(

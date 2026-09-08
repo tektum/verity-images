@@ -28,6 +28,13 @@ fi
 # inputs are validated before the first subject is selected.
 jq -e '.schemaVersion == 2 and (.images | length > 0)' "$catalog" >/dev/null
 jq -e '(.include | length) > 0' "$images" >/dev/null
+jq -e '
+  [.images[] | select((.scan.all // .scan.final) == null)] as $missing |
+  if ($missing | length) == 0 then true
+  else $missing[0] as $image |
+    error("catalog image \($image.name) \($image.version) has no publication scan counts")
+  end
+' "$catalog" >/dev/null
 
 mkdir -p "$output"
 work=$(mktemp -d)

@@ -440,25 +440,30 @@ expect_failure "catalog with an empty images array was accepted" \
 printf '%s\n' '{"include":[]}' >"$work/empty-inventory.json"
 expect_failure "inventory with an empty include array was accepted" \
   run_monitor "$work/catalog.json" "$work/empty-inventory.json" 0 2 "$work/empty-inventory"
+jq 'del(.images[0].scan)' "$work/catalog.json" >"$work/missing-scan.json"
+expect_failure "catalog image without publication scan counts was accepted" \
+  run_monitor "$work/missing-scan.json" "$work/images.json" 0 2 "$work/missing-scan"
+grep -Fq 'catalog image alpha 1.0 has no publication scan counts' "$work/failure.log" ||
+  fail "missing publication scan counts did not produce a useful error"
+
 
 empty_shard=
 for candidate in {0..15}; do
-  occupied=0
-  while IFS=$'\t' read -r name version; do
-    stream=$(printf '%s@%s' "$name" "$version" | sha256sum | cut -c1-8)
-    if ((16#$stream % 16 == candidate)); then
-      occupied=1
-      break
-    fi
-  done < <(jq -r '.images[] | [.name, .version] | @tsv' "$work/catalog.json")
-  if ((occupied == 0)); then
+  set +e
+  run_monitor "$work/catalog.json" "$work/images.json" "$candidate" 16 \
+    "$work/empty-shard-$candidate" >"$work/empty-shard.log" 2>&1
+  status=$?
+  set -e
+  if [[ $status -eq 0 ]]; then
+    continue
+  fi
+  if grep -Fq 'Empty monitor shard' "$work/empty-shard.log"; then
     empty_shard=$candidate
     break
   fi
+  fail "shard $candidate failed for a reason other than selecting no images"
 done
-[[ -n $empty_shard ]] || fail "test fixture did not have an empty shard"
-expect_failure "an empty monitor shard was accepted" \
-  run_monitor "$work/catalog.json" "$work/images.json" "$empty_shard" 16 "$work/empty-shard"
+[[ -n $empty_shard ]] || fail "monitor did not report any empty shard"
 
 expect_status 2 "SHARD equal to SHARDS did not exit 2" \
   run_monitor "$work/catalog.json" "$work/images.json" 2 2 "$work/bad-shard-range"
