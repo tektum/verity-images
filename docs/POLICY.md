@@ -49,6 +49,20 @@ source, package, language dependency, recipe, or lock must change.
 Infrastructure dependency maintenance is separate and does not advance image
 inputs.
 
+An operator starts an exact rebuild from `main` with an Image Dashboard stream
+identifier such as `nats@2`:
+
+```sh
+gh workflow run build.yaml --ref main -f image=nats@2
+```
+
+The dispatch must identify exactly one enabled `NAME@VERSION` stream. It is
+mutually exclusive with changed-image recovery, bypasses a matching recent
+receipt only for that stream, and still uses the normal build, smoke test,
+zero-fixable scan, publication, signing, attestation, and catalog flow. A
+missing or ambiguous stream fails before any image job starts. A failed gate
+publishes nothing; it never converts a finding into an exception.
+
 ## Vulnerability gates
 
 Grype records every known candidate vulnerability before any registry push. Scan

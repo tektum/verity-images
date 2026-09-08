@@ -216,7 +216,7 @@ def coherent_success(root: Path) -> None:
     assert raw_report == (
         json.dumps(report, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n"
     ).encode()
-    assert body.index("image-3 3.0.0") < body.index("image-0 0.0.0")
+    assert body.index("`image-3@3.0.0`") < body.index("`image-0@0.0.0`")
     assert "`333333333333`" in body
     assert (
         "security/code-scanning?query=is%3Aopen+tool%3AGrype+path%3Aimages%2Fimage-3%2Fmetadata.yaml"
@@ -360,7 +360,7 @@ def row_ordering(root: Path) -> None:
     _, body_path, _ = invoke(root, reports, "ordering")
     body = body_path.read_text(encoding="utf-8")
     positions = [
-        body.index(f"image-{index} {index}.0.0") for index in (3, 1, 0, 2, 4)
+        body.index(f"`image-{index}@{index}.0.0`") for index in (3, 1, 0, 2, 4)
     ]
     assert positions == sorted(positions)
 
@@ -393,7 +393,7 @@ def table_rendering(root: Path) -> None:
     assert " [ ]" not in body
     assert "pkg\\\\one\\|two<br>three" in body
     assert "alpha, beta, delta, eta, gamma, theta, +1 more" in body
-    assert body.index("image-3 3.0.0") < body.index("slash\\\\pipe")
+    assert body.index("`image-3@3.0.0`") < body.index("slash\\\\pipe")
 
 
 def size_truncation(root: Path) -> None:
@@ -418,7 +418,7 @@ def size_truncation(root: Path) -> None:
     notice = next(line for line in body.splitlines() if line.startswith("Showing "))
     shown = int(notice.split()[1])
     assert 0 < shown < 8
-    table_rows = [line for line in body.splitlines() if line.startswith("| image-")]
+    table_rows = [line for line in body.splitlines() if line.startswith("| `image-")]
     assert len(table_rows) == shown
     assert all(line.endswith(" |") for line in table_rows)
 

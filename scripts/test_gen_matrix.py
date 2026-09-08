@@ -461,8 +461,33 @@ def main() -> None:
             encoding="utf-8",
         )
         cached = gen_matrix.cached_images(catalog, timedelta(hours=24))
-        assert cached[("static", gen_matrix.parse_metadata(static / "metadata.yaml").versions[0])] == fingerprint
+        static_version = gen_matrix.parse_metadata(static / "metadata.yaml").versions[0]
+        assert cached[("static", static_version)] == fingerprint
         assert not any(entry["context"] == "images/static" for entry in gen_matrix.generate(None, catalog)["include"])
+        remediated = gen_matrix.generate(
+            None,
+            catalog,
+            remediation_target=f"static@{static_version}",
+        )["include"]
+        assert len(remediated) == 1
+        assert remediated[0]["context"] == "images/static"
+        assert remediated[0]["tag_version"] == static_version
+
+        caddy = gen_matrix.parse_metadata(gen_matrix.ROOT / "images/caddy/metadata.yaml")
+        fips = gen_matrix.generate(
+            None,
+            remediation_target=f"{caddy.name}@{caddy.versions[0]}-fips",
+        )["include"]
+        assert len(fips) == 1
+        assert fips[0]["context"] == "images/caddy"
+        assert fips[0]["flavor"] == "fips"
+
+        try:
+            gen_matrix.generate(None, remediation_target="missing@1")
+        except gen_matrix.MetadataError as error:
+            assert "must identify exactly one enabled image stream" in str(error)
+        else:
+            raise AssertionError("missing remediation target was accepted")
         document = json.loads(catalog.read_text(encoding="utf-8"))
         document["images"][0]["validatedAt"] = (datetime.now(UTC) - timedelta(hours=25)).isoformat()
         catalog.write_text(json.dumps(document), encoding="utf-8")

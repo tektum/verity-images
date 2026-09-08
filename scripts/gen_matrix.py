@@ -394,6 +394,7 @@ def generate(
     catalog_path: Path | None = None,
     max_age: timedelta = timedelta(hours=24),
     published_catalog: Path | None = None,
+    remediation_target: str | None = None,
 ) -> Matrix:
     changed: set[str] = (
         {
@@ -472,6 +473,10 @@ def generate(
             )
             version = metadata.versions[0]
             tag_version = version if flavor == "plain" else f"{version}-{flavor}"
+            target = f"{metadata.name}@{tag_version}"
+            if remediation_target is not None and target != remediation_target:
+                continue
+
             if catalog_path is None and base_ref and not directly_changed and (
                 not repository_changed
                 and not (published_catalog is not None and (metadata.name, tag_version) not in published)
@@ -482,7 +487,7 @@ def generate(
             ):
                 continue
             fingerprint = input_digest(directory, flavor)
-            if cached.get((metadata.name, tag_version)) == fingerprint:
+            if cached.get((metadata.name, tag_version)) == fingerprint and remediation_target != target:
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
             is_latest = version == latest[metadata.name]
@@ -510,6 +515,10 @@ def generate(
                     "input_digest": fingerprint,
                 }
             )
+    if remediation_target is not None and len(entries) != 1:
+        raise MetadataError(
+            f"remediation target {remediation_target!r} must identify exactly one enabled image stream"
+        )
     return {"include": entries}
 
 
@@ -517,6 +526,7 @@ def main() -> None:
     catalog_path: Path | None = None
     published_catalog: Path | None = None
     max_age = timedelta(hours=24)
+    remediation_target: str | None = None
     arguments = sys.argv[1:]
     while len(arguments) >= 2 and arguments[-2] in {"--catalog", "--max-age-hours", "--published"}:
         option, value = arguments[-2:]
@@ -532,14 +542,18 @@ def main() -> None:
             base_ref = None
         case ["--changed", base_ref] if base_ref:
             pass
+        case ["--remediate", remediation_target] if remediation_target:
+            base_ref = None
         case _:
             raise SystemExit(
-                "usage: gen_matrix.py --all | --changed BASE_REF "
+                "usage: gen_matrix.py --all | --changed BASE_REF | --remediate NAME@VERSION "
                 "[--catalog CATALOG] [--max-age-hours HOURS] [--published CATALOG]"
             )
     print(
         json.dumps(
-            generate(base_ref, catalog_path, max_age, published_catalog), separators=(",", ":"), sort_keys=True
+            generate(base_ref, catalog_path, max_age, published_catalog, remediation_target),
+            separators=(",", ":"),
+            sort_keys=True,
         )
     )
 

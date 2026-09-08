@@ -207,10 +207,26 @@ image versions. A Go module major upgrade changes its import path and requires a
 source migration, so Renovate only updates these overrides within their current
 major version. Source image major releases still open reviewable pull requests.
 
+### Vulnerability remediation rebuild
+
+The Image Dashboard reports exact image streams as `NAME@VERSION`. When the
+committed inputs can already consume the listed fix, rebuild only that stream
+from `main` through the normal publication workflow:
+
+```sh
+gh workflow run build.yaml --ref main -f image=nats@2
+```
+
+The target is exact and cannot be combined with `base-sha` recovery. An unknown,
+disabled, or ambiguous stream fails during matrix generation. The selected
+stream alone bypasses a recent receipt; it still must pass its build, smoke test,
+and zero-fixable scan before any tag moves. If source, recipe, dependency, or
+lock inputs must change first, open one image-local pull request instead.
+
 ### Pure APKO lock refresh
 
 `.github/workflows/apko-lock-refresh.yaml` keeps committed pure APKO locks
-current. It runs daily and on manual dispatch from `main`, never on a pull
+current through an exact-image manual dispatch from `main`, never from a pull
 request event.
 
 - `scripts/gen_apko_lock_targets.py` discovers every enabled Wolfi variant whose

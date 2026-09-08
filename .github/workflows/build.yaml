@@ -12,6 +12,10 @@ on:
         description: Trusted base commit SHA for changed-image recovery
         required: false
         type: string
+      image:
+        description: Exact vulnerable image stream as NAME@VERSION
+        required: false
+        type: string
 
 permissions: {}
 
@@ -58,13 +62,21 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          IMAGE: ${{ inputs.image }}
           REF: ${{ github.ref }}
           BASE_SHA: >-
             ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||
             github.event.merge_group.base_sha || github.event.before }}
         run: |
-          set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then
+          if [[ "$EVENT" == workflow_dispatch && -n "$IMAGE" ]]; then
+            [[ -z "$BASE_SHA" ]] || {
+              printf 'image and base-sha are mutually exclusive\n' >&2
+              exit 1
+            }
+            args=(--remediate "$IMAGE")
+            [[ ! -f catalog.json ]] || args+=(--catalog catalog.json --max-age-hours 24)
+            matrix=$(python3 scripts/gen_matrix.py "${args[@]}")
+          elif [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24)
           elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
             matrix=$(python3 scripts/gen_matrix.py --all)
