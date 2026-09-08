@@ -108,13 +108,9 @@ def main() -> None:
     assert "for architecture in aarch64 x86_64" in matrix
     assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
     assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
-    assert runner(matrix) == f"{RUNS_ON_PREFIX}apk-matrix/runner=4cpu-linux-x64"
-    assert runner(x86_64) == (
-        f"{RUNS_ON_PREFIX}build-x86_64-${{{{ strategy.job-index }}}}/runner=4cpu-linux-x64"
-    )
-    assert runner(aarch64) == (
-        f"{RUNS_ON_PREFIX}build-aarch64-${{{{ strategy.job-index }}}}/runner=4cpu-linux-arm64"
-    )
+    assert runner(matrix) == "ubuntu-latest"
+    assert runner(x86_64) == "namespace-profile-verity-ci-amd64"
+    assert runner(aarch64) == "namespace-profile-verity-ci-arm64"
     assert 'ARCHITECTURE: x86_64' in x86_64
     assert 'ARCHITECTURE: aarch64' in aarch64
     assert "uname -m" not in x86_64 + aarch64
@@ -134,7 +130,7 @@ def main() -> None:
 
     assert "if: always()" in gate
     assert "needs: [apk-matrix, build-x86_64, build-aarch64, apk-signing]" in gate
-    assert runner(gate) == f"{RUNS_ON_PREFIX}apk-gate/runner=4cpu-linux-x64"
+    assert runner(gate) == "ubuntu-latest"
     assert "EVENT: ${{ github.event_name }}" in gate
     assert "REF: ${{ github.ref }}" in gate
     assert "REPOSITORY: ${{ github.repository }}" in gate
