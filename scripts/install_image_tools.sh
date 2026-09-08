@@ -33,6 +33,12 @@ printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
 tar -xzf /tmp/grype.tar.gz -C /tmp
 sudo install /tmp/grype /usr/local/bin/grype
 
+# Monitoring re-evaluates published SBOMs, so it needs the matcher and nothing
+# that builds or catalogs an image.
+if [[ "$track" == monitor ]]; then
+  exit
+fi
+
 syft_url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
 curl -fsSL "${syft_url}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
 printf '%s  %s\n' "$SYFT_SHA256" /tmp/syft.tar.gz | sha256sum --check

@@ -84,12 +84,13 @@
         <p>
           Two scopes are worth separating too. The gate is evaluated once, against the Grype
           vulnerability database as it existed at scan time, immediately before publication. After
-          publication, a separate monitoring workflow stores each platform SBOM once and compares
-          its components against incremental OSV updates; if a fix later becomes available for
-          something already published, that workflow opens or updates a tracking issue for the
-          affected image version. It does not pull image layers, rescan the image, rebuild it, or
-          alter the published catalog entry. The count in the catalog is therefore a statement
-          about the scan performed at publish time, not a live, continuously reevaluated guarantee.
+          publication, a scheduled monitoring workflow re-evaluates the attested per-platform SPDX
+          SBOM of every published digest daily against the current Grype vulnerability database; if
+          a fix later becomes available for something already published, that finding is raised as a
+          code scanning alert on this repository. It does not pull image layers, rescan the image,
+          rebuild it, or alter the published catalog entry. The count in the catalog is therefore a
+          statement about the scan performed at publish time, not a live, continuously reevaluated
+          guarantee.
         </p>
       </section>
 

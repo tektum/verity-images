@@ -2,725 +2,474 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+monitor=$root/scripts/monitor_sboms.sh
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
-mkdir "$work/bin" "$work/bodies"
-delivery=$(printf delivery | sha256sum | cut -d' ' -f1)
-image="ghcr.io/tektum/demo@sha256:$(printf index | sha256sum | cut -d' ' -f1)"
-cat > "$work/payload.json" <<EOF
+mkdir -p "$work/bin"
+
+fail() {
+  printf 'test_monitor_sboms: %s\n' "$1" >&2
+  exit 1
+}
+
+run_monitor() {
+  local catalog=$1
+  local inventory=$2
+  local shard=$3
+  local shards=$4
+  local output=$5
+  PATH="$work/bin:$PATH" "$monitor" "$catalog" "$inventory" "$shard" "$shards" "$output"
+}
+
+expect_failure() {
+  local message=$1
+  shift
+  if "$@" >"$work/failure.log" 2>&1; then
+    fail "$message"
+  fi
+}
+
+expect_status() {
+  local expected=$1
+  local message=$2
+  local status
+  shift 2
+  set +e
+  "$@" >"$work/failure.log" 2>&1
+  status=$?
+  set -e
+  [[ $status -eq $expected ]] || fail "$message (expected $expected, got $status)"
+}
+
+cat >"$work/bin/cosign" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
 {
-  "schema_version": 1,
-  "delivery_id": "$delivery",
-  "logical_image_ref": "$image",
-  "package_name": "openssl",
-  "ecosystem": "Alpine",
-  "version": "3.1.2",
-  "vuln_id": "CVE-TEST",
-  "severity": "high",
-  "platforms": [
-    {"platform":"linux/amd64","image_ref":"ghcr.io/tektum/demo@sha256:$(printf amd64 | sha256sum | cut -d' ' -f1)"},
-    {"platform":"linux/arm64","image_ref":"ghcr.io/tektum/demo@sha256:$(printf arm64 | sha256sum | cut -d' ' -f1)"}
+  printf '%s' "$1"
+  printf '\t%s' "${@:2}"
+  printf '\n'
+} >>"$COSIGN_LOG"
+
+[[ ${1:-} == verify-attestation ]] || exit 90
+reference=${8:-}
+
+emit_attestation() {
+  local arch=$1
+  local created=$2
+  local statement
+  local payload
+  statement=$(jq -cn --arg arch "$arch" --arg created "$created" \
+    --arg reference "$reference" '
+    {_type:"https://in-toto.io/Statement/v0.1",
+     predicateType:"https://spdx.dev/Document",
+     subject:[{name:$reference,digest:{sha256:("a" * 64)}}],
+     predicate:{spdxVersion:"SPDX-2.3",
+                name:("fixture-verity-platform-" + $arch),
+                dataLicense:"CC0-1.0",
+                SPDXID:"SPDXRef-DOCUMENT",
+                creationInfo:{created:$created,
+                              creators:["Tool: syft-1.50.0"]},
+                packages:[{name:("fixture-" + $arch + "-" + $created),
+                           SPDXID:"SPDXRef-Package",
+                           versionInfo:"1.0.0"}]}}')
+  payload=$(printf '%s' "$statement" | base64 -w0)
+  jq -cn --arg payload "$payload" \
+    '{payloadType:"application/vnd.in-toto+json",payload:$payload}'
+}
+
+case ${ATTESTATION_MODE:-complete} in
+  complete)
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    emit_attestation arm64 2026-09-07T10:00:01Z
+    ;;
+  missing-arm64)
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    ;;
+  republished-amd64)
+    # A reproducible rebuild appends another verified attestation to the same
+    # digest. The newest SBOM wins, whatever order the registry returns.
+    emit_attestation amd64 2026-08-01T10:00:00Z
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    emit_attestation amd64 2026-08-15T10:00:00Z
+    emit_attestation arm64 2026-09-07T10:00:01Z
+    ;;
+  *)
+    exit 91
+    ;;
+esac
+EOF
+chmod +x "$work/bin/cosign"
+
+cat >"$work/bin/grype" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+
+{
+  printf '%s' "$1"
+  printf '\t%s' "${@:2}"
+  printf '\n'
+} >>"$GRYPE_LOG"
+
+if [[ ${1:-} == db && ${2:-} == update && $# -eq 2 ]]; then
+  exit 0
+fi
+
+[[ $# -eq 5 && $1 == sbom:* && $2 == --output && $3 == json && $4 == --file ]] || exit 92
+sbom=${1#sbom:}
+[[ -f $sbom ]] || exit 93
+jq -e '.packages | type == "array"' "$sbom" >/dev/null || exit 94
+cp "$sbom" "$SBOM_COPY_DIR/${sbom##*/}"
+
+cat >"$5" <<'JSON'
+{
+  "descriptor": {
+    "name": "grype",
+    "version": "0.116.1",
+    "db": {
+      "built": "2026-09-08T00:00:00Z",
+      "schemaVersion": 6,
+      "checksum": "sha256:fixture-database"
+    }
+  },
+  "matches": [
+    {
+      "artifact": {
+        "name": "openssl",
+        "version": "3.5.2-r0",
+        "type": "apk",
+        "locations": [{"path": "/lib/apk/db/installed"}],
+        "language": ""
+      },
+      "vulnerability": {
+        "id": "CVE-2026-0001",
+        "severity": "High",
+        "namespace": "nvd:cpe",
+        "fix": {"versions": ["3.5.2-r1"], "state": "fixed"},
+        "cvss": [{"version": "3.1", "metrics": {"baseScore": 7.5}}]
+      }
+    },
+    {
+      "artifact": {
+        "name": "zlib",
+        "version": "1.3.1-r1",
+        "type": "apk",
+        "locations": [{"path": "/lib/apk/db/installed"}],
+        "language": ""
+      },
+      "vulnerability": {
+        "id": "CVE-2026-0002",
+        "severity": "Low",
+        "namespace": "wolfi:distro:wolfi:rolling",
+        "fix": {"versions": [], "state": "not-fixed"},
+        "cvss": []
+      }
+    }
+  ]
+}
+JSON
+EOF
+chmod +x "$work/bin/grype"
+
+for command in gh docker curl; do
+  cat >"$work/bin/$command" <<'EOF'
+#!/bin/bash
+set -euo pipefail
+printf '%s\n' "${0##*/}" >>"$FORBIDDEN_LOG"
+exit 1
+EOF
+  chmod +x "$work/bin/$command"
+done
+
+export COSIGN_LOG=$work/cosign.log
+export GRYPE_LOG=$work/grype.log
+export FORBIDDEN_LOG=$work/forbidden.log
+export SBOM_COPY_DIR=$work/scanned
+mkdir -p "$SBOM_COPY_DIR"
+: >"$COSIGN_LOG"
+: >"$GRYPE_LOG"
+: >"$FORBIDDEN_LOG"
+
+cat >"$work/catalog.json" <<'EOF'
+{
+  "schemaVersion": 2,
+  "publishedAt": "2026-09-08T03:17:00Z",
+  "source": {
+    "repository": "tektum/verity-images",
+    "commit": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"
+  },
+  "images": [
+    {
+      "name": "alpha",
+      "version": "1.0",
+      "track": "wolfi",
+      "reference": "ghcr.io/tektum/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "scan": {"all": {"high": 1, "medium": 2}}
+    },
+    {
+      "name": "beta",
+      "version": "1.0",
+      "track": "wolfi",
+      "reference": "ghcr.io/tektum/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "scan": {"all": {"low": 3}}
+    },
+    {
+      "name": "gamma",
+      "version": "1.0",
+      "track": "wolfi",
+      "reference": "ghcr.io/tektum/gamma@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "scan": {"all": {}}
+    },
+    {
+      "name": "delta",
+      "version": "1.0",
+      "track": "patched",
+      "reference": "ghcr.io/tektum/delta@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "scan": {"upstream": {"critical": 2}, "final": {"high": 1}, "delta": {"critical": -2, "high": 1}}
+    }
   ]
 }
 EOF
 
-cat > "$work/bin/gh" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-printf '%q ' "$@" >> "$GH_LOG"
-printf '\n' >> "$GH_LOG"
-if [[ "$1" == api ]]; then
-  if [[ "$*" == *'/comments?'* ]]; then
-    for argument in "$@"; do
-      [[ $argument == repos/owner/repo/issues/*/comments\?* ]] || continue
-      issue_number=${argument#repos/owner/repo/issues/}
-      issue_number=${issue_number%%/*}
-    done
-    variable="COMMENTS_${issue_number}"
-    if [[ ${FAIL_COMMENTS_NUMBER:-} == "$issue_number" ]]; then
-      printf '%s\n' '[[]]'
-      exit 1
-    elif [[ -n ${COMMENTS_DIRECTORY:-} && -f $COMMENTS_DIRECTORY/$issue_number.json ]]; then
-      cat "$COMMENTS_DIRECTORY/$issue_number.json"
-    else
-      jq -cn --argjson comments "${!variable:-${COMMENTS:-[]}}" '[$comments]'
-    fi
-  elif [[ -n ${ISSUES_RESPONSE_FILE:-} ]]; then
-    cat "$ISSUES_RESPONSE_FILE"
-  elif [[ -n ${ISSUES_FILE:-} && -s $ISSUES_FILE ]]; then
-    IFS= read -r response < "$ISSUES_FILE"
-    sed -i '1d' "$ISSUES_FILE"
-    printf '%s\n' "$response"
-  else
-    printf '%s\n' "${ISSUES:-[]}"
-  fi
-elif [[ "$1 $2" == "issue create" || "$1 $2" == "issue edit" || "$1 $2" == "issue comment" ]]; then
-  for ((index=1; index <= $#; index++)); do
-    if [[ ${!index} == --body-file ]]; then
-      body_index=$((index + 1))
-      if [[ "$1 $2" == "issue comment" && -n ${FAIL_COMMENT_CONTAINS:-} ]] &&
-        grep -Fq "$FAIL_COMMENT_CONTAINS" "${!body_index}"; then
-        exit 1
-      fi
-      cp "${!body_index}" "$GH_BODY_DIR/${1}-${2}.md"
-      {
-        printf '%s %s %s\n' "$1" "$2" "${3:-}"
-        cat "${!body_index}"
-        printf '%s\n' '-- body end --'
-      } >> "$GH_BODY_LOG"
-    fi
-  done
-  [[ "$1 $2" != "issue create" ]] || printf '%s\n' 'https://github.com/owner/repo/issues/42'
-fi
+cat >"$work/images.json" <<'EOF'
+{
+  "include": [
+    {"name": "alpha", "tag_version": "1.0", "context": "images/alpha"},
+    {"name": "beta", "tag_version": "1.0", "context": "images/beta"},
+    {"name": "gamma", "tag_version": "1.0", "context": "images/gamma"},
+    {"name": "delta", "tag_version": "1.0", "context": "images/delta"}
+  ]
+}
 EOF
-chmod +x "$work/bin/gh"
-export GH_BODY_DIR=$work/bodies
-export GH_LOG=$work/gh.log
-export GH_BODY_LOG=$work/body.log
-export GITHUB_REPOSITORY=owner/repo
-export RUN_URL=https://example.test/run
-export ISSUES='[]'
-export COMMENTS='[]'
-image_marker="<!-- squawk-image:$image -->"
 
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq 'api --paginate --slurp repos/owner/repo/issues\?state=all\&labels=squawk\&per_page=100' "$GH_LOG"
-grep -Fq 'label create squawk --repo owner/repo --color 5319E7' "$GH_LOG"
-grep -Fq 'issue create --repo owner/repo --title \[CVE\]\ tektum/demo\ image\ vulnerabilities' "$GH_LOG"
-grep -Fq 'issue comment 42 --repo owner/repo' "$GH_LOG"
-grep -Fq -- '--label squawk' "$GH_LOG"
-grep -Fq "$image_marker" "$work/bodies/issue-create.md"
-grep -Fq "<!-- squawk-delivery:$delivery -->" "$work/bodies/issue-comment.md"
-grep -Fq "### \`CVE-TEST\` in \`openssl@3.1.2\`" "$work/bodies/issue-comment.md"
-grep -Fq '| linux/amd64 |' "$work/bodies/issue-comment.md"
+assert_manifest() {
+  local output=$1
+  local manifest=$output/manifest.json
+  local scan
+  [[ -f $manifest ]] || fail "monitor did not write $manifest"
+  jq -e '
+    (.shard == 0 or .shard == 1) and
+    .shards == 2 and
+    .catalog.schemaVersion == 2 and
+    .catalog.publishedAt == "2026-09-08T03:17:00Z" and
+    .catalog.source.commit == "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" and
+    .catalog.images == 4 and
+    (.subjects | length > 0) and
+    all(.subjects[];
+      .version == "1.0" and
+      .reference == ("ghcr.io/tektum/" + .name + "@" + .digest) and
+      .context == ("images/" + .name) and
+      ([.platforms[].platform] | sort) == ["linux/amd64", "linux/arm64"] and
+      (.platforms | length) == 2 and
+      all(.platforms[];
+        (.scan | test("^scan-[a-z]+-1\\.0-(amd64|arm64)\\.json$")) and
+        .attestations == 1 and
+        (.created | test("^2026-09-07T10:00:0[01]Z$"))) and
+      (if .name == "alpha" then
+         .track == "wolfi" and
+         .digest == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
+         .published == {"high": 1, "medium": 2}
+       elif .name == "beta" then
+         .track == "wolfi" and
+         .digest == "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" and
+         .published == {"low": 3}
+       elif .name == "gamma" then
+         .track == "wolfi" and
+         .digest == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" and
+         .published == {}
+       elif .name == "delta" then
+         .track == "patched" and
+         .digest == "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" and
+         .published == {"high": 1}
+       else false end))
+  ' "$manifest" >/dev/null || fail "manifest structure or subject metadata is incorrect in $manifest"
 
-# A user-authored marker cannot capture Squawk's reconciliation target.
-: > "$GH_LOG"
-export ISSUES="[[{\"number\":7,\"state\":\"open\",\"body\":\"$image_marker\",\"user\":{\"login\":\"attacker\"}}]]"
-export COMMENTS='[]'
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq 'issue create --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue edit 42 --repo owner/repo' "$GH_LOG"
-if grep -Fq 'issue edit 7' "$GH_LOG"; then
-  printf 'user-authored image marker captured reconciliation\n' >&2
-  exit 1
-fi
-
-# A repeated delivery updates the image issue but does not add a duplicate comment.
-: > "$GH_LOG"
-rm -f "$work/bodies/issue-comment.md"
-export ISSUES="[[{\"number\":8,\"state\":\"closed\",\"body\":\"$image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export COMMENTS="[{\"body\":\"<!-- squawk-delivery:$delivery -->\",\"user\":{\"login\":\"github-actions[bot]\"}}]"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue edit 8 --repo owner/repo --title \[CVE\]\ tektum/demo\ image\ vulnerabilities' "$GH_LOG"
-if grep -Fq 'issue comment' "$GH_LOG"; then
-  printf 'repeated delivery created a duplicate comment\n' >&2
-  exit 1
-fi
-
-# A second finding for the same image becomes another comment on the same issue.
-second_delivery=$(printf second-delivery | sha256sum | cut -d' ' -f1)
-jq --arg delivery "$second_delivery" '.delivery_id = $delivery | .package_name = "libssl3" | .version = "3.1.3" | .vuln_id = "CVE-SECOND"' \
-  "$work/payload.json" > "$work/second.json"
-: > "$GH_LOG"
-export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"$image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/second.json"
-grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue comment 8 --repo owner/repo' "$GH_LOG"
-if grep -Fq 'issue create' "$GH_LOG"; then
-  printf 'second image finding created another issue\n' >&2
-  exit 1
-fi
-# Concurrent creates converge on the oldest issue. Legacy evidence is copied to
-# the canonical thread, discussion remains linked, and the duplicate body is never rewritten.
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-legacy_delivery=$(printf legacy-delivery | sha256sum | cut -d' ' -f1)
-legacy_body=$(printf '%s\n' \
-  "<!-- squawk-delivery:$legacy_delivery -->" \
-  "Squawk reported **CVE-LEGACY** for \`legacy@1\` in \`Alpine:v3.23\`." \
-  '' \
-  "- Logical image: $image")
-export COMMENTS='[]'
-export COMMENTS_8='[]'
-export COMMENTS_42="[{\"id\":420,\"html_url\":\"https://example.test/issues/42#issuecomment-420\",\"body\":\"<!-- squawk-delivery:$legacy_delivery -->\\nlegacy comment evidence\",\"user\":{\"login\":\"github-actions[bot]\"}},{\"id\":421,\"html_url\":\"https://example.test/issues/42#issuecomment-421\",\"body\":\"maintainer discussion\",\"user\":{\"login\":\"maintainer\"}}]"
-export ISSUES_FILE="$work/issues-sequence"
-printf '%s\n' '[]' > "$ISSUES_FILE"
-jq -cn --arg marker "$image_marker" --arg legacy "$legacy_body" \
-  '[[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-      {number:42,state:"open",body:$legacy,user:{login:"github-actions[bot]"}}]]' >> "$ISSUES_FILE"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-unset ISSUES_FILE
-grep -Fq 'issue create --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue edit 8 --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue close 42 --repo owner/repo --reason not\ planned' "$GH_LOG"
-if grep -Fq 'issue edit 42' "$GH_LOG"; then
-  printf 'duplicate evidence body was rewritten\n' >&2
-  exit 1
-fi
-grep -Fq "<!-- squawk-migrated-body:42 -->" "$GH_BODY_LOG"
-grep -Fq "<!-- squawk-delivery:$legacy_delivery -->" "$GH_BODY_LOG"
-grep -Fq '<!-- squawk-source-issue:42 -->' "$GH_BODY_LOG"
-grep -Fq 'original body and discussion remain' "$GH_BODY_LOG"
-grep -Fq '<!-- squawk-consolidated-into:8 -->' "$GH_BODY_LOG"
-
-# A replay sees the migration markers and adds no duplicate evidence or tombstones.
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-ISSUES=$(jq -cn --arg marker "$image_marker" --arg legacy "$legacy_body" \
-  '[[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-      {number:42,state:"closed",body:$legacy,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-export COMMENTS_8="[{\"body\":\"<!-- squawk-migrated-body:42 --> <!-- squawk-delivery:$legacy_delivery -->\",\"user\":{\"login\":\"github-actions[bot]\"}},{\"body\":\"<!-- squawk-source-issue:42 -->\",\"user\":{\"login\":\"github-actions[bot]\"}},{\"body\":\"<!-- squawk-delivery:$delivery -->\",\"user\":{\"login\":\"github-actions[bot]\"}}]"
-export COMMENTS_42='[{"body":"<!-- squawk-consolidated-into:8 -->","user":{"login":"github-actions[bot]"}}]'
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-if grep -Fq 'issue comment' "$GH_LOG"; then
-  printf 'migration replay duplicated a comment\n' >&2
-  exit 1
-fi
-
-# Closed sources may receive late bot evidence after their first consolidation.
-late_delivery=$(printf late-delivery | sha256sum | cut -d' ' -f1)
-COMMENTS_42=$(jq -cn --arg delivery "$late_delivery" '
-  [{body:"<!-- squawk-consolidated-into:8 -->",user:{login:"github-actions[bot]"}},
-   {id:422,html_url:"https://example.test/issues/42#issuecomment-422",
-    body:("<!-- squawk-delivery:" + $delivery + " -->\nlate finding evidence"),
-    user:{login:"github-actions[bot]"}}]')
-export COMMENTS_42
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq "<!-- squawk-delivery:$late_delivery -->" "$GH_BODY_LOG"
-grep -Fq 'issue comment 8 --repo owner/repo' "$GH_LOG"
-
-
-# Paginated issue bodies may exceed Linux per-argument limits. Keep them
-# file-backed while preserving the oldest issue and every migration marker.
-large_delivery=$(printf large-delivery | sha256sum | cut -d' ' -f1)
-ISSUES_RESPONSE_FILE="$work/large-issues.json"
-export ISSUES_RESPONSE_FILE
-jq -cn --arg marker "$image_marker" --arg image "$image" --arg delivery "$large_delivery" '
-  [[
-    {number:80,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:81,state:"open",body:("<!-- squawk-delivery:" + $delivery + " -->\n- Logical image: " + $image + "\n" + ("\u754c" * 45000)),user:{login:"github-actions[bot]"}},
-    {number:82,state:"open",body:($marker + "\n" + ("\u754c" * 45000)),user:{login:"github-actions[bot]"}}
-  ]]' > "$ISSUES_RESPONSE_FILE"
-(( $(wc -c < "$ISSUES_RESPONSE_FILE") > 131072 ))
-COMMENTS_DIRECTORY="$work/large-comments"
-export COMMENTS_DIRECTORY
-mkdir "$COMMENTS_DIRECTORY"
-printf '%s\n' '[[]]' > "$COMMENTS_DIRECTORY/81.json"
-jq -cn '[[range(0; 3) as $index |
-  {id:(800 + $index),body:("\u754c" * 45000),user:{login:"maintainer"}}]]' \
-  > "$COMMENTS_DIRECTORY/80.json"
-printf '%s\n' '[[]]' > "$COMMENTS_DIRECTORY/82.json"
-(( $(wc -c < "$COMMENTS_DIRECTORY/80.json") > 131072 ))
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq 'issue edit 80 --repo owner/repo' "$GH_LOG"
-grep -Fq 'issue close 81 --repo owner/repo --reason not\ planned' "$GH_LOG"
-grep -Fq 'issue close 82 --repo owner/repo --reason not\ planned' "$GH_LOG"
-grep -Fq '<!-- squawk-migrated-body:81 -->' "$GH_BODY_LOG"
-unset ISSUES_RESPONSE_FILE COMMENTS_DIRECTORY
-
-# A canonical comment fetch failure aborts before issue mutation.
-export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"$image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export FAIL_COMMENTS_NUMBER=8
-: > "$GH_LOG"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"; then
-  printf 'canonical comment fetch failure was ignored\n' >&2
-  exit 1
-fi
-if grep -Eq '^issue (create|edit|comment|close|reopen)' "$GH_LOG"; then
-  printf 'canonical comment fetch failure mutated an issue\n' >&2
-  exit 1
-fi
-unset FAIL_COMMENTS_NUMBER
-
-# Any duplicate fetch failure aborts before the first migration or closure.
-partial_a=$(printf partial-a | sha256sum | cut -d' ' -f1)
-partial_b=$(printf partial-b | sha256sum | cut -d' ' -f1)
-ISSUES=$(jq -cn --arg marker "$image_marker" '
-  [[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:42,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:43,state:"open",body:$marker,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-export COMMENTS_8='[]'
-COMMENTS_42=$(jq -cn --arg delivery "$partial_a" \
-  '[{id:420,body:("<!-- squawk-delivery:" + $delivery + " -->\nfirst partial finding"),user:{login:"github-actions[bot]"}}]')
-COMMENTS_43=$(jq -cn --arg delivery "$partial_b" \
-  '[{id:430,body:("<!-- squawk-delivery:" + $delivery + " -->\nsecond partial finding"),user:{login:"github-actions[bot]"}}]')
-export COMMENTS_42 COMMENTS_43
-export FAIL_COMMENTS_NUMBER=43
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"; then
-  printf 'duplicate comment fetch failure was ignored\n' >&2
-  exit 1
-fi
-if grep -Eq '^issue (create|edit|comment|close|reopen)' "$GH_LOG"; then
-  printf 'duplicate comment fetch failure mutated an issue\n' >&2
-  exit 1
-fi
-[[ ! -s "$GH_BODY_LOG" ]]
-unset FAIL_COMMENTS_NUMBER
-
-ISSUES=$(jq -cn --arg marker "$image_marker" '
-  [[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:42,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:43,state:"open",body:$marker,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-export COMMENTS_8='[]'
-export FAIL_COMMENT_CONTAINS='second partial finding'
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"; then
-  printf 'partial migration write failure was ignored\n' >&2
-  exit 1
-fi
-grep -Fq "<!-- squawk-delivery:$partial_a -->" "$GH_BODY_LOG"
-grep -Fq 'issue close 42 --repo owner/repo --reason not\ planned' "$GH_LOG"
-if grep -Fq 'issue close 43' "$GH_LOG"; then
-  printf 'duplicate was closed after its migration failed\n' >&2
-  exit 1
-fi
-unset FAIL_COMMENT_CONTAINS
-
-ISSUES=$(jq -cn --arg marker "$image_marker" '
-  [[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:42,state:"closed",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:43,state:"open",body:$marker,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-COMMENTS_8=$(jq -cn --arg delivery "$partial_a" '
-  [{body:("<!-- squawk-delivery:" + $delivery + " -->"),user:{login:"github-actions[bot]"}},
-   {body:"<!-- squawk-source-issue:42 -->",user:{login:"github-actions[bot]"}}]')
-export COMMENTS_8
-COMMENTS_42=$(jq -cn --arg delivery "$partial_a" '
-  [{id:420,body:("<!-- squawk-delivery:" + $delivery + " -->\nfirst partial finding"),user:{login:"github-actions[bot]"}},
-   {body:"<!-- squawk-consolidated-into:8 -->",user:{login:"github-actions[bot]"}}]')
-export COMMENTS_42
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-if grep -Fq "<!-- squawk-delivery:$partial_a -->" "$GH_BODY_LOG"; then
-  printf 'retry duplicated already preserved evidence\n' >&2
-  exit 1
-fi
-grep -Fq "<!-- squawk-delivery:$partial_b -->" "$GH_BODY_LOG"
-grep -Fq 'issue close 43 --repo owner/repo --reason not\ planned' "$GH_LOG"
-unset COMMENTS_8 COMMENTS_42 COMMENTS_43
-# A mutable repository variable cannot select an unreviewed checkpoint server.
-jq -n --arg origin "https://squawk-staging.omerc.workers.dev" '{origin:$origin}' |
-  jq -e --arg mode origin -f "$root/scripts/validate_squawk_reconciliation.jq" >/dev/null
-for origin in '' 'https://attacker.test' 'http://squawk-staging.omerc.workers.dev' \
-  'https://squawk-staging.omerc.workers.dev/'; do
-  jq -n --arg origin "$origin" '{origin:$origin}' > "$work/invalid-origin.json"
-  if jq -e --arg mode origin -f "$root/scripts/validate_squawk_reconciliation.jq" \
-    "$work/invalid-origin.json" >/dev/null; then
-    printf 'unreviewed checkpoint origin was accepted\n' >&2
-    exit 1
-  fi
-done
-
-# When the oldest issue itself uses the legacy per-delivery body, its finding is
-# preserved as a canonical comment before the body is migrated to image scope.
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-ISSUES=$(jq -cn --arg legacy "$legacy_body" \
-  '[[{number:5,state:"open",body:$legacy,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-unset COMMENTS_8 COMMENTS_42
-export COMMENTS_5='[]'
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/payload.json"
-grep -Fq '<!-- squawk-migrated-body:5 -->' "$GH_BODY_LOG"
-preserve_line=$(grep -nF 'issue comment 5' "$GH_LOG" | cut -d: -f1 | sed -n '1p')
-edit_line=$(grep -nF 'issue edit 5' "$GH_LOG" | cut -d: -f1)
-(( preserve_line < edit_line )) || { printf 'legacy body was rewritten before preservation\n' >&2; exit 1; }
-unset COMMENTS_5
-
-# Squawk persists advisory severity as a label, CVSS v2/v3/v4 vector, or null.
-# Accepted strings are preserved; null renders as unknown in the finding comment.
-export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"$image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export COMMENTS='[]'
-for severity in \
-  'CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:H' \
-  'CVSS:4.0/AV:N/AC:L/AT:N/PR:N/UI:N/VC:N/VI:N/VA:H/SC:N/SI:N/SA:N/U:Amber' \
-  'AV:N/AC:L/Au:N/C:P/I:P/A:P'; do
-  rm -f "$work/bodies/issue-comment.md"
-  jq --arg severity "$severity" '.severity = $severity' \
-    "$work/payload.json" > "$work/cvss.json"
-  PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/cvss.json"
-  grep -Fq -- "- Severity: $severity" "$work/bodies/issue-comment.md"
-done
-
-rm -f "$work/bodies/issue-comment.md"
-jq '.severity = null' "$work/payload.json" > "$work/null-severity.json"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/null-severity.json"
-grep -Fq -- '- Severity: unknown' "$work/bodies/issue-comment.md"
-
-# V1 finding deliveries are evidence-only and legitimately carry one platform or
-# repeated platform labels. Preserve every valid row; complete coverage is v2-only.
-single_delivery=$(printf single-platform | sha256sum | cut -d' ' -f1)
-jq --arg delivery "$single_delivery" '.delivery_id = $delivery | .platforms = [.platforms[0]]' \
-  "$work/payload.json" > "$work/single-platform.json"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/single-platform.json"
-[[ $(grep -Fc '| linux/amd64 |' "$work/bodies/issue-comment.md") -eq 1 ]]
-
-repeated_delivery=$(printf repeated-platform | sha256sum | cut -d' ' -f1)
-jq --arg delivery "$repeated_delivery" \
-  '.delivery_id = $delivery | .platforms = [.platforms[0], .platforms[0]]' \
-  "$work/payload.json" > "$work/repeated-platform.json"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/repeated-platform.json"
-[[ $(grep -Fc '| linux/amd64 |' "$work/bodies/issue-comment.md") -eq 2 ]]
-
-: > "$GH_LOG"
-jq '.platforms[0].image_ref = "ghcr.io/tektum/demo:latest"' \
-  "$work/payload.json" > "$work/invalid.json"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json"; then
-  printf 'mutable image reference was accepted\n' >&2
-  exit 1
-fi
-[[ ! -s "$GH_LOG" ]] || { printf 'mutable image reference called GitHub\n' >&2; exit 1; }
-
-for invalid in marker severity severity-type severity-vector severity-long platform-empty platform-name platform-repository; do
-  case $invalid in
-    marker) jq --arg marker $'openssl\n<!-- squawk-delivery:bad -->' '.package_name = $marker' "$work/payload.json" ;;
-    severity) jq '.severity = "urgent"' "$work/payload.json" ;;
-    severity-type) jq '.severity = false' "$work/payload.json" ;;
-    severity-vector) jq '.severity = "foo:bar/baz:qux"' "$work/payload.json" ;;
-    severity-long) jq --arg severity "CVSS:3.1$(printf '/AV:N%.0s' {1..70})" '.severity = $severity' "$work/payload.json" ;;
-    platform-empty) jq '.platforms = []' "$work/payload.json" ;;
-    platform-name) jq '.platforms[0].platform = "windows/amd64"' "$work/payload.json" ;;
-    platform-repository) jq '.platforms[1].image_ref |= sub("tektum/demo"; "tektum/other")' "$work/payload.json" ;;
-  esac > "$work/invalid.json"
-  : > "$GH_LOG"
-  if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" "$work/invalid.json"; then
-    printf 'invalid %s payload was accepted\n' "$invalid" >&2
-    exit 1
-  fi
-  [[ ! -s "$GH_LOG" ]] || { printf 'invalid %s payload called GitHub\n' "$invalid" >&2; exit 1; }
-done
-
-checkpoint_hash() {
-  local file
-  file=$1
-  jq -c '.checkpoint | del(.payload_sha256)' "$file" |
-    jq -cjS --arg mode normalize_checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" |
-    sha256sum | cut -d' ' -f1
+  while IFS= read -r scan; do
+    [[ -s $output/$scan ]] || fail "manifest scan file does not exist: $output/$scan"
+    jq -e '.descriptor.name == "grype" and (.matches | length == 2)' \
+      "$output/$scan" >/dev/null || fail "Grype stub did not write a realistic scan: $output/$scan"
+  done < <(jq -r '.subjects[].platforms[].scan' "$manifest")
 }
 
-rehash_checkpoint() {
-  local file digest temporary
-  file=$1
-  digest=$(checkpoint_hash "$file")
-  temporary="${file}.tmp"
-  jq --arg digest "$digest" '.checkpoint.payload_sha256 = $digest' "$file" > "$temporary"
-  mv "$temporary" "$file"
+assert_cosign_run() {
+  local expected=$1
+  local lines
+  local command
+  local type_flag
+  local predicate_type
+  local identity_flag
+  local identity
+  local issuer_flag
+  local issuer
+  local reference
+  local extra
+  lines=$(wc -l <"$COSIGN_LOG")
+  [[ $lines -eq $expected ]] || fail "cosign ran $lines times, expected $expected"
+
+  while IFS=$'\t' read -r command type_flag predicate_type identity_flag identity \
+    issuer_flag issuer reference extra; do
+    [[ $command == verify-attestation && $type_flag == --type && $predicate_type == spdxjson ]] ||
+      fail "cosign did not use verify-attestation --type spdxjson"
+    [[ $identity_flag == --certificate-identity &&
+      $identity == https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main ]] ||
+      fail "cosign used the wrong certificate identity"
+    [[ $issuer_flag == --certificate-oidc-issuer &&
+      $issuer == https://token.actions.githubusercontent.com ]] ||
+      fail "cosign used the wrong OIDC issuer"
+    [[ -z $extra ]] || fail "cosign received unexpected arguments"
+    [[ $reference =~ ^ghcr\.io/tektum/[a-z]+@sha256:[0-9a-f]{64}$ ]] ||
+      fail "cosign was invoked with a mutable or malformed reference: $reference"
+    case $reference in
+      ghcr.io/tektum/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa | \
+        ghcr.io/tektum/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb | \
+        ghcr.io/tektum/gamma@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc | \
+        ghcr.io/tektum/delta@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd) ;;
+      *) fail "cosign received a reference outside the published catalog: $reference" ;;
+    esac
+  done <"$COSIGN_LOG"
 }
 
-canonical_value_hash() {
-  jq -cjS --arg mode normalize_checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" "$1" |
-    sha256sum | cut -d' ' -f1
-}
+assert_grype_run() {
+  local output=$1
+  local subjects=$2
+  local expected_scans=$((subjects * 2))
+  local expected_lines=$((expected_scans + 1))
+  local lines
+  local db_updates
+  local amd64_scans
+  local arm64_scans
+  local line_number=0
+  local target
+  local output_flag
+  local format
+  local file_flag
+  local scan_file
+  local extra
+  lines=$(wc -l <"$GRYPE_LOG")
+  [[ $lines -eq $expected_lines ]] ||
+    fail "grype ran $lines times, expected one database update and $expected_scans scans"
+  db_updates=$(grep -c $'^db\tupdate$' "$GRYPE_LOG" || true)
+  [[ $db_updates -eq 1 ]] || fail "grype db update did not run exactly once"
+  amd64_scans=$(grep -c 'sbom-amd64.spdx.json' "$GRYPE_LOG" || true)
+  arm64_scans=$(grep -c 'sbom-arm64.spdx.json' "$GRYPE_LOG" || true)
+  [[ $amd64_scans -eq $subjects && $arm64_scans -eq $subjects ]] ||
+    fail "grype did not scan each platform exactly once per subject"
 
-for numeric_revision in 1 1.0 1e0; do
-  printf '{"revision":%s,"source":{"repository_id":"9","installation_id":"1"},"kind":"inventory_snapshot","findings":[],"checkpoint_id":"a"}\n' \
-    "$numeric_revision" > "$work/canonical-vector.json"
-  [[ $(canonical_value_hash "$work/canonical-vector.json") == \
-    ae7a64643c3dbd8b8058b953df74787815593df62ded43f682a9280527e61c47 ]]
-done
-printf '%s\n' '{"zero":-0}' > "$work/negative-zero.json"
-printf '%s\n' '{"zero":0}' > "$work/zero.json"
-[[ $(canonical_value_hash "$work/negative-zero.json") == $(canonical_value_hash "$work/zero.json") ]]
-
-# Schema v2 accepts only authenticated-ready checkpoint material fetched by the
-# workflow. A complete fresh empty snapshot can close an existing canonical issue.
-export NOW_EPOCH_SECONDS=2000000000
-wakeup_delivery=$(printf wakeup | sha256sum | cut -d' ' -f1)
-checkpoint_id=$(printf checkpoint-clean | sha256sum | cut -d' ' -f1)
-checkpoint_sha=$(printf checkpoint-clean-payload | sha256sum | cut -d' ' -f1)
-feed_checkpoint=$(printf feed-checkpoint | sha256sum | cut -d' ' -f1)
-amd64_digest="sha256:$(printf amd64 | sha256sum | cut -d' ' -f1)"
-arm64_digest="sha256:$(printf arm64 | sha256sum | cut -d' ' -f1)"
-index_raw=$(jq -cn --arg amd64 "$amd64_digest" --arg arm64 "$arm64_digest" '
-  {schemaVersion:2,manifests:[
-    {digest:$amd64,platform:{os:"linux",architecture:"amd64"}},
-    {digest:$arm64,platform:{os:"linux",architecture:"arm64"}}]}')
-printf '%s' "$index_raw" > "$work/oci-index.json"
-v2_image="ghcr.io/tektum/demo@sha256:$(printf '%s' "$index_raw" | sha256sum | cut -d' ' -f1)"
-v2_image_marker="<!-- squawk-image:$v2_image -->"
-jq -n --arg delivery "$wakeup_delivery" --arg image "$v2_image" \
-  '{schema_version:2,event:"reconcile",delivery_id:$delivery,logical_image_ref:$image,
-    source:{installation_id:"11",repository_id:"22"}}' > "$work/wakeup.json"
-jq -n --arg checkpoint "$checkpoint_id" --arg sha "$checkpoint_sha" --arg image "$v2_image" \
-  --arg feed "$feed_checkpoint" --arg amd64 "ghcr.io/tektum/demo@$amd64_digest" \
-  --arg arm64 "ghcr.io/tektum/demo@$arm64_digest" '
-  {schema_version:2,state:"ready",checkpoint:{
-    checkpoint_id:$checkpoint,revision:1,payload_sha256:$sha,logical_image_ref:$image,
-    source:{installation_id:"11",repository_id:"22",ingestion_delivery_id:"ingestion-1"},
-    kind:"inventory_snapshot",
-    coverage:{status:"complete",evaluated_at:2000000000,advisory_feed_checked_at:1999999940,
-      feed_checkpoint_ids:[$feed],unsupported_components:[]},
-    platforms:[
-      {platform:"linux/amd64",image_ref:$amd64,sbom_sha256:("a" * 64),indexed_at:100,status:"complete"},
-      {platform:"linux/arm64",image_ref:$arm64,sbom_sha256:("b" * 64),indexed_at:100,status:"complete"}],
-    findings:[]}}' > "$work/checkpoint.json"
-rehash_checkpoint "$work/checkpoint.json"
-checkpoint_sha=$(jq -r .checkpoint.payload_sha256 "$work/checkpoint.json")
-sed -e 's/"revision": 1,/"revision": 1e0,/' \
-  -e 's/"evaluated_at": 2000000000,/"evaluated_at": 2e9,/' \
-  -e 's/"advisory_feed_checked_at": 1999999940,/"advisory_feed_checked_at": 1.99999994e9,/' \
-  -e 's/"indexed_at": 100,/"indexed_at": 1e2,/g' \
-  "$work/checkpoint.json" > "$work/numeric-checkpoint.json"
-grep -Fq '"revision": 1e0' "$work/numeric-checkpoint.json"
-grep -Fq '"evaluated_at": 2e9' "$work/numeric-checkpoint.json"
-
-# V2 must not close or acknowledge when any duplicate comment history is unreadable.
-ISSUES=$(jq -cn --arg marker "$v2_image_marker" '
-  [[{number:8,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:42,state:"open",body:$marker,user:{login:"github-actions[bot]"}}]]')
-export ISSUES
-export COMMENTS_8='[]'
-export FAIL_COMMENTS_NUMBER=42
-: > "$GH_LOG"
-rm -f "$work/fetch-failure-ack.json"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-checkpoint.json" "$work/fetch-failure-ack.json" "$work/oci-index.json"; then
-  printf 'v2 duplicate comment fetch failure was ignored\n' >&2
-  exit 1
-fi
-if grep -Eq '^issue (create|edit|comment|close|reopen)' "$GH_LOG"; then
-  printf 'v2 duplicate comment fetch failure mutated an issue\n' >&2
-  exit 1
-fi
-[[ ! -e "$work/fetch-failure-ack.json" ]]
-unset FAIL_COMMENTS_NUMBER
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"$v2_image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export COMMENTS='[]'
-unset COMMENTS_8 COMMENTS_42
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-checkpoint.json" "$work/ack.json" "$work/oci-index.json"
-grep -Fq 'issue close 8 --repo owner/repo --reason completed' "$GH_LOG"
-grep -Fq 'authenticated, complete coverage for linux/amd64 and linux/arm64' "$work/bodies/issue-edit.md"
-grep -Fq "<!-- squawk-applied:11:22:1:$checkpoint_sha -->" "$GH_BODY_LOG"
-jq -e --arg id "$checkpoint_id" --arg sha "$checkpoint_sha" \
-  '. == {checkpoint_id:$id,revision:1,payload_sha256:$sha}' "$work/ack.json" >/dev/null
-
-# V2 ordering also consumes paginated comment inventories larger than argv.
-ISSUES_RESPONSE_FILE="$work/large-v2-issues.json"
-export ISSUES_RESPONSE_FILE
-jq -cn --arg marker "$v2_image_marker" '
-  [[{number:18,state:"open",body:$marker,user:{login:"github-actions[bot]"}},
-    {number:19,state:"open",body:$marker,user:{login:"github-actions[bot]"}}]]' \
-  > "$ISSUES_RESPONSE_FILE"
-COMMENTS_DIRECTORY="$work/large-v2-comments"
-export COMMENTS_DIRECTORY
-mkdir "$COMMENTS_DIRECTORY"
-for issue_number in 18 19; do
-  jq -cn '[[range(0; 3) as $index |
-    {id:($index + 1),body:("\u754c" * 45000),user:{login:"maintainer"}}]]' \
-    > "$COMMENTS_DIRECTORY/$issue_number.json"
-  (( $(wc -c < "$COMMENTS_DIRECTORY/$issue_number.json") > 131072 ))
-done
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-checkpoint.json" "$work/large-comments-ack.json" "$work/oci-index.json"
-grep -Fq 'issue close 19 --repo owner/repo --reason not\ planned' "$GH_LOG"
-grep -Fq "<!-- squawk-applied:11:22:1:$checkpoint_sha -->" "$GH_BODY_LOG"
-unset ISSUES_RESPONSE_FILE COMMENTS_DIRECTORY
-
-: > "$GH_LOG"
-rm -f "$work/missing-index-ack.json"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-checkpoint.json" "$work/missing-index-ack.json"; then
-  printf 'checkpoint without published index evidence was accepted\n' >&2
-  exit 1
-fi
-[[ ! -s "$GH_LOG" ]]
-[[ ! -e "$work/missing-index-ack.json" ]]
-
-# Missing, incomplete, unsupported, stale, or identity-mismatched coverage fails
-# before any GitHub operation and cannot close the issue.
-for invalid in digest-mismatch unsafe-number fractional-number unsafe-revision fractional-revision missing incomplete unsupported duplicate-feed stale-evaluation stale-feed source-mismatch image-mismatch platform-repository platform-index; do
-  case $invalid in
-    digest-mismatch) jq '.checkpoint.revision = 2' "$work/checkpoint.json" ;;
-    unsafe-number) jq '.checkpoint.extra = 9007199254740992' "$work/checkpoint.json" ;;
-    fractional-number) jq '.checkpoint.extra = 1.5' "$work/checkpoint.json" ;;
-    unsafe-revision) jq '.checkpoint.revision = 9007199254740992' "$work/checkpoint.json" ;;
-    fractional-revision) jq '.checkpoint.revision = 2.5' "$work/checkpoint.json" ;;
-    missing) jq '.checkpoint.platforms = [.checkpoint.platforms[0]]' "$work/checkpoint.json" ;;
-    incomplete) jq '.checkpoint.platforms[1].status = "pending"' "$work/checkpoint.json" ;;
-    unsupported) jq '.checkpoint.coverage.unsupported_components = ["pkg:deb/ubuntu/test@1"]' "$work/checkpoint.json" ;;
-    duplicate-feed) jq '.checkpoint.coverage.feed_checkpoint_ids += .checkpoint.coverage.feed_checkpoint_ids' "$work/checkpoint.json" ;;
-    stale-evaluation) jq '.checkpoint.coverage.evaluated_at = 1999978399 | .checkpoint.coverage.advisory_feed_checked_at = 1999978300' "$work/checkpoint.json" ;;
-    stale-feed) jq '.checkpoint.coverage.advisory_feed_checked_at = 1999978399' "$work/checkpoint.json" ;;
-    source-mismatch) jq '.checkpoint.source.repository_id = "23"' "$work/checkpoint.json" ;;
-    image-mismatch) jq '.checkpoint.logical_image_ref |= sub("tektum/demo"; "tektum/other") | .checkpoint.platforms[].image_ref |= sub("tektum/demo"; "tektum/other")' "$work/checkpoint.json" ;;
-    platform-repository) jq '.checkpoint.platforms[1].image_ref |= sub("tektum/demo"; "tektum/other")' "$work/checkpoint.json" ;;
-    platform-index) jq '.checkpoint.platforms[1].image_ref = ("ghcr.io/tektum/demo@sha256:" + ("c" * 64))' "$work/checkpoint.json" ;;
-  esac > "$work/invalid-checkpoint.json"
-  if [[ $invalid != digest-mismatch && $invalid != unsafe-number && $invalid != fractional-number &&
-    $invalid != unsafe-revision && $invalid != fractional-revision ]]; then
-    rehash_checkpoint "$work/invalid-checkpoint.json"
-  fi
-  if [[ $invalid == source-mismatch || $invalid == image-mismatch ]]; then
-    # Valid documents for a different source/image must fail the registry preflight.
-    jq -e --arg mode checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" \
-      "$work/invalid-checkpoint.json" >/dev/null
-    if jq -e --slurp --arg mode bound_checkpoint -f "$root/scripts/validate_squawk_reconciliation.jq" \
-      "$work/wakeup.json" "$work/invalid-checkpoint.json" >/dev/null; then
-      printf 'unbound checkpoint passed registry preflight\n' >&2
-      exit 1
+  while IFS=$'\t' read -r target output_flag format file_flag scan_file extra; do
+    line_number=$((line_number + 1))
+    if ((line_number == 1)); then
+      [[ $target == db && $output_flag == update && -z $format ]] ||
+        fail "grype db update did not run before the scans"
+      continue
     fi
+    [[ $target == sbom:*/sbom-*.spdx.json && $output_flag == --output &&
+      $format == json && $file_flag == --file && -z $extra ]] ||
+      fail "grype scan did not use an SBOM target and --output json"
+    [[ $scan_file == "$output"/scan-*.json && -s $scan_file ]] ||
+      fail "grype scan output was not written below $output"
+  done <"$GRYPE_LOG"
+}
+
+run_happy_shard() {
+  local shard=$1
+  local output=$2
+  local expected_subjects=$3
+  : >"$COSIGN_LOG"
+  : >"$GRYPE_LOG"
+  run_monitor "$work/catalog.json" "$work/images.json" "$shard" 2 "$output"
+  assert_manifest "$output"
+  assert_cosign_run "$expected_subjects"
+  assert_grype_run "$output" "$expected_subjects"
+}
+
+run_happy_shard 0 "$work/shard-0" 1
+run_happy_shard 1 "$work/shard-1" 3
+
+jq -e --slurp '
+  ([.[0].subjects[] | (.name + "@" + .version)] | sort) as $zero |
+  ([.[1].subjects[] | (.name + "@" + .version)] | sort) as $one |
+  (($zero + $one) | length) == 4 and
+  (($zero + $one) | unique | length) == 4 and
+  (($zero + $one) | sort) == ["alpha@1.0", "beta@1.0", "delta@1.0", "gamma@1.0"]
+' "$work/shard-0/manifest.json" "$work/shard-1/manifest.json" >/dev/null ||
+  fail "the two shards were not disjoint or did not cover all catalog images"
+[[ ! -s $FORBIDDEN_LOG ]] || fail "monitor invoked gh, docker, or curl on the happy path"
+
+first_subjects=$(jq -c '[.subjects[] | [.name, .version]]' "$work/shard-0/manifest.json")
+run_happy_shard 0 "$work/shard-0-repeat" 1
+repeat_subjects=$(jq -c '[.subjects[] | [.name, .version]]' "$work/shard-0-repeat/manifest.json")
+[[ $first_subjects == "$repeat_subjects" ]] || fail "shard membership changed between identical runs"
+[[ ! -s $FORBIDDEN_LOG ]] || fail "monitor invoked gh, docker, or curl while checking shard stability"
+
+jq '(.include[] | select(.name == "gamma")) |= del(.context)' \
+  "$work/images.json" >"$work/missing-context.json"
+expect_failure "catalog image without an inventory context was accepted" \
+  run_monitor "$work/catalog.json" "$work/missing-context.json" 0 2 "$work/no-context"
+
+export ATTESTATION_MODE=missing-arm64
+expect_failure "attestation without an arm64 SPDX predicate was accepted" \
+  run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/missing-arm64"
+
+# Republication keeps every earlier attestation on the same digest, so the
+# monitor must evaluate the newest SBOM instead of failing or guessing.
+export ATTESTATION_MODE=republished-amd64
+rm -f "$SBOM_COPY_DIR"/*
+run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/republished"
+unset ATTESTATION_MODE
+jq -e '
+  all(.subjects[].platforms[];
+    (if .platform == "linux/amd64"
+     then .attestations == 3 and .created == "2026-09-07T10:00:00Z"
+     else .attestations == 1 and .created == "2026-09-07T10:00:01Z" end))
+' "$work/republished/manifest.json" >/dev/null ||
+  fail "monitor did not record the newest amd64 attestation of three"
+jq -e '.packages[0].name == "fixture-amd64-2026-09-07T10:00:00Z"' \
+  "$SBOM_COPY_DIR/sbom-amd64.spdx.json" >/dev/null ||
+  fail "monitor scanned an SBOM other than the newest amd64 attestation"
+
+jq '.schemaVersion = 1' "$work/catalog.json" >"$work/wrong-schema.json"
+expect_failure "catalog schemaVersion other than 2 was accepted" \
+  run_monitor "$work/wrong-schema.json" "$work/images.json" 0 2 "$work/wrong-schema"
+jq '.images = []' "$work/catalog.json" >"$work/empty-catalog.json"
+expect_failure "catalog with an empty images array was accepted" \
+  run_monitor "$work/empty-catalog.json" "$work/images.json" 0 2 "$work/empty-catalog"
+printf '%s\n' '{"include":[]}' >"$work/empty-inventory.json"
+expect_failure "inventory with an empty include array was accepted" \
+  run_monitor "$work/catalog.json" "$work/empty-inventory.json" 0 2 "$work/empty-inventory"
+jq 'del(.images[0].scan)' "$work/catalog.json" >"$work/missing-scan.json"
+expect_failure "catalog image without publication scan counts was accepted" \
+  run_monitor "$work/missing-scan.json" "$work/images.json" 0 2 "$work/missing-scan"
+grep -Fq 'catalog image alpha 1.0 has no publication scan counts' "$work/failure.log" ||
+  fail "missing publication scan counts did not produce a useful error"
+
+
+empty_shard=
+for candidate in {0..15}; do
+  set +e
+  run_monitor "$work/catalog.json" "$work/images.json" "$candidate" 16 \
+    "$work/empty-shard-$candidate" >"$work/empty-shard.log" 2>&1
+  status=$?
+  set -e
+  if [[ $status -eq 0 ]]; then
+    continue
   fi
-  : > "$GH_LOG"
-  rm -f "$work/invalid-ack.json"
-  if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-    "$work/wakeup.json" "$work/invalid-checkpoint.json" "$work/invalid-ack.json" "$work/oci-index.json"; then
-    printf 'invalid %s checkpoint was accepted\n' "$invalid" >&2
-    exit 1
+  if grep -Fq 'Empty monitor shard' "$work/empty-shard.log"; then
+    empty_shard=$candidate
+    break
   fi
-  [[ ! -s "$GH_LOG" ]] || { printf 'invalid %s checkpoint called GitHub\n' "$invalid" >&2; exit 1; }
-  [[ ! -e "$work/invalid-ack.json" ]] || { printf 'invalid %s checkpoint was acknowledged\n' "$invalid" >&2; exit 1; }
+  fail "shard $candidate failed for a reason other than selecting no images"
 done
+[[ -n $empty_shard ]] || fail "monitor did not report any empty shard"
 
-# A complete checkpoint with current findings reopens the canonical issue and
-# materializes every finding before persisting and acknowledging its revision.
-# Feed IDs and finding platforms are sets, not lexically ordered protocol fields.
-active_delivery=$(printf active-finding | sha256sum | cut -d' ' -f1)
-active_checkpoint=$(printf checkpoint-active | sha256sum | cut -d' ' -f1)
-active_sha=$(printf checkpoint-active-payload | sha256sum | cut -d' ' -f1)
-jq --arg checkpoint "$active_checkpoint" --arg sha "$active_sha" --arg delivery "$active_delivery" '
-  .checkpoint.checkpoint_id = $checkpoint |
-  .checkpoint.revision = 2 |
-  .checkpoint.payload_sha256 = $sha |
-  .checkpoint.coverage.feed_checkpoint_ids = [("f" * 64),("a" * 64)] |
-  .checkpoint.findings = [{delivery_id:$delivery,package_name:"openssl",ecosystem:"Alpine:v3.23",
-    version:"3.1.2",vuln_id:"CVE-CURRENT",severity:"high",platforms:["linux/arm64","linux/amd64"]}]
-' "$work/checkpoint.json" > "$work/active-checkpoint.json"
-rehash_checkpoint "$work/active-checkpoint.json"
-active_sha=$(jq -r .checkpoint.payload_sha256 "$work/active-checkpoint.json")
-sed 's/"revision": 2,/"revision": 2.0,/' \
-  "$work/active-checkpoint.json" > "$work/numeric-active-checkpoint.json"
-grep -Fq '"revision": 2.0' "$work/numeric-active-checkpoint.json"
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-rm -f "$work/active-ack.json"
-export ISSUES="[[{\"number\":8,\"state\":\"closed\",\"body\":\"$v2_image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export COMMENTS_8='[]'
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-active-checkpoint.json" "$work/active-ack.json" "$work/oci-index.json"
-grep -Fq 'issue reopen 8 --repo owner/repo' "$GH_LOG"
-if grep -Fq 'issue close 8' "$GH_LOG"; then
-  printf 'current checkpoint findings closed the issue\n' >&2
-  exit 1
-fi
-grep -Fq "<!-- squawk-delivery:$active_delivery -->" "$GH_BODY_LOG"
-grep -Fq "<!-- squawk-applied:11:22:2:$active_sha -->" "$GH_BODY_LOG"
+expect_status 2 "SHARD equal to SHARDS did not exit 2" \
+  run_monitor "$work/catalog.json" "$work/images.json" 2 2 "$work/bad-shard-range"
+expect_status 2 "non-numeric SHARD did not exit 2" \
+  run_monitor "$work/catalog.json" "$work/images.json" invalid 2 "$work/bad-shard-text"
+expect_status 2 "SHARDS=0 did not exit 2" \
+  run_monitor "$work/catalog.json" "$work/images.json" 0 0 "$work/bad-shard-count"
 
-# Every higher revision gets an audit note even if a producer reuses its id.
-COMMENTS_8=$(jq -cn --arg checkpoint "$active_checkpoint" --arg sha "$active_sha" \
-  --arg delivery "$active_delivery" '
-  [{body:("<!-- squawk-checkpoint:" + $checkpoint + ":2 -->"),user:{login:"github-actions[bot]"}},
-   {body:("<!-- squawk-applied:11:22:2:" + $sha + " -->"),user:{login:"github-actions[bot]"}},
-   {body:("<!-- squawk-delivery:" + $delivery + " -->"),user:{login:"github-actions[bot]"}}]')
-export COMMENTS_8
-jq '.checkpoint.revision = 3' "$work/active-checkpoint.json" > "$work/reused-checkpoint.json"
-rehash_checkpoint "$work/reused-checkpoint.json"
-sed 's/"revision": 3,/"revision": 3e0,/' \
-  "$work/reused-checkpoint.json" > "$work/numeric-reused-checkpoint.json"
-grep -Fq '"revision": 3e0' "$work/numeric-reused-checkpoint.json"
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-reused-checkpoint.json" "$work/reused-ack.json" "$work/oci-index.json"
-grep -Fq "<!-- squawk-checkpoint:$active_checkpoint:3 -->" "$GH_BODY_LOG"
-if grep -Fq "<!-- squawk-delivery:$active_delivery -->" "$GH_BODY_LOG"; then
-  printf 'higher checkpoint revision duplicated an existing finding\n' >&2
-  exit 1
-fi
-
-# Exact revision replay is an idempotent ACK-only path. The same revision with a
-# different digest and any older revision are rejected before issue mutation.
-export COMMENTS_8="[{\"body\":\"<!-- squawk-applied:11:22:2:$active_sha -->\",\"user\":{\"login\":\"github-actions[bot]\"}}]"
-: > "$GH_LOG"
-rm -f "$work/replay-ack.json"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-active-checkpoint.json" "$work/replay-ack.json" "$work/oci-index.json"
-if grep -Eq '^issue (create|edit|comment|close|reopen)' "$GH_LOG"; then
-  printf 'checkpoint replay mutated an issue\n' >&2
-  exit 1
-fi
-cmp "$work/active-ack.json" "$work/replay-ack.json"
-
-conflicting_checkpoint=$(printf conflicting-checkpoint | sha256sum | cut -d' ' -f1)
-jq --arg checkpoint "$conflicting_checkpoint" '.checkpoint.checkpoint_id = $checkpoint' \
-  "$work/active-checkpoint.json" > "$work/conflicting-checkpoint.json"
-rehash_checkpoint "$work/conflicting-checkpoint.json"
-: > "$GH_LOG"
-rm -f "$work/conflicting-ack.json"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/conflicting-checkpoint.json" "$work/conflicting-ack.json" "$work/oci-index.json"; then
-  printf 'conflicting checkpoint revision was accepted\n' >&2
-  exit 1
-fi
-[[ ! -e "$work/conflicting-ack.json" ]]
-
-newer_sha=$(printf newer | sha256sum | cut -d' ' -f1)
-export COMMENTS_8="[{\"body\":\"<!-- squawk-applied:11:22:3:$newer_sha -->\",\"user\":{\"login\":\"github-actions[bot]\"}}]"
-: > "$GH_LOG"
-rm -f "$work/older-ack.json"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/active-checkpoint.json" "$work/older-ack.json" "$work/oci-index.json"; then
-  printf 'older checkpoint revision was accepted\n' >&2
-  exit 1
-fi
-[[ ! -e "$work/older-ack.json" ]]
-
-# Authoritative retirement has its own non-security closure reason and ACK.
-retirement_checkpoint=$(printf retirement | sha256sum | cut -d' ' -f1)
-retirement_sha=$(printf retirement-payload | sha256sum | cut -d' ' -f1)
-replacement="ghcr.io/tektum/demo@sha256:$(printf replacement | sha256sum | cut -d' ' -f1)"
-jq -n --arg checkpoint "$retirement_checkpoint" --arg sha "$retirement_sha" \
-  --arg image "$v2_image" --arg replacement "$replacement" '
-  {schema_version:2,state:"ready",checkpoint:{checkpoint_id:$checkpoint,revision:3,
-    payload_sha256:$sha,logical_image_ref:$image,
-    source:{installation_id:"11",repository_id:"22",ingestion_delivery_id:"ingestion-2"},
-    kind:"retirement",retired_at:1999999900,authoritative_source_event_id:"publication-2",
-    replacement:{logical_image_ref:$replacement,published_at:1999999800,
-      run_url:"https://github.com/tektum/verity-images/actions/runs/123"}}}' > "$work/retirement.json"
-rehash_checkpoint "$work/retirement.json"
-retirement_sha=$(jq -r .checkpoint.payload_sha256 "$work/retirement.json")
-sed -e 's/"revision": 3,/"revision": 3.0,/' \
-  -e 's/"retired_at": 1999999900,/"retired_at": 1.9999999e9,/' \
-  -e 's/"published_at": 1999999800,/"published_at": 1.9999998e9,/' \
-  "$work/retirement.json" > "$work/numeric-retirement.json"
-grep -Fq '"retired_at": 1.9999999e9' "$work/numeric-retirement.json"
-grep -Fq '"published_at": 1.9999998e9' "$work/numeric-retirement.json"
-rm -f "$work/invalid-retirement-ack.json"
-jq 'del(.checkpoint.authoritative_source_event_id)' "$work/retirement.json" \
-  > "$work/invalid-retirement.json"
-rehash_checkpoint "$work/invalid-retirement.json"
-: > "$GH_LOG"
-if PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/invalid-retirement.json" "$work/invalid-retirement-ack.json"; then
-  printf 'retirement without authoritative evidence was accepted\n' >&2
-  exit 1
-fi
-[[ ! -s "$GH_LOG" ]]
-[[ ! -e "$work/invalid-retirement-ack.json" ]]
-: > "$GH_LOG"
-: > "$GH_BODY_LOG"
-export ISSUES="[[{\"number\":8,\"state\":\"open\",\"body\":\"$v2_image_marker\",\"user\":{\"login\":\"github-actions[bot]\"}}]]"
-export COMMENTS_8="[{\"body\":\"<!-- squawk-applied:11:22:2:$active_sha -->\",\"user\":{\"login\":\"github-actions[bot]\"}}]"
-PATH="$work/bin:$PATH" "$root/scripts/monitor_sboms.sh" \
-  "$work/wakeup.json" "$work/numeric-retirement.json" "$work/retirement-ack.json"
-grep -Fq 'issue close 8 --repo owner/repo --reason not\ planned' "$GH_LOG"
-grep -Fq 'Historical retirement is not evidence' "$work/bodies/issue-edit.md"
-grep -Fq "<!-- squawk-applied:11:22:3:$retirement_sha -->" "$GH_BODY_LOG"
-unset NOW_EPOCH_SECONDS COMMENTS_8
+printf 'passed scripts/test_monitor_sboms.sh\n'

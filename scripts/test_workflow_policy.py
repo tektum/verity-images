@@ -176,7 +176,7 @@ def main() -> None:
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
     monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
-    monitor_validator = (ROOT / "scripts/validate_squawk_reconciliation.jq").read_text(
+    monitor_sarif = (ROOT / "scripts/build_monitor_sarif.py").read_text(
         encoding="utf-8"
     )
     lint = (ROOT / ".github/workflows/lint.yaml").read_text(encoding="utf-8")
@@ -570,71 +570,150 @@ def main() -> None:
         "  GRYPE_SHA256: 0122df7b655981abe547ad3d2190d65551dac6a2bfc80b4dc2a989b5d0587458\n"
         in workflow
     )
-    assert "  schedule:\n" not in monitor
-    assert "  workflow_dispatch:\n" in monitor
-    assert "      payload:\n" in monitor
-    assert "        required: true\n" in monitor
-    finding_job = between(monitor, "\n  finding:\n", "\n  reconcile:\n")
-    reconcile_job = monitor.split("\n  reconcile:\n", maxsplit=1)[1]
-    assert "      contents: read\n      issues: write\n" in finding_job
-    assert "id-token: write" not in finding_job
-    assert "      contents: read\n      id-token: write\n      issues: write\n" in reconcile_job
-    assert "github.actor == 'tektum-squawk[bot]'" not in monitor
-    assert monitor.count("github.actor_id == '312570741'") == 2
-    assert monitor.count("github.triggering_actor == github.actor") == 2
-    assert "vars.SQUAWK_RECONCILIATION_V2_REQUIRED != 'true'" in finding_job
-    assert "vars.SQUAWK_RECONCILIATION_V2_REQUIRED == 'true'" in reconcile_job
-    assert "scripts/monitor_sboms.sh squawk-payload.json\n" in finding_job
-    assert "group: monitor-v1-${{ fromJSON(inputs.payload).delivery_id }}" in finding_job
-    assert "fromJSON(inputs.payload).source.installation_id" in reconcile_job
-    assert "fromJSON(inputs.payload).source.repository_id" in reconcile_job
-    assert "fromJSON(inputs.payload).logical_image_ref" in reconcile_job
-    assert "cancel-in-progress: false" in reconcile_job
-    assert "SQUAWK_ORIGIN: ${{ vars.SQUAWK_RECONCILIATION_ORIGIN }}" in reconcile_job
-    assert "--arg mode origin" in reconcile_job
-    assert reconcile_job.index("--arg mode origin") < reconcile_job.index("ACTIONS_ID_TOKEN_REQUEST_TOKEN")
-    assert '.origin == "https://squawk-staging.omerc.workers.dev"' in monitor_validator
-    assert "audience=squawk:github-actions:reconciliation:v2" in reconcile_job
-    assert '[[ "$status" == 409 ]]' in reconcile_job
-    assert '[[ "$status" == 200 ]]' in reconcile_job
-    assert '[[ "$status" == 204 ]]' in reconcile_job
-    assert "content_type == application/json" in reconcile_job
-    assert 'raw_index=$(docker buildx imagetools inspect --raw "$logical_image")' in reconcile_job
-    assert "--arg mode bound_checkpoint" in reconcile_job
-    assert reconcile_job.index("--arg mode bound_checkpoint") < reconcile_job.index("docker buildx imagetools inspect")
-    assert 'logical_image=$(jq -er .logical_image_ref squawk-payload.json)' in reconcile_job
-    assert "--arg mode bound_checkpoint" in monitor_script
-    assert "printf '%s' \"$raw_index\" > squawk-oci-index.json" in reconcile_job
-    assert "scripts/monitor_sboms.sh squawk-payload.json squawk-checkpoint.json" in reconcile_job
-    assert 'squawk-ack.json "${index[@]}"' in reconcile_job
-    assert "/v1/actions/reconciliations/$delivery/ack" in reconcile_job
-    assert "jq -cjS 'del(.payload_sha256)'" in monitor_script
-    assert '[[ $computed_payload_sha256 == "$payload_sha256" ]]' in monitor_script
-    assert monitor_script.index("computed_payload_sha256=") < monitor_script.index(
-        'load_issues "$issues_file"'
+    monitor_triggers = between(monitor, "\non:\n", "\npermissions: {}\n")
+    # Monitoring is scheduled or operator-started, never driven by an external payload.
+    assert '  schedule:\n    - cron: "17 3 * * *"\n' in monitor_triggers
+    assert "  workflow_dispatch:\n" in monitor_triggers
+    assert "pull_request" not in monitor_triggers
+    assert "workflow_run" not in monitor_triggers
+    assert "\n  push:\n" not in monitor_triggers
+    assert "inputs:" not in monitor
+    assert between(monitor, "permissions: {}\n", "\nenv:\n") == (
+        "\nconcurrency:\n"
+        "  group: monitor-published-images\n"
+        "  cancel-in-progress: false\n"
     )
-    assert 'elif $mode == "normalize_checkpoint" then normalize_safe_integers' in monitor_validator
-    assert monitor_script.index("--arg mode normalize_checkpoint") < monitor_script.index(
-        "computed_payload_sha256="
+    monitor_pins = env_pins(monitor)
+    assert set(monitor_pins) == {"GRYPE_VERSION", "GRYPE_SHA256"}
+    assert all(env_pins(workflow)[name] == value for name, value in monitor_pins.items())
+
+    assert "\njobs:\n  monitor:\n" in monitor
+    assert monitor.count("\n  monitor:\n") == 1
+    monitor_job = monitor.split("\n  monitor:\n", maxsplit=1)[1]
+    assert not [
+        line
+        for line in monitor_job.splitlines()
+        if line.startswith("  ") and not line.startswith("    ")
+    ]
+    assert "    if: github.repository == 'tektum/verity-images'\n" in monitor_job
+    assert "\n    timeout-minutes: 60\n" in monitor_job
+    assert (
+        "\n    permissions:\n"
+        "      contents: read\n"
+        "      security-events: write\n"
+        "    strategy:\n"
+        in monitor_job
     )
-    assert "--argjson all" not in monitor_script
-    assert "--argjson more" not in monitor_script
-    assert '--slurpfile direct "$direct_candidates_file"' in monitor_script
-    assert '--slurpfile more "$work/comments/${ordering_number}.json"' in monitor_script
-    assert '--rawfile body "$file"' in monitor_script
-    assert 'temporary=$(mktemp "$work/comments/${number}.XXXXXX")' in monitor_script
-    assert "def finding_platforms($image):" in monitor_validator
-    assert ".platforms | finding_platforms($image)" in monitor_validator
-    assert monitor.count("uses: ./.github/actions/setup-jq") == 2
-    for job in (finding_job, reconcile_job):
-        assert job.index("uses: ./.github/actions/setup-jq") < job.index("scripts/monitor_sboms.sh")
+    assert "issues: write" not in monitor_job
+    assert "id-token: write" not in monitor_job
+    assert (
+        "    strategy:\n"
+        "      fail-fast: false\n"
+        "      matrix:\n"
+        "        shard: [0, 1, 2, 3, 4, 5, 6, 7]\n"
+        in monitor_job
+    )
+
+    monitor_steps = (
+        "uses: actions/checkout@",
+        "persist-credentials: false",
+        "uses: ./.github/actions/setup-jq",
+        "scripts/install_image_tools.sh monitor",
+        "uses: sigstore/cosign-installer@",
+        "https://tektum.github.io/verity-images/catalog.json",
+        "python3 scripts/gen_matrix.py --all > expected-images.json",
+        'scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor',
+        "python3 scripts/build_monitor_sarif.py monitor/manifest.json",
+        "uses: github/codeql-action/upload-sarif@",
+    )
+    monitor_step_positions = tuple(monitor_job.index(step) for step in monitor_steps)
+    assert monitor_step_positions == tuple(sorted(monitor_step_positions))
+    assert monitor.count("uses: actions/checkout@") == 1
+    assert "          persist-credentials: false\n" in monitor_job
+    assert monitor.count("uses: ./.github/actions/setup-jq") == 1
+    assert "          cosign-release: v3.0.6\n" in monitor_job
+    assert "--write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json" in monitor_job
+    assert 'if [[ "$status" != 200 ]]; then' in monitor_job
+    scan_step = between(
+        monitor_job,
+        "      - name: Scan published SBOMs\n",
+        "\n      - name: Build code scanning results\n",
+    )
+    assert (
+        "          SHARD: ${{ matrix.shard }}\n"
+        "          SHARDS: ${{ strategy.job-total }}\n"
+        "        run: |\n"
+        '          export PATH="$RUNNER_TEMP/verity-tools:$PATH"\n'
+        '          scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor\n'
+        in scan_step
+    )
+    assert scan_step.count("SHARD: ${{ matrix.shard }}") == 1
+    assert scan_step.count("SHARDS: ${{ strategy.job-total }}") == 1
+    scan_shell = scan_step.split("        run: |\n", maxsplit=1)[1]
+    assert "${{" not in scan_shell
+    assert (
+        "python3 scripts/build_monitor_sarif.py monitor/manifest.json \\\n"
+        "            monitor/results.sarif monitor/report.json\n"
+        in monitor_job
+    )
+    assert 'export PATH="$RUNNER_TEMP/verity-tools:$PATH"' in monitor
+
+    sarif_upload = between(
+        monitor_job,
+        "      - name: Upload code scanning results\n",
+        "\n      - name: Upload monitor evidence\n",
+    )
+    assert "uses: github/codeql-action/upload-sarif@" in sarif_upload
+    assert "          sarif_file: monitor/results.sarif\n" in sarif_upload
+    assert "          category: verity-monitor-${{ matrix.shard }}\n" in sarif_upload
+    assert monitor_job.index("scripts/build_monitor_sarif.py") < monitor_job.index(
+        "github/codeql-action/upload-sarif"
+    )
+
     jq_setup = (ROOT / ".github/actions/setup-jq/action.yaml").read_text(encoding="utf-8")
+    assert all("squawk" not in text.lower() for text in (monitor, monitor_script, jq_setup))
     assert "jq-1.8.2/jq-linux-amd64" in jq_setup
     assert "b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f" in jq_setup
     assert '"$tools/jq" | sha256sum --check' in jq_setup
     assert "GITHUB_PATH" not in jq_setup
-    assert monitor.count('export PATH="$RUNNER_TEMP/squawk-tools:$PATH"') == 2
+    assert "$RUNNER_TEMP/verity-tools" in jq_setup
+    assert "squawk-tools" not in jq_setup
     assert '"jq@1.8.2"' in (ROOT / "devbox.json").read_text(encoding="utf-8")
+
+    # Exact assignment lines, so the verified publisher cannot be widened to a
+    # prefix, a suffix, or a second identity.
+    assert [
+        line for line in monitor_script.splitlines()
+        if line.startswith(("identity=", "issuer="))
+    ] == [
+        "identity='" + IDENTITY_ASSIGNMENT.removeprefix("identity=") + "'",
+        "issuer='" + ISSUER_ASSIGNMENT.removeprefix("issuer=") + "'",
+    ]
+    assert "cosign verify-attestation --type spdxjson" in monitor_script
+    assert monitor_script.index("grype db update") < monitor_script.index(
+        'grype "sbom:$predicate"'
+    )
+    assert "for arch in amd64 arm64; do" in monitor_script
+    assert '--arg suffix "-verity-platform-$arch"' in monitor_script
+    # A missing platform SBOM is fatal, but republishing a reproducible digest
+    # appends verified attestations, so the newest SBOM is the one evaluated.
+    assert 'if length == 0 then error("no \\($suffix) SPDX predicate")' in monitor_script
+    assert 'sort_by(.creationInfo.created // "") | last' in monitor_script
+    assert "if ((selected == 0)); then" in monitor_script
+    assert ".schemaVersion == 2 and (.images | length > 0)" in monitor_script
+    assert all(command not in monitor_script for command in ("gh ", "docker ", "curl "))
+
+    assert "# Parity with scripts/evaluate_scan_gate.sh: a named fix version" in monitor_sarif
+    assert 'fix.get("versions") or [] if version' in monitor_sarif
+    assert "if not finding.fixed:\n                    continue" in monitor_sarif
+    assert "if len(identities) != 1:" in monitor_sarif
+    assert "monitor shard mixed vulnerability databases" in monitor_sarif
+
+    # Monitoring observes published artifacts and cannot change the image matrix.
+    assert ".github/workflows/monitor.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/monitor_sboms.sh" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/build_monitor_sarif.py" not in gen_matrix.GLOBAL_PATHS
+    assert not (ROOT / "scripts/validate_squawk_reconciliation.jq").exists()
 
     publish_job = between(workflow, "\n  publish:\n", "\n  build-gate:\n")
     matrix_job = between(workflow, "\n  matrix:\n", "\n  validate:\n")
@@ -660,8 +739,9 @@ def main() -> None:
     assert runner(catalog) == f"{RUNS_ON_PREFIX}catalog/runner=4cpu-linux-x64"
     assert runner(deploy_job) == f"{RUNS_ON_PREFIX}deploy/runner=4cpu-linux-x64"
     assert runner(lint) == f"{RUNS_ON_PREFIX}lint/runner=4cpu-linux-x64"
-    assert runner(finding_job) == f"{RUNS_ON_PREFIX}monitor-v1/runner=4cpu-linux-x64"
-    assert runner(reconcile_job) == f"{RUNS_ON_PREFIX}monitor-v2/runner=4cpu-linux-x64"
+    assert runner(monitor_job) == (
+        f"{RUNS_ON_PREFIX}monitor-${{{{ matrix.shard }}}}/runner=4cpu-linux-x64"
+    )
     assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
 
     assert "needs: matrix\n" in stall_guard_job
