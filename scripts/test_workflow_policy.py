@@ -753,11 +753,12 @@ def main() -> None:
     assert "if ((selected == 0)); then" in monitor_script
     assert ".schemaVersion == 2 and (.images | length > 0)" in monitor_script
     assert "grype db status --output json" in monitor_script
-    assert 'db_checksum="sha256:$(sha256sum "$db_path"' in monitor_script
+    assert 'archive_checksum=$(jq -er' in monitor_script
+    assert 'capture("[?&]checksum=sha256%3A' in monitor_script
     assert ".inputDigest" in monitor_script
     assert "database: $database[0]" in monitor_script
     assert "export GRYPE_DB_AUTO_UPDATE=false" in monitor_script
-    assert 'if [[ "$final_db_checksum" != "$db_checksum" ]]; then' in monitor_script
+    assert 'if [[ "$final_db_checksum" != "$local_db_checksum" ]]; then' in monitor_script
 
 
     assert all(command not in monitor_script for command in ("gh ", "docker ", "curl "))
