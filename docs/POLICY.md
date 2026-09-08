@@ -65,8 +65,10 @@ publishes nothing; it never converts a finding into an exception.
 
 ## Vulnerability gates
 
-Grype records every known candidate vulnerability before any registry push. Scan
-JSON is kept as a workflow artifact and later consumed by the catalog.
+Grype scans the same Syft-generated per-platform SPDX SBOMs that publication
+later attests, before any registry push. Patched-image upstream comparisons use
+the same Syft-to-Grype path. Scan JSON is kept as a workflow artifact and later
+consumed by the catalog.
 
 - Every image fails on any fixable vulnerability reported by Grype, regardless
   of severity or track. Unfixed findings remain in the report and catalog.

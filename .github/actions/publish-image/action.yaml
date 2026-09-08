@@ -89,32 +89,38 @@ runs:
     - name: Scan amd64 candidate
       shell: bash
       env:
-        IMAGE: ${{ inputs.candidate-image }}-amd64
+        SBOM: ${{ inputs.sbom-directory }}/sbom-amd64.spdx.json
         SCAN: scan-${{ inputs.image-name }}-amd64.json
-      run: grype "docker:${IMAGE}" --output json --file "$SCAN"
+      run: grype "sbom:${SBOM}" --output json --file "$SCAN"
 
     - name: Scan arm64 candidate
       shell: bash
       env:
-        IMAGE: ${{ inputs.candidate-image }}-arm64
+        SBOM: ${{ inputs.sbom-directory }}/sbom-arm64.spdx.json
         SCAN: scan-${{ inputs.image-name }}-arm64.json
-      run: grype "docker:${IMAGE}" --output json --file "$SCAN"
+      run: grype "sbom:${SBOM}" --output json --file "$SCAN"
 
     - name: Scan amd64 upstream
       if: inputs.track == 'patched'
       shell: bash
       env:
         IMAGE: ${{ inputs.upstream-image }}-amd64
+        SBOM: sbom-${{ inputs.image-name }}-upstream-amd64.spdx.json
         SCAN: scan-${{ inputs.image-name }}-upstream-amd64.json
-      run: grype "docker:${IMAGE}" --output json --file "$SCAN"
+      run: |
+        syft "docker:${IMAGE}" -o "spdx-json=${SBOM}"
+        grype "sbom:${SBOM}" --output json --file "$SCAN"
 
     - name: Scan arm64 upstream
       if: inputs.track == 'patched'
       shell: bash
       env:
         IMAGE: ${{ inputs.upstream-image }}-arm64
+        SBOM: sbom-${{ inputs.image-name }}-upstream-arm64.spdx.json
         SCAN: scan-${{ inputs.image-name }}-upstream-arm64.json
-      run: grype "docker:${IMAGE}" --output json --file "$SCAN"
+      run: |
+        syft "docker:${IMAGE}" -o "spdx-json=${SBOM}"
+        grype "sbom:${SBOM}" --output json --file "$SCAN"
 
     - name: Evaluate vulnerability gate
       id: gate
@@ -189,6 +195,7 @@ runs:
         name: scan-${{ inputs.image-name }}-${{ inputs.tag-version }}
         path: |
           scan-${{ inputs.image-name }}-*.json
+          sbom-${{ inputs.image-name }}-upstream-*.spdx.json
           ${{ inputs.evidence-file }}
           ${{ inputs.sbom-directory }}/*.spdx.json
           ${{ inputs.build-directory }}/apko-sbom/*.spdx.json
