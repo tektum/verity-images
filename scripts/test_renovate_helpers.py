@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -137,14 +138,36 @@ def test_corepack_install(root: Path) -> None:
         assert result.returncode != 0, declaration
 
 
+def _render_template(template: str, groups: dict[str, str]) -> str:
+    rendered = template
+    for key, value in groups.items():
+        rendered = rendered.replace("{{" + key + "}}", value)
+    return rendered
+
+
+def _extract(manager: dict, text: str) -> list[dict[str, str]]:
+    found = []
+    for raw_pattern in manager["matchStrings"]:
+        pattern = raw_pattern.replace("(?<", "(?P<")
+        for match in re.finditer(pattern, text):
+            groups = match.groupdict()
+            dep_name = groups.get("depName")
+            if dep_name is None:
+                dep_name = _render_template(manager["depNameTemplate"], groups)
+            found.append({"depName": dep_name, "currentValue": groups["currentValue"]})
+    return found
+
+
 def test_renovate_configuration() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     managers = renovate["customManagers"]
 
     assert renovate["automerge"] is False
     assert renovate["platformAutomerge"] is False
-    assert len(managers) == 3
-    assert [manager["managerFilePatterns"] for manager in managers] == [
+    assert renovate["osvVulnerabilityAlerts"] is True
+    assert all(manager["customType"] == "regex" for manager in managers)
+    assert len(managers) == 12
+    assert [manager["managerFilePatterns"] for manager in managers[:3]] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
@@ -153,13 +176,16 @@ def test_renovate_configuration() -> None:
         "docker",
         "docker",
         "github-releases",
+        "go",
+        "go",
+        "go",
+        "go",
+        "npm",
+        "npm",
+        "crate",
+        "crate",
+        "maven",
     ]
-    assert all(manager["customType"] == "regex" for manager in managers)
-    assert all(
-        "images/" not in pattern and "patched/" not in pattern
-        for manager in managers
-        for pattern in manager["managerFilePatterns"]
-    )
 
     assert renovate["packageRules"] == [
         {
@@ -172,7 +198,84 @@ def test_renovate_configuration() -> None:
             "automerge": False,
             "labels": ["apk-repository-state", "review-required"],
         },
+        {
+            "matchDatasources": ["go", "crate", "maven", "npm"],
+            "enabled": False,
+            "labels": ["security-floor", "review-required"],
+        },
     ]
+
+    # Every security-floor manager targets a vulnerability-monitored input
+    # under images/, packages/, or patched/, and the disable rule scopes
+    # exactly the four new datasources so existing docker/github-releases
+    # automerge behavior stays untouched.
+    security_managers = managers[3:]
+    assert all(
+        any(root in pattern for root in ("images/", "packages/", "patched/"))
+        for manager in security_managers
+        for pattern in manager["managerFilePatterns"]
+    )
+    assert {manager["datasourceTemplate"] for manager in security_managers} == {
+        "go",
+        "npm",
+        "crate",
+        "maven",
+    }
+
+    # Prove each regex actually extracts the expected dependency from the
+    # real repository file it targets, so a typo fails loudly instead of
+    # the manager silently never matching anything.
+    expectations = [
+        (3, "images/restic/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
+        (3, "packages/verity-restic-0.18/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
+        (3, "images/velero/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
+        (4, "packages/gosu/melange.yaml", [{"depName": "golang.org/x/sys", "currentValue": "v0.44.0"}]),
+        (5, "patched/eck-operator/post-patch.Dockerfile", [{"depName": "github.com/google/cel-go", "currentValue": "v0.29.0"}]),
+        (6, "patched/eck-operator/post-patch.Dockerfile", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.1"}]),
+        (7, "patched/node-22-slim/post-patch.Dockerfile", [{"depName": "npm", "currentValue": "12.0.2"}]),
+        (
+            8,
+            "patched/node-22-slim/post-patch.Dockerfile",
+            [
+                {"depName": "ip-address", "currentValue": "10.3.1"},
+                {"depName": "undici", "currentValue": "6.28.0"},
+            ],
+        ),
+        (
+            9,
+            "images/bat/melange.yaml",
+            [
+                {"depName": "plist", "currentValue": "1.10.0"},
+                {"depName": "git2", "currentValue": "0.21.0"},
+            ],
+        ),
+        (
+            10,
+            "images/deno/melange.yaml",
+            [
+                {"depName": "rand", "currentValue": "0.8.6"},
+                {"depName": "quinn-proto", "currentValue": "0.11.17"},
+            ],
+        ),
+        (10, "images/vector/melange.yaml", [{"depName": "tonic", "currentValue": "0.12.3"}]),
+        (
+            11,
+            "images/cassandra/melange.yaml",
+            [
+                {"depName": "at.yawk.lz4:lz4-java", "currentValue": "1.11.1"},
+                {"depName": "ch.qos.logback:logback-classic", "currentValue": "1.5.34"},
+                {"depName": "ch.qos.logback:logback-core", "currentValue": "1.5.34"},
+                {"depName": "com.fasterxml.jackson.core:jackson-annotations", "currentValue": "2.21"},
+                {"depName": "com.fasterxml.jackson.core:jackson-core", "currentValue": "2.21.5"},
+                {"depName": "com.fasterxml.jackson.core:jackson-databind", "currentValue": "2.21.5"},
+                {"depName": "io.netty:netty-all", "currentValue": "4.1.136.Final"},
+                {"depName": "io.netty:netty-transport-native-epoll", "currentValue": "4.1.136.Final"},
+            ],
+        ),
+    ]
+    for index, relative_path, expected in expectations:
+        text = (ROOT / relative_path).read_text(encoding="utf-8")
+        assert _extract(managers[index], text) == expected, relative_path
 
 
 
