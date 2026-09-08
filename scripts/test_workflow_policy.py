@@ -810,10 +810,24 @@ def main() -> None:
     deploy_job = catalog.split("\n  deploy:\n", maxsplit=1)[1]
     assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
-        f"{RUNS_ON_PREFIX}validate-${{{{ strategy.job-index }}}}/"
+        "${{ matrix.track == 'patched' && format('runs-on={0}-{1}-validate-{2}/"
         "family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
-        "extras=otel/spot=false"
+        "extras=otel/spot=false', github.run_id, github.run_attempt, strategy.job-index) "
+        "|| 'namespace-profile-verity-ci-heavy' }}"
     )
+    assert "          smoke-before-scan: ${{ matrix.track == 'wolfi' }}\n" in validate_job
+    assert "smoke-before-scan:" not in publish_job
+    containerd_snapshotter_step = (
+        "      - name: Enable Docker containerd snapshotter\n"
+        "        if: matrix.track == 'patched'\n"
+        "        run: |\n"
+        "          printf '%s\\n' "
+        "'{\"features\":{\"containerd-snapshotter\":true}}' | sudo tee "
+        "/etc/docker/daemon.json\n"
+        "          sudo systemctl restart docker\n"
+    )
+    assert containerd_snapshotter_step in validate_job
+    assert containerd_snapshotter_step in publish_job
     assert runner(stall_guard_job) == "ubuntu-latest"
     assert runner(publish_job) == (
         f"{RUNS_ON_PREFIX}publish-${{{{ strategy.job-index }}}}/"
