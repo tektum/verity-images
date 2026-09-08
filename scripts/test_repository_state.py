@@ -256,35 +256,27 @@ def updater_requires_review() -> None:
     managers = renovate["customManagers"]
     rules = renovate["packageRules"]
     assert any("repository-state" in manager["managerFilePatterns"][0] for manager in managers)
-    source_managers = [
-        manager
+    assert not any(
+        "images/" in pattern or "patched/" in pattern
         for manager in managers
-        if manager["managerFilePatterns"][0].startswith("/^images/")
-    ]
-    assert source_managers
-    assert all(
-        any("(?<currentValue>" in match for match in manager["matchStrings"])
-        for manager in source_managers
+        for pattern in manager["managerFilePatterns"]
     )
-    assert all("autoReplaceStringTemplate" not in manager for manager in source_managers)
-    assert renovate["automerge"] is True
-    assert renovate["platformAutomerge"] is True
+    assert renovate["automerge"] is False
+    assert renovate["platformAutomerge"] is False
     assert renovate["automergeType"] == "pr"
     assert renovate["prCreation"] == "immediate"
+    assert any(
+        rule.get("matchFileNames") == [".github/workflows/*.yaml"]
+        and rule.get("automerge") is True
+        and rule.get("platformAutomerge") is True
+        for rule in rules
+    )
     assert any(
         rule.get("matchFileNames") == ["packages/repository-state.json"]
         and rule.get("automerge") is False
         and rule.get("labels") == ["apk-repository-state", "review-required"]
         for rule in rules
     )
-    assert not any(
-        rule.get("matchPackageNames") == ["*"] and rule.get("automerge") is False
-        for rule in rules
-    )
-    assert all(rule.get("automerge", False) is False for rule in rules)
-    assert all(rule.get("platformAutomerge", False) is False for rule in rules)
-    assert all(rule.get("automergeType", "pr") == "pr" for rule in rules)
-    assert all(rule.get("prCreation", "immediate") == "immediate" for rule in rules)
 
 
 def main() -> None:

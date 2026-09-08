@@ -6,10 +6,11 @@
 # How to run:
 #   uv run scripts/build_monitor_sarif.py MANIFEST SARIF REPORT
 #
-# Turns the Grype reports of one monitor shard into a SARIF run and a machine
-# readable report. Only findings with a published fix become code scanning
-# results: that is the same rule the publication gate applies, so every alert
-# is a rebuild that is available now. Unfixed findings stay in the report.
+# Turns the Grype reports of one monitor shard into a normalized report and a
+# SARIF projection. Only findings with a published fix become code scanning
+# results, matching the publication gate. A package fix is a remediation
+# candidate; applying it may require changed image inputs. Unfixed findings stay
+# in the report totals.
 
 from __future__ import annotations
 
@@ -24,6 +25,8 @@ SARIF_SCHEMA: Final = (
     "schema/sarif-schema-2.1.0.json"
 )
 SEVERITIES: Final = ("critical", "high", "medium", "low", "negligible", "unknown")
+SEVERITY_RANK: Final = {severity: rank for rank, severity in enumerate(SEVERITIES)}
+
 LEVELS: Final = {
     "critical": "error",
     "high": "error",
@@ -96,19 +99,27 @@ def advisory_url(match: dict) -> str:
             return str(url)
     return ""
 
-
-def database_identity(document: dict) -> dict[str, object]:
+def database_identity(document: dict, database: dict) -> dict[str, object]:
     descriptor = document.get("descriptor") or {}
-    database = descriptor.get("db") or {}
-    return {
-        "name": descriptor.get("name"),
-        "version": descriptor.get("version"),
-        "db": {
-            key: database[key]
-            for key in ("built", "schemaVersion", "checksum")
-            if key in database
-        },
-    }
+    name = descriptor.get("name")
+    version = descriptor.get("version")
+    if not isinstance(name, str) or not name or not isinstance(version, str) or not version:
+        raise SystemExit("monitor scan is missing its Grype name or version")
+    required = ("schemaVersion", "built", "checksum")
+    if any(not isinstance(database.get(key), str) or not database[key] for key in required):
+        raise SystemExit("monitor manifest has an invalid vulnerability database identity")
+    scan_database = descriptor.get("db") or {}
+    if isinstance(scan_database, dict) and isinstance(scan_database.get("status"), dict):
+        scan_database = scan_database["status"]
+    if isinstance(scan_database, dict):
+        for key in ("schemaVersion", "built"):
+            value = scan_database.get(key)
+            if value not in (None, "") and value != database[key]:
+                raise SystemExit(
+                    f"monitor scan database {key} does not match the frozen shard database"
+                )
+    return {"name": name, "version": version, "db": database}
+
 
 
 def empty_counts() -> dict[str, int]:
@@ -134,6 +145,7 @@ class Finding:
         self.severity = severity_of(match)
         self.fixed: set[str] = set(fixed_versions(match))
         self.platforms: set[str] = set()
+        self.platform_fixes: dict[str, set[str]] = {}
 
     @property
     def key(self) -> tuple[str, str, str, str, str, str]:
@@ -150,14 +162,47 @@ class Finding:
         stream = "|".join(self.key)
         return hashlib.sha256(stream.encode("utf-8")).hexdigest()
 
+    def add_platform(self, platform: str, fixes: set[str]) -> None:
+        self.platforms.add(platform)
+        self.platform_fixes.setdefault(platform, set()).update(fixes)
+
+    def report_record(self) -> dict[str, object]:
+        subject = self.subject
+        return {
+            "fingerprint": self.fingerprint(),
+            "image": subject["name"],
+            "version": subject["version"],
+            "track": subject["track"],
+            "context": subject["context"],
+            "reference": subject["reference"],
+            "digest": subject["digest"],
+            "inputDigest": subject["inputDigest"],
+            "advisory": self.advisory,
+            "package": {
+                "type": self.kind,
+                "name": self.package,
+                "purl": self.purl,
+                "installedVersion": self.installed,
+            },
+            "severity": self.severity,
+            "fixedVersions": sorted(self.fixed),
+            "platforms": [
+                {
+                    "platform": platform,
+                    "fixedVersions": sorted(self.platform_fixes[platform]),
+                }
+                for platform in sorted(self.platforms)
+            ],
+        }
+
     def result(self) -> dict[str, object]:
         platforms = ", ".join(sorted(self.platforms))
         fixes = ", ".join(sorted(self.fixed))
         subject = self.subject
         message = (
             f"{self.package} {self.installed} in {subject['reference']} "
-            f"({platforms}) is affected by {self.advisory}, fixed in {fixes}. "
-            f"Rebuild {subject['name']} {subject['version']} to ship the fix."
+            f"({platforms}) is affected by {self.advisory}; package fix versions: {fixes}. "
+            "Apply compatible image inputs and publish a candidate that passes the zero-fixable gate."
         )
         return {
             "ruleId": self.advisory,
@@ -176,8 +221,15 @@ class Finding:
                 "image": subject["name"],
                 "imageVersion": subject["version"],
                 "track": subject["track"],
+                "context": subject["context"],
                 "reference": subject["reference"],
+                "digest": subject["digest"],
+                "inputDigest": subject["inputDigest"],
                 "platforms": sorted(self.platforms),
+                "platformFixes": {
+                    platform: sorted(self.platform_fixes[platform])
+                    for platform in sorted(self.platforms)
+                },
                 "package": self.package,
                 "packageType": self.kind,
                 "purl": self.purl,
@@ -188,11 +240,12 @@ class Finding:
         }
 
 
+
 def rule_of(advisory: str, severity: str, description: str, url: str,
             score: float | None) -> dict[str, object]:
     level = LEVELS[severity]
     text = description or f"{advisory} has no published description."
-    help_text = f"{text} Rebuild every affected image against current packages."
+    help_text = f"{text} Apply a compatible remediation and require the zero-fixable publication gate."
     properties: dict[str, object] = {
         "tags": ["security", "vulnerability", f"severity/{severity}"],
         "problem": {"severity": PROBLEM_SEVERITIES[level]},
@@ -217,12 +270,16 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
     rules: dict[str, dict[str, object]] = {}
     identities: list[dict[str, object]] = []
     reported: list[dict[str, object]] = []
+    database = manifest.get("database")
+    if not isinstance(database, dict):
+        raise SystemExit("monitor manifest is missing its vulnerability database identity")
+
     for subject in manifest["subjects"]:
         monitored = empty_counts()
         fixable = 0
         for entry in subject["platforms"]:
             document = json.loads((root / entry["scan"]).read_text(encoding="utf-8"))
-            identity = database_identity(document)
+            identity = database_identity(document, database)
             if identity not in identities:
                 identities.append(identity)
             for match in document.get("matches") or []:
@@ -231,13 +288,17 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
                 if not finding.fixed:
                     continue
                 fixable += 1
+                current_fixes = set(finding.fixed)
                 existing = findings.get(finding.key)
                 if existing is None:
                     findings[finding.key] = finding
                     existing = finding
                 else:
-                    existing.fixed |= finding.fixed
-                existing.platforms.add(entry["platform"])
+                    existing.fixed |= current_fixes
+                if SEVERITY_RANK[finding.severity] < SEVERITY_RANK[existing.severity]:
+                    existing.severity = finding.severity
+                existing.add_platform(entry["platform"], current_fixes)
+
                 score = cvss_score(match)
                 rule = rules.get(finding.advisory)
                 if rule is None or (
@@ -256,14 +317,17 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
                 "name": subject["name"],
                 "version": subject["version"],
                 "track": subject["track"],
+                "context": subject["context"],
                 "reference": subject["reference"],
                 "digest": subject["digest"],
+                "inputDigest": subject["inputDigest"],
                 "platforms": [entry["platform"] for entry in subject["platforms"]],
                 "monitored": monitored,
                 "published": subject["published"],
                 "fixable": fixable,
             }
         )
+
     if len(identities) != 1:
         raise SystemExit(
             "monitor shard mixed vulnerability databases: "
@@ -306,6 +370,7 @@ def main() -> None:
         "grype": identity,
         "totals": totals,
         "subjects": reported,
+        "findings": [finding.report_record() for finding in ordered],
     }
     sarif = {
         "$schema": SARIF_SCHEMA,

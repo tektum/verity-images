@@ -28,6 +28,11 @@ fi
 # inputs are validated before the first subject is selected.
 jq -e '.schemaVersion == 2 and (.images | length > 0)' "$catalog" >/dev/null
 jq -e '(.include | length) > 0' "$images" >/dev/null
+jq -e --slurp '
+  ([.[0].images[] | [.name, .version]] | sort) ==
+  ([.[1].include[] | [.name, .tag_version]] | sort)
+' "$catalog" "$images" >/dev/null
+
 jq -e '
   [.images[] | select((.scan.all // .scan.final) == null)] as $missing |
   if ($missing | length) == 0 then true
@@ -36,19 +41,39 @@ jq -e '
   end
 ' "$catalog" >/dev/null
 
+catalog_sha256="sha256:$(sha256sum "$catalog" | cut -d' ' -f1)"
+inventory_sha256="sha256:$(sha256sum "$images" | cut -d' ' -f1)"
+
 mkdir -p "$output"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
-# One database for the whole shard. Each scan document records the descriptor
-# that produced it and the SARIF build rejects a shard scanned with two.
+# Record the exact database file evaluated by this shard. The dashboard writer
+# rejects a sweep whose shards used different builds or checksums.
 grype db update
+grype db status --output json >"$work/db-status.json"
+db_path=$(jq -er 'select(.valid == true) | .path' "$work/db-status.json")
+[[ -f "$db_path" ]] || {
+  printf 'Grype database path is not a file: %s\n' "$db_path" >&2
+  exit 1
+}
+db_checksum="sha256:$(sha256sum "$db_path" | cut -d' ' -f1)"
+jq --arg checksum "$db_checksum" '
+  {schemaVersion, built, from, checksum: $checksum} |
+  select((.schemaVersion | length) > 0 and (.built | length) > 0)
+' "$work/db-status.json" >"$work/database.json"
+# Every later Grype process opens this exact file. Disable its normal automatic
+# update path and verify the file again before emitting any report.
+export GRYPE_DB_AUTO_UPDATE=false
+
+
 
 subjects=$work/subjects.json
 : >"$subjects"
 selected=0
 
-while IFS=$'\t' read -r name version track reference digest context published; do
+while IFS=$'\t' read -r name version track reference digest input_digest context published; do
+
   # Shard membership is a stable function of the logical image stream, so an
   # image keeps one code scanning category across runs and rebuilds.
   stream=$(printf '%s@%s' "$name" "$version" | sha256sum | cut -c1-8)
@@ -87,15 +112,15 @@ while IFS=$'\t' read -r name version track reference digest context published; d
         created: (.sbom.creationInfo.created // null)}' "$selection")")
   done
   jq -cn --arg name "$name" --arg version "$version" --arg track "$track" \
-    --arg reference "$reference" --arg digest "$digest" --arg context "$context" \
-    --argjson published "$published" \
+    --arg reference "$reference" --arg digest "$digest" --arg inputDigest "$input_digest" \
+    --arg context "$context" --argjson published "$published" \
     --argjson platforms "[$(
       IFS=,
       printf '%s' "${platforms[*]}"
     )]" '
     {name: $name, version: $version, track: $track, reference: $reference,
-     digest: $digest, context: $context, published: $published,
-     platforms: $platforms}
+     digest: $digest, inputDigest: $inputDigest, context: $context,
+     published: $published, platforms: $platforms}
   ' >>"$subjects"
   selected=$((selected + 1))
 done < <(jq -r --slurpfile images "$images" '
@@ -103,10 +128,18 @@ done < <(jq -r --slurpfile images "$images" '
     map({key: (.name + " " + .tag_version), value: .context}) |
     from_entries) as $context |
   .images[] |
-  [.name, .version, .track, .reference, .digest,
+  [.name, .version, .track, .reference, .digest, .inputDigest,
    ($context[.name + " " + .version] // ""),
    ((.scan.all // .scan.final) | tojson)] | @tsv
 ' "$catalog")
+
+
+final_db_checksum="sha256:$(sha256sum "$db_path" | cut -d' ' -f1)"
+if [[ "$final_db_checksum" != "$db_checksum" ]]; then
+  printf 'Grype database changed during shard scan: %s -> %s\n' \
+    "$db_checksum" "$final_db_checksum" >&2
+  exit 1
+fi
 
 if ((selected == 0)); then
   printf '::error title=Empty monitor shard::Shard %s of %s selected no image.\n' \
@@ -115,12 +148,16 @@ if ((selected == 0)); then
 fi
 
 jq --slurp --argjson shard "$shard" --argjson shards "$shards" \
-  --slurpfile catalog "$catalog" '
+  --arg catalogSha256 "$catalog_sha256" --arg inventorySha256 "$inventory_sha256" \
+  --slurpfile catalog "$catalog" --slurpfile database "$work/database.json" '
   {shard: $shard,
    shards: $shards,
    catalog: {schemaVersion: $catalog[0].schemaVersion,
              publishedAt: $catalog[0].publishedAt,
              source: $catalog[0].source,
-             images: ($catalog[0].images | length)},
+             images: ($catalog[0].images | length),
+             sha256: $catalogSha256,
+             inventorySha256: $inventorySha256},
+   database: $database[0],
    subjects: .}
 ' "$subjects" >"$output/manifest.json"

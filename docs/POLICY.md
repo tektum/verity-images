@@ -2,7 +2,7 @@
 
 ## Build and monitoring cadence
 
-Pushes to `main` rebuild published images. Pull requests build, scan, and
+Pushes to `main` rebuild affected published images. Pull requests build, scan, and
 smoke-test affected images but never authenticate to GHCR, publish, sign,
 attest, or move tags.
 
@@ -17,15 +17,36 @@ its own code scanning category, so a failed shard leaves its previous alerts
 untouched instead of retiring them.
 
 Only findings with a published fix become code scanning alerts, the same rule
-used by the publication gate. Unfixed findings remain in the shard report
-artifact.
+used by the publication gate. A package-level fix is a remediation candidate,
+not proof that rebuilding unchanged inputs can ship it.
 
 GitHub closes alerts when a later complete shard upload no longer reports the
 finding. A failed or incomplete shard never closes an alert. Retiring a digest
 is not a security fix.
 
-Monitoring writes no GitHub issue and depends on no external service or
-database.
+The permanent, pinned [Image Dashboard](https://github.com/tektum/verity-images/issues/1091)
+is a read-only image-level view derived from monitor reports. It updates only
+after all eight shards complete against one coherent catalog and inventory. A
+failed or incomplete scan preserves the previous complete dashboard snapshot.
+The dashboard has no remediation controls, and issue edits trigger no builds,
+updates, or other work.
+
+A dashboard row disappears only after a replacement digest is published through
+the zero-fixable gate and a later complete monitor scan verifies that digest. A
+missing, closed, or malformed dashboard issue fails the update; monitoring
+never creates a replacement.
+
+## Update cadence
+
+Image sources, image-local Go and Cargo pins, and committed APKO locks are
+reviewed inputs. They are not advanced merely because newer versions exist.
+An APKO lock refresh is explicit and targets exactly one image.
+
+Human-directed vulnerability repairs use a targeted rebuild when the reviewed
+inputs can consume the candidate fix, or an image-local pull request when a
+source, package, language dependency, recipe, or lock must change.
+Infrastructure dependency maintenance is separate and does not advance image
+inputs.
 
 ## Vulnerability gates
 

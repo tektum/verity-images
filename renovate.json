@@ -1,21 +1,12 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "automerge": true,
-  "platformAutomerge": true,
+  "automerge": false,
+  "platformAutomerge": false,
   "automergeType": "pr",
   "prCreation": "immediate",
   "enabledManagers": ["custom.regex"],
   "customManagers": [
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^patched/[^/]+/source\\.yaml$/"],
-      "matchStrings": [
-        "image:\\s*(?<depName>\\S+):(?<currentValue>\\S+)\\s*\\ndigest:\\s*(?<currentDigest>sha256:[a-f0-9]{64})"
-      ],
-      "datasourceTemplate": "docker",
-      "versioningTemplate": "docker"
-    },
     {
       "customType": "regex",
       "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
@@ -37,160 +28,18 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^images/.+/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/[^\\s]+)[\\s\\S]*?tag:\\s*v\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/cassandra/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/apache/cassandra)[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})[\\s\\S]*?tag:\\s*cassandra-\\$\\{\\{package\\.version\\}\\}"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^cassandra-(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/cluster-autoscaler/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/kubernetes/autoscaler)[\\s\\S]*?tag:\\s*cluster-autoscaler-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^cluster-autoscaler-(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/tidb/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"[^\"]+\"[\\s\\S]*?upstream-version:\\s*(?<currentValue>[^\\s]+)[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/pingcap/tidb)[\\s\\S]*?tag:\\s*v\\$\\{\\{vars\\.upstream-version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^v(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/valkey/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/valkey-io/valkey)[\\s\\S]*?tag:\\s*\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/zookeeper/melange\\.yaml$/"],
-      "matchStrings": [
-        "version:\\s*\"(?<currentValue>[^\"]+)\"[\\s\\S]*?repository:\\s*(?<packageName>https://github\\.com/apache/zookeeper)[\\s\\S]*?tag:\\s*release-\\$\\{\\{package\\.version\\}\\}[\\s\\S]*?expected-commit:\\s*(?<currentDigest>[a-f0-9]{40})"
-      ],
-      "datasourceTemplate": "git-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^release-(?<version>.*)$"
-    },
-    {
-      "customType": "regex",
       "managerFilePatterns": ["/^packages/repository-state\\.json$/"],
       "matchStrings": ["\\\"tag\\\": \\\"(?<currentValue>apk-repo-v[0-9]{4})\\\""],
       "depNameTemplate": "tektum/verity-images",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^apk-repo-v(?<major>[0-9]{4})$"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^images/(?:argo-workflows|gitlab-runner|otel-collector|tekton-controller|velero)/melange\\.yaml$/"
-      ],
-      "matchStringsStrategy": "recursive",
-      "matchStrings": [
-        "go get [\\\\]\\n(?<dependencies>(?:\\s+[A-Za-z0-9._~/-]+@v[^\\s]+(?: [\\\\])?\\n)+)",
-        "(?:^|\\n)\\s+(?<depName>[A-Za-z0-9._~-]+(?:/[A-Za-z0-9._~-]+)+)@(?<currentValue>v[^\\s\\\\]+)"
-      ],
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/(?:restic|velero)/melange\\.yaml$/"],
-      "matchStringsStrategy": "recursive",
-      "matchStrings": [
-        "[\\s\\S]*google\\.golang\\.org/grpc@\\$\\{\\{vars\\.grpc-floor\\}\\}[\\s\\S]*",
-        "(?:^|\\n)\\s*grpc-floor:\\s*[\"']?(?<currentValue>v[^\\s\"']+)[\"']?"
-      ],
-      "depNameTemplate": "google.golang.org/grpc",
-      "datasourceTemplate": "go",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/deno/melange\\.yaml$/"],
-      "matchStrings": [
-        "cargo update -p (?<depName>[A-Za-z0-9_-]+)(?:@[^\\s]+)? --precise (?<currentValue>[^\\s]+)"
-      ],
-      "datasourceTemplate": "crate",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/go/[^/]+/melange\\.yaml$/"],
-      "matchStrings": ["(?:^|\\n)  version:\\s*\"(?<currentValue>1\\.\\d+\\.\\d+)\""],
-      "depNameTemplate": "golang/go",
-      "datasourceTemplate": "github-tags",
-      "versioningTemplate": "semver",
-      "extractVersionTemplate": "^go(?<version>.*)$"
     }
   ],
   "packageRules": [
     {
-      "matchFileNames": ["images/**/melange.yaml"],
-      "groupName": "image {{packageFileDir}}",
-      "groupSlug": "{{packageFileDir}}",
-      "separateMajorMinor": false
-    },
-    {
-      "description": "A major upstream transition in a source-built image changes the published product. Open the pull request, but require human review instead of automerge.",
-      "matchFileNames": ["images/**/melange.yaml"],
-      "matchUpdateTypes": ["major"],
-      "automerge": false,
-      "addLabels": ["image-major-update", "review-required"]
-    },
-    {
-      "description": "A Go module major upgrade changes its import path and requires source migration. Do not rewrite explicit build overrides across module majors.",
-      "matchManagers": ["custom.regex"],
-      "matchDatasources": ["go"],
-      "matchUpdateTypes": ["major"],
-      "enabled": false
-    },
-    {
-      "description": "A nested image directory owns a version stream. Keep patch updates automatic, but require human review before changing its minor or major stream.",
-      "matchFileNames": ["images/*/*/melange.yaml"],
-      "matchUpdateTypes": ["minor", "major"],
-      "automerge": false,
-      "addLabels": ["image-stream-update", "review-required"]
-    },
-    {
-      "description": "Image-local Cargo remediation pins may advance within their current patch line, but dependency-stream changes require build review.",
-      "matchFileNames": ["images/deno/melange.yaml"],
-      "matchManagers": ["custom.regex"],
-      "matchDatasources": ["crate"],
-      "matchUpdateTypes": ["minor", "major"],
-      "enabled": false
-    },
-    {
-      "matchFileNames": ["patched/**/source.yaml"],
-      "matchUpdateTypes": ["major"],
-      "enabled": false
-    },
-    {
-      "matchFileNames": ["patched/busybox/source.yaml"],
-      "matchUpdateTypes": ["major", "minor", "patch"],
-      "enabled": false
+      "matchFileNames": [".github/workflows/*.yaml"],
+      "automerge": true,
+      "platformAutomerge": true
     },
     {
       "matchFileNames": ["packages/repository-state.json"],

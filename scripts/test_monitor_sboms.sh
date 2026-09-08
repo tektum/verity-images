@@ -114,11 +114,23 @@ set -euo pipefail
 if [[ ${1:-} == db && ${2:-} == update && $# -eq 2 ]]; then
   exit 0
 fi
+if [[ ${1:-} == db && ${2:-} == status && ${3:-} == --output && ${4:-} == json && $# -eq 4 ]]; then
+  jq -cn --arg path "$GRYPE_DB_FILE" '
+    {schemaVersion:"6.0.0",from:"https://example.test/grype-db.tar.zst",
+     built:"2026-09-08T00:00:00Z",path:$path,valid:true}'
+  exit 0
+fi
+
 
 [[ $# -eq 5 && $1 == sbom:* && $2 == --output && $3 == json && $4 == --file ]] || exit 92
 sbom=${1#sbom:}
 [[ -f $sbom ]] || exit 93
 jq -e '.packages | type == "array"' "$sbom" >/dev/null || exit 94
+[[ ${GRYPE_DB_AUTO_UPDATE:-} == false ]] || exit 95
+if [[ ${MUTATE_GRYPE_DB:-false} == true ]]; then
+  printf 'changed\n' >>"$GRYPE_DB_FILE"
+fi
+
 cp "$sbom" "$SBOM_COPY_DIR/${sbom##*/}"
 
 cat >"$5" <<'JSON'
@@ -185,6 +197,10 @@ export COSIGN_LOG=$work/cosign.log
 export GRYPE_LOG=$work/grype.log
 export FORBIDDEN_LOG=$work/forbidden.log
 export SBOM_COPY_DIR=$work/scanned
+export GRYPE_DB_FILE=$work/grype.db
+printf 'fixture vulnerability database\n' >"$GRYPE_DB_FILE"
+db_checksum="sha256:$(sha256sum "$GRYPE_DB_FILE" | cut -d' ' -f1)"
+
 mkdir -p "$SBOM_COPY_DIR"
 : >"$COSIGN_LOG"
 : >"$GRYPE_LOG"
@@ -205,6 +221,7 @@ cat >"$work/catalog.json" <<'EOF'
       "track": "wolfi",
       "reference": "ghcr.io/tektum/alpha@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "inputDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
       "scan": {"all": {"high": 1, "medium": 2}}
     },
     {
@@ -213,6 +230,7 @@ cat >"$work/catalog.json" <<'EOF'
       "track": "wolfi",
       "reference": "ghcr.io/tektum/beta@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       "digest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "inputDigest": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
       "scan": {"all": {"low": 3}}
     },
     {
@@ -221,6 +239,7 @@ cat >"$work/catalog.json" <<'EOF'
       "track": "wolfi",
       "reference": "ghcr.io/tektum/gamma@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "digest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "inputDigest": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
       "scan": {"all": {}}
     },
     {
@@ -229,6 +248,7 @@ cat >"$work/catalog.json" <<'EOF'
       "track": "patched",
       "reference": "ghcr.io/tektum/delta@sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
       "digest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "inputDigest": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
       "scan": {"upstream": {"critical": 2}, "final": {"high": 1}, "delta": {"critical": -2, "high": 1}}
     }
   ]
@@ -245,19 +265,29 @@ cat >"$work/images.json" <<'EOF'
   ]
 }
 EOF
+catalog_hash="sha256:$(sha256sum "$work/catalog.json" | cut -d' ' -f1)"
+inventory_hash="sha256:$(sha256sum "$work/images.json" | cut -d' ' -f1)"
+
 
 assert_manifest() {
   local output=$1
   local manifest=$output/manifest.json
   local scan
   [[ -f $manifest ]] || fail "monitor did not write $manifest"
-  jq -e '
+  jq -e --arg catalogHash "$catalog_hash" --arg inventoryHash "$inventory_hash" \
+    --arg databaseChecksum "$db_checksum" '
+
     (.shard == 0 or .shard == 1) and
     .shards == 2 and
     .catalog.schemaVersion == 2 and
     .catalog.publishedAt == "2026-09-08T03:17:00Z" and
     .catalog.source.commit == "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" and
     .catalog.images == 4 and
+    .catalog.sha256 == $catalogHash and
+    .catalog.inventorySha256 == $inventoryHash and
+    .database == {schemaVersion:"6.0.0",built:"2026-09-08T00:00:00Z",
+                  from:"https://example.test/grype-db.tar.zst",checksum:$databaseChecksum} and
+
     (.subjects | length > 0) and
     all(.subjects[];
       .version == "1.0" and
@@ -272,18 +302,22 @@ assert_manifest() {
       (if .name == "alpha" then
          .track == "wolfi" and
          .digest == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
+         .inputDigest == "sha256:1111111111111111111111111111111111111111111111111111111111111111" and
          .published == {"high": 1, "medium": 2}
        elif .name == "beta" then
          .track == "wolfi" and
          .digest == "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" and
+         .inputDigest == "sha256:2222222222222222222222222222222222222222222222222222222222222222" and
          .published == {"low": 3}
        elif .name == "gamma" then
          .track == "wolfi" and
          .digest == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc" and
+         .inputDigest == "sha256:3333333333333333333333333333333333333333333333333333333333333333" and
          .published == {}
        elif .name == "delta" then
          .track == "patched" and
          .digest == "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd" and
+         .inputDigest == "sha256:4444444444444444444444444444444444444444444444444444444444444444" and
          .published == {"high": 1}
        else false end))
   ' "$manifest" >/dev/null || fail "manifest structure or subject metadata is incorrect in $manifest"
@@ -337,9 +371,10 @@ assert_grype_run() {
   local output=$1
   local subjects=$2
   local expected_scans=$((subjects * 2))
-  local expected_lines=$((expected_scans + 1))
+  local expected_lines=$((expected_scans + 2))
   local lines
   local db_updates
+  local db_statuses
   local amd64_scans
   local arm64_scans
   local line_number=0
@@ -351,9 +386,13 @@ assert_grype_run() {
   local extra
   lines=$(wc -l <"$GRYPE_LOG")
   [[ $lines -eq $expected_lines ]] ||
-    fail "grype ran $lines times, expected one database update and $expected_scans scans"
+    fail "grype ran $lines times, expected database update/status and $expected_scans scans"
+
   db_updates=$(grep -c $'^db\tupdate$' "$GRYPE_LOG" || true)
   [[ $db_updates -eq 1 ]] || fail "grype db update did not run exactly once"
+  db_statuses=$(grep -c $'^db\tstatus\t--output\tjson$' "$GRYPE_LOG" || true)
+  [[ $db_statuses -eq 1 ]] || fail "grype db status did not run exactly once"
+
   amd64_scans=$(grep -c 'sbom-amd64.spdx.json' "$GRYPE_LOG" || true)
   arm64_scans=$(grep -c 'sbom-arm64.spdx.json' "$GRYPE_LOG" || true)
   [[ $amd64_scans -eq $subjects && $arm64_scans -eq $subjects ]] ||
@@ -363,7 +402,13 @@ assert_grype_run() {
     line_number=$((line_number + 1))
     if ((line_number == 1)); then
       [[ $target == db && $output_flag == update && -z $format ]] ||
-        fail "grype db update did not run before the scans"
+        fail "grype db update did not run first"
+      continue
+    fi
+    if ((line_number == 2)); then
+      [[ $target == db && $output_flag == status && $format == --output &&
+        $file_flag == json && -z $scan_file ]] ||
+        fail "grype db status did not run before the scans"
       continue
     fi
     [[ $target == sbom:*/sbom-*.spdx.json && $output_flag == --output &&
@@ -409,6 +454,11 @@ jq '(.include[] | select(.name == "gamma")) |= del(.context)' \
   "$work/images.json" >"$work/missing-context.json"
 expect_failure "catalog image without an inventory context was accepted" \
   run_monitor "$work/catalog.json" "$work/missing-context.json" 0 2 "$work/no-context"
+jq '.include |= map(select(.name != "gamma"))' \
+  "$work/images.json" >"$work/missing-image.json"
+expect_failure "catalog and enabled image inventories were allowed to differ" \
+  run_monitor "$work/catalog.json" "$work/missing-image.json" 0 2 "$work/missing-image"
+
 
 export ATTESTATION_MODE=missing-arm64
 expect_failure "attestation without an arm64 SPDX predicate was accepted" \
@@ -430,6 +480,12 @@ jq -e '
 jq -e '.packages[0].name == "fixture-amd64-2026-09-07T10:00:00Z"' \
   "$SBOM_COPY_DIR/sbom-amd64.spdx.json" >/dev/null ||
   fail "monitor scanned an SBOM other than the newest amd64 attestation"
+
+export MUTATE_GRYPE_DB=true
+expect_failure "database mutation during a shard scan was accepted" \
+  run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/mutated-database"
+unset MUTATE_GRYPE_DB
+printf 'fixture vulnerability database\n' >"$GRYPE_DB_FILE"
 
 jq '.schemaVersion = 1' "$work/catalog.json" >"$work/wrong-schema.json"
 expect_failure "catalog schemaVersion other than 2 was accepted" \
