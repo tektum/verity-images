@@ -427,7 +427,7 @@ def render_body(report: dict) -> str:
         "",
         "## Policy",
         "",
-        "A package fix is a remediation candidate, not proof that unchanged inputs can apply it. Rows leave this dashboard only after a new publication passes the zero-fixable gate and a later complete monitor scan verifies it. Findings without published fixes remain in scan artifacts.",
+        "A package fix is a remediation candidate, not proof that unchanged inputs can apply it. Rows reflect findings with published fixes in the latest complete scan; database updates can remove rows without a new image publication. Findings without published fixes remain in scan artifacts.",
         "",
     ]
     complete = "\n".join(lines + table_prefix + table_rows + policy)

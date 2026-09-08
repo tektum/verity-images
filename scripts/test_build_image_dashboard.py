@@ -193,6 +193,9 @@ def coherent_success(root: Path) -> None:
     assert "## Needs work" in body
     assert "vulnerability-free" not in body
     assert "[ ]" not in body
+    assert "Rows reflect findings with published fixes in the latest complete scan" in body
+    assert "Rows leave this dashboard only after" not in body
+
     assert report["schemaVersion"] == "verity-image-dashboard-report/v1"
     assert report["runUrl"] == "https://github.com/tektum/verity-images/actions/runs/12345"
     assert report["runAttempt"] == 2

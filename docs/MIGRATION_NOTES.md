@@ -115,8 +115,8 @@ Trivy does not generate an SBOM.
   and preserved resolved dependency metadata.
 - Vulnerability-driven remediation: a published package fix is a candidate for a
   human-directed targeted rebuild or image-local pull request, not a reason for
-  bulk updates. A dashboard row clears only after a replacement digest is
-  published through the gate and a later complete monitor verifies it.
+  bulk updates. Dashboard rows reflect the latest complete scan and can clear
+  after a gated replacement or a corrected advisory/fix record.
 
 ## Concepts deliberately dropped
 

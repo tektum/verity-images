@@ -31,9 +31,10 @@ failed or incomplete scan preserves the previous complete dashboard snapshot.
 The dashboard has no remediation controls, and issue edits trigger no builds,
 updates, or other work.
 
-A dashboard row disappears only after a replacement digest is published through
-the zero-fixable gate and a later complete monitor scan verifies that digest. A
-missing, closed, or malformed dashboard issue fails the update; monitoring
+Dashboard rows reflect findings with published fixes in the latest complete
+scan. A row can disappear after a replacement passes the zero-fixable gate or
+because advisory/fix metadata changes; issue state alone never proves a repair.
+A missing, closed, or malformed dashboard issue fails the update; monitoring
 never creates a replacement.
 
 ## Update cadence
