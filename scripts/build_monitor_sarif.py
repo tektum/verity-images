@@ -241,7 +241,8 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
                 score = cvss_score(match)
                 rule = rules.get(finding.advisory)
                 if rule is None or (
-                    "security-severity" not in rule["properties"] and score is not None
+                    score is not None
+                    and score > float(rule["properties"].get("security-severity", -1))
                 ):
                     rules[finding.advisory] = rule_of(
                         finding.advisory,

@@ -256,7 +256,7 @@ def fixture_scans() -> tuple[dict, dict, dict]:
                 "1.0-r0",
                 severity="High",
                 fixes=["4.0-r0", "2.0-r0"],
-                cvss=[{"version": "3.1", "metrics": {"baseScore": 8.0}}],
+                cvss=[{"version": "3.1", "metrics": {"baseScore": 9.1}}],
             )
         ]
     )
@@ -373,7 +373,7 @@ def main() -> None:
         assert related["properties"]["severity"] == "high"
         assert related["level"] == "error"
 
-        assert rules_by_id["CVE-2026-0001"]["properties"]["security-severity"] == "8.8"
+        assert rules_by_id["CVE-2026-0001"]["properties"]["security-severity"] == "9.1"
         assert rules_by_id["CVE-2026-RELATED"]["properties"]["security-severity"] == "6.4"
         assert "security-severity" not in rules_by_id["CVE-2026-NEGLIGIBLE"]["properties"]
         assert "security-severity" not in rules_by_id["CVE-2026-MISSING"]["properties"]
