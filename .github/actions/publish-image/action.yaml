@@ -50,6 +50,9 @@ inputs:
   publish:
     description: Push, sign, attest, and tag when true.
     default: "false"
+  smoke-before-scan:
+    description: Run smoke tests before Docker-backed scans.
+    default: "false"
   registry-username:
     description: GHCR username.
     default: ""
@@ -71,6 +74,18 @@ outputs:
 runs:
   using: composite
   steps:
+    - name: Run smoke test before scan
+      if: inputs.smoke-before-scan == 'true'
+      shell: bash
+      env:
+        CANDIDATE: ${{ inputs.candidate-image }}
+        FLAVOR: ${{ inputs.flavor }}
+        TEST: ${{ inputs.context }}/tests/test.sh
+      run: |
+        for arch in amd64 arm64; do
+          DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
+        done
+
     - name: Scan amd64 candidate
       shell: bash
       env:
@@ -116,6 +131,7 @@ runs:
       run: scripts/evaluate_scan_gate.sh "$IMAGE_NAME" "$TRACK" "$GITHUB_OUTPUT"
 
     - name: Run smoke test
+      if: inputs.smoke-before-scan != 'true'
       shell: bash
       env:
         CANDIDATE: ${{ inputs.candidate-image }}
