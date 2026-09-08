@@ -679,19 +679,25 @@ def main() -> None:
     assert "squawk-tools" not in jq_setup
     assert '"jq@1.8.2"' in (ROOT / "devbox.json").read_text(encoding="utf-8")
 
-    assert (
-        "https://github.com/tektum/verity-images/.github/workflows/"
-        "build.yaml@refs/heads/main"
-        in monitor_script
-    )
-    assert "https://token.actions.githubusercontent.com" in monitor_script
+    # Exact assignment lines, so the verified publisher cannot be widened to a
+    # prefix, a suffix, or a second identity.
+    assert [
+        line for line in monitor_script.splitlines()
+        if line.startswith(("identity=", "issuer="))
+    ] == [
+        "identity='" + IDENTITY_ASSIGNMENT.removeprefix("identity=") + "'",
+        "issuer='" + ISSUER_ASSIGNMENT.removeprefix("issuer=") + "'",
+    ]
     assert "cosign verify-attestation --type spdxjson" in monitor_script
     assert monitor_script.index("grype db update") < monitor_script.index(
         'grype "sbom:$predicate"'
     )
     assert "for arch in amd64 arm64; do" in monitor_script
     assert '--arg suffix "-verity-platform-$arch"' in monitor_script
-    assert "if length == 1 then .[0]" in monitor_script
+    # A missing platform SBOM is fatal, but republishing a reproducible digest
+    # appends verified attestations, so the newest SBOM is the one evaluated.
+    assert 'if length == 0 then error("no \\($suffix) SPDX predicate")' in monitor_script
+    assert 'sort_by(.creationInfo.created // "") | last' in monitor_script
     assert "if ((selected == 0)); then" in monitor_script
     assert ".schemaVersion == 2 and (.images | length > 0)" in monitor_script
     assert all(command not in monitor_script for command in ("gh ", "docker ", "curl "))

@@ -56,9 +56,11 @@ reference=${8:-}
 
 emit_attestation() {
   local arch=$1
+  local created=$2
   local statement
   local payload
-  statement=$(jq -cn --arg arch "$arch" --arg reference "$reference" '
+  statement=$(jq -cn --arg arch "$arch" --arg created "$created" \
+    --arg reference "$reference" '
     {_type:"https://in-toto.io/Statement/v0.1",
      predicateType:"https://spdx.dev/Document",
      subject:[{name:$reference,digest:{sha256:("a" * 64)}}],
@@ -66,7 +68,9 @@ emit_attestation() {
                 name:("fixture-verity-platform-" + $arch),
                 dataLicense:"CC0-1.0",
                 SPDXID:"SPDXRef-DOCUMENT",
-                packages:[{name:("fixture-" + $arch),
+                creationInfo:{created:$created,
+                              creators:["Tool: syft-1.50.0"]},
+                packages:[{name:("fixture-" + $arch + "-" + $created),
                            SPDXID:"SPDXRef-Package",
                            versionInfo:"1.0.0"}]}}')
   payload=$(printf '%s' "$statement" | base64 -w0)
@@ -76,16 +80,19 @@ emit_attestation() {
 
 case ${ATTESTATION_MODE:-complete} in
   complete)
-    emit_attestation amd64
-    emit_attestation arm64
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    emit_attestation arm64 2026-09-07T10:00:01Z
     ;;
   missing-arm64)
-    emit_attestation amd64
+    emit_attestation amd64 2026-09-07T10:00:00Z
     ;;
-  duplicate-amd64)
-    emit_attestation amd64
-    emit_attestation amd64
-    emit_attestation arm64
+  republished-amd64)
+    # A reproducible rebuild appends another verified attestation to the same
+    # digest. The newest SBOM wins, whatever order the registry returns.
+    emit_attestation amd64 2026-08-01T10:00:00Z
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    emit_attestation amd64 2026-08-15T10:00:00Z
+    emit_attestation arm64 2026-09-07T10:00:01Z
     ;;
   *)
     exit 91
@@ -112,6 +119,7 @@ fi
 sbom=${1#sbom:}
 [[ -f $sbom ]] || exit 93
 jq -e '.packages | type == "array"' "$sbom" >/dev/null || exit 94
+cp "$sbom" "$SBOM_COPY_DIR/${sbom##*/}"
 
 cat >"$5" <<'JSON'
 {
@@ -176,6 +184,8 @@ done
 export COSIGN_LOG=$work/cosign.log
 export GRYPE_LOG=$work/grype.log
 export FORBIDDEN_LOG=$work/forbidden.log
+export SBOM_COPY_DIR=$work/scanned
+mkdir -p "$SBOM_COPY_DIR"
 : >"$COSIGN_LOG"
 : >"$GRYPE_LOG"
 : >"$FORBIDDEN_LOG"
@@ -255,7 +265,10 @@ assert_manifest() {
       .context == ("images/" + .name) and
       ([.platforms[].platform] | sort) == ["linux/amd64", "linux/arm64"] and
       (.platforms | length) == 2 and
-      all(.platforms[]; .scan | test("^scan-[a-z]+-1\\.0-(amd64|arm64)\\.json$")) and
+      all(.platforms[];
+        (.scan | test("^scan-[a-z]+-1\\.0-(amd64|arm64)\\.json$")) and
+        .attestations == 1 and
+        (.created | test("^2026-09-07T10:00:0[01]Z$"))) and
       (if .name == "alpha" then
          .track == "wolfi" and
          .digest == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
@@ -400,10 +413,23 @@ expect_failure "catalog image without an inventory context was accepted" \
 export ATTESTATION_MODE=missing-arm64
 expect_failure "attestation without an arm64 SPDX predicate was accepted" \
   run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/missing-arm64"
-export ATTESTATION_MODE=duplicate-amd64
-expect_failure "attestation with duplicate amd64 SPDX predicates was accepted" \
-  run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/duplicate-amd64"
+
+# Republication keeps every earlier attestation on the same digest, so the
+# monitor must evaluate the newest SBOM instead of failing or guessing.
+export ATTESTATION_MODE=republished-amd64
+rm -f "$SBOM_COPY_DIR"/*
+run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/republished"
 unset ATTESTATION_MODE
+jq -e '
+  all(.subjects[].platforms[];
+    (if .platform == "linux/amd64"
+     then .attestations == 3 and .created == "2026-09-07T10:00:00Z"
+     else .attestations == 1 and .created == "2026-09-07T10:00:01Z" end))
+' "$work/republished/manifest.json" >/dev/null ||
+  fail "monitor did not record the newest amd64 attestation of three"
+jq -e '.packages[0].name == "fixture-amd64-2026-09-07T10:00:00Z"' \
+  "$SBOM_COPY_DIR/sbom-amd64.spdx.json" >/dev/null ||
+  fail "monitor scanned an SBOM other than the newest amd64 attestation"
 
 jq '.schemaVersion = 1' "$work/catalog.json" >"$work/wrong-schema.json"
 expect_failure "catalog schemaVersion other than 2 was accepted" \

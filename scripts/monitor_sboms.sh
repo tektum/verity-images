@@ -57,21 +57,27 @@ while IFS=$'\t' read -r name version track reference digest context published; d
     --certificate-oidc-issuer "$issuer" "$reference" >"$work/attestation.json"
   platforms=()
   for arch in amd64 arm64; do
+    selection=$work/selection-$arch.json
     predicate=$work/sbom-$arch.spdx.json
     scan=scan-$name-$version-$arch.json
-    # A published image without both attested platform SBOMs is a coverage
-    # failure: the shard fails and its previous alerts stay untouched.
+    # A published image without an attested SBOM for both platforms is a
+    # coverage failure: the shard fails and its alerts stay untouched.
+    # Republishing a reproducible digest appends another verified attestation,
+    # so the newest SBOM is the one that describes the current build.
     jq --slurp --exit-status --arg suffix "-verity-platform-$arch" '
       map(.payload | @base64d | fromjson |
           select(.predicateType == "https://spdx.dev/Document") |
           select(.predicate.name | endswith($suffix)) |
           .predicate) |
-      if length == 1 then .[0]
-      else error("expected one \($suffix) SPDX predicate, found \(length)") end
-    ' "$work/attestation.json" >"$predicate"
+      if length == 0 then error("no \($suffix) SPDX predicate") else . end |
+      {attestations: length,
+       sbom: (sort_by(.creationInfo.created // "") | last)}
+    ' "$work/attestation.json" >"$selection"
+    jq '.sbom' "$selection" >"$predicate"
     grype "sbom:$predicate" --output json --file "$output/$scan"
-    platforms+=("$(jq -cn --arg platform "linux/$arch" --arg scan "$scan" \
-      '{platform: $platform, scan: $scan}')")
+    platforms+=("$(jq -c --arg platform "linux/$arch" --arg scan "$scan" \
+      '{platform: $platform, scan: $scan, attestations: .attestations,
+        created: (.sbom.creationInfo.created // null)}' "$selection")")
   done
   jq -cn --arg name "$name" --arg version "$version" --arg track "$track" \
     --arg reference "$reference" --arg digest "$digest" --arg context "$context" \
