@@ -955,9 +955,9 @@ def main() -> None:
     assert '.head_repository.full_name == $repository' in discovery_step
     assert "      - scripts/catalog_reconciliation.jq\n" in catalog
     assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
-    assert '.source.consumedRuns //' in discovery_step
-    assert '{(.source.runId): 1}' in discovery_step
-    assert "[.images[].runId | strings]" in discovery_step
+    assert '.source.consumedRuns // empty' in discovery_step
+    assert 'published_at=$(jq -r .publishedAt previous.json)' in discovery_step
+    assert '.updated_at <= $cutoff' in discovery_step
     assert '--argjson ledger "$consumed_runs"' in discovery_step
     assert 'forced_metadata=$explicit_metadata' in discovery_step
     assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
@@ -969,23 +969,60 @@ def main() -> None:
     assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
     assert 'Run %s has no build-report artifact.' in discovery_step
 
-    legacy_catalog = {"source": {"runId": "1"}, "images": [{"name": "legacy"}]}
+    legacy_runs = [
+        {
+            "id": 10,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T01:00:00Z",
+        },
+        {
+            "id": 11,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T02:00:00Z",
+        },
+        {
+            "id": 12,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T04:00:00Z",
+        },
+    ]
     legacy_ledger = subprocess.run(
         [
             "jq",
             "-c",
+            "--arg",
+            "cutoff",
+            "2026-09-09T02:30:00Z",
+            "--arg",
+            "source",
+            "11",
             (
-                ".source.consumedRuns // "
-                "({(.source.runId): 1} + "
-                "([.images[].runId | strings] | map({(.): 1}) | add // {}))"
+                "reduce (.[] | select(.status == \"completed\" and "
+                ".updated_at <= $cutoff)) as $run "
+                "({($source): 1}; .[($run.id | tostring)] = $run.run_attempt)"
             ),
         ],
         check=True,
         capture_output=True,
-        input=json.dumps(legacy_catalog),
+        input=json.dumps(legacy_runs),
         text=True,
     )
-    assert json.loads(legacy_ledger.stdout) == {"1": 1}
+    consumed_legacy = json.loads(legacy_ledger.stdout)
+    assert consumed_legacy == {"10": 1, "11": 1}
+    assert reconciliation_plan(legacy_runs, consumed_legacy) == {
+        "candidates": [legacy_runs[2]]
+    }
+    rerun_after_migration = {
+        **legacy_runs[0],
+        "run_attempt": 2,
+        "updated_at": "2026-09-09T03:00:00Z",
+    }
+    assert reconciliation_plan(
+        [rerun_after_migration, legacy_runs[2]], consumed_legacy
+    ) == {"candidates": [rerun_after_migration, legacy_runs[2]]}
 
     at_frontier_rerun = {
         "id": 11,

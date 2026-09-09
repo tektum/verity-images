@@ -185,11 +185,15 @@ jobs:
           ' "$RUNNER_TEMP/build-run-pages.json" > "$RUNNER_TEMP/build-runs.json"
 
           if [[ -f previous.json ]]; then
-            consumed_runs=$(jq -c '
-              .source.consumedRuns //
-                ({(.source.runId): 1}
-                  + ([.images[].runId | strings] | map({(.): 1}) | add // {}))
-            ' previous.json)
+            consumed_runs=$(jq -c '.source.consumedRuns // empty' previous.json)
+            if [[ -z "$consumed_runs" ]]; then
+              published_at=$(jq -r .publishedAt previous.json)
+              source_run_id=$(jq -r .source.runId previous.json)
+              consumed_runs=$(jq -c --arg cutoff "$published_at" --arg source "$source_run_id" '
+                reduce (.[] | select(.status == "completed" and .updated_at <= $cutoff)) as $run
+                  ({($source): 1}; .[($run.id | tostring)] = $run.run_attempt)
+              ' "$RUNNER_TEMP/build-runs.json")
+            fi
           else
             consumed_runs='{}'
           fi
