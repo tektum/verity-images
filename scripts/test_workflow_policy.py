@@ -968,6 +968,29 @@ def main() -> None:
     assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
     assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
     assert 'Run %s has no build-report artifact.' in discovery_step
+    assert 'missing_scans=$(jq -c --argjson available "$available_scans"' in discovery_step
+    assert 'Build report deferred' in discovery_step
+    reported_images = {
+        "images": [
+            {"name": "healthy", "version": "1"},
+            {"name": "incomplete", "version": "2"},
+        ]
+    }
+    missing_scans = subprocess.run(
+        [
+            "jq",
+            "-c",
+            "--argjson",
+            "available",
+            '["scan-healthy-1"]',
+            '[.images[] | "scan-\\(.name)-\\(.version)"] | unique | . - $available',
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(reported_images),
+        text=True,
+    )
+    assert json.loads(missing_scans.stdout) == ["scan-incomplete-2"]
 
     legacy_runs = [
         {

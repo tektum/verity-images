@@ -54,7 +54,14 @@ FILTER: Final = r"""
 if $previous != "" then
   .report as $updates | .previous as $current |
   .report.images = (reduce ($current.images + $updates.images)[] as $image ({};
-    .[$image.name + "@" + $image.version] = $image
+    ($image.name + "@" + $image.version) as $identity |
+    .[$identity] as $incumbent |
+    if $incumbent == null or
+      (($image.validatedAt | fromdateiso8601) >=
+        (($incumbent.validatedAt // "1970-01-01T00:00:00Z") | fromdateiso8601))
+    then .[$identity] = $image
+    else .
+    end
   ) | [.[]] | sort_by(.name, .version))
 else
   .report.images |= sort_by(.name, .version)

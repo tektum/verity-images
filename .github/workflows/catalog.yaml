@@ -225,8 +225,40 @@ jobs:
               '[.[].artifacts[] | select(.name == "build-report" and .expired == false)] | length' \
               <<<"$artifacts")
             if [[ "$report_count" -gt 0 ]]; then
+              report_dir="input/${run_id}/report"
+              mkdir -p "$report_dir"
+              gh run download "$run_id" --repo "$REPOSITORY" \
+                --name build-report --dir "$report_dir"
+              report="$report_dir/build-report.json"
+              if ! jq -e '
+                (.images | type == "array" and length > 0) and
+                all(.images[];
+                  (.name | type == "string" and length > 0) and
+                  (.version | type == "string" and length > 0))
+              ' "$report" >/dev/null; then
+                printf '::warning title=Build report deferred::Run %s has an invalid build report.\n' \
+                  "$run_id"
+                continue
+              fi
+              available_scans=$(jq -c '
+                [.[].artifacts[]
+                  | select(.expired == false and (.name | startswith("scan-")))
+                  | .name]
+                | unique
+              ' <<<"$artifacts")
+              missing_scans=$(jq -c --argjson available "$available_scans" '
+                [.images[] | "scan-\(.name)-\(.version)"]
+                | unique
+                | . - $available
+              ' "$report")
+              if [[ "$(jq length <<<"$missing_scans")" -gt 0 ]]; then
+                printf '::warning title=Build report deferred::Run %s is missing live scan artifacts: %s\n' \
+                  "$run_id" "$(jq -r 'join(", ")' <<<"$missing_scans")"
+                continue
+              fi
               jq -c . <<<"$metadata" >> "$RUNNER_TEMP/reconciliation.ndjson"
             fi
+
           done < <(jq -c '.[]' "$RUNNER_TEMP/candidates.json")
           jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json
 
@@ -263,8 +295,10 @@ jobs:
             run_id=$(jq -r .id <<<"$metadata")
             destination="input/${run_id}"
             mkdir -p "$destination/report" "$destination/scans"
-            gh run download "$run_id" --repo "$REPOSITORY" \
-              --name build-report --dir "$destination/report"
+            if [[ ! -f "$destination/report/build-report.json" ]]; then
+              gh run download "$run_id" --repo "$REPOSITORY" \
+                --name build-report --dir "$destination/report"
+            fi
             while IFS= read -r artifact; do
               mkdir -p "$destination/scans/$artifact"
               gh run download "$run_id" --repo "$REPOSITORY" \
