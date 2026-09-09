@@ -957,7 +957,7 @@ def main() -> None:
     assert "status=completed" not in discovery_step
     assert "gh api --paginate" in discovery_step
     assert '.head_repository.full_name == $repository' in discovery_step
-    assert 'select(.id > $low and .id <= $high)' in discovery_step
+    assert 'select(.id > $low and .id <= $high and .status == "completed")' in discovery_step
     assert "[.images[].runId | tonumber] | max" in discovery_step
     assert "      - scripts/catalog_reconciliation.jq\n" in catalog
     assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step

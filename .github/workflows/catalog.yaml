@@ -210,7 +210,8 @@ jobs:
             validate_identity "$metadata"
           done < <(
             jq -c --argjson low "$low_water" --argjson high "$upper_bound" \
-              '.[] | select(.id > $low and .id <= $high)' "$RUNNER_TEMP/build-runs.json"
+              '.[] | select(.id > $low and .id <= $high and .status == "completed")' \
+              "$RUNNER_TEMP/build-runs.json"
           )
           jq --argjson low "$low_water" --argjson high "$upper_bound" \
             --argjson forced "$forced_metadata" \
