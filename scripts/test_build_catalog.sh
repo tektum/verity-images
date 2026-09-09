@@ -149,6 +149,32 @@ jq -e '
   ([.images[] | select(.name == "y" and .digest == "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")] | length == 1)
 ' "$current" >/dev/null
 
+# A later-completing rerun of an older run ID must win over a higher run ID.
+mkdir -p "$work/order-scans-10/scan-shared-1" "$work/order-scans-11/scan-shared-1"
+printf '%s\n' '{}' > "$work/order-scans-10/scan-shared-1/scan-amd64.json"
+printf '%s\n' '{}' > "$work/order-scans-11/scan-shared-1/scan-amd64.json"
+cat > "$work/order-report-10.json" <<'EOF'
+{"images":[{"name":"shared","version":"1","track":"wolfi","description":"Later rerun.","digest":"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
+EOF
+cat > "$work/order-report-11.json" <<'EOF'
+{"images":[{"name":"shared","version":"1","track":"wolfi","description":"Earlier higher ID.","digest":"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
+EOF
+python3 "$root/scripts/build_catalog.py" "$work/order-report-11.json" "$work/order-scans-11" \
+  "$work/previous.json" "$work/order-first.json" 11 \
+  https://github.com/tektum/verity-images/actions/runs/11 \
+  2222222222222222222222222222222222222222 2026-09-09T02:00:00Z
+python3 "$root/scripts/build_catalog.py" "$work/order-report-10.json" "$work/order-scans-10" \
+  "$work/order-first.json" "$work/order-final.json" 10 \
+  https://github.com/tektum/verity-images/actions/runs/10 \
+  1111111111111111111111111111111111111111 2026-09-09T03:00:00Z
+jq -e '
+  (.images[] | select(.name == "shared").runId) == "10" and
+  (.images[] | select(.name == "shared").digest) == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+' "$work/order-final.json" >/dev/null
+jq '.source.consumedRuns = {"10": 2, "11": 1}' \
+  "$work/order-final.json" > "$work/ledger-catalog.json"
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/ledger-catalog.json"
+
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
 cat > "$work/devbox" <<'EOF'
 #!/bin/sh

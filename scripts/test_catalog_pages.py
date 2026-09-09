@@ -149,7 +149,7 @@ def workflow_modes() -> None:
     assert "steps.mode.outputs.value != 'packages'" in workflow
     assert "steps.mode.outputs.value == 'packages'" in workflow
     assert "Package-only publication requires the current catalog" in workflow
-    assert "No unconsumed build reports through run" in workflow
+    assert "No unconsumed build report attempts" in workflow
     assert "mkdir pages" in workflow
     stage_site = workflow.index('cp -R site "$RUNNER_TEMP/site"')
     discover_runs = workflow.index("      - name: Discover build runs\n")

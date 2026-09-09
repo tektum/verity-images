@@ -114,19 +114,15 @@ def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
 
 def reconciliation_plan(
     runs: list[dict[str, object]],
-    low: int,
-    high: int,
+    ledger: dict[str, int],
     forced: dict[str, object] | None = None,
 ) -> dict[str, object]:
     result = subprocess.run(
         [
             "jq",
             "--argjson",
-            "low",
-            str(low),
-            "--argjson",
-            "high",
-            str(high),
+            "ledger",
+            json.dumps(ledger),
             "--argjson",
             "forced",
             json.dumps(forced),
@@ -957,53 +953,76 @@ def main() -> None:
     assert "status=completed" not in discovery_step
     assert "gh api --paginate" in discovery_step
     assert '.head_repository.full_name == $repository' in discovery_step
-    assert 'select(.id > $low and .id <= $high and .status == "completed")' in discovery_step
-    assert "[.images[].runId | tonumber] | max" in discovery_step
     assert "      - scripts/catalog_reconciliation.jq\n" in catalog
     assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
-    assert '"$EVENT" == workflow_run && -n "$explicit_run_id" && "$explicit_run_id" -lt "$low_water"' in discovery_step
+    assert '.source.consumedRuns //' in discovery_step
+    assert '{(.source.runId): 1}' in discovery_step
+    assert '--argjson ledger "$consumed_runs"' in discovery_step
     assert 'forced_metadata=$explicit_metadata' in discovery_step
     assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
+    assert discovery_step.count('validate_identity "$metadata"') == 1
     assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
-    assert "jq '.source' previous.json > checkpoint-source.json" in discovery_step
-    assert '.frontierRun | {' in discovery_step
+    assert 'run_attempt' in discovery_step
+    assert 'consumedRuns: .' in discovery_step
     assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
     assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
     assert 'Run %s has no build-report artifact.' in discovery_step
 
-    newer_finishes_first = reconciliation_plan(
-        [{"id": 10, "status": "in_progress"}, {"id": 11, "status": "completed"}],
-        low=9,
-        high=11,
-    )
-    assert newer_finishes_first == {
-        "frontier": 9,
-        "frontierRun": None,
-        "candidates": [{"id": 11, "status": "completed"}],
+    at_frontier_rerun = {
+        "id": 11,
+        "run_attempt": 2,
+        "status": "completed",
+        "updated_at": "2026-09-09T02:00:00Z",
     }
-    first_frontier = newer_finishes_first["frontier"]
-    assert isinstance(first_frontier, int)
-    older_finishes_later = reconciliation_plan(
-        [{"id": 10, "status": "completed"}, {"id": 11, "status": "completed"}],
-        low=first_frontier,
-        high=11,
-    )
-    assert older_finishes_later == {
-        "frontier": 11,
-        "frontierRun": {"id": 11, "status": "completed"},
-        "candidates": [
-            {"id": 10, "status": "completed"},
-            {"id": 11, "status": "completed"},
-        ],
+    assert reconciliation_plan([at_frontier_rerun], {"11": 1}) == {
+        "candidates": [at_frontier_rerun]
     }
-    forced_older_run = reconciliation_plan(
-        [{"id": 11, "status": "completed"}],
-        low=11,
-        high=11,
-        forced={"id": 10, "status": "completed"},
+
+    below_frontier_rerun = {
+        "id": 10,
+        "run_attempt": 2,
+        "status": "completed",
+        "updated_at": "2026-09-09T03:00:00Z",
+    }
+    later_trigger = {
+        "id": 12,
+        "run_attempt": 1,
+        "status": "completed",
+        "updated_at": "2026-09-09T04:00:00Z",
+    }
+    evicted_rerun_trigger = reconciliation_plan(
+        [below_frontier_rerun, later_trigger], {"10": 1, "11": 1}
     )
-    assert forced_older_run["frontier"] == 11
-    assert forced_older_run["candidates"] == [{"id": 10, "status": "completed"}]
+    assert evicted_rerun_trigger == {
+        "candidates": [below_frontier_rerun, later_trigger]
+    }
+
+    higher_id_finished_first = {
+        "id": 11,
+        "run_attempt": 1,
+        "status": "completed",
+        "updated_at": "2026-09-09T02:00:00Z",
+    }
+    completion_order = reconciliation_plan(
+        [below_frontier_rerun, higher_id_finished_first], {"10": 1}
+    )
+    assert completion_order == {
+        "candidates": [higher_id_finished_first, below_frontier_rerun]
+    }
+
+    forced_reapply = reconciliation_plan(
+        [below_frontier_rerun], {"10": 2}, forced=below_frontier_rerun
+    )
+    assert forced_reapply == {"candidates": [below_frontier_rerun]}
+    assert reconciliation_plan(
+        [{**later_trigger, "status": "in_progress"}], {"10": 1, "11": 1}
+    ) == {"candidates": []}
+
+    reconciliation_filter = (ROOT / "scripts/catalog_reconciliation.jq").read_text(
+        encoding="utf-8"
+    )
+    assert 'sort_by(.updated_at, .id, .run_attempt)' in reconciliation_filter
+    assert '$ledger[(.id | tostring)]' in reconciliation_filter
 
     batch_step = between(
         catalog,
@@ -1102,11 +1121,22 @@ def main() -> None:
     assert "'.[0] * {source: .[1]}'" in catalog_script
     assert 'cp "$current" catalog.json' in catalog_script
     assert '"$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"' in catalog_script
-    assert "catalog.json checkpoint-source.json > pinned-catalog.json" in catalog_script
+    assert "catalog.json catalog-source.json > sourced-catalog.json" in catalog_script
     assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(catalog_script)
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
     assert "${{ steps.source.outputs." not in catalog
     assert "steps.artifacts.outputs.ready" not in catalog
+    catalog_schema = json.loads(
+        (ROOT / "docs/catalog.schema.json").read_text(encoding="utf-8")
+    )
+    consumed_runs_schema = catalog_schema["properties"]["source"]["properties"][
+        "consumedRuns"
+    ]
+    assert consumed_runs_schema["propertyNames"]["pattern"] == "^[0-9]+$"
+    assert consumed_runs_schema["additionalProperties"] == {
+        "type": "integer",
+        "minimum": 1,
+    }
     inventory_filter = (ROOT / "scripts/catalog_inventory.jq").read_text(encoding="utf-8")
     assert "cat > inventory-filter.jq <<'EOF'" not in catalog
     assert "(.[1].include | map([.name, .tag_version])) as $expected" in inventory_filter

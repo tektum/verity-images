@@ -176,45 +176,23 @@ jobs:
             "repos/${REPOSITORY}/actions/workflows/build.yaml/runs?branch=main&per_page=100" \
             --slurp > "$RUNNER_TEMP/build-run-pages.json"
           jq --arg repository "$REPOSITORY" --argjson explicit "$explicit_metadata" '
-            ([.[].workflow_runs[]
+            [.[].workflow_runs[]
               | select(
                   (.event == "push" or .event == "schedule" or .event == "workflow_dispatch") and
                   .head_repository.full_name == $repository
-                )] + (if $explicit == null then [] else [$explicit] end))
-            | unique_by(.id)
-            | sort_by(.id)
+                )]
+            + (if $explicit == null then [] else [$explicit] end)
           ' "$RUNNER_TEMP/build-run-pages.json" > "$RUNNER_TEMP/build-runs.json"
 
           if [[ -f previous.json ]]; then
-            low_water=$(jq -r '.source.runId | tonumber' previous.json)
-            published_high=$(jq -r \
-              '[.images[].runId | tonumber] | max // (.source.runId | tonumber)' previous.json)
+            consumed_runs=$(jq -c '
+              .source.consumedRuns //
+                ({(.source.runId): 1} + ([.images[].runId] | map({(.): 1}) | add // {}))
+            ' previous.json)
           else
-            low_water=0
-            published_high=0
+            consumed_runs='{}'
           fi
-          if [[ "$EVENT" == workflow_run && -n "$explicit_run_id" && "$explicit_run_id" -lt "$low_water" ]]; then
-            forced_metadata=$explicit_metadata
-          fi
-          if [[ -n "$explicit_run_id" ]]; then
-            if [[ "$explicit_run_id" -gt "$published_high" ]]; then
-              upper_bound=$explicit_run_id
-            else
-              upper_bound=$published_high
-            fi
-          else
-            upper_bound=$(jq -r 'if length == 0 then 0 else .[-1].id end' "$RUNNER_TEMP/build-runs.json")
-          fi
-
-          while IFS= read -r metadata; do
-            validate_identity "$metadata"
-          done < <(
-            jq -c --argjson low "$low_water" --argjson high "$upper_bound" \
-              '.[] | select(.id > $low and .id <= $high and .status == "completed")' \
-              "$RUNNER_TEMP/build-runs.json"
-          )
-          jq --argjson low "$low_water" --argjson high "$upper_bound" \
-            --argjson forced "$forced_metadata" \
+          jq --argjson ledger "$consumed_runs" --argjson forced "$forced_metadata" \
             --from-file scripts/catalog_reconciliation.jq "$RUNNER_TEMP/build-runs.json" \
             > "$RUNNER_TEMP/reconciliation-plan.json"
           jq '.candidates' "$RUNNER_TEMP/reconciliation-plan.json" > "$RUNNER_TEMP/candidates.json"
@@ -247,22 +225,24 @@ jobs:
           done < <(jq -c '.[]' "$RUNNER_TEMP/candidates.json")
           jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json
 
-          frontier=$(jq -r .frontier "$RUNNER_TEMP/reconciliation-plan.json")
-          if [[ "$frontier" -eq "$low_water" && -f previous.json ]]; then
-            jq '.source' previous.json > checkpoint-source.json
-          elif [[ "$frontier" -gt "$low_water" ]]; then
-            jq '.frontierRun | {
-              runId: (.id | tostring), runUrl: .html_url, commit: .head_sha
-            }' "$RUNNER_TEMP/reconciliation-plan.json" > checkpoint-source.json
-          else
-            jq -n '[]' > reconciliation.json
-          fi
-
           count=$(jq length reconciliation.json)
           if [[ "$count" -eq 0 ]]; then
             printf 'ready=false\n' >> "$GITHUB_OUTPUT"
-            printf 'No unconsumed build reports through run %s; retaining the current catalog.\n' "$upper_bound"
+            printf 'No unconsumed build report attempts; retaining the current catalog.\n'
           else
+            jq --argjson ledger "$consumed_runs" '
+              .[-1] as $latest
+              | reduce .[] as $run ($ledger;
+                  ($run.id | tostring) as $id
+                  | .[$id] = ([.[$id] // 0, $run.run_attempt] | max)
+                )
+              | {
+                  runId: ($latest.id | tostring),
+                  runUrl: $latest.html_url,
+                  commit: $latest.head_sha,
+                  consumedRuns: .
+                }
+            ' reconciliation.json > catalog-source.json
             printf 'ready=true\n' >> "$GITHUB_OUTPUT"
           fi
 
@@ -335,8 +315,8 @@ jobs:
           done < <(jq -c '.[]' reconciliation.json)
           cp "$current" catalog.json
           devbox run -- jq --sort-keys --slurp '.[0] * {source: .[1]}' \
-            catalog.json checkpoint-source.json > pinned-catalog.json
-          mv pinned-catalog.json catalog.json
+            catalog.json catalog-source.json > sourced-catalog.json
+          mv sourced-catalog.json catalog.json
           if [[ ! -f previous.json ]]; then
             devbox run -- jq -e --slurp \
               '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \

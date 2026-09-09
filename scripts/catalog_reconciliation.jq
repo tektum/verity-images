@@ -1,25 +1,19 @@
-# Plan completed build reports without advancing the catalog checkpoint past a
-# still-running older build. Completed runs above a gap remain candidates, but
-# the frontier stays below the gap so they are safely reconsidered later.
-def terminal: .status == "completed";
-
-unique_by(.id)
-| sort_by(.id)
-| . as $runs
-| [$runs[] | select(.id > $low and .id <= $high)] as $window
-| (first($window[] | select(terminal | not) | .id) // null) as $gap
+# Select the latest attempt for each completed build whose receipt is not yet
+# reflected in the catalog. A forced dispatch reapplies its latest attempt even
+# when the ledger already records it. Completion time defines merge precedence.
+(
+  . + (if $forced == null then [] else [$forced] end)
+  | sort_by(.id, .run_attempt, .updated_at)
+  | group_by(.id)
+  | map(max_by(.run_attempt, .updated_at))
+) as $runs
 | (
-    [$window[] | select($gap == null or .id < $gap) | .id]
-    | max // $low
-  ) as $frontier
-| (
-    [$window[] | select(terminal)]
-    + (if $forced == null then [] else [$forced] end)
-    | unique_by(.id)
-    | sort_by(.id)
+    [$runs[]
+      | select(.status == "completed")
+      | select(
+          (($ledger[(.id | tostring)] // 0) < .run_attempt)
+          or ($forced != null and .id == $forced.id and .run_attempt == $forced.run_attempt)
+        )]
+    | sort_by(.updated_at, .id, .run_attempt)
   ) as $candidates
-| {
-    frontier: $frontier,
-    frontierRun: (first($runs[] | select(.id == $frontier)) // null),
-    candidates: $candidates
-  }
+| {candidates: $candidates}
