@@ -6,8 +6,9 @@
 # How to run:
 #   uv run scripts/test_workflow_policy.py
 
-import shlex
+import json
 import os
+import shlex
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -110,6 +111,35 @@ def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
     return tuple(
         tuple(shlex.split(command, comments=True, posix=True)) for command in commands
     )
+
+def reconciliation_plan(
+    runs: list[dict[str, object]],
+    low: int,
+    high: int,
+    forced: dict[str, object] | None = None,
+) -> dict[str, object]:
+    result = subprocess.run(
+        [
+            "jq",
+            "--argjson",
+            "low",
+            str(low),
+            "--argjson",
+            "high",
+            str(high),
+            "--argjson",
+            "forced",
+            json.dumps(forced),
+            "--from-file",
+            str(ROOT / "scripts/catalog_reconciliation.jq"),
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(runs),
+        text=True,
+    )
+    plan: dict[str, object] = json.loads(result.stdout)
+    return plan
 
 
 def env_pins(workflow: str) -> dict[str, str]:
@@ -918,20 +948,62 @@ def main() -> None:
         "      - name: Discover build runs\n",
         "\n      - name: Download and validate build batches\n",
     )
-    assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in discovery_step
+    assert 'status=$(jq -r .status <<<"$metadata")\n' in discovery_step
+    assert '"$status" != completed' in discovery_step
     assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in discovery_step
     assert 'Run %s (id %s) is not terminal; catalog unchanged.' in discovery_step
     assert 'select(.name == "build-report" and .expired == false)' in discovery_step
-    assert "actions/workflows/build.yaml/runs?branch=main&status=completed&per_page=100" in discovery_step
+    assert "actions/workflows/build.yaml/runs?branch=main&per_page=100" in discovery_step
+    assert "status=completed" not in discovery_step
     assert "gh api --paginate" in discovery_step
     assert '.head_repository.full_name == $repository' in discovery_step
     assert 'select(.id > $low and .id <= $high)' in discovery_step
-    assert "| sort_by(.id)" in discovery_step
+    assert "[.images[].runId | tonumber] | max" in discovery_step
+    assert "      - scripts/catalog_reconciliation.jq\n" in catalog
+    assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
+    assert '"$EVENT" == workflow_run && -n "$explicit_run_id" && "$explicit_run_id" -lt "$low_water"' in discovery_step
+    assert 'forced_metadata=$explicit_metadata' in discovery_step
     assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
     assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
+    assert "jq '.source' previous.json > checkpoint-source.json" in discovery_step
+    assert '.frontierRun | {' in discovery_step
     assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
     assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
     assert 'Run %s has no build-report artifact.' in discovery_step
+
+    newer_finishes_first = reconciliation_plan(
+        [{"id": 10, "status": "in_progress"}, {"id": 11, "status": "completed"}],
+        low=9,
+        high=11,
+    )
+    assert newer_finishes_first == {
+        "frontier": 9,
+        "frontierRun": None,
+        "candidates": [{"id": 11, "status": "completed"}],
+    }
+    first_frontier = newer_finishes_first["frontier"]
+    assert isinstance(first_frontier, int)
+    older_finishes_later = reconciliation_plan(
+        [{"id": 10, "status": "completed"}, {"id": 11, "status": "completed"}],
+        low=first_frontier,
+        high=11,
+    )
+    assert older_finishes_later == {
+        "frontier": 11,
+        "frontierRun": {"id": 11, "status": "completed"},
+        "candidates": [
+            {"id": 10, "status": "completed"},
+            {"id": 11, "status": "completed"},
+        ],
+    }
+    forced_older_run = reconciliation_plan(
+        [{"id": 11, "status": "completed"}],
+        low=11,
+        high=11,
+        forced={"id": 10, "status": "completed"},
+    )
+    assert forced_older_run["frontier"] == 11
+    assert forced_older_run["candidates"] == [{"id": 10, "status": "completed"}]
 
     batch_step = between(
         catalog,
@@ -1027,9 +1099,10 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     assert 'done < <(jq -c \'.[]\' reconciliation.json)' in catalog_script
     assert 'current=previous.json' in catalog_script
-    assert 'current=$output' in catalog_script
+    assert "'.[0] * {source: .[1]}'" in catalog_script
     assert 'cp "$current" catalog.json' in catalog_script
     assert '"$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"' in catalog_script
+    assert "catalog.json checkpoint-source.json > pinned-catalog.json" in catalog_script
     assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(catalog_script)
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
     assert "${{ steps.source.outputs." not in catalog

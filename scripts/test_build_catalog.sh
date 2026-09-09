@@ -122,7 +122,11 @@ jq -e '
   ([.images[] | select(.name == "x")] | length == 0) and
   ([.images[] | select(.name == "y")] | length == 1)
 ' "$work/evicted-catalog.json" >/dev/null
-current="$work/previous.json"
+jq --sort-keys --slurp '.[0] * {source: .[1].source}' \
+  "$work/evicted-catalog.json" "$work/previous.json" > "$work/pinned-catalog.json"
+jq -e '.source.runId == "1" and any(.images[]; .name == "y")' \
+  "$work/pinned-catalog.json" >/dev/null
+current="$work/pinned-catalog.json"
 for run_id in 10 11; do
   if [[ "$run_id" == 10 ]]; then
     report="$work/reconcile-report-x.json"
