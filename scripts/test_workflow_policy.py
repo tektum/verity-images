@@ -76,7 +76,7 @@ FULL_INVENTORY_JQ_FILTER: Final = (
 )
 BOOTSTRAP_INVENTORY_COMMAND: Final = (
     "devbox", "run", "--", "jq", "-e", "--slurp", FULL_INVENTORY_JQ_FILTER,
-    "input/report/build-report.json", "expected-images.json", ">/dev/null",
+    "catalog.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
     "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "scripts/catalog_inventory.jq",
@@ -913,36 +913,54 @@ def main() -> None:
         in catalog
     )
     assert "github.event.workflow_run.conclusion" not in catalog
-    source_step = between(
+    discovery_step = between(
         catalog,
-        "      - name: Select source run\n",
-        "\n      - name: Stage site assets\n",
+        "      - name: Discover build runs\n",
+        "\n      - name: Download and validate build batches\n",
     )
-    assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in source_step
-    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in source_step
-    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in source_step
-    assert 'select(.name == "build-report" and .expired == false)' in catalog
+    assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in discovery_step
+    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in discovery_step
+    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in discovery_step
+    assert 'select(.name == "build-report" and .expired == false)' in discovery_step
+    assert "actions/workflows/build.yaml/runs?branch=main&status=completed&per_page=100" in discovery_step
+    assert "gh api --paginate" in discovery_step
+    assert '.head_repository.full_name == $repository' in discovery_step
+    assert 'select(.id > $low and .id <= $high)' in discovery_step
+    assert "| sort_by(.id)" in discovery_step
+    assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
+    assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
+    assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
+    assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
+    assert 'Run %s has no build-report artifact.' in discovery_step
+
+    batch_step = between(
+        catalog,
+        "      - name: Download and validate build batches\n",
+        "\n      - name: Generate expected images\n",
+    )
+    assert 'done < <(jq -c \'.[]\' reconciliation.json)' in batch_step
+    assert 'gh run download "$run_id" --repo "$REPOSITORY"' in batch_step
+    assert "--name build-report --dir \"$destination/report\"" in batch_step
+    assert "--name \"$artifact\" --dir \"$destination/scans/$artifact\"" in batch_step
 
     catalog_step = between(
         catalog,
         "      - name: Generate catalog\n",
-        "\n      - name: Upload catalog data\n",
+        "\n\n      - name: Preserve current catalog\n",
     )
     download_catalog_step = between(
         catalog,
         "      - name: Download current catalog\n",
-        "\n      - name: Generate catalog\n",
+        "\n      - name: Discover build runs\n",
     )
     assert "https://tektum.github.io/verity-images/catalog.json" in catalog
     assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
     assert "      - name: Check out source revision\n" not in catalog
-    assert catalog.index("      - name: Select source run\n") < catalog.index(
-        "      - name: Check source artifacts\n"
-    ) < catalog.index("      - name: Generate expected images\n")
-    assert 'git merge-base --is-ancestor "$source_sha" HEAD' in source_step
-    assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
-        "      - name: Download current catalog\n"
-    )
+    assert catalog.index("      - name: Download current catalog\n") < catalog.index(
+        "      - name: Discover build runs\n"
+    ) < catalog.index("      - name: Download and validate build batches\n") < catalog.index(
+        "      - name: Generate expected images\n"
+    ) < catalog.index("      - name: Generate catalog\n")
     assert "devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'" in catalog
     assert "for report in reports/report-*.json; do" in workflow
     assert "length == 1 and" in workflow
@@ -1003,17 +1021,19 @@ def main() -> None:
         in download_catalog_step
     )
     assert '          elif [[ "$status" == 404 ]]; then\n' in download_catalog_step
-    assert '"$SOURCE_EVENT" == workflow_dispatch' not in download_catalog_step
+    assert '"$MODE" == packages' in download_catalog_step
     assert download_catalog_step.count("        run: |\n") == 1
-    download_catalog_script = download_catalog_step.split("        run: |\n", maxsplit=1)[1]
-    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(download_catalog_script)
-    assert '"$(test -f previous.json && printf previous.json)" catalog.json' in catalog_step
-    assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
+    assert catalog_step.count("        run: |\n") == 1
+    assert 'done < <(jq -c \'.[]\' reconciliation.json)' in catalog_script
+    assert 'current=previous.json' in catalog_script
+    assert 'current=$output' in catalog_script
+    assert 'cp "$current" catalog.json' in catalog_script
+    assert '"$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"' in catalog_script
+    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(catalog_script)
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
-    assert "${{ steps.source.outputs." not in catalog_script
-    for variable in ("PUBLISHED_AT", "RUN_ID", "RUN_URL", "SOURCE_SHA"):
-        assert f'"${variable}"' in catalog_script
+    assert "${{ steps.source.outputs." not in catalog
+    assert "steps.artifacts.outputs.ready" not in catalog
     inventory_filter = (ROOT / "scripts/catalog_inventory.jq").read_text(encoding="utf-8")
     assert "cat > inventory-filter.jq <<'EOF'" not in catalog
     assert "(.[1].include | map([.name, .tag_version])) as $expected" in inventory_filter

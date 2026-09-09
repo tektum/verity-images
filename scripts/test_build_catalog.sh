@@ -103,6 +103,48 @@ jq -e '
   (.images[] | select(.name == "preserved") | .runId) == "1"
 ' "$work/catalog.json" >/dev/null
 
+# A serialized catalog run must fold every missed build report in run order.
+# Processing only the second batch reproduces the eviction bug by dropping X.
+mkdir -p "$work/reconcile-scans-x/scan-x-1" "$work/reconcile-scans-y/scan-y-1"
+printf '%s\n' '{}' > "$work/reconcile-scans-x/scan-x-1/scan-amd64.json"
+printf '%s\n' '{}' > "$work/reconcile-scans-y/scan-y-1/scan-amd64.json"
+cat > "$work/reconcile-report-x.json" <<'EOF'
+{"images":[{"name":"x","version":"1","track":"wolfi","description":"Reconciled X.","digest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
+EOF
+cat > "$work/reconcile-report-y.json" <<'EOF'
+{"images":[{"name":"y","version":"1","track":"wolfi","description":"Reconciled Y.","digest":"sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
+EOF
+python3 "$root/scripts/build_catalog.py" "$work/reconcile-report-y.json" \
+  "$work/reconcile-scans-y" "$work/previous.json" "$work/evicted-catalog.json" \
+  11 https://github.com/tektum/verity-images/actions/runs/11 \
+  2222222222222222222222222222222222222222 2026-08-11T00:00:00Z
+jq -e '
+  ([.images[] | select(.name == "x")] | length == 0) and
+  ([.images[] | select(.name == "y")] | length == 1)
+' "$work/evicted-catalog.json" >/dev/null
+current="$work/previous.json"
+for run_id in 10 11; do
+  if [[ "$run_id" == 10 ]]; then
+    report="$work/reconcile-report-x.json"
+    scans="$work/reconcile-scans-x"
+    source=1111111111111111111111111111111111111111
+  else
+    report="$work/reconcile-report-y.json"
+    scans="$work/reconcile-scans-y"
+    source=2222222222222222222222222222222222222222
+  fi
+  output="$work/reconciled-${run_id}.json"
+  python3 "$root/scripts/build_catalog.py" "$report" "$scans" "$current" "$output" \
+    "$run_id" "https://github.com/tektum/verity-images/actions/runs/${run_id}" \
+    "$source" "2026-08-${run_id}T00:00:00Z"
+  current=$output
+done
+jq -e '
+  (.source.runId == "11") and
+  ([.images[] | select(.name == "x" and .digest == "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")] | length == 1) and
+  ([.images[] | select(.name == "y" and .digest == "sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")] | length == 1)
+' "$current" >/dev/null
+
 python3 "$root/scripts/gen_matrix.py" --all > "$work/expected-images.json"
 cat > "$work/devbox" <<'EOF'
 #!/bin/sh

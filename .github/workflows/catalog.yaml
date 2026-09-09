@@ -52,7 +52,7 @@ jobs:
       )
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-catalog/runner=4cpu-linux-x64
     outputs:
-      ready: ${{ steps.artifacts.outputs.ready }}
+      ready: ${{ steps.reconcile.outputs.ready }}
     permissions:
       actions: read
       contents: read
@@ -84,124 +84,10 @@ jobs:
           [[ "$mode" == images || "$mode" == packages || "$mode" == combined ]]
           printf 'value=%s\n' "$mode" >> "$GITHUB_OUTPUT"
 
-      - name: Select source run
-        if: steps.mode.outputs.value != 'packages'
-        id: source
-        shell: bash
-        env:
-          DISPATCH_RUN_ID: ${{ inputs.run-id }}
-          EVENT: ${{ github.event_name }}
-          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          if [[ "$EVENT" == workflow_dispatch ]]; then
-            run_id=$DISPATCH_RUN_ID
-          else
-            run_id=$EVENT_RUN_ID
-          fi
-          metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${run_id}")
-          conclusion=$(jq -r .conclusion <<<"$metadata")
-          if [[ "$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled ]]; then
-            printf '::error title=Catalog not updated::Run %s (id %s) is not terminal; catalog unchanged.\n' \
-              "$(jq -r .html_url <<<"$metadata")" "$run_id"
-            exit 1
-          fi
-          jq -e --arg repository "$REPOSITORY" '
-            .name == "Build images" and
-            .path == ".github/workflows/build.yaml" and
-            .head_branch == "main" and
-            .head_repository.full_name == $repository and
-            (.event == "push" or .event == "schedule" or .event == "workflow_dispatch")
-          ' <<<"$metadata" >/dev/null
-          source_sha=$(jq -r .head_sha <<<"$metadata")
-          git merge-base --is-ancestor "$source_sha" HEAD
-          {
-            printf 'run-id=%s\n' "$run_id"
-            printf 'run-url=%s\n' "$(jq -r .html_url <<<"$metadata")"
-            printf 'source-sha=%s\n' "$source_sha"
-            printf 'source-event=%s\n' "$(jq -r .event <<<"$metadata")"
-            printf 'published-at=%s\n' "$(jq -r .updated_at <<<"$metadata")"
-          } >> "$GITHUB_OUTPUT"
-
       - name: Stage site assets
         run: cp -R site "$RUNNER_TEMP/site"
 
-
-      - name: Check source artifacts
-        id: artifacts
-        shell: bash
-        env:
-          EVENT: ${{ github.event_name }}
-          MODE: ${{ steps.mode.outputs.value }}
-          GH_TOKEN: ${{ github.token }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ steps.source.outputs.run-id }}
-        run: |
-          if [[ "$MODE" == packages ]]; then
-            printf 'ready=true\n' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          count=$(gh api "repos/${REPOSITORY}/actions/runs/${RUN_ID}/artifacts?per_page=100" \
-            --jq '[.artifacts[] | select(.name == "build-report" and .expired == false)] | length')
-          if [[ "$count" -eq 0 ]]; then
-            if [[ "$EVENT" == workflow_dispatch ]]; then
-              printf '::error title=Build report unavailable::Run %s has no build-report artifact.\n' "$RUN_ID"
-              exit 1
-            fi
-            printf 'ready=false\n' >> "$GITHUB_OUTPUT"
-            printf 'No changed images in build run %s; retaining the current catalog.\n' "$RUN_ID"
-            exit 0
-          fi
-          printf 'ready=true\n' >> "$GITHUB_OUTPUT"
-
-      - name: Download build report
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: build-report
-          path: input/report
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.source.outputs.run-id }}
-          github-token: ${{ github.token }}
-
-      - name: Download scan evidence
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          pattern: scan-*
-          path: input/scans
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.source.outputs.run-id }}
-          github-token: ${{ github.token }}
-
-      - name: Validate build report
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
-        run: |
-          jq -e '
-            (.images | length > 0) and
-            all(.images[];
-              (.name | type == "string" and length > 0) and
-              (.version | type == "string" and length > 0) and
-              (.track == "wolfi" or .track == "patched") and
-              (.digest | test("^sha256:[0-9a-f]{64}$")) and
-              (.inputDigest | test("^sha256:[0-9a-f]{64}$")) and
-              (.runId | test("^[0-9]+$")) and
-              (.runUrl | test("^https://github.com/tektum/verity-images/actions/runs/")) and
-              (.sourceCommit | test("^[0-9a-f]{40}$")) and
-              (.validatedAt | fromdateiso8601 > 0) and
-              (.tags | type == "string" and length > 0) and
-              (.scan.fixable == 0)
-            )
-          ' input/report/build-report.json >/dev/null
-
-      - name: Generate expected images
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
-        run: devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'
-
       - name: Download current catalog
-        if: steps.artifacts.outputs.ready == 'true'
         shell: bash
         env:
           MODE: ${{ steps.mode.outputs.value }}
@@ -216,28 +102,199 @@ jobs:
               printf '::error title=Catalog unavailable::Package-only publication requires the current catalog.\n'
               exit 1
             fi
-            devbox run -- jq -e --slurp \
-              '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
-              input/report/build-report.json expected-images.json >/dev/null
             rm previous.json
           else
             printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"
             exit 1
           fi
 
+      - name: Discover build runs
+        id: reconcile
+        shell: bash
+        env:
+          DISPATCH_RUN_ID: ${{ inputs.run-id }}
+          EVENT: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ steps.mode.outputs.value }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [[ "$MODE" == packages ]]; then
+            printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          validate_run() {
+            local metadata=$1
+            local run_id conclusion source_sha
+            run_id=$(jq -r .id <<<"$metadata")
+            conclusion=$(jq -r .conclusion <<<"$metadata")
+            if [[ "$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled ]]; then
+              printf '::error title=Catalog not updated::Run %s (id %s) is not terminal; catalog unchanged.\n' \
+                "$(jq -r .html_url <<<"$metadata")" "$run_id"
+              exit 1
+            fi
+            jq -e --arg repository "$REPOSITORY" '
+              .name == "Build images" and
+              .path == ".github/workflows/build.yaml" and
+              .head_branch == "main" and
+              .head_repository.full_name == $repository and
+              (.event == "push" or .event == "schedule" or .event == "workflow_dispatch")
+            ' <<<"$metadata" >/dev/null
+            source_sha=$(jq -r .head_sha <<<"$metadata")
+            git merge-base --is-ancestor "$source_sha" HEAD
+          }
+
+          explicit_run_id=
+          explicit_metadata=null
+          if [[ "$EVENT" == workflow_run ]]; then
+            explicit_run_id=$EVENT_RUN_ID
+          elif [[ "$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID" ]]; then
+            explicit_run_id=$DISPATCH_RUN_ID
+          fi
+
+          if [[ -n "$explicit_run_id" ]]; then
+            explicit_metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${explicit_run_id}")
+            validate_run "$explicit_metadata"
+          fi
+
+          gh api --paginate \
+            "repos/${REPOSITORY}/actions/workflows/build.yaml/runs?branch=main&status=completed&per_page=100" \
+            --slurp > "$RUNNER_TEMP/build-run-pages.json"
+          jq --arg repository "$REPOSITORY" --argjson explicit "$explicit_metadata" '
+            ([.[].workflow_runs[]
+              | select(
+                  (.event == "push" or .event == "schedule" or .event == "workflow_dispatch") and
+                  .head_repository.full_name == $repository
+                )] + (if $explicit == null then [] else [$explicit] end))
+            | unique_by(.id)
+            | sort_by(.id)
+          ' "$RUNNER_TEMP/build-run-pages.json" > "$RUNNER_TEMP/build-runs.json"
+
+          if [[ -n "$explicit_run_id" ]]; then
+            upper_bound=$explicit_run_id
+          else
+            upper_bound=$(jq -r 'if length == 0 then 0 else .[-1].id end' "$RUNNER_TEMP/build-runs.json")
+          fi
+          if [[ -f previous.json ]]; then
+            low_water=$(jq -r '.source.runId | tonumber' previous.json)
+          else
+            low_water=0
+          fi
+          jq --argjson low "$low_water" --argjson high "$upper_bound" \
+            '[.[] | select(.id > $low and .id <= $high)]' \
+            "$RUNNER_TEMP/build-runs.json" > "$RUNNER_TEMP/candidates.json"
+
+          if [[ "$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID" ]]; then
+            explicit_artifacts=$(gh api --paginate \
+              "repos/${REPOSITORY}/actions/runs/${DISPATCH_RUN_ID}/artifacts?per_page=100" --slurp)
+            explicit_report_count=$(jq \
+              '[.[].artifacts[] | select(.name == "build-report" and .expired == false)] | length' \
+              <<<"$explicit_artifacts")
+            if [[ "$explicit_report_count" -eq 0 ]]; then
+              printf '::error title=Build report unavailable::Run %s has no build-report artifact.\n' \
+                "$DISPATCH_RUN_ID"
+              exit 1
+            fi
+          fi
+
+          : > "$RUNNER_TEMP/reconciliation.ndjson"
+          while IFS= read -r metadata; do
+            validate_run "$metadata"
+            run_id=$(jq -r .id <<<"$metadata")
+            artifacts=$(gh api --paginate \
+              "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp)
+            report_count=$(jq \
+              '[.[].artifacts[] | select(.name == "build-report" and .expired == false)] | length' \
+              <<<"$artifacts")
+            if [[ "$report_count" -gt 0 ]]; then
+              jq -c . <<<"$metadata" >> "$RUNNER_TEMP/reconciliation.ndjson"
+            fi
+          done < <(jq -c '.[]' "$RUNNER_TEMP/candidates.json")
+          jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json
+
+          count=$(jq length reconciliation.json)
+          if [[ "$count" -eq 0 ]]; then
+            printf 'ready=false\n' >> "$GITHUB_OUTPUT"
+            printf 'No unconsumed build reports through run %s; retaining the current catalog.\n' "$upper_bound"
+          else
+            printf 'ready=true\n' >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download and validate build batches
+        if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          while IFS= read -r metadata; do
+            run_id=$(jq -r .id <<<"$metadata")
+            destination="input/${run_id}"
+            mkdir -p "$destination/report" "$destination/scans"
+            gh run download "$run_id" --repo "$REPOSITORY" \
+              --name build-report --dir "$destination/report"
+            while IFS= read -r artifact; do
+              mkdir -p "$destination/scans/$artifact"
+              gh run download "$run_id" --repo "$REPOSITORY" \
+                --name "$artifact" --dir "$destination/scans/$artifact"
+            done < <(
+              gh api --paginate \
+                "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp \
+                --jq '.[].artifacts[] | select(.expired == false and (.name | startswith("scan-"))) | .name'
+            )
+            jq -e '
+              (.images | length > 0) and
+              all(.images[];
+                (.name | type == "string" and length > 0) and
+                (.version | type == "string" and length > 0) and
+                (.track == "wolfi" or .track == "patched") and
+                (.digest | test("^sha256:[0-9a-f]{64}$")) and
+                (.inputDigest | test("^sha256:[0-9a-f]{64}$")) and
+                (.runId | test("^[0-9]+$")) and
+                (.runUrl | test("^https://github.com/tektum/verity-images/actions/runs/")) and
+                (.sourceCommit | test("^[0-9a-f]{40}$")) and
+                (.validatedAt | fromdateiso8601 > 0) and
+                (.tags | type == "string" and length > 0) and
+                (.scan.fixable == 0)
+              )
+            ' "$destination/report/build-report.json" >/dev/null
+          done < <(jq -c '.[]' reconciliation.json)
+
+      - name: Generate expected images
+        if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
+        run: devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'
+
       - name: Generate catalog
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
+        if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
         env:
           EXPECTED_IMAGES: expected-images.json
-          PUBLISHED_AT: ${{ steps.source.outputs.published-at }}
-          RUN_ID: ${{ steps.source.outputs.run-id }}
-          RUN_URL: ${{ steps.source.outputs.run-url }}
-          SOURCE_SHA: ${{ steps.source.outputs.source-sha }}
         run: |
-          devbox run -- python3 scripts/build_catalog.py input/report/build-report.json input/scans \
-            "$(test -f previous.json && printf previous.json)" catalog.json \
-            "$RUN_ID" "$RUN_URL" "$SOURCE_SHA" "$PUBLISHED_AT"
+          set -euo pipefail
+          current=
+          if [[ -f previous.json ]]; then
+            current=previous.json
+          fi
+          while IFS= read -r metadata; do
+            run_id=$(jq -r .id <<<"$metadata")
+            run_url=$(jq -r .html_url <<<"$metadata")
+            source_sha=$(jq -r .head_sha <<<"$metadata")
+            published_at=$(jq -r .updated_at <<<"$metadata")
+            output="input/${run_id}/catalog.json"
+            devbox run -- python3 scripts/build_catalog.py \
+              "input/${run_id}/report/build-report.json" "input/${run_id}/scans" \
+              "$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"
+            current=$output
+          done < <(jq -c '.[]' reconciliation.json)
+          cp "$current" catalog.json
+          if [[ ! -f previous.json ]]; then
+            devbox run -- jq -e --slurp \
+              '(.[0].images | map([.name, .version]) | sort) == (.[1].include | map([.name, .tag_version]) | sort)' \
+              catalog.json expected-images.json >/dev/null
+          fi
           devbox run -- jq -e \
             '.schemaVersion == 2 and (.images | length > 0) and all(.images[]; .scan.fixable == 0)' \
             catalog.json >/dev/null
@@ -247,11 +304,11 @@ jobs:
 
 
       - name: Preserve current catalog
-        if: steps.artifacts.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
+        if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
         run: cp previous.json catalog.json
 
       - name: Upload catalog data
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.reconcile.outputs.ready == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
           name: catalog-json
@@ -261,11 +318,11 @@ jobs:
           if-no-files-found: error
 
       - name: Configure Pages
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.reconcile.outputs.ready == 'true'
         uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d  # v6.0.0
 
       - name: Prepare Pages files
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.reconcile.outputs.ready == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -290,11 +347,11 @@ jobs:
           devbox run -- python3 scripts/validate_repository_state.py --archive repository.tar.zst --pages pages
 
       - name: Enforce Pages artifact size limit
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.reconcile.outputs.ready == 'true'
         run: python3 scripts/check_pages_size.py pages
 
       - name: Upload Pages artifact
-        if: steps.artifacts.outputs.ready == 'true'
+        if: steps.reconcile.outputs.ready == 'true'
         uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9  # v5.0.0
         with:
           path: pages
