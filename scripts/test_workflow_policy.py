@@ -576,10 +576,18 @@ def main() -> None:
         in sign_step
     )
 
+    # github.event.inputs (not the bare inputs context) is required here:
+    # inputs is unavailable in a top-level workflow concurrency expression.
+    # Every exact-image dispatch gets its own group so GitHub's one-pending-
+    # run-per-group limit can never let one dispatched stream silently evict
+    # another's queued rebuild; push/pull_request/merge_group/base-sha
+    # catch-up runs keep sharing the original single group unchanged.
     workflow_policy = between(workflow, "permissions: {}\n", "\nenv:\n")
     assert workflow_policy == (
         "\nconcurrency:\n"
-        "  group: build-images-${{ github.ref }}\n"
+        "  group: >-\n"
+        "    build-images-${{ github.ref }}${{ github.event.inputs.image &&\n"
+        "    format('-{0}', github.event.inputs.image) || '' }}\n"
         "  cancel-in-progress: false\n"
     )
     catalog_policy = between(catalog, "permissions: {}\n", "\njobs:\n")
@@ -731,12 +739,15 @@ def main() -> None:
     # Every affected stream gets an unconditional nightly rebuild attempt; the
     # zero-fixable publication gate is what decides whether it actually
     # resolves, exactly as it already does for a manually dispatched rebuild.
+    # Evidence upload happens first so a transient dispatch failure never
+    # costs the generated dashboard artifacts, since the dispatch step exits
+    # non-zero and a later step would otherwise be skipped by success().
     assert "scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json\n" in dashboard_job
     assert dashboard_job.index('gh issue edit "$DASHBOARD_ISSUE"') < dashboard_job.index(
-        "scripts/dispatch_vulnerability_rebuilds.sh"
-    )
-    assert dashboard_job.index("scripts/dispatch_vulnerability_rebuilds.sh") < dashboard_job.index(
         "Upload dashboard evidence"
+    )
+    assert dashboard_job.index("Upload dashboard evidence") < dashboard_job.index(
+        "scripts/dispatch_vulnerability_rebuilds.sh"
     )
 
     assert monitor.count("uses: actions/checkout@") == 3
