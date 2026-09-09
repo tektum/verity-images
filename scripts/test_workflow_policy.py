@@ -957,6 +957,7 @@ def main() -> None:
     assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
     assert '.source.consumedRuns //' in discovery_step
     assert '{(.source.runId): 1}' in discovery_step
+    assert "[.images[].runId | strings]" in discovery_step
     assert '--argjson ledger "$consumed_runs"' in discovery_step
     assert 'forced_metadata=$explicit_metadata' in discovery_step
     assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
@@ -967,6 +968,24 @@ def main() -> None:
     assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
     assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
     assert 'Run %s has no build-report artifact.' in discovery_step
+
+    legacy_catalog = {"source": {"runId": "1"}, "images": [{"name": "legacy"}]}
+    legacy_ledger = subprocess.run(
+        [
+            "jq",
+            "-c",
+            (
+                ".source.consumedRuns // "
+                "({(.source.runId): 1} + "
+                "([.images[].runId | strings] | map({(.): 1}) | add // {}))"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(legacy_catalog),
+        text=True,
+    )
+    assert json.loads(legacy_ledger.stdout) == {"1": 1}
 
     at_frontier_rerun = {
         "id": 11,

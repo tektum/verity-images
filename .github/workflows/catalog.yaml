@@ -187,7 +187,8 @@ jobs:
           if [[ -f previous.json ]]; then
             consumed_runs=$(jq -c '
               .source.consumedRuns //
-                ({(.source.runId): 1} + ([.images[].runId] | map({(.): 1}) | add // {}))
+                ({(.source.runId): 1}
+                  + ([.images[].runId | strings] | map({(.): 1}) | add // {}))
             ' previous.json)
           else
             consumed_runs='{}'
