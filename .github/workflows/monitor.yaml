@@ -157,7 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
+      actions: write
       contents: read
       issues: write
     steps:
@@ -199,6 +199,12 @@ jobs:
             gh issue edit "$DASHBOARD_ISSUE" --repo "$REPOSITORY" \
               --body-file image-dashboard.md
           fi
+
+      - name: Dispatch vulnerability remediation rebuilds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json
 
       - name: Upload dashboard evidence
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1

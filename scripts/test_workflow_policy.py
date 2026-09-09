@@ -712,7 +712,7 @@ def main() -> None:
     assert runner(dashboard_job) == "ubuntu-latest"
     assert (
         "\n    permissions:\n"
-        "      actions: read\n"
+        "      actions: write\n"
         "      contents: read\n"
         "      issues: write\n"
         "    steps:\n"
@@ -727,6 +727,16 @@ def main() -> None:
     assert "gh issue create" not in dashboard_job
     assert dashboard_job.index("scripts/build_image_dashboard.py") < dashboard_job.index(
         'gh issue edit "$DASHBOARD_ISSUE"'
+    )
+    # Every affected stream gets an unconditional nightly rebuild attempt; the
+    # zero-fixable publication gate is what decides whether it actually
+    # resolves, exactly as it already does for a manually dispatched rebuild.
+    assert "scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json\n" in dashboard_job
+    assert dashboard_job.index('gh issue edit "$DASHBOARD_ISSUE"') < dashboard_job.index(
+        "scripts/dispatch_vulnerability_rebuilds.sh"
+    )
+    assert dashboard_job.index("scripts/dispatch_vulnerability_rebuilds.sh") < dashboard_job.index(
+        "Upload dashboard evidence"
     )
 
     assert monitor.count("uses: actions/checkout@") == 3

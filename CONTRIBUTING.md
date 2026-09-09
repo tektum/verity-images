@@ -223,6 +223,17 @@ stream alone bypasses a recent receipt; it still must pass its build, smoke test
 and zero-fixable scan before any tag moves. If source, recipe, dependency, or
 lock inputs must change first, open one image-local pull request instead.
 
+The daily monitor (`.github/workflows/monitor.yaml`) also dispatches this same
+rebuild automatically for every affected stream in its completed scan, using
+`scripts/dispatch_vulnerability_rebuilds.sh`. This is unconditional: it does not
+try to predict whether the committed inputs can resolve the finding first. A
+stream whose fix is already reachable from unchanged inputs (for example, a
+transitive Go module vulnerability `go/remediate` can now discover) republishes
+clean overnight with no pull request. A stream that genuinely needs a recipe or
+source change fails its build the same way a manual attempt would, publishes
+nothing, and the next scan reports the same finding again until an image-local
+pull request lands.
+
 ### Pure APKO lock refresh
 
 `.github/workflows/apko-lock-refresh.yaml` keeps committed pure APKO locks
