@@ -204,11 +204,23 @@ def test_renovate_configuration() -> None:
             "labels": ["apk-repository-state", "review-required"],
         },
         {
-            "matchFileNames": ["images/**", "packages/**", "patched/**"],
+            "matchFileNames": [
+                "images/**",
+                "packages/**",
+                "patched/**",
+                "!packages/repository-state.json",
+            ],
             "enabled": False,
             "labels": ["security-floor", "review-required"],
         },
     ]
+    # packages/** would otherwise also match packages/repository-state.json,
+    # silently disabling the apk-repo-state release manager's own
+    # automerge=false/review-required rule above (Renovate's negative-match
+    # array semantics: "!pattern" excludes it from this rule regardless of
+    # the positive packages/** match).
+    security_rule = renovate["packageRules"][2]
+    assert "!packages/repository-state.json" in security_rule["matchFileNames"]
 
     # The single security-floor manager has no depNameTemplate/datasourceTemplate:
     # every dependency identity comes from the inline `# renovate: datasource=...
@@ -255,6 +267,22 @@ def test_renovate_configuration() -> None:
         (
             "  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423\n"
             "  plain-version: v1.83.2\n",
+            [],
+        ),
+        (
+            # Regression: a trailing digit in an unrelated field name (here
+            # the "0" in "sealed-secrets-0") followed by an unrelated,
+            # non-trailing `# renovate:` comment on the *next* line must not
+            # be paired up across the line break. This is real content --
+            # images/sealed-secrets/melange.yaml has exactly this shape for
+            # its own package.version tracking, unrelated to security
+            # floors. A permissive `\\s*` separator here would misread
+            # "sealed-secrets-0" as currentValue "0".
+            "package:\n"
+            "  name: sealed-secrets-0\n"
+            "  # renovate: datasource=github-tags depName=bitnami/sealed-secrets"
+            " versioning=semver-coerced\n"
+            '  version: "0.39.1"\n',
             [],
         ),
     ]

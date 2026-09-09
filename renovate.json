@@ -40,7 +40,7 @@
       "customType": "regex",
       "managerFilePatterns": ["/^images/.+$/", "/^packages/.+$/", "/^patched/.+$/"],
       "matchStrings": [
-        "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)(?:\\s+versioning=(?<versioning>\\S+))?"
+        "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?"
       ]
     }
   ],
@@ -56,7 +56,7 @@
       "labels": ["apk-repository-state", "review-required"]
     },
     {
-      "matchFileNames": ["images/**", "packages/**", "patched/**"],
+      "matchFileNames": ["images/**", "packages/**", "patched/**", "!packages/repository-state.json"],
       "enabled": false,
       "labels": ["security-floor", "review-required"]
     }
