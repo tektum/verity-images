@@ -39,7 +39,7 @@ def stream(
     version: str = "v1.7.0",
     scanner: str = "govulncheck",
     protocol: str = "v1.0.0",
-    scan_level: str = "symbol",
+    scan_level: str = "module",
     scan_mode: str = "source",
 ) -> str:
     values = [{"config": {"protocol_version": protocol, "scanner_name": scanner, "scanner_version": version, "scan_level": scan_level, "scan_mode": scan_mode}}]
@@ -55,7 +55,7 @@ def osv(identifier: str, module: str, *fixes: str) -> dict:
 
 
 def finding(identifier: str, module: str, version: str) -> dict:
-    return {"finding": {"osv": identifier, "trace": [{"module": module, "version": version, "package": module + "/pkg"}]}}
+    return {"finding": {"osv": identifier, "trace": [{"module": module, "version": version}]}}
 
 
 def assert_raises(error_type, message: str, action) -> None:
@@ -72,7 +72,9 @@ def fake_scanner(root: Path, raw: str, status: int, expected: list[str] | None =
     scanner.write_text(
         "#!/usr/bin/env python3\n"
         "import os, sys\n"
-        f"assert sys.argv[1:] == {expected or ['-json', '.']!r}\n"
+        f"assert sys.argv[1:] == {expected or ['-json', '-scan', 'module']!r}\n"
+        "assert os.path.basename(os.getcwd()).startswith('.go-remediate-scan-')\n"
+        "assert open('scan.go', encoding='utf-8').read() == 'package scan\\n'\n"
         "assert os.environ.get('GOFLAGS') == '-mod=mod'\n"
         f"sys.stdout.write({raw!r})\n"
         f"sys.stderr.write({stderr!r})\n"
@@ -111,26 +113,7 @@ def fake_module_scanner(root: Path, raw: str, status: int, stderr: str = "") -> 
     return scanner
 
 
-def test_scan_contract(module, root: Path) -> None:
-    valid_findings = stream(osv("GO-1", "example.com/dependency", "v1.2.0"), finding("GO-1", "example.com/dependency", "v1.0.0"))
-    assert module.scan(fake_scanner(root, valid_findings, 3), root, ["."])
-    assert module.scan(fake_scanner(root, stream(), 0), root, ["."])
-    assert_raises(module.RemediationError, "unexpected govulncheck exit status 1", lambda: module.scan(fake_scanner(root, valid_findings, 1, stderr="scanner failed\n"), root, ["."]))
-    assert_raises(module.RemediationError, "unexpected govulncheck exit status 1", lambda: module.scan(fake_scanner(root, "", 1, stderr="scanner failed\n"), root, ["."]))
-    assert_raises(module.RemediationError, "contains no findings", lambda: module.scan(fake_scanner(root, stream(), 3), root, ["."]))
-    for raw in ("", "not-json\n", '{"config":', '{"config": {"protocol_version": "v1.0.0"}}\n{"finding":'):
-        assert_raises(module.RemediationError, "govulncheck", lambda raw=raw: module.scan(fake_scanner(root, raw, 3), root, ["."]))
-    for raw in (
-        stream(scanner="other"),
-        stream(protocol="v2.0.0"),
-        stream(version="v1.8.0"),
-        stream(scan_level="module"),
-        stream(scan_mode="binary"),
-    ):
-        assert_raises(module.RemediationError, "govulncheck", lambda raw=raw: module.scan(fake_scanner(root, raw, 0), root, ["."]))
-
-
-def test_module_scan_contract(module, root: Path) -> None:
+def test_osv_scan_contract(module, root: Path) -> None:
     dependency = "google.golang.org/grpc"
     raw = osv_scan("GHSA-vp52-pcj8-j9qc", dependency, "v1.82.1", "v1.83.1")
     messages = module.scan_modules(root, fake_module_scanner(root, raw, 1))
@@ -162,7 +145,93 @@ def test_module_scan_contract(module, root: Path) -> None:
     finally:
         module.MAX_OUTPUT_BYTES = previous_limit
 
+
+def test_scan_contract(module, root: Path) -> None:
+    valid_findings = stream(osv("GO-1", "example.com/dependency", "v1.2.0"), finding("GO-1", "example.com/dependency", "v1.0.0"))
+    assert module.scan(fake_scanner(root, valid_findings, 3), root)
+    assert module.scan(fake_scanner(root, stream(), 0), root)
+    assert_raises(module.RemediationError, "unexpected govulncheck exit status 1", lambda: module.scan(fake_scanner(root, valid_findings, 1, stderr="scanner failed\n"), root))
+    assert_raises(module.RemediationError, "unexpected govulncheck exit status 1", lambda: module.scan(fake_scanner(root, "", 1, stderr="scanner failed\n"), root))
+    assert_raises(module.RemediationError, "contains no findings", lambda: module.scan(fake_scanner(root, stream(), 3), root))
+    for raw in ("", "not-json\n", '{"config":', '{"config": {"protocol_version": "v1.0.0"}}\n{"finding":'):
+        assert_raises(module.RemediationError, "govulncheck", lambda raw=raw: module.scan(fake_scanner(root, raw, 3), root))
+    for raw in (
+        stream(scanner="other"),
+        stream(protocol="v2.0.0"),
+        stream(version="v1.8.0"),
+        stream(scan_level="symbol"),
+        stream(scan_mode="binary"),
+    ):
+        assert_raises(module.RemediationError, "govulncheck", lambda raw=raw: module.scan(fake_scanner(root, raw, 0), root))
+
+
+def test_module_only_finding_is_remediated(module, root: Path) -> None:
+    dependency = "google.golang.org/grpc"
+    proxy = root / "proxy"
+    source = "package grpc\nfunc Value() int { return 1 }\n"
+    for version in ("v1.82.1", "v1.83.2"):
+        add_proxy_module(proxy, dependency, version, source=source)
+    project = root / "checkout"
+    project.mkdir()
+    project.joinpath("go.mod").write_text(
+        f"module example.com/app\n\ngo 1.25\n\nrequire {dependency} v1.82.1\n",
+        encoding="utf-8",
+    )
+    project.joinpath("main.go").write_text(
+        'package main\nimport "google.golang.org/grpc"\nfunc main() { _ = grpc.Value() }\n',
+        encoding="utf-8",
+    )
+    environment = dict(
+        os.environ,
+        GOPROXY=proxy.resolve().as_uri(),
+        GOSUMDB="off",
+        GOMODCACHE=str(root / "cache"),
+        GOTOOLCHAIN="local",
+        GOWORK="off",
+    )
+    subprocess.run(["go", "mod", "tidy"], cwd=project, env=environment, check=True, capture_output=True)
+    vulnerable = stream(
+        osv("GO-GRPC-XDS", dependency, "v1.83.2"),
+        finding("GO-GRPC-XDS", dependency, "v1.82.1"),
+    )
+    frame = json.loads(vulnerable.splitlines()[2])["finding"]["trace"][0]
+    assert set(frame) == {"module", "version"}
+    scanner = sequence_scanner(root, [(vulnerable, 0), (stream(), 0)])
+    binary_dir, _, real_go = install_command_wrappers(root)
+    previous_environ = os.environ.copy()
+    previous_argv = sys.argv
+    os.environ.update(
+        environment,
+        PATH=f"{binary_dir}:{os.environ['PATH']}",
+        REAL_GO=real_go,
+        GO_LOG=str(root / "go.log"),
+        OMNIBUMP_LOG=str(root / "omnibump.log"),
+    )
+    sys.argv = ["remediate.py", str(scanner), str(project), str(project), "", "."]
+    output = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(output):
+            module.main()
+    finally:
+        sys.argv = previous_argv
+        os.environ.clear()
+        os.environ.update(previous_environ)
+    assert f"go remediation: applying {dependency}@v1.83.2" in output.getvalue()
+    assert f"{dependency} v1.83.2" in project.joinpath("go.mod").read_text(encoding="utf-8")
+    assert root.joinpath("scan-state").read_text(encoding="utf-8") == "2"
+
+
+def test_version_ordering(module) -> None:
     assert module.version_key("v19.03.0") == module.version_key("v19.3.0")
+
+
+def test_required_go_upgrade_preserved(module, root: Path) -> None:
+    go_mod = root / "go.mod"
+    go_mod.write_text("module example.com/app\n\ngo 1.25 // module policy\n", encoding="utf-8")
+    assert not module.raise_go_version(go_mod, (1, 24, 0))
+    assert "go 1.25 // module policy" in go_mod.read_text(encoding="utf-8")
+    assert module.raise_go_version(go_mod, (1, 26, 0))
+    assert "go 1.26.0 // module policy" in go_mod.read_text(encoding="utf-8")
 
 
 def test_fix_selection(module) -> None:
@@ -301,7 +370,6 @@ def prepare_project(
 def sequence_scanner(
     root: Path,
     outputs: list[tuple[str, int]],
-    package: str = ".",
     expected_gowork: str = "off",
 ) -> Path:
     scanner = root / "scanner"
@@ -316,7 +384,9 @@ def sequence_scanner(
     scanner.write_text(
         "#!/usr/bin/env python3\n"
         "import os, pathlib, sys\n"
-        f"assert sys.argv[1:] == {['-json', package]!r}\n"
+        "assert sys.argv[1:] == ['-json', '-scan', 'module']\n"
+        "assert os.path.basename(os.getcwd()).startswith('.go-remediate-scan-')\n"
+        "assert pathlib.Path('scan.go').read_text() == 'package scan\\n'\n"
         f"assert os.environ.get('GOWORK') == {expected_gowork!r}\n"
         f"state = pathlib.Path({str(state)!r})\n"
         "index = int(state.read_text() or '0') if state.exists() else 0\n"
@@ -328,8 +398,8 @@ def sequence_scanner(
         "raise SystemExit(statuses[index])\n",
         encoding="utf-8",
     )
-    scanner.chmod(0o755)
     fake_module_scanner(root, '{"results": []}', 0)
+    scanner.chmod(0o755)
     return scanner
 
 
@@ -421,7 +491,6 @@ def run_resolver(
     scanner = sequence_scanner(
         root,
         [(vulnerable, 3), (after if after is not None else stream(), 0 if after is None else 3)],
-        package,
         expected_gowork,
     )
     binary_dir, _, real_go = install_command_wrappers(root)
@@ -922,8 +991,6 @@ def test_no_compatible_fix_continues(module, root: Path) -> None:
     scanner = sequence_scanner(root, [(raw, 3), (raw, 3)])
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
-    previous_scan_modules = module.scan_modules
-    module.scan_modules = lambda *_args, **_kwargs: []
     os.environ.update(environment)
     sys.argv = ["remediate.py", str(scanner), str(workspace_root), str(module_root), "", "."]
     output = io.StringIO()
@@ -931,7 +998,6 @@ def test_no_compatible_fix_continues(module, root: Path) -> None:
         with contextlib.redirect_stdout(output):
             module.main()
     finally:
-        module.scan_modules = previous_scan_modules
         sys.argv = previous_argv
         os.environ.clear()
         os.environ.update(previous_environ)
@@ -973,7 +1039,7 @@ def test_package_graph_and_post_scan_failures(module, root: Path) -> None:
     graph = root / "graph"
     graph.mkdir()
     workspace_root, module_root, environment = prepare_project(graph, False, False)
-    scanner = sequence_scanner(graph, [(stream(), 0)], package="./missing")
+    scanner = sequence_scanner(graph, [(stream(), 0)])
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
     os.environ.update(environment)
@@ -1038,7 +1104,7 @@ def test_interdependent_fixes(module, root: Path) -> None:
         osv("GO-LOW", "example.com/low", "v1.2.0"),
         finding("GO-LOW", "example.com/low", "v1.0.0"),
     )
-    scanner = sequence_scanner(root, [(vulnerable, 3), (stream(), 0)], package="./...")
+    scanner = sequence_scanner(root, [(vulnerable, 3), (stream(), 0)])
     binary_dir, go_log, real_go = install_command_wrappers(root)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
@@ -1182,7 +1248,7 @@ def test_newly_exposed_fixes_converge(module, root: Path) -> None:
         osv("GO-CORE", "example.com/core", "v1.2.0"),
         finding("GO-CORE", "example.com/core", "v1.1.0"),
     )
-    scanner = sequence_scanner(root, [(exporter_vulnerable, 3), (core_vulnerable, 3), (stream(), 0)], package="./...")
+    scanner = sequence_scanner(root, [(exporter_vulnerable, 3), (core_vulnerable, 3), (stream(), 0)])
     binary_dir, log, real_go = install_command_wrappers(root)
     previous_environ = os.environ.copy()
     previous_argv = sys.argv
@@ -1239,6 +1305,7 @@ def test_package_inputs(module, root: Path) -> None:
 def test_pipeline_contract() -> None:
     pipeline = PIPELINE.read_text(encoding="utf-8")
     assert pipeline.count("go install golang.org/x/vuln/cmd/govulncheck@v1.7.0") == 1
+    assert pipeline.count('[str(binary), "-json", "-scan", "module"]') == 1
     assert pipeline.count("go install github.com/google/osv-scanner/v2/cmd/osv-scanner@v2.5.1") == 1
     assert pipeline.count('"--all-vulns"') == 1
     assert "@latest" not in pipeline and "go run golang.org/x/vuln" not in pipeline
@@ -1255,7 +1322,10 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_scan_contract(module, root)
-        test_module_scan_contract(module, root)
+        test_osv_scan_contract(module, root)
+        test_module_only_finding_is_remediated(module, root)
+        test_version_ordering(module)
+        test_required_go_upgrade_preserved(module, root)
         test_fix_selection(module)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)

@@ -126,7 +126,7 @@ pipeline:
               config.get("protocol_version") != PROTOCOL_VERSION
               or config.get("scanner_name") != "govulncheck"
               or config.get("scanner_version") != TOOL_VERSION
-              or config.get("scan_level") != "symbol"
+              or config.get("scan_level") != "module"
               or config.get("scan_mode") != "source"
           ):
               raise RemediationError("unsupported govulncheck protocol")
@@ -166,15 +166,18 @@ pipeline:
               stderr = bytes(streams[process.stderr][1]).decode(errors="replace").strip()
           return returncode, stdout, stderr
 
-      def scan(binary, root, packages, workspace=None):
+      def scan(binary, root, workspace=None):
           environment = dict(os.environ, GOTOOLCHAIN="local", GOWORK=str(workspace) if workspace else "off")
           if workspace is None and not root.joinpath("vendor").is_dir():
               flags = [flag for flag in environment.get("GOFLAGS", "").split() if not flag.startswith("-mod=")]
               environment["GOFLAGS"] = " ".join([*flags, "-mod=mod"])
           environment.setdefault("GOVULNDB", "https://vuln.go.dev")
-          returncode, stdout, stderr = capture_command(
-              [str(binary), "-json", *packages], root, environment, "govulncheck"
-          )
+          with tempfile.TemporaryDirectory(prefix=".go-remediate-scan-", dir=root) as temporary:
+              scan_root = Path(temporary)
+              scan_root.joinpath("scan.go").write_text("package scan\n", encoding="utf-8")
+              returncode, stdout, stderr = capture_command(
+                  [str(binary), "-json", "-scan", "module"], scan_root, environment, "govulncheck"
+              )
           if returncode not in RESULT_EXIT_CODES:
               raise RemediationError(f"unexpected govulncheck exit status {returncode}: {stderr or 'no stderr'}")
           try:
@@ -241,6 +244,7 @@ pipeline:
               return parse_osv_scan(stdout.decode())
           except UnicodeDecodeError as error:
               raise RemediationError("malformed OSV-Scanner UTF-8 output") from error
+
 
       def minimum_fix(entry, module, current):
           candidates = []
@@ -493,6 +497,25 @@ pipeline:
               raise RemediationError(f"invalid {path.name} Go version: {value}")
           return tuple(int(part or 0) for part in match.groups())
 
+      def toolchain_go_version(root, workspace):
+          value = run_go(["go", "env", "GOVERSION"], root, capture=True, workspace=workspace).strip()
+          if not value.startswith("go"):
+              raise RemediationError(f"invalid Go toolchain version: {value!r}")
+          return parsed_go_version(root / "go.mod", {"go": "go " + value.removeprefix("go")})
+
+
+      def raise_go_version(path, required):
+          directives = language_directives(path)
+          if not required or parsed_go_version(path, directives) >= required:
+              return False
+          original = directives.get("go")
+          if original is None:
+              raise RemediationError(f"{path.name} has no Go version directive")
+          value = ".".join(map(str, required))
+          replacement = re.sub(r"^(\s*go\s+)\S+", rf"\g<1>{value}", original)
+          restore_language_directives(path, {**directives, "go": replacement})
+          return True
+
       def language_snapshot(workspace_root, root, workspace):
           files = [root / "go.mod"]
           if workspace:
@@ -618,11 +641,23 @@ pipeline:
                       raise RemediationError("vendor patches require an active vendor directory")
                   apply_vendor_patches(vendor_root, vendor_patches)
               mode = "vendor" if vendor_root is not None else "readonly"
-              run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
-              with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
-                  run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
           finally:
               restore_language_snapshot(snapshots)
+          try:
+              run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
+          except CommandError as error:
+              if "updates to go.mod needed" not in error.output:
+                  raise
+              required = toolchain_go_version(root, workspace)
+              changed = False
+              for path in (root / "go.mod", workspace):
+                  if path is not None:
+                      changed = raise_go_version(path, required) or changed
+              if not changed:
+                  raise
+              run_go(["go", "list", "-deps", f"-mod={mode}", *packages], root, workspace=workspace)
+          with tempfile.TemporaryDirectory(prefix="go-remediate-build-") as output:
+              run_go(["go", "build", f"-mod={mode}", "-o", output + "/", *packages], root, workspace=workspace)
 
       def reconcile_with_compatibility(
           workspace_root, root, packages, workspace, vendor_patches, passes, required_sums=()
@@ -668,7 +703,7 @@ pipeline:
           sibling_scanner = Path(binary).with_name("osv-scanner")
           module_binary = sibling_scanner if sibling_scanner.is_file() else "osv-scanner"
           vendor_patches = resolve_vendor_patches(workspace_root, vendor_patches_arg)
-          messages = scan(Path(binary), root, packages, workspace) + scan_modules(root, module_binary)
+          messages = scan(Path(binary), root, workspace) + scan_modules(root, module_binary)
           remediated = set()
           passes = 0
           reconciled = False
@@ -690,7 +725,7 @@ pipeline:
                           workspace_root, root, packages, workspace, vendor_patches, passes
                       )
                       reconciled = True
-                      messages = scan(Path(binary), root, packages, workspace) + scan_modules(root, module_binary)
+                      messages = scan(Path(binary), root, workspace) + scan_modules(root, module_binary)
                       continue
                   for osv_id, module, current, reason in unresolved:
                       print(f"go remediation: continuing with {osv_id} in {module}@{current} ({reason})", flush=True)
@@ -709,7 +744,7 @@ pipeline:
               reconciled = True
               if selected_modules(root, workspace) == selected:
                   raise RemediationError(f"go remediation pass made no module graph progress: {details}")
-              messages = scan(Path(binary), root, packages, workspace) + scan_modules(root, module_binary)
+              messages = scan(Path(binary), root, workspace) + scan_modules(root, module_binary)
 
       if __name__ == "__main__":
           try:
