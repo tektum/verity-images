@@ -154,7 +154,10 @@ def _extract(manager: dict, text: str) -> list[dict[str, str]]:
             dep_name = groups.get("depName")
             if dep_name is None:
                 dep_name = _render_template(manager["depNameTemplate"], groups)
-            found.append({"depName": dep_name, "currentValue": groups["currentValue"]})
+            entry = {"depName": dep_name, "currentValue": groups["currentValue"]}
+            if groups.get("versioning"):
+                entry["versioning"] = groups["versioning"]
+            found.append(entry)
     return found
 
 
@@ -209,8 +212,18 @@ def test_renovate_configuration() -> None:
     # Prove the one regex actually extracts the expected dependency from every
     # annotation shape a recipe can use: a YAML `vars:` scalar, a Dockerfile
     # `ARG`, and a quoted value with a trailing comma and version qualifier
-    # (embedded Python dict literal), and that unannotated version-looking
-    # text is correctly ignored.
+    # (embedded Python dict literal); that an optional `versioning=` override
+    # is captured when present; and that unannotated version-looking text is
+    # correctly ignored.
+    #
+    # The override matters concretely for crate deps: Renovate's default
+    # "cargo" versioning treats a bare pin like the current rand floor,
+    # 0.8.6, as an implicit `^0.8.6` range, so it silently reports
+    # currentVersion 0.8.8 (the newest 0.8.x release) instead of 0.8.6 -- and
+    # OSV vulnerability matching reads currentVersion before currentValue.
+    # A still-vulnerable 0.8.6 floor would then look already patched. Every
+    # crate annotation must add `versioning=semver` so currentVersion echoes
+    # the literal pinned value.
     fixtures = [
         (
             "  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc\n",
@@ -224,6 +237,11 @@ def test_renovate_configuration() -> None:
             '      ("io.netty", "netty-all"): "4.1.136.Final",  '
             "# renovate: datasource=maven depName=io.netty:netty-all\n",
             [{"depName": "io.netty:netty-all", "currentValue": "4.1.136.Final"}],
+        ),
+        (
+            "  rand-floor: 0.8.6  "
+            "# renovate: datasource=crate depName=rand versioning=semver\n",
+            [{"depName": "rand", "currentValue": "0.8.6", "versioning": "semver"}],
         ),
         (
             "  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423\n"
