@@ -256,11 +256,6 @@ def updater_requires_review() -> None:
     managers = renovate["customManagers"]
     rules = renovate["packageRules"]
     assert any("repository-state" in manager["managerFilePatterns"][0] for manager in managers)
-    assert not any(
-        "images/" in pattern or "patched/" in pattern
-        for manager in managers
-        for pattern in manager["managerFilePatterns"]
-    )
     assert renovate["automerge"] is False
     assert renovate["platformAutomerge"] is False
     assert renovate["automergeType"] == "pr"

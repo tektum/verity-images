@@ -5,6 +5,8 @@
   "platformAutomerge": false,
   "automergeType": "pr",
   "prCreation": "immediate",
+  "osvVulnerabilityAlerts": true,
+  "vulnerabilityAlerts": { "enabled": true },
   "enabledManagers": ["custom.regex"],
   "customManagers": [
     {
@@ -33,6 +35,13 @@
       "depNameTemplate": "tektum/verity-images",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^apk-repo-v(?<major>[0-9]{4})$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images/.+$/", "/^packages/.+$/", "/^patched/.+$/"],
+      "matchStrings": [
+        "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?"
+      ]
     }
   ],
   "packageRules": [
@@ -45,6 +54,11 @@
       "matchFileNames": ["packages/repository-state.json"],
       "automerge": false,
       "labels": ["apk-repository-state", "review-required"]
+    },
+    {
+      "matchFileNames": ["images/**", "packages/**", "patched/**", "!packages/repository-state.json"],
+      "enabled": false,
+      "labels": ["security-floor", "review-required"]
     }
   ]
 }

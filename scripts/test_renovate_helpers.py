@@ -6,6 +6,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -137,29 +138,59 @@ def test_corepack_install(root: Path) -> None:
         assert result.returncode != 0, declaration
 
 
+def _render_template(template: str, groups: dict[str, str]) -> str:
+    rendered = template
+    for key, value in groups.items():
+        rendered = rendered.replace("{{" + key + "}}", value)
+    return rendered
+
+
+def _extract(manager: dict, text: str) -> list[dict[str, str]]:
+    found = []
+    for raw_pattern in manager["matchStrings"]:
+        pattern = raw_pattern.replace("(?<", "(?P<")
+        for match in re.finditer(pattern, text):
+            groups = match.groupdict()
+            dep_name = groups.get("depName")
+            if dep_name is None:
+                dep_name = _render_template(manager["depNameTemplate"], groups)
+            entry = {"depName": dep_name, "currentValue": groups["currentValue"]}
+            if groups.get("versioning"):
+                entry["versioning"] = groups["versioning"]
+            found.append(entry)
+    return found
+
+
 def test_renovate_configuration() -> None:
     renovate = json.loads((ROOT / "renovate.json").read_text(encoding="utf-8"))
     managers = renovate["customManagers"]
 
     assert renovate["automerge"] is False
     assert renovate["platformAutomerge"] is False
-    assert len(managers) == 3
+    assert renovate["osvVulnerabilityAlerts"] is True
+    # vulnerabilityAlerts.enabled defaults to True in Renovate already, but is
+    # declared explicitly here because it is the field that lets an OSV hit
+    # override the blanket `enabled: false` rule below: Renovate's
+    # applyPackageRules() only clears a rule's skip when the *next* matched
+    # rule's `force.enabled` is truthy, and mergeChildConfig() ends with
+    # `{ ...config, ...config.force }`, so a vulnerability-generated
+    # packageRule's `force: {...vulnerabilityAlerts}` is what actually flips
+    # `enabled` back to true for that one dependency.
+    assert renovate["vulnerabilityAlerts"] == {"enabled": True}
+    assert all(manager["customType"] == "regex" for manager in managers)
+    assert len(managers) == 4
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
+        [r"/^images/.+$/", r"/^packages/.+$/", r"/^patched/.+$/"],
     ]
-    assert [manager["datasourceTemplate"] for manager in managers] == [
+    assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
         "docker",
         "github-releases",
+        None,
     ]
-    assert all(manager["customType"] == "regex" for manager in managers)
-    assert all(
-        "images/" not in pattern and "patched/" not in pattern
-        for manager in managers
-        for pattern in manager["managerFilePatterns"]
-    )
 
     assert renovate["packageRules"] == [
         {
@@ -172,7 +203,91 @@ def test_renovate_configuration() -> None:
             "automerge": False,
             "labels": ["apk-repository-state", "review-required"],
         },
+        {
+            "matchFileNames": [
+                "images/**",
+                "packages/**",
+                "patched/**",
+                "!packages/repository-state.json",
+            ],
+            "enabled": False,
+            "labels": ["security-floor", "review-required"],
+        },
     ]
+    # packages/** would otherwise also match packages/repository-state.json,
+    # silently disabling the apk-repo-state release manager's own
+    # automerge=false/review-required rule above (Renovate's negative-match
+    # array semantics: "!pattern" excludes it from this rule regardless of
+    # the positive packages/** match).
+    security_rule = renovate["packageRules"][2]
+    assert "!packages/repository-state.json" in security_rule["matchFileNames"]
+
+    # The single security-floor manager has no depNameTemplate/datasourceTemplate:
+    # every dependency identity comes from the inline `# renovate: datasource=...
+    # depName=...` comment itself, so a new floor in any file under images/,
+    # packages/, or patched/ is picked up without ever touching this config again.
+    floor_manager = managers[3]
+    assert "depNameTemplate" not in floor_manager
+    assert "datasourceTemplate" not in floor_manager
+
+    # Prove the one regex actually extracts the expected dependency from every
+    # annotation shape a recipe can use: a YAML `vars:` scalar, a Dockerfile
+    # `ARG`, and a quoted value with a trailing comma and version qualifier
+    # (embedded Python dict literal); that an optional `versioning=` override
+    # is captured when present; and that unannotated version-looking text is
+    # correctly ignored.
+    #
+    # The override matters concretely for crate deps: Renovate's default
+    # "cargo" versioning treats a bare pin like the current rand floor,
+    # 0.8.6, as an implicit `^0.8.6` range, so it silently reports
+    # currentVersion 0.8.8 (the newest 0.8.x release) instead of 0.8.6 -- and
+    # OSV vulnerability matching reads currentVersion before currentValue.
+    # A still-vulnerable 0.8.6 floor would then look already patched. Every
+    # crate annotation must add `versioning=semver` so currentVersion echoes
+    # the literal pinned value.
+    fixtures = [
+        (
+            "  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc\n",
+            [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}],
+        ),
+        (
+            "ARG NPM_VERSION=12.0.2  # renovate: datasource=npm depName=npm\n",
+            [{"depName": "npm", "currentValue": "12.0.2"}],
+        ),
+        (
+            '      ("io.netty", "netty-all"): "4.1.136.Final",  '
+            "# renovate: datasource=maven depName=io.netty:netty-all\n",
+            [{"depName": "io.netty:netty-all", "currentValue": "4.1.136.Final"}],
+        ),
+        (
+            "  rand-floor: 0.8.6  "
+            "# renovate: datasource=crate depName=rand versioning=semver\n",
+            [{"depName": "rand", "currentValue": "0.8.6", "versioning": "semver"}],
+        ),
+        (
+            "  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423\n"
+            "  plain-version: v1.83.2\n",
+            [],
+        ),
+        (
+            # Regression: a trailing digit in an unrelated field name (here
+            # the "0" in "sealed-secrets-0") followed by an unrelated,
+            # non-trailing `# renovate:` comment on the *next* line must not
+            # be paired up across the line break. This is real content --
+            # images/sealed-secrets/melange.yaml has exactly this shape for
+            # its own package.version tracking, unrelated to security
+            # floors. A permissive `\\s*` separator here would misread
+            # "sealed-secrets-0" as currentValue "0".
+            "package:\n"
+            "  name: sealed-secrets-0\n"
+            "  # renovate: datasource=github-tags depName=bitnami/sealed-secrets"
+            " versioning=semver-coerced\n"
+            '  version: "0.39.1"\n',
+            [],
+        ),
+    ]
+    for text, expected in fixtures:
+        assert _extract(floor_manager, text) == expected, text
 
 
 
