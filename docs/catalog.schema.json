@@ -65,7 +65,12 @@
       "properties": {
         "runId": {"type": "string", "pattern": "^[0-9]+$"},
         "runUrl": {"type": "string", "format": "uri", "pattern": "^https://github.com/tektum/verity-images/actions/runs/"},
-        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"}
+        "commit": {"type": "string", "pattern": "^[0-9a-f]{40}$"},
+        "consumedRuns": {
+          "type": "object",
+          "propertyNames": {"pattern": "^[0-9]+$"},
+          "additionalProperties": {"type": "integer", "minimum": 1}
+        }
       }
     },
     "policy": {

@@ -20,7 +20,9 @@ on:
 permissions: {}
 
 concurrency:
-  group: build-images-${{ github.ref }}
+  group: >-
+    build-images-${{ github.ref }}${{ github.event.inputs.image &&
+    format('-{0}', github.event.inputs.image) || '' }}
   cancel-in-progress: false
 
 env:

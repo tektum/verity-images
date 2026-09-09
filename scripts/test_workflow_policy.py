@@ -6,8 +6,9 @@
 # How to run:
 #   uv run scripts/test_workflow_policy.py
 
-import shlex
+import json
 import os
+import shlex
 import subprocess
 from dataclasses import replace
 from pathlib import Path
@@ -76,7 +77,7 @@ FULL_INVENTORY_JQ_FILTER: Final = (
 )
 BOOTSTRAP_INVENTORY_COMMAND: Final = (
     "devbox", "run", "--", "jq", "-e", "--slurp", FULL_INVENTORY_JQ_FILTER,
-    "input/report/build-report.json", "expected-images.json", ">/dev/null",
+    "catalog.json", "expected-images.json", ">/dev/null",
 )
 CATALOG_INVENTORY_COMMAND: Final = (
     "devbox", "run", "--", "jq", "-e", "--slurp", "--from-file", "scripts/catalog_inventory.jq",
@@ -110,6 +111,31 @@ def shell_commands(script: str) -> tuple[tuple[str, ...], ...]:
     return tuple(
         tuple(shlex.split(command, comments=True, posix=True)) for command in commands
     )
+
+def reconciliation_plan(
+    runs: list[dict[str, object]],
+    ledger: dict[str, int],
+    forced: dict[str, object] | None = None,
+) -> dict[str, object]:
+    result = subprocess.run(
+        [
+            "jq",
+            "--argjson",
+            "ledger",
+            json.dumps(ledger),
+            "--argjson",
+            "forced",
+            json.dumps(forced),
+            "--from-file",
+            str(ROOT / "scripts/catalog_reconciliation.jq"),
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(runs),
+        text=True,
+    )
+    plan: dict[str, object] = json.loads(result.stdout)
+    return plan
 
 
 def env_pins(workflow: str) -> dict[str, str]:
@@ -576,10 +602,18 @@ def main() -> None:
         in sign_step
     )
 
+    # github.event.inputs (not the bare inputs context) is required here:
+    # inputs is unavailable in a top-level workflow concurrency expression.
+    # Every exact-image dispatch gets its own group so GitHub's one-pending-
+    # run-per-group limit can never let one dispatched stream silently evict
+    # another's queued rebuild; push/pull_request/merge_group/base-sha
+    # catch-up runs keep sharing the original single group unchanged.
     workflow_policy = between(workflow, "permissions: {}\n", "\nenv:\n")
     assert workflow_policy == (
         "\nconcurrency:\n"
-        "  group: build-images-${{ github.ref }}\n"
+        "  group: >-\n"
+        "    build-images-${{ github.ref }}${{ github.event.inputs.image &&\n"
+        "    format('-{0}', github.event.inputs.image) || '' }}\n"
         "  cancel-in-progress: false\n"
     )
     catalog_policy = between(catalog, "permissions: {}\n", "\njobs:\n")
@@ -712,7 +746,7 @@ def main() -> None:
     assert runner(dashboard_job) == "ubuntu-latest"
     assert (
         "\n    permissions:\n"
-        "      actions: read\n"
+        "      actions: write\n"
         "      contents: read\n"
         "      issues: write\n"
         "    steps:\n"
@@ -727,6 +761,19 @@ def main() -> None:
     assert "gh issue create" not in dashboard_job
     assert dashboard_job.index("scripts/build_image_dashboard.py") < dashboard_job.index(
         'gh issue edit "$DASHBOARD_ISSUE"'
+    )
+    # Every affected stream gets an unconditional nightly rebuild attempt; the
+    # zero-fixable publication gate is what decides whether it actually
+    # resolves, exactly as it already does for a manually dispatched rebuild.
+    # Evidence upload happens first so a transient dispatch failure never
+    # costs the generated dashboard artifacts, since the dispatch step exits
+    # non-zero and a later step would otherwise be skipped by success().
+    assert "scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json\n" in dashboard_job
+    assert dashboard_job.index('gh issue edit "$DASHBOARD_ISSUE"') < dashboard_job.index(
+        "Upload dashboard evidence"
+    )
+    assert dashboard_job.index("Upload dashboard evidence") < dashboard_job.index(
+        "scripts/dispatch_vulnerability_rebuilds.sh"
     )
 
     assert monitor.count("uses: actions/checkout@") == 3
@@ -892,36 +939,198 @@ def main() -> None:
         in catalog
     )
     assert "github.event.workflow_run.conclusion" not in catalog
-    source_step = between(
+    discovery_step = between(
         catalog,
-        "      - name: Select source run\n",
-        "\n      - name: Stage site assets\n",
+        "      - name: Discover build runs\n",
+        "\n      - name: Download and validate build batches\n",
     )
-    assert 'conclusion=$(jq -r .conclusion <<<"$metadata")\n' in source_step
-    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in source_step
-    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in source_step
-    assert 'select(.name == "build-report" and .expired == false)' in catalog
+    assert 'status=$(jq -r .status <<<"$metadata")\n' in discovery_step
+    assert '"$status" != completed' in discovery_step
+    assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in discovery_step
+    assert 'Run %s (id %s) is not terminal; catalog unchanged.' in discovery_step
+    assert 'select(.name == "build-report" and .expired == false)' in discovery_step
+    assert "actions/workflows/build.yaml/runs?branch=main&per_page=100" in discovery_step
+    assert "status=completed" not in discovery_step
+    assert "gh api --paginate" in discovery_step
+    assert '.head_repository.full_name == $repository' in discovery_step
+    assert "      - scripts/catalog_reconciliation.jq\n" in catalog
+    assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
+    assert '.source.consumedRuns // empty' in discovery_step
+    assert 'published_at=$(jq -r .publishedAt previous.json)' in discovery_step
+    assert '.updated_at <= $cutoff' in discovery_step
+    assert '--argjson ledger "$consumed_runs"' in discovery_step
+    assert 'forced_metadata=$explicit_metadata' in discovery_step
+    assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
+    assert discovery_step.count('validate_identity "$metadata"') == 1
+    assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
+    assert 'run_attempt' in discovery_step
+    assert 'consumedRuns: .' in discovery_step
+    assert 'printf \'ready=false\\n\' >> "$GITHUB_OUTPUT"' in discovery_step
+    assert '"$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID"' in discovery_step
+    assert 'Run %s has no build-report artifact.' in discovery_step
+    assert 'missing_scans=$(jq -c --argjson available "$available_scans"' in discovery_step
+    assert 'Build report deferred' in discovery_step
+    reported_images = {
+        "images": [
+            {"name": "healthy", "version": "1"},
+            {"name": "incomplete", "version": "2"},
+        ]
+    }
+    missing_scans = subprocess.run(
+        [
+            "jq",
+            "-c",
+            "--argjson",
+            "available",
+            '["scan-healthy-1"]',
+            '[.images[] | "scan-\\(.name)-\\(.version)"] | unique | . - $available',
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(reported_images),
+        text=True,
+    )
+    assert json.loads(missing_scans.stdout) == ["scan-incomplete-2"]
+
+    legacy_runs = [
+        {
+            "id": 10,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T01:00:00Z",
+        },
+        {
+            "id": 11,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T02:00:00Z",
+        },
+        {
+            "id": 12,
+            "run_attempt": 1,
+            "status": "completed",
+            "updated_at": "2026-09-09T04:00:00Z",
+        },
+    ]
+    legacy_ledger = subprocess.run(
+        [
+            "jq",
+            "-c",
+            "--arg",
+            "cutoff",
+            "2026-09-09T02:30:00Z",
+            "--arg",
+            "source",
+            "11",
+            (
+                "reduce (.[] | select(.status == \"completed\" and "
+                ".updated_at <= $cutoff)) as $run "
+                "({($source): 1}; .[($run.id | tostring)] = $run.run_attempt)"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        input=json.dumps(legacy_runs),
+        text=True,
+    )
+    consumed_legacy = json.loads(legacy_ledger.stdout)
+    assert consumed_legacy == {"10": 1, "11": 1}
+    assert reconciliation_plan(legacy_runs, consumed_legacy) == {
+        "candidates": [legacy_runs[2]]
+    }
+    rerun_after_migration = {
+        **legacy_runs[0],
+        "run_attempt": 2,
+        "updated_at": "2026-09-09T03:00:00Z",
+    }
+    assert reconciliation_plan(
+        [rerun_after_migration, legacy_runs[2]], consumed_legacy
+    ) == {"candidates": [rerun_after_migration, legacy_runs[2]]}
+
+    at_frontier_rerun = {
+        "id": 11,
+        "run_attempt": 2,
+        "status": "completed",
+        "updated_at": "2026-09-09T02:00:00Z",
+    }
+    assert reconciliation_plan([at_frontier_rerun], {"11": 1}) == {
+        "candidates": [at_frontier_rerun]
+    }
+
+    below_frontier_rerun = {
+        "id": 10,
+        "run_attempt": 2,
+        "status": "completed",
+        "updated_at": "2026-09-09T03:00:00Z",
+    }
+    later_trigger = {
+        "id": 12,
+        "run_attempt": 1,
+        "status": "completed",
+        "updated_at": "2026-09-09T04:00:00Z",
+    }
+    evicted_rerun_trigger = reconciliation_plan(
+        [below_frontier_rerun, later_trigger], {"10": 1, "11": 1}
+    )
+    assert evicted_rerun_trigger == {
+        "candidates": [below_frontier_rerun, later_trigger]
+    }
+
+    higher_id_finished_first = {
+        "id": 11,
+        "run_attempt": 1,
+        "status": "completed",
+        "updated_at": "2026-09-09T02:00:00Z",
+    }
+    completion_order = reconciliation_plan(
+        [below_frontier_rerun, higher_id_finished_first], {"10": 1}
+    )
+    assert completion_order == {
+        "candidates": [higher_id_finished_first, below_frontier_rerun]
+    }
+
+    forced_reapply = reconciliation_plan(
+        [below_frontier_rerun], {"10": 2}, forced=below_frontier_rerun
+    )
+    assert forced_reapply == {"candidates": [below_frontier_rerun]}
+    assert reconciliation_plan(
+        [{**later_trigger, "status": "in_progress"}], {"10": 1, "11": 1}
+    ) == {"candidates": []}
+
+    reconciliation_filter = (ROOT / "scripts/catalog_reconciliation.jq").read_text(
+        encoding="utf-8"
+    )
+    assert 'sort_by(.updated_at, .id, .run_attempt)' in reconciliation_filter
+    assert '$ledger[(.id | tostring)]' in reconciliation_filter
+
+    batch_step = between(
+        catalog,
+        "      - name: Download and validate build batches\n",
+        "\n      - name: Generate expected images\n",
+    )
+    assert 'done < <(jq -c \'.[]\' reconciliation.json)' in batch_step
+    assert 'gh run download "$run_id" --repo "$REPOSITORY"' in batch_step
+    assert "--name build-report --dir \"$destination/report\"" in batch_step
+    assert "--name \"$artifact\" --dir \"$destination/scans/$artifact\"" in batch_step
 
     catalog_step = between(
         catalog,
         "      - name: Generate catalog\n",
-        "\n      - name: Upload catalog data\n",
+        "\n\n      - name: Preserve current catalog\n",
     )
     download_catalog_step = between(
         catalog,
         "      - name: Download current catalog\n",
-        "\n      - name: Generate catalog\n",
+        "\n      - name: Discover build runs\n",
     )
     assert "https://tektum.github.io/verity-images/catalog.json" in catalog
     assert "check-jsonschema --schemafile docs/catalog.schema.json previous.json" in catalog
     assert "      - name: Check out source revision\n" not in catalog
-    assert catalog.index("      - name: Select source run\n") < catalog.index(
-        "      - name: Check source artifacts\n"
-    ) < catalog.index("      - name: Generate expected images\n")
-    assert 'git merge-base --is-ancestor "$source_sha" HEAD' in source_step
-    assert catalog.index("scripts/gen_matrix.py --all > expected-images.json") < catalog.index(
-        "      - name: Download current catalog\n"
-    )
+    assert catalog.index("      - name: Download current catalog\n") < catalog.index(
+        "      - name: Discover build runs\n"
+    ) < catalog.index("      - name: Download and validate build batches\n") < catalog.index(
+        "      - name: Generate expected images\n"
+    ) < catalog.index("      - name: Generate catalog\n")
     assert "devbox --quiet run -- sh -c 'python3 scripts/gen_matrix.py --all > expected-images.json'" in catalog
     assert "for report in reports/report-*.json; do" in workflow
     assert "length == 1 and" in workflow
@@ -982,17 +1191,31 @@ def main() -> None:
         in download_catalog_step
     )
     assert '          elif [[ "$status" == 404 ]]; then\n' in download_catalog_step
-    assert '"$SOURCE_EVENT" == workflow_dispatch' not in download_catalog_step
+    assert '"$MODE" == packages' in download_catalog_step
     assert download_catalog_step.count("        run: |\n") == 1
-    download_catalog_script = download_catalog_step.split("        run: |\n", maxsplit=1)[1]
-    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(download_catalog_script)
-    assert '"$(test -f previous.json && printf previous.json)" catalog.json' in catalog_step
-    assert catalog_step.count("        run: |\n") == 1
     catalog_script = catalog_step.split("        run: |\n", maxsplit=1)[1]
+    assert catalog_step.count("        run: |\n") == 1
+    assert 'done < <(jq -c \'.[]\' reconciliation.json)' in catalog_script
+    assert 'current=previous.json' in catalog_script
+    assert "'.[0] * {source: .[1]}'" in catalog_script
+    assert 'cp "$current" catalog.json' in catalog_script
+    assert '"$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"' in catalog_script
+    assert "catalog.json catalog-source.json > sourced-catalog.json" in catalog_script
+    assert BOOTSTRAP_INVENTORY_COMMAND in shell_commands(catalog_script)
     assert CATALOG_JQ_COMMAND in shell_commands(catalog_script)
-    assert "${{ steps.source.outputs." not in catalog_script
-    for variable in ("PUBLISHED_AT", "RUN_ID", "RUN_URL", "SOURCE_SHA"):
-        assert f'"${variable}"' in catalog_script
+    assert "${{ steps.source.outputs." not in catalog
+    assert "steps.artifacts.outputs.ready" not in catalog
+    catalog_schema = json.loads(
+        (ROOT / "docs/catalog.schema.json").read_text(encoding="utf-8")
+    )
+    consumed_runs_schema = catalog_schema["properties"]["source"]["properties"][
+        "consumedRuns"
+    ]
+    assert consumed_runs_schema["propertyNames"]["pattern"] == "^[0-9]+$"
+    assert consumed_runs_schema["additionalProperties"] == {
+        "type": "integer",
+        "minimum": 1,
+    }
     inventory_filter = (ROOT / "scripts/catalog_inventory.jq").read_text(encoding="utf-8")
     assert "cat > inventory-filter.jq <<'EOF'" not in catalog
     assert "(.[1].include | map([.name, .tag_version])) as $expected" in inventory_filter

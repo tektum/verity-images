@@ -157,7 +157,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      actions: read
+      actions: write
       contents: read
       issues: write
     steps:
@@ -208,3 +208,9 @@ jobs:
             image-dashboard.md
             image-dashboard.json
           if-no-files-found: error
+
+      - name: Dispatch vulnerability remediation rebuilds
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json
