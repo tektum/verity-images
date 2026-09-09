@@ -166,25 +166,18 @@ def test_renovate_configuration() -> None:
     assert renovate["platformAutomerge"] is False
     assert renovate["osvVulnerabilityAlerts"] is True
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 12
-    assert [manager["managerFilePatterns"] for manager in managers[:3]] == [
+    assert len(managers) == 4
+    assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
+        [r"/^images/.+$/", r"/^packages/.+$/", r"/^patched/.+$/"],
     ]
-    assert [manager["datasourceTemplate"] for manager in managers] == [
+    assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
         "docker",
         "github-releases",
-        "go",
-        "go",
-        "go",
-        "go",
-        "npm",
-        "npm",
-        "crate",
-        "crate",
-        "maven",
+        None,
     ]
 
     assert renovate["packageRules"] == [
@@ -199,83 +192,47 @@ def test_renovate_configuration() -> None:
             "labels": ["apk-repository-state", "review-required"],
         },
         {
-            "matchDatasources": ["go", "crate", "maven", "npm"],
+            "matchFileNames": ["images/**", "packages/**", "patched/**"],
             "enabled": False,
             "labels": ["security-floor", "review-required"],
         },
     ]
 
-    # Every security-floor manager targets a vulnerability-monitored input
-    # under images/, packages/, or patched/, and the disable rule scopes
-    # exactly the four new datasources so existing docker/github-releases
-    # automerge behavior stays untouched.
-    security_managers = managers[3:]
-    assert all(
-        any(root in pattern for root in ("images/", "packages/", "patched/"))
-        for manager in security_managers
-        for pattern in manager["managerFilePatterns"]
-    )
-    assert {manager["datasourceTemplate"] for manager in security_managers} == {
-        "go",
-        "npm",
-        "crate",
-        "maven",
-    }
+    # The single security-floor manager has no depNameTemplate/datasourceTemplate:
+    # every dependency identity comes from the inline `# renovate: datasource=...
+    # depName=...` comment itself, so a new floor in any file under images/,
+    # packages/, or patched/ is picked up without ever touching this config again.
+    floor_manager = managers[3]
+    assert "depNameTemplate" not in floor_manager
+    assert "datasourceTemplate" not in floor_manager
 
-    # Prove each regex actually extracts the expected dependency from the
-    # real repository file it targets, so a typo fails loudly instead of
-    # the manager silently never matching anything.
-    expectations = [
-        (3, "images/restic/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
-        (3, "packages/verity-restic-0.18/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
-        (3, "images/velero/melange.yaml", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}]),
-        (4, "packages/gosu/melange.yaml", [{"depName": "golang.org/x/sys", "currentValue": "v0.44.0"}]),
-        (5, "patched/eck-operator/post-patch.Dockerfile", [{"depName": "github.com/google/cel-go", "currentValue": "v0.29.0"}]),
-        (6, "patched/eck-operator/post-patch.Dockerfile", [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.1"}]),
-        (7, "patched/node-22-slim/post-patch.Dockerfile", [{"depName": "npm", "currentValue": "12.0.2"}]),
+    # Prove the one regex actually extracts the expected dependency from every
+    # annotation shape a recipe can use: a YAML `vars:` scalar, a Dockerfile
+    # `ARG`, and a quoted value with a trailing comma and version qualifier
+    # (embedded Python dict literal), and that unannotated version-looking
+    # text is correctly ignored.
+    fixtures = [
         (
-            8,
-            "patched/node-22-slim/post-patch.Dockerfile",
-            [
-                {"depName": "ip-address", "currentValue": "10.3.1"},
-                {"depName": "undici", "currentValue": "6.28.0"},
-            ],
+            "  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc\n",
+            [{"depName": "google.golang.org/grpc", "currentValue": "v1.83.2"}],
         ),
         (
-            9,
-            "images/bat/melange.yaml",
-            [
-                {"depName": "plist", "currentValue": "1.10.0"},
-                {"depName": "git2", "currentValue": "0.21.0"},
-            ],
+            "ARG NPM_VERSION=12.0.2  # renovate: datasource=npm depName=npm\n",
+            [{"depName": "npm", "currentValue": "12.0.2"}],
         ),
         (
-            10,
-            "images/deno/melange.yaml",
-            [
-                {"depName": "rand", "currentValue": "0.8.6"},
-                {"depName": "quinn-proto", "currentValue": "0.11.17"},
-            ],
+            '      ("io.netty", "netty-all"): "4.1.136.Final",  '
+            "# renovate: datasource=maven depName=io.netty:netty-all\n",
+            [{"depName": "io.netty:netty-all", "currentValue": "4.1.136.Final"}],
         ),
-        (10, "images/vector/melange.yaml", [{"depName": "tonic", "currentValue": "0.12.3"}]),
         (
-            11,
-            "images/cassandra/melange.yaml",
-            [
-                {"depName": "at.yawk.lz4:lz4-java", "currentValue": "1.11.1"},
-                {"depName": "ch.qos.logback:logback-classic", "currentValue": "1.5.34"},
-                {"depName": "ch.qos.logback:logback-core", "currentValue": "1.5.34"},
-                {"depName": "com.fasterxml.jackson.core:jackson-annotations", "currentValue": "2.21"},
-                {"depName": "com.fasterxml.jackson.core:jackson-core", "currentValue": "2.21.5"},
-                {"depName": "com.fasterxml.jackson.core:jackson-databind", "currentValue": "2.21.5"},
-                {"depName": "io.netty:netty-all", "currentValue": "4.1.136.Final"},
-                {"depName": "io.netty:netty-transport-native-epoll", "currentValue": "4.1.136.Final"},
-            ],
+            "  source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423\n"
+            "  plain-version: v1.83.2\n",
+            [],
         ),
     ]
-    for index, relative_path, expected in expectations:
-        text = (ROOT / relative_path).read_text(encoding="utf-8")
-        assert _extract(managers[index], text) == expected, relative_path
+    for text, expected in fixtures:
+        assert _extract(floor_manager, text) == expected, text
 
 
 

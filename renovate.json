@@ -37,76 +37,10 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": [
-        "/^images/restic/melange\\.yaml$/",
-        "/^packages/verity-restic-0\\.18/melange\\.yaml$/",
-        "/^images/velero/melange\\.yaml$/"
-      ],
-      "matchStrings": ["grpc-floor:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
-      "depNameTemplate": "google.golang.org/grpc",
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^packages/gosu/melange\\.yaml$/"],
-      "matchStrings": ["x-sys-version:\\s*(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
-      "depNameTemplate": "golang.org/x/sys",
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^patched/eck-operator/post-patch\\.Dockerfile$/"],
-      "matchStrings": ["go get github\\.com/google/cel-go@(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
-      "depNameTemplate": "github.com/google/cel-go",
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^patched/eck-operator/post-patch\\.Dockerfile$/"],
-      "matchStrings": ["google\\.golang\\.org/grpc@(?<currentValue>v\\d+\\.\\d+\\.\\d+)"],
-      "depNameTemplate": "google.golang.org/grpc",
-      "datasourceTemplate": "go"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^patched/node-22-slim/post-patch\\.Dockerfile$/"],
-      "matchStrings": ["npm install --global \\\"npm@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""],
-      "depNameTemplate": "npm",
-      "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^patched/node-22-slim/post-patch\\.Dockerfile$/"],
-      "matchStrings": ["\\\"(?<depName>ip-address|undici)@(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)\\\""],
-      "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/bat/melange\\.yaml$/"],
+      "managerFilePatterns": ["/^images/.+$/", "/^packages/.+$/", "/^patched/.+$/"],
       "matchStrings": [
-        "(?<depName>[a-z][a-z0-9_-]*)@[0-9]+\\.[0-9]+\\.[0-9]+=(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
-      ],
-      "datasourceTemplate": "crate"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^images/deno/melange\\.yaml$/",
-        "/^images/vector/melange\\.yaml$/"
-      ],
-      "matchStrings": [
-        "cargo update -p (?<depName>[a-z][a-z0-9_-]*)(?:@[0-9]+\\.[0-9]+\\.[0-9]+)? --precise (?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)"
-      ],
-      "datasourceTemplate": "crate"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": ["/^images/cassandra/melange\\.yaml$/"],
-      "matchStrings": [
-        "\\(\\\"(?<group>[\\w.-]+)\\\",\\s*\\\"(?<artifact>[\\w.-]+)\\\"\\):\\s*\\\"(?<currentValue>[^\\\"]+)\\\""
-      ],
-      "depNameTemplate": "{{group}}:{{artifact}}",
-      "datasourceTemplate": "maven"
+        "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?\\s*#\\s*renovate:\\s*datasource=(?<datasource>\\S+)\\s+depName=(?<depName>\\S+)"
+      ]
     }
   ],
   "packageRules": [
@@ -121,7 +55,7 @@
       "labels": ["apk-repository-state", "review-required"]
     },
     {
-      "matchDatasources": ["go", "crate", "maven", "npm"],
+      "matchFileNames": ["images/**", "packages/**", "patched/**"],
       "enabled": false,
       "labels": ["security-floor", "review-required"]
     }
