@@ -353,7 +353,7 @@ jobs:
             current=$output
           done < <(jq -c '.[]' reconciliation.json)
           cp "$current" catalog.json
-          devbox run -- jq --sort-keys --slurp '.[0] * {source: .[1]}' \
+          devbox run -- jq --sort-keys --slurp '.[0] + {source: .[1]}' \
             catalog.json catalog-source.json > sourced-catalog.json
           mv sourced-catalog.json catalog.json
           if [[ ! -f previous.json ]]; then

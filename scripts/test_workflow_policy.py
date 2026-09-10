@@ -1197,7 +1197,7 @@ def main() -> None:
     assert catalog_step.count("        run: |\n") == 1
     assert 'done < <(jq -c \'.[]\' reconciliation.json)' in catalog_script
     assert 'current=previous.json' in catalog_script
-    assert "'.[0] * {source: .[1]}'" in catalog_script
+    assert "'.[0] + {source: .[1]}'" in catalog_script
     assert 'cp "$current" catalog.json' in catalog_script
     assert '"$current" "$output" "$run_id" "$run_url" "$source_sha" "$published_at"' in catalog_script
     assert "catalog.json catalog-source.json > sourced-catalog.json" in catalog_script
