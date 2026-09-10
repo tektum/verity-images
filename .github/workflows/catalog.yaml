@@ -305,8 +305,8 @@ jobs:
                 --name "$artifact" --dir "$destination/scans/$artifact"
             done < <(
               gh api --paginate \
-                "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp \
-                --jq '.[].artifacts[] | select(.expired == false and (.name | startswith("scan-"))) | .name'
+                "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
+                --jq '.artifacts[] | select(.expired == false and (.name | startswith("scan-"))) | .name'
             )
             jq -e '
               (.images | length > 0) and
