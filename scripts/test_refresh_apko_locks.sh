@@ -289,10 +289,10 @@ if grep -q 'images-alpha' "$GH_LOG"; then
   exit 1
 fi
 
-# The workflow token is refused: a pull request it creates never starts the required checks.
+# Missing App authentication fails closed before any GitHub mutation.
 reset
 GH_TOKEN="" refuses 2
-grep -Fq 'APKO_LOCK_REFRESH_TOKEN' "$work/output.txt"
+grep -Fq 'short-lived GitHub App installation token' "$work/output.txt"
 grep -Fq 'contents:write and pull-requests:write' "$work/output.txt"
 [[ ! -s "$GH_LOG" ]]
 

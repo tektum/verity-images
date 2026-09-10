@@ -19,7 +19,7 @@ if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 if [[ -z "${GH_TOKEN:-}" ]]; then
-  printf '::error title=Lock refresh credential missing::Store a GitHub App installation token or fine-grained token with contents:write and pull-requests:write in the APKO_LOCK_REFRESH_TOKEN repository secret. The workflow token is refused because a pull request it creates never starts the required lint, build-gate, and apk-gate checks.\n'
+  printf '::error title=Lock refresh credential missing::GH_TOKEN must be a short-lived GitHub App installation token with contents:write and pull-requests:write.\n'
   exit 2
 fi
 

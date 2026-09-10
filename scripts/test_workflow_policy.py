@@ -189,8 +189,15 @@ def check_lock_refresh_policy(build: str) -> None:
     assert 'if [[ -n "$IMAGE" ]]' not in job
 
     assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
-    # Only an operator credential may propose a pull request that starts the required checks.
-    assert "          GH_TOKEN: ${{ secrets.APKO_LOCK_REFRESH_TOKEN }}\n" in job
+    # Squawk supplies a short-lived, repository-scoped token. PRs authored by
+    # github.token do not start the required checks.
+    assert "uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in job
+    assert "          app-id: ${{ secrets.APP_ID }}\n" in job
+    assert "          private-key: ${{ secrets.APP_PEM }}\n" in job
+    assert "          permission-contents: write\n" in job
+    assert "          permission-pull-requests: write\n" in job
+    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in job
+    assert "APKO_LOCK_REFRESH_TOKEN" not in refresh
     assert "github.token" not in refresh
     # Refresh automation is not an image build input, so it never rebuilds sample images.
     assert ".github/workflows/apko-lock-refresh.yaml" not in gen_matrix.GLOBAL_PATHS
