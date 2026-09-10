@@ -169,13 +169,10 @@ def test_renovate_configuration() -> None:
     assert renovate["platformAutomerge"] is False
     assert renovate["osvVulnerabilityAlerts"] is True
     # vulnerabilityAlerts.enabled defaults to True in Renovate already, but is
-    # declared explicitly here because it is the field that lets an OSV hit
-    # override the blanket `enabled: false` rule below: Renovate's
-    # applyPackageRules() only clears a rule's skip when the *next* matched
-    # rule's `force.enabled` is truthy, and mergeChildConfig() ends with
-    # `{ ...config, ...config.force }`, so a vulnerability-generated
-    # packageRule's `force: {...vulnerabilityAlerts}` is what actually flips
-    # `enabled` back to true for that one dependency.
+    # explicit because an OSV-generated rule uses force.enabled to override the
+    # disabled ordinary update types. Scoping enabled=false to update types is
+    # essential: UpdateTypesMatcher does not match during pre-lookup, so security
+    # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
     assert len(managers) == 4
@@ -209,6 +206,17 @@ def test_renovate_configuration() -> None:
                 "packages/**",
                 "patched/**",
                 "!packages/repository-state.json",
+            ],
+            "matchUpdateTypes": [
+                "major",
+                "minor",
+                "patch",
+                "pin",
+                "digest",
+                "pinDigest",
+                "lockFileMaintenance",
+                "rollback",
+                "replacement",
             ],
             "enabled": False,
             "labels": ["security-floor", "review-required"],

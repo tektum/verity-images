@@ -57,6 +57,17 @@
     },
     {
       "matchFileNames": ["images/**", "packages/**", "patched/**", "!packages/repository-state.json"],
+      "matchUpdateTypes": [
+        "major",
+        "minor",
+        "patch",
+        "pin",
+        "digest",
+        "pinDigest",
+        "lockFileMaintenance",
+        "rollback",
+        "replacement"
+      ],
       "enabled": false,
       "labels": ["security-floor", "review-required"]
     }
