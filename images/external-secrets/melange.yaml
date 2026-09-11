@@ -1,13 +1,17 @@
 package:
   name: external-secrets-operator
   version: "2.6.0"
-  epoch: 7
+  epoch: 8
   description: Integrate external secret management systems with Kubernetes
   copyright:
     - license: Apache-2.0
   resources:
     cpu: "4"
     memory: 8Gi
+
+vars:
+  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
+  ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
 
 environment:
   contents:
@@ -31,6 +35,10 @@ pipeline:
     with:
       modroot: .
       packages: .
+  - runs: |
+      GOTOOLCHAIN=local go get \
+        google.golang.org/grpc@${{vars.grpc-floor}} \
+        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}
   - uses: go/build
     with:
       go-package: go-1.26
@@ -38,6 +46,13 @@ pipeline:
       output: external-secrets
   - runs: |
       "${{targets.destdir}}/usr/bin/external-secrets" --help >/dev/null
+      modules="$(go version -m "${{targets.destdir}}/usr/bin/external-secrets")"
+      test "$(printf '%s\n' "$modules" \
+        | awk '$1 == "dep" && $2 == "google.golang.org/grpc" { print $3 }')" \
+        = "${{vars.grpc-floor}}"
+      test "$(printf '%s\n' "$modules" \
+        | awk '$1 == "dep" && $2 == "github.com/Azure/go-ntlmssp" { print $3 }')" \
+        = "${{vars.ntlmssp-floor}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
