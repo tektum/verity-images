@@ -272,6 +272,13 @@ def updater_requires_review() -> None:
         and rule.get("labels") == ["apk-repository-state", "review-required"]
         for rule in rules
     )
+    assert any(
+        "security-floor" in rule.get("labels", [])
+        and rule.get("enabled") is False
+        and rule.get("automerge") is True
+        and rule.get("platformAutomerge") is True
+        for rule in rules
+    )
 
 
 def main() -> None:

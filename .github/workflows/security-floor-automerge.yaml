@@ -1,0 +1,84 @@
+name: Automerge Renovate security floors
+
+on:  # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types: [opened, reopened, synchronize, labeled, ready_for_review]
+    paths:
+      - images/**/*melange.yaml
+      - packages/**/*melange.yaml
+      - patched/**/*melange.yaml
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Existing Renovate security-floor PR to validate.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: >-
+    security-floor-${{ github.event.pull_request.number || inputs.pr-number }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    if: >-
+      github.repository == 'tektum/verity-images' &&
+      ((github.event_name == 'pull_request_target' && github.actor == 'renovate[bot]') ||
+      (github.event_name == 'workflow_dispatch' && github.actor == 'omercnet'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Check out trusted policy
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Validate Renovate security-floor change
+        id: validate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number || inputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}" > pull.json
+          head_sha=$(jq -er '.head.sha' pull.json)
+          gh api "repos/${REPOSITORY}/commits/${head_sha}" > commit.json
+          gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" \
+            > file-pages.json
+          jq 'flatten' file-pages.json > files.json
+          python3 scripts/validate_security_floor_pr.py \
+            pull.json commit.json files.json "$GITHUB_OUTPUT"
+
+      - name: Mint Squawk approval token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.0.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Approve and enable protected automerge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
+          PR_NUMBER: ${{ steps.validate.outputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            --field event=APPROVE \
+            --field commit_id="$HEAD_SHA" \
+            --field body='Trusted Renovate security-floor update; required checks still gate merge.'
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto
