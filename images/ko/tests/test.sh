@@ -18,6 +18,8 @@ fail() {
   exit 1
 }
 
+image_os=$(docker image inspect -f '{{.Os}}' "$image")
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
 [ "$(docker image inspect -f '{{.Config.Entrypoint}}' "$image")" = '[/usr/bin/ko]' ] || fail 'unexpected OCI entrypoint'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ] || fail 'unexpected OCI working directory'
 version=$(docker run --rm --network none "$image" version)
@@ -39,13 +41,18 @@ func main() {
 EOF
 
 docker run --rm \
+  -e "GOOS=$image_os" \
+  -e "GOARCH=$image_arch" \
   -v "$work:/app" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   "$image" build --local --image-refs=/app/image-refs . >/dev/null
 built=$(cat "$work/image-refs")
+[ "$(docker image inspect -f '{{.Os}}/{{.Architecture}}' "$built")" = "$image_os/$image_arch" ] || fail 'ko local build produced the wrong platform'
 [ "$(docker run --rm "$built")" = ko-smoke ] || fail 'ko local build did not produce a runnable image'
 
 if docker run --rm \
+  -e "GOOS=$image_os" \
+  -e "GOARCH=$image_arch" \
   -v "$work:/app" \
   -v /var/run/docker.sock:/var/run/docker.sock \
   "$image" build --local ./missing >/dev/null 2>&1; then
