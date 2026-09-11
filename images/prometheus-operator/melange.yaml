@@ -1,7 +1,9 @@
 package:
   name: prometheus-operator
-  version: "0.93.1"
-  epoch: 6
+  # yamllint disable-line rule:line-length
+  # renovate: datasource=github-tags depName=prometheus-operator/prometheus-operator versioning=semver-coerced
+  version: "0.94.0"
+  epoch: 0
   description: Prometheus Operator creates and manages Prometheus clusters on Kubernetes
   copyright:
     - license: Apache-2.0
@@ -13,7 +15,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: 51cc33a31bf3bd83dd22b1ae6efaf26e199194d9
+  source-commit: 2e4af1d7d8f0ae634fcf0ac967a76fb381a65542
 
 environment:
   contents:
