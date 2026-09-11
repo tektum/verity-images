@@ -691,7 +691,8 @@ def main() -> None:
         "https://tektum.github.io/verity-images/catalog.json",
         "python3 scripts/gen_matrix.py --all > expected-images-all.json",
         "scripts/catalog_inventory.jq",
-        "expected-images.json",
+        "scripts/build_monitor_inventory.py",
+        "expected-images-all.json expected-images.json",
         "uses: actions/upload-artifact@",
         "name: monitor-input",
     )
@@ -700,6 +701,7 @@ def main() -> None:
     assert "([.[0].images[] | [.name, .version]] | sort) ==" in snapshot_job
     assert "([.[1].include[] | [.name, .tag_version]] | sort)" in snapshot_job
     assert "catalog_inventory.jq" in snapshot_job
+    assert "build_monitor_inventory.py" in snapshot_job
     assert "expected-images-all.json" in snapshot_job
 
     assert "    needs: snapshot\n" in monitor_job
@@ -877,6 +879,7 @@ def main() -> None:
     assert ".github/workflows/monitor.yaml" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/monitor_sboms.sh" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_monitor_sarif.py" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/build_monitor_inventory.py" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/select_monitor_shards.py" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_image_dashboard.py" not in gen_matrix.GLOBAL_PATHS
     assert "BODY_LIMIT: Final = 60 * 1024" in dashboard_script

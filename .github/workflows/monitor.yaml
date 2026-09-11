@@ -85,14 +85,9 @@ jobs:
           python3 scripts/gen_matrix.py --all > expected-images-all.json
           jq -e --slurp --from-file scripts/catalog_inventory.jq \
             published-catalog.json expected-images-all.json >/dev/null
-          jq --slurp '
-            ([.[1].include | map([.name, .tag_version])]) as $expected |
-            .[0] | .images |= map(select(. as $image | $expected | index([$image.name, $image.version])))
-          ' published-catalog.json expected-images-all.json > catalog.json
-          jq --slurp '
-            ([.[0].images | map([.name, .version])]) as $published |
-            .[1] | .include |= map(select([.name, .tag_version] as $identity | $published | index($identity)))
-          ' catalog.json expected-images-all.json > expected-images.json
+          cp published-catalog.json catalog.json
+          python3 scripts/build_monitor_inventory.py published-catalog.json \
+            expected-images-all.json expected-images.json
           jq -e --slurp '
             ([.[0].images[] | [.name, .version]] | sort) ==
             ([.[1].include[] | [.name, .tag_version]] | sort)

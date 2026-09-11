@@ -47,13 +47,16 @@ def images_by_identity(
 def changed_shards(previous: object, current: object) -> list[int]:
     previous_images = images_by_identity(previous, Path("previous catalog"))
     current_images = images_by_identity(current, Path("current catalog"))
-    return sorted(
-        {
-            shard_for(str(image["name"]), str(image["version"]))
-            for identity, image in current_images.items()
-            if previous_images.get(identity) != image
-        }
-    )
+    shards: set[int] = set()
+    for identity in previous_images.keys() | current_images.keys():
+        old = previous_images.get(identity)
+        new = current_images.get(identity)
+        if old == new:
+            continue
+        for image in (old, new):
+            if image is not None:
+                shards.add(shard_for(str(image["name"]), str(image["version"])))
+    return sorted(shards)
 
 
 def load(path: Path) -> object:
