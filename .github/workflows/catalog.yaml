@@ -23,6 +23,7 @@ on:  # zizmor: ignore[dangerous-triggers]
       - scripts/catalog_reconciliation.jq
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
+      - scripts/select_monitor_shards.py
       - scripts/validate_repository_state.py
       - site/**
   workflow_dispatch:
@@ -54,6 +55,7 @@ jobs:
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-catalog/runner=4cpu-linux-x64
     outputs:
       ready: ${{ steps.reconcile.outputs.ready }}
+      monitor-shards: ${{ steps.monitor-scope.outputs.shards }}
     permissions:
       actions: read
       contents: read
@@ -373,6 +375,21 @@ jobs:
         if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value == 'packages'
         run: cp previous.json catalog.json
 
+      - name: Select changed monitor shards
+        id: monitor-scope
+        if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f previous.json ]]; then
+            cp previous.json previous-monitor.json
+          else
+            printf '{"images":[]}\n' > previous-monitor.json
+          fi
+          shards=$(devbox run -- python3 scripts/select_monitor_shards.py \
+            previous-monitor.json catalog.json)
+          printf 'shards=%s\n' "$shards" >> "$GITHUB_OUTPUT"
+
       - name: Upload catalog data
         if: steps.reconcile.outputs.ready == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
@@ -436,3 +453,17 @@ jobs:
       - name: Deploy catalog site
         id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346  # v5.0.1
+
+  monitor:
+    if: >-
+      needs.catalog.outputs.monitor-shards != '' &&
+      needs.catalog.outputs.monitor-shards != '[]'
+    needs: [catalog, deploy]
+    permissions:
+      actions: write
+      contents: read
+      issues: write
+      security-events: write
+    uses: ./.github/workflows/monitor.yaml
+    with:
+      shards: ${{ needs.catalog.outputs.monitor-shards }}

@@ -645,13 +645,15 @@ def main() -> None:
         in workflow
     )
     monitor_triggers = between(monitor, "\non:\n", "\npermissions: {}\n")
-    # Monitoring is scheduled or operator-started, never driven by an external payload.
+    # Monitoring is scheduled, operator-started, or called by trusted catalog publication.
     assert '  schedule:\n    - cron: "17 3 * * *"\n' in monitor_triggers
+    assert "  workflow_call:\n" in monitor_triggers
     assert "  workflow_dispatch:\n" in monitor_triggers
+    assert monitor_triggers.count("      shards:\n") == 2
+    assert "JSON array of complete monitor shards" in monitor_triggers
     assert "pull_request" not in monitor_triggers
     assert "workflow_run" not in monitor_triggers
     assert "\n  push:\n" not in monitor_triggers
-    assert "inputs:" not in monitor
     assert between(monitor, "permissions: {}\n", "\nenv:\n") == (
         "\nconcurrency:\n"
         "  group: monitor-published-images\n"
@@ -669,6 +671,8 @@ def main() -> None:
         for name in ("GRYPE_VERSION", "GRYPE_SHA256")
     )
 
+    catalog_job = between(catalog, "\n  catalog:\n", "\n  deploy:\n")
+    catalog_monitor_job = catalog.split("\n  monitor:\n", maxsplit=1)[1]
     snapshot_job = between(monitor, "\n  snapshot:\n", "\n  monitor:\n")
     monitor_job = between(monitor, "\n  monitor:\n", "\n  dashboard:\n")
     dashboard_job = monitor.split("\n  dashboard:\n", maxsplit=1)[1]
@@ -681,6 +685,8 @@ def main() -> None:
         "uses: actions/checkout@",
         "persist-credentials: false",
         "uses: ./.github/actions/setup-jq",
+        "id: scope",
+        "shards must be a non-empty JSON array of indices 0 through 7",
         "https://tektum.github.io/verity-images/catalog.json",
         "python3 scripts/gen_matrix.py --all > expected-images.json",
         "uses: actions/upload-artifact@",
@@ -706,7 +712,7 @@ def main() -> None:
         "    strategy:\n"
         "      fail-fast: false\n"
         "      matrix:\n"
-        "        shard: [0, 1, 2, 3, 4, 5, 6, 7]\n"
+        "        shard: ${{ fromJSON(needs.snapshot.outputs.shards) }}\n"
         in monitor_job
     )
     monitor_steps = (
@@ -735,7 +741,7 @@ def main() -> None:
     )
     assert (
         "          SHARD: ${{ matrix.shard }}\n"
-        "          SHARDS: ${{ strategy.job-total }}\n"
+        '          SHARDS: "8"\n'
         "        run: |\n"
         '          export PATH="$RUNNER_TEMP/verity-tools:$PATH"\n'
         '          scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor\n'
@@ -758,6 +764,7 @@ def main() -> None:
 
     assert "needs.snapshot.result == 'success'" in dashboard_job
     assert "needs.monitor.result == 'success'" in dashboard_job
+    assert "needs.snapshot.outputs.full == 'true'" in dashboard_job
     assert "github.ref == 'refs/heads/main'" in dashboard_job
     assert runner(dashboard_job) == "ubuntu-latest"
     assert (
@@ -778,6 +785,15 @@ def main() -> None:
     assert dashboard_job.index("scripts/build_image_dashboard.py") < dashboard_job.index(
         'gh issue edit "$DASHBOARD_ISSUE"'
     )
+
+    assert "      monitor-shards: ${{ steps.monitor-scope.outputs.shards }}\n" in catalog_job
+    assert "      - scripts/select_monitor_shards.py\n" in catalog
+    assert "id: monitor-scope" in catalog_job
+    assert "scripts/select_monitor_shards.py" in catalog_job
+    assert "needs: [catalog, deploy]" in catalog_monitor_job
+    assert "uses: ./.github/workflows/monitor.yaml" in catalog_monitor_job
+    assert "shards: ${{ needs.catalog.outputs.monitor-shards }}" in catalog_monitor_job
+    assert "security-events: write" in catalog_monitor_job
     # Every affected stream gets an unconditional nightly rebuild attempt; the
     # zero-fixable publication gate is what decides whether it actually
     # resolves, exactly as it already does for a manually dispatched rebuild.
@@ -856,6 +872,7 @@ def main() -> None:
     assert ".github/workflows/monitor.yaml" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/monitor_sboms.sh" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_monitor_sarif.py" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/select_monitor_shards.py" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_image_dashboard.py" not in gen_matrix.GLOBAL_PATHS
     assert "BODY_LIMIT: Final = 60 * 1024" in dashboard_script
     assert "report shard indices must be unique and exactly 0 through 7" in dashboard_script
