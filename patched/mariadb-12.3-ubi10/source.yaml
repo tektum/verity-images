@@ -1,3 +1,7 @@
 image: docker.io/library/mariadb:12.3-ubi10
-digest: sha256:44bfb5746ef96a0c80441ce2df37bc3fb7d8ade3a83bfaaba90645a6a4345fc5
+digest: sha256:31361ad0d713c30722683f900a451e1193b45bd7830560d931b4a95b15b4ff80
 platforms: [linux/amd64, linux/arm64]
+gosu-version: 1.19-r1
+gosu-amd64-sha256: 80240f7a59b9f73624ea615a583f7a11f26fd6f49585eed84ff000692c0fe0d3
+gosu-arm64-sha256: 0b7e07759394360077fc6138729e86339468f6305a37448c1de3849eb725a4be
+gosu-path: /usr/local/bin/gosu
