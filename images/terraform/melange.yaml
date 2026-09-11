@@ -1,13 +1,17 @@
 package:
   name: verity-opentofu-1.12
   version: "1.12.6"
-  epoch: 3  # OSV module remediation
+  epoch: 4  # Go dependency floors
   description: OpenTofu, a Terraform-compatible infrastructure as code CLI.
   copyright:
     - license: MPL-2.0
   resources:
     cpu: "8"
     memory: 8Gi
+
+vars:
+  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
+  ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
 
 environment:
   contents:
@@ -32,6 +36,24 @@ pipeline:
     with:
       modroot: .
       packages: ./cmd/tofu
+  - runs: |
+      ensure_floor() {
+        module="$1"
+        want="$2"
+        current="$(go list -m -f '{{.Version}}' "$module")"
+        if awk -v have="$current" -v want="$want" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'; then
+          go get "$module@$want"
+        fi
+      }
+      ensure_floor google.golang.org/grpc ${{vars.grpc-floor}}
+      ensure_floor github.com/Azure/go-ntlmssp ${{vars.ntlmssp-floor}}
   - uses: go/build
     with:
       go-package: go-1.26
@@ -40,7 +62,32 @@ pipeline:
       output: tofu
       ldflags: -X 'github.com/opentofu/opentofu/version.dev=no'
   - runs: |
-      "${{targets.destdir}}/usr/bin/tofu" version | grep -F "${{package.version}}"
+      binary="${{targets.destdir}}/usr/bin/tofu"
+      modules="$(go version -m "$binary")"
+      require_floor() {
+        module="$1"
+        want="$2"
+        actual="$(printf '%s\n' "$modules" \
+          | awk -v module="$module" '$1 == "dep" && $2 == module { print $3 }')"
+        if [ -z "$actual" ]; then
+          echo "$module is not linked into $binary" >&2
+          exit 1
+        fi
+        awk -v have="$actual" -v want="$want" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 > w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 1 : 0
+        }' || {
+          echo "$module version $actual is below required floor $want" >&2
+          exit 1
+        }
+      }
+      require_floor google.golang.org/grpc ${{vars.grpc-floor}}
+      require_floor github.com/Azure/go-ntlmssp ${{vars.ntlmssp-floor}}
+      "$binary" version | grep -F "${{package.version}}"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
 
