@@ -1,7 +1,7 @@
 package:
   name: cassandra-5.0
   version: "5.0.9"
-  epoch: 14
+  epoch: 15
   description: Open Source NoSQL Database
   copyright:
     - license: Apache-2.0
@@ -48,6 +48,7 @@ pipeline:
 
       path = Path(".build/parent-pom-template.xml")
       namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
+      netty_version = "4.1.137.Final"  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
       versions = {
           ("at.yawk.lz4", "lz4-java"): "1.11.1",
           ("ch.qos.logback", "logback-classic"): "1.5.34",
@@ -55,8 +56,8 @@ pipeline:
           ("com.fasterxml.jackson.core", "jackson-annotations"): "2.21",
           ("com.fasterxml.jackson.core", "jackson-core"): "2.21.5",
           ("com.fasterxml.jackson.core", "jackson-databind"): "2.21.5",
-          ("io.netty", "netty-all"): "4.1.136.Final",
-          ("io.netty", "netty-transport-native-epoll"): "4.1.136.Final",
+          ("io.netty", "netty-all"): netty_version,
+          ("io.netty", "netty-transport-native-epoll"): netty_version,
       }
       tree = ElementTree.parse(path)
       updated = set()
