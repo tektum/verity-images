@@ -22,10 +22,12 @@ def shard_for(name: str, version: str) -> int:
     return int(stream, 16) % SHARDS
 
 
-def images_by_name(document: object, source: Path) -> dict[str, dict[str, object]]:
+def images_by_identity(
+    document: object, source: Path
+) -> dict[tuple[str, str], dict[str, object]]:
     if not isinstance(document, dict) or not isinstance(document.get("images"), list):
         raise SystemExit(f"{source}: catalog images must be an array")
-    images: dict[str, dict[str, object]] = {}
+    images: dict[tuple[str, str], dict[str, object]] = {}
     for image in document["images"]:
         if not isinstance(image, dict):
             raise SystemExit(f"{source}: catalog image must be an object")
@@ -35,25 +37,23 @@ def images_by_name(document: object, source: Path) -> dict[str, dict[str, object
             raise SystemExit(f"{source}: catalog image name must be a non-empty string")
         if not isinstance(version, str) or not version:
             raise SystemExit(f"{source}: catalog image {name} has an invalid version")
-        if name in images:
-            raise SystemExit(f"{source}: duplicate catalog image name {name}")
-        images[name] = image
+        identity = name, version
+        if identity in images:
+            raise SystemExit(f"{source}: duplicate catalog image {name} {version}")
+        images[identity] = image
     return images
 
 
 def changed_shards(previous: object, current: object) -> list[int]:
-    previous_images = images_by_name(previous, Path("previous catalog"))
-    current_images = images_by_name(current, Path("current catalog"))
-    shards: set[int] = set()
-    for name in previous_images.keys() | current_images.keys():
-        old = previous_images.get(name)
-        new = current_images.get(name)
-        if old == new:
-            continue
-        for image in (old, new):
-            if image is not None:
-                shards.add(shard_for(str(image["name"]), str(image["version"])))
-    return sorted(shards)
+    previous_images = images_by_identity(previous, Path("previous catalog"))
+    current_images = images_by_identity(current, Path("current catalog"))
+    return sorted(
+        {
+            shard_for(str(image["name"]), str(image["version"]))
+            for identity, image in current_images.items()
+            if previous_images.get(identity) != image
+        }
+    )
 
 
 def load(path: Path) -> object:

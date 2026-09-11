@@ -687,8 +687,11 @@ def main() -> None:
         "uses: ./.github/actions/setup-jq",
         "id: scope",
         "shards must be a non-empty JSON array of indices 0 through 7",
+        "published-catalog.json",
         "https://tektum.github.io/verity-images/catalog.json",
-        "python3 scripts/gen_matrix.py --all > expected-images.json",
+        "python3 scripts/gen_matrix.py --all > expected-images-all.json",
+        "scripts/catalog_inventory.jq",
+        "expected-images.json",
         "uses: actions/upload-artifact@",
         "name: monitor-input",
     )
@@ -696,6 +699,8 @@ def main() -> None:
     assert positions == tuple(sorted(positions))
     assert "([.[0].images[] | [.name, .version]] | sort) ==" in snapshot_job
     assert "([.[1].include[] | [.name, .tag_version]] | sort)" in snapshot_job
+    assert "catalog_inventory.jq" in snapshot_job
+    assert "expected-images-all.json" in snapshot_job
 
     assert "    needs: snapshot\n" in monitor_job
     assert "\n    timeout-minutes: 60\n" in monitor_job

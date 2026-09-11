@@ -76,13 +76,23 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/verity-tools:$PATH"
-          status=$(curl --silent --show-error --location --output catalog.json \
+          status=$(curl --silent --show-error --location --output published-catalog.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
           if [[ "$status" != 200 ]]; then
             printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"
             exit 1
           fi
-          python3 scripts/gen_matrix.py --all > expected-images.json
+          python3 scripts/gen_matrix.py --all > expected-images-all.json
+          jq -e --slurp --from-file scripts/catalog_inventory.jq \
+            published-catalog.json expected-images-all.json >/dev/null
+          jq --slurp '
+            ([.[1].include | map([.name, .tag_version])]) as $expected |
+            .[0] | .images |= map(select(. as $image | $expected | index([$image.name, $image.version])))
+          ' published-catalog.json expected-images-all.json > catalog.json
+          jq --slurp '
+            ([.[0].images | map([.name, .version])]) as $published |
+            .[1] | .include |= map(select([.name, .tag_version] as $identity | $published | index($identity)))
+          ' catalog.json expected-images-all.json > expected-images.json
           jq -e --slurp '
             ([.[0].images[] | [.name, .version]] | sort) ==
             ([.[1].include[] | [.name, .tag_version]] | sort)

@@ -34,38 +34,41 @@ def changed_publication_selects_owning_shard() -> None:
     assert changed_shards(previous, current) == [shard_for("example", "1.0")]
 
 
-def version_change_selects_old_and_new_categories() -> None:
+def version_change_selects_current_category() -> None:
     previous = catalog(image("example", "1.0"))
     current = catalog(image("example", "3.0"))
-    assert shard_for("example", "1.0") != shard_for("example", "3.0")
-    assert changed_shards(previous, current) == sorted(
-        {shard_for("example", "1.0"), shard_for("example", "3.0")}
+    assert changed_shards(previous, current) == [shard_for("example", "3.0")]
+
+
+def same_name_versions_are_distinct() -> None:
+    previous = catalog(image("httpd", "2.4"), image("httpd", "2.4-fips"))
+    current = catalog(
+        image("httpd", "2.4"), image("httpd", "2.4-fips", "sha256:new")
     )
+    assert changed_shards(previous, current) == [shard_for("httpd", "2.4-fips")]
 
 
-def additions_and_removals_are_reconciled() -> None:
+def removed_images_wait_for_complete_reconciliation() -> None:
     previous = catalog(image("removed", "1"), image("kept", "1"))
-    current = catalog(image("added", "1"), image("kept", "1"))
-    assert changed_shards(previous, current) == sorted(
-        {shard_for("removed", "1"), shard_for("added", "1")}
-    )
-
+    current = catalog(image("kept", "1"))
+    assert changed_shards(previous, current) == []
 
 def invalid_catalog_is_rejected() -> None:
-    duplicate = catalog(image("example", "1"), image("example", "2"))
+    duplicate = catalog(image("example", "1"), image("example", "1"))
     try:
         changed_shards(duplicate, catalog())
     except SystemExit as error:
-        assert "duplicate catalog image name example" in str(error)
+        assert "duplicate catalog image example 1" in str(error)
     else:
-        raise AssertionError("duplicate catalog image names were accepted")
+        raise AssertionError("duplicate catalog identities were accepted")
 
 
 def main() -> None:
     unchanged_images_ignore_catalog_metadata()
     changed_publication_selects_owning_shard()
-    version_change_selects_old_and_new_categories()
-    additions_and_removals_are_reconciled()
+    version_change_selects_current_category()
+    same_name_versions_are_distinct()
+    removed_images_wait_for_complete_reconciliation()
     invalid_catalog_is_rejected()
     print("passed scripts/test_select_monitor_shards.py")
 
