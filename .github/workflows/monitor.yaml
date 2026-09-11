@@ -7,7 +7,19 @@ name: Monitor published images
 on:
   schedule:
     - cron: "17 3 * * *"
+  workflow_call:
+    inputs:
+      shards:
+        description: JSON array of complete monitor shards to reconcile.
+        required: true
+        type: string
   workflow_dispatch:
+    inputs:
+      shards:
+        description: JSON array of complete monitor shards; empty scans all shards.
+        required: false
+        default: ""
+        type: string
 
 permissions: {}
 
@@ -25,6 +37,9 @@ jobs:
     if: github.repository == 'tektum/verity-images'
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      full: ${{ steps.scope.outputs.full }}
+      shards: ${{ steps.scope.outputs.shards }}
     permissions:
       contents: read
     steps:
@@ -36,17 +51,43 @@ jobs:
       - name: Set up validated jq runtime
         uses: ./.github/actions/setup-jq
 
+      - name: Select complete monitor shards
+        id: scope
+        shell: bash
+        env:
+          REQUESTED_SHARDS: ${{ inputs.shards }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$REQUESTED_SHARDS" ]]; then
+            shards='[0,1,2,3,4,5,6,7]'
+          else
+            shards=$(jq -ce '
+              if type != "array" or length == 0 or
+                any(.[]; type != "number" or . != floor or . < 0 or . >= 8)
+              then error("shards must be a non-empty JSON array of indices 0 through 7")
+              else sort | unique
+              end
+            ' <<<"$REQUESTED_SHARDS")
+          fi
+          full=$(jq -r '. == [0,1,2,3,4,5,6,7]' <<<"$shards")
+          printf 'full=%s\nshards=%s\n' "$full" "$shards" >> "$GITHUB_OUTPUT"
+
       - name: Capture published catalog
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/verity-tools:$PATH"
-          status=$(curl --silent --show-error --location --output catalog.json \
+          status=$(curl --silent --show-error --location --output published-catalog.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
           if [[ "$status" != 200 ]]; then
             printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"
             exit 1
           fi
-          python3 scripts/gen_matrix.py --all > expected-images.json
+          python3 scripts/gen_matrix.py --all > expected-images-all.json
+          jq -e --slurp --from-file scripts/catalog_inventory.jq \
+            published-catalog.json expected-images-all.json >/dev/null
+          cp published-catalog.json catalog.json
+          python3 scripts/build_monitor_inventory.py published-catalog.json \
+            expected-images-all.json expected-images.json
           jq -e --slurp '
             ([.[0].images[] | [.name, .version]] | sort) ==
             ([.[1].include[] | [.name, .tag_version]] | sort)
@@ -71,7 +112,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: ${{ fromJSON(needs.snapshot.outputs.shards) }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -97,7 +138,7 @@ jobs:
       - name: Scan published SBOMs
         env:
           SHARD: ${{ matrix.shard }}
-          SHARDS: ${{ strategy.job-total }}
+          SHARDS: "8"
         run: |
           export PATH="$RUNNER_TEMP/verity-tools:$PATH"
           scripts/monitor_sboms.sh catalog.json expected-images.json "$SHARD" "$SHARDS" monitor
@@ -152,6 +193,7 @@ jobs:
   dashboard:
     if: >-
       always() && github.ref == 'refs/heads/main' &&
+      needs.snapshot.outputs.full == 'true' &&
       needs.snapshot.result == 'success' && needs.monitor.result == 'success'
     needs: [snapshot, monitor]
     runs-on: ubuntu-latest

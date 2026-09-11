@@ -3,6 +3,11 @@
 - Read `CONTRIBUTING.md` before changing an image definition.
 - Keep image pull requests image-local. Land shared workflow, matrix, catalog, or
   scanner changes in a separate prerequisite pull request.
+- Never add or change an explicit upstream, dependency, or security-floor version
+  in a `*melange.yaml` recipe without an inline `# renovate:` annotation that
+  the repository custom manager recognizes. Renovate vulnerability pull
+  requests are the primary dependency-update path; monitor rebuilds only detect
+  published-image drift and APKO lock refreshes do not update Melange pins.
 - Run `./check` and require a zero exit status before creating or updating a
   pull request.
 - Do not inspect manifests to invent alternate local check commands. `./check`
