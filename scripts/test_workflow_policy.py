@@ -223,6 +223,9 @@ def main() -> None:
     ) == 1
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
+    security_automerge = (
+        ROOT / ".github/workflows/security-floor-automerge.yaml"
+    ).read_text(encoding="utf-8")
     monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
     monitor_sarif = (ROOT / "scripts/build_monitor_sarif.py").read_text(
         encoding="utf-8"
@@ -638,6 +641,55 @@ def main() -> None:
         "  group: catalog-pages\n"
         "  cancel-in-progress: false\n"
     )
+    security_triggers = security_automerge.split("\npermissions: {}\n", maxsplit=1)[0]
+    assert "on:  # zizmor: ignore[dangerous-triggers]\n" in security_triggers
+    assert "  pull_request_target:\n" in security_triggers
+    assert "  workflow_dispatch:\n" in security_triggers
+    assert "pull_request:" not in security_triggers
+    assert all(
+        path in security_triggers
+        for path in (
+            "images/**/*melange.yaml",
+            "packages/**/*melange.yaml",
+            "patched/**/*melange.yaml",
+        )
+    )
+    security_policy = between(security_automerge, "permissions: {}\n", "\njobs:\n")
+    assert "security-floor-${{ github.event.pull_request.number || inputs.pr-number }}" in security_policy
+    assert "  cancel-in-progress: true\n" in security_policy
+    security_job = security_automerge.split("\n  approve:\n", maxsplit=1)[1]
+    assert "github.actor == 'renovate[bot]'" in security_job
+    assert "github.actor == 'omercnet'" in security_job
+    assert "github.event_name == 'pull_request_target'" in security_job
+    assert "github.event_name == 'workflow_dispatch'" in security_job
+    assert runner(security_job) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 10\n" in security_job
+    assert (
+        "\n    permissions:\n"
+        "      contents: read\n"
+        "      pull-requests: read\n"
+        "    steps:\n"
+        in security_job
+    )
+    security_steps = (
+        "uses: actions/checkout@",
+        "ref: ${{ github.event.repository.default_branch }}",
+        "persist-credentials: false",
+        "scripts/validate_security_floor_pr.py",
+        "uses: actions/create-github-app-token@",
+        "gh api --method POST",
+        'gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto',
+    )
+    positions = tuple(security_job.index(step) for step in security_steps)
+    assert positions == tuple(sorted(positions))
+    assert "github.event.pull_request.head" not in security_job
+    assert "          permission-contents: write\n" in security_job
+    assert "          permission-pull-requests: write\n" in security_job
+    assert "          app-id: ${{ secrets.APP_ID }}\n" in security_job
+    assert "          private-key: ${{ secrets.APP_PEM }}\n" in security_job
+    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in security_job
+    assert '            --field commit_id="$HEAD_SHA" \\\n' in security_job
+    assert "--admin" not in security_job
     assert "\n  schedule:\n" not in workflow
     assert (
         "  GRYPE_VERSION: 0.116.1\n"
@@ -882,6 +934,8 @@ def main() -> None:
     assert "scripts/build_monitor_inventory.py" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/select_monitor_shards.py" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/build_image_dashboard.py" not in gen_matrix.GLOBAL_PATHS
+    assert ".github/workflows/security-floor-automerge.yaml" not in gen_matrix.GLOBAL_PATHS
+    assert "scripts/validate_security_floor_pr.py" not in gen_matrix.GLOBAL_PATHS
     assert "BODY_LIMIT: Final = 60 * 1024" in dashboard_script
     assert "report shard indices must be unique and exactly 0 through 7" in dashboard_script
     assert "monitor reports contain mixed catalogs" in dashboard_script

@@ -219,6 +219,8 @@ def test_renovate_configuration() -> None:
                 "replacement",
             ],
             "enabled": False,
+            "automerge": True,
+            "platformAutomerge": True,
             "labels": ["security-floor", "review-required"],
         },
     ]
