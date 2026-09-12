@@ -76,7 +76,7 @@ pipeline:
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 vars:
-  grpc-floor: v1.83.2
+  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
 
 test:
   environment:
