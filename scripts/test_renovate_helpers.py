@@ -175,18 +175,32 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 4
+    assert len(managers) == 5
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
         [r"/^images/.+$/", r"/^packages/.+$/", r"/^patched/.+$/"],
+        [r"/^images\/.+\/apko\.yaml$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
         "docker",
         "github-releases",
         None,
+        "apk",
+    ]
+
+    apk_manager = managers[-1]
+    assert apk_manager["registryUrlTemplate"] == "https://packages.wolfi.dev/os?arch=x86_64"
+    assert "(?<depName>" in apk_manager["matchStrings"][0]
+    assert "(?<currentValue>" in apk_manager["matchStrings"][0]
+    assert _extract(
+        apk_manager,
+        "contents:\n  packages:\n    - mosquitto=2.0.22-r5\n    - mosquitto-clients=2.0.22-r5\n",
+    ) == [
+        {"depName": "mosquitto", "currentValue": "2.0.22-r5"},
+        {"depName": "mosquitto-clients", "currentValue": "2.0.22-r5"},
     ]
 
     assert renovate["packageRules"] == [
@@ -222,6 +236,30 @@ def test_renovate_configuration() -> None:
             "automerge": True,
             "platformAutomerge": True,
             "labels": ["security-floor", "review-required"],
+        },
+        {
+            "description": (
+                "Track exact Wolfi APK pins, but require review because the adjacent "
+                "APKO lockfile must be regenerated and reviewed."
+            ),
+            "matchDatasources": ["apk"],
+            "matchFileNames": ["images/**/apko.yaml"],
+            "groupName": "APK packages {{packageFileDir}}",
+            "groupSlug": "{{packageFileDir}}-apk",
+            "enabled": True,
+            "automerge": False,
+            "platformAutomerge": False,
+            "labels": ["apk-package-update", "review-required"],
+        },
+        {
+            "description": (
+                "A pure APKO image's metadata owns its major stream. Do not update an APK pin "
+                "across that boundary without the required metadata and directory changes."
+            ),
+            "matchDatasources": ["apk"],
+            "matchFileNames": ["images/**/apko.yaml"],
+            "matchUpdateTypes": ["major"],
+            "enabled": False,
         },
     ]
     # packages/** would otherwise also match packages/repository-state.json,
