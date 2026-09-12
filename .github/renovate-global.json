@@ -1,0 +1,10 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-global-schema.json",
+  "platform": "github",
+  "repositories": ["tektum/verity-images"],
+  "configFileNames": [".github/renovate-apk.json"],
+  "onboarding": false,
+  "requireConfig": "required",
+  "allowedCommands": ["^scripts/renovate_refresh_apko_locks\\.sh$"],
+  "allowShellExecutorForPostUpgradeCommands": false
+}

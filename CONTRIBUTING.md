@@ -195,11 +195,12 @@ their reviewed `apko.lock.json` remains the update boundary, refreshed by
 `.github/workflows/apko-lock-refresh.yaml`.
 
 - Exact Wolfi package pins in a pure image's `apko.yaml` use the APK datasource.
-  Renovate groups non-major updates per image and requires review; regenerate
-  and review the adjacent `apko.lock.json` before merging because Renovate's
-  APKO manager and lockfile maintenance are not available yet. Major updates
-  stay disabled because they also require coordinated metadata or directory
-  changes.
+  The hourly Squawk-authenticated workflow loads `.github/renovate-apk.json`,
+  groups non-major updates per image, and regenerates the adjacent
+  `apko.lock.json` on the same branch before opening the review-required pull
+  request. Major updates stay disabled because they also require coordinated
+  metadata or directory changes. Use the manual APKO lock refresh workflow for
+  unpinned package drift.
 
 Update policy lives in `renovate.json`, not in a second copy of a version
 string. A major upstream transition under `images/**/melange.yaml` opens a pull

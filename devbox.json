@@ -17,6 +17,8 @@
     "scripts": {
       "lint": [
         "renovate-config-validator --strict --no-global renovate.json",
+        "renovate-config-validator --strict --no-global .github/renovate-apk.json",
+        "renovate-config-validator --strict .github/renovate-global.json",
         "actionlint",
         "yamllint .",
         "git ls-files --cached --others --exclude-standard '*.sh' check | xargs shellcheck",
@@ -27,6 +29,7 @@
         "python3 scripts/test_gen_apk_matrix.py",
         "python3 scripts/test_gen_apko_lock_targets.py",
         "bash scripts/test_refresh_apko_locks.sh",
+        "bash scripts/test_renovate_refresh_apko_locks.sh",
         "python3 scripts/check_readme_refs.py",
         "scripts/test_build_catalog.sh",
         "scripts/test_cancel_stalled_jobs.sh",

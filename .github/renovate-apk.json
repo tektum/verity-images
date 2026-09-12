@@ -1,0 +1,46 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "branchPrefix": "renovate-apk/",
+  "automerge": false,
+  "platformAutomerge": false,
+  "prCreation": "immediate",
+  "dependencyDashboard": false,
+  "enabledManagers": ["custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images\\/.+\\/apko\\.yaml$/"],
+      "matchStrings": [
+        "(?m)^(?<indentation>[ \\t]*)-[ \\t]*(?<depName>[a-z0-9][a-z0-9+._-]*)=(?<currentValue>[^\\s#]+)[ \\t]*(?:#[^\\n]*)?$"
+      ],
+      "datasourceTemplate": "apk",
+      "registryUrlTemplate": "https://packages.wolfi.dev/os?arch=x86_64"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Track exact Wolfi APK pins and regenerate the adjacent APKO lockfile for review.",
+      "matchDatasources": ["apk"],
+      "matchFileNames": ["images/**/apko.yaml"],
+      "groupName": "APK packages {{packageFileDir}}",
+      "groupSlug": "{{packageFileDir}}-apk",
+      "enabled": true,
+      "automerge": false,
+      "platformAutomerge": false,
+      "labels": ["apk-package-update", "review-required"],
+      "postUpgradeTasks": {
+        "commands": ["scripts/renovate_refresh_apko_locks.sh"],
+        "fileFilters": ["images/**/apko.lock.json"],
+        "executionMode": "branch"
+      }
+    },
+    {
+      "description": "A pure APKO image's metadata owns its major stream. Do not update an APK pin across that boundary without the required metadata and directory changes.",
+      "matchDatasources": ["apk"],
+      "matchFileNames": ["images/**/apko.yaml"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
+    }
+  ]
+}

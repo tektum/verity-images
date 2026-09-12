@@ -175,33 +175,20 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 5
+    assert len(managers) == 4
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
         [r"/^images/.+$/", r"/^packages/.+$/", r"/^patched/.+$/"],
-        [r"/^images\/.+\/apko\.yaml$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
         "docker",
         "github-releases",
         None,
-        "apk",
     ]
 
-    apk_manager = managers[-1]
-    assert apk_manager["registryUrlTemplate"] == "https://packages.wolfi.dev/os?arch=x86_64"
-    assert "(?<depName>" in apk_manager["matchStrings"][0]
-    assert "(?<currentValue>" in apk_manager["matchStrings"][0]
-    assert _extract(
-        apk_manager,
-        "contents:\n  packages:\n    - mosquitto=2.0.22-r5\n    - mosquitto-clients=2.0.22-r5\n",
-    ) == [
-        {"depName": "mosquitto", "currentValue": "2.0.22-r5"},
-        {"depName": "mosquitto-clients", "currentValue": "2.0.22-r5"},
-    ]
 
     assert renovate["packageRules"] == [
         {
@@ -236,30 +223,6 @@ def test_renovate_configuration() -> None:
             "automerge": True,
             "platformAutomerge": True,
             "labels": ["security-floor", "review-required"],
-        },
-        {
-            "description": (
-                "Track exact Wolfi APK pins, but require review because the adjacent "
-                "APKO lockfile must be regenerated and reviewed."
-            ),
-            "matchDatasources": ["apk"],
-            "matchFileNames": ["images/**/apko.yaml"],
-            "groupName": "APK packages {{packageFileDir}}",
-            "groupSlug": "{{packageFileDir}}-apk",
-            "enabled": True,
-            "automerge": False,
-            "platformAutomerge": False,
-            "labels": ["apk-package-update", "review-required"],
-        },
-        {
-            "description": (
-                "A pure APKO image's metadata owns its major stream. Do not update an APK pin "
-                "across that boundary without the required metadata and directory changes."
-            ),
-            "matchDatasources": ["apk"],
-            "matchFileNames": ["images/**/apko.yaml"],
-            "matchUpdateTypes": ["major"],
-            "enabled": False,
         },
     ]
     # packages/** would otherwise also match packages/repository-state.json,
@@ -338,6 +301,70 @@ def test_renovate_configuration() -> None:
         assert _extract(floor_manager, text) == expected, text
 
 
+def test_self_hosted_renovate() -> None:
+    global_config = json.loads(
+        (ROOT / ".github/renovate-global.json").read_text(encoding="utf-8")
+    )
+    assert global_config == {
+        "$schema": "https://docs.renovatebot.com/renovate-global-schema.json",
+        "platform": "github",
+        "repositories": ["tektum/verity-images"],
+        "configFileNames": [".github/renovate-apk.json"],
+        "onboarding": False,
+        "requireConfig": "required",
+        "allowedCommands": [r"^scripts/renovate_refresh_apko_locks\.sh$"],
+        "allowShellExecutorForPostUpgradeCommands": False,
+    }
+
+    apk = json.loads((ROOT / ".github/renovate-apk.json").read_text(encoding="utf-8"))
+    assert apk["dependencyDashboard"] is False
+    assert apk["branchPrefix"] == "renovate-apk/"
+    assert apk["enabledManagers"] == ["custom.regex"]
+    assert len(apk["customManagers"]) == 1
+    apk_manager = apk["customManagers"][0]
+    assert apk_manager["managerFilePatterns"] == [r"/^images\/.+\/apko\.yaml$/"]
+    assert apk_manager["datasourceTemplate"] == "apk"
+    assert apk_manager["registryUrlTemplate"] == "https://packages.wolfi.dev/os?arch=x86_64"
+    assert _extract(
+        apk_manager,
+        "contents:\n  packages:\n    - mosquitto=2.0.22-r5\n    - mosquitto-clients=2.0.22-r5\n",
+    ) == [
+        {"depName": "mosquitto", "currentValue": "2.0.22-r5"},
+        {"depName": "mosquitto-clients", "currentValue": "2.0.22-r5"},
+    ]
+    update_rule, major_brake = apk["packageRules"]
+    assert update_rule["matchDatasources"] == ["apk"]
+    assert update_rule["enabled"] is True
+    assert update_rule["automerge"] is False
+    assert update_rule["postUpgradeTasks"] == {
+        "commands": ["scripts/renovate_refresh_apko_locks.sh"],
+        "fileFilters": ["images/**/apko.lock.json"],
+        "executionMode": "branch",
+    }
+    assert major_brake["matchUpdateTypes"] == ["major"]
+    assert major_brake["enabled"] is False
+
+    workflow = (ROOT / ".github/workflows/renovate.yaml").read_text(encoding="utf-8")
+    assert '    - cron: "17 * * * *"' in workflow
+    assert "  workflow_dispatch:" in workflow
+    assert "  group: renovate\n  cancel-in-progress: false" in workflow
+    assert "github.repository == 'tektum/verity-images'" in workflow
+    assert "github.ref == 'refs/heads/main'" in workflow
+    assert "persist-credentials: false" in workflow
+    assert "scripts/install_renovate_apko.sh" in workflow
+    assert "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in workflow
+    assert "app-id: ${{ secrets.APP_ID }}" in workflow
+    assert "private-key: ${{ secrets.APP_PEM }}" in workflow
+    assert "RENOVATE_TOKEN: ${{ steps.squawk.outputs.token }}" in workflow
+    assert "RENOVATE_CONFIG_FILE: .github/renovate-global.json" in workflow
+    assert "github.token" not in workflow
+
+    installer = (ROOT / "scripts/install_renovate_apko.sh").read_text(encoding="utf-8")
+    assert "${APKO_VERSION:?APKO_VERSION is required}" in installer
+    assert "${APKO_SHA256:?APKO_SHA256 is required}" in installer
+    assert "sha256sum --check" in installer
+    assert "sudo install" in installer
+    assert "melange" not in installer and "grype" not in installer and "syft" not in installer
 
 
 def main() -> None:
@@ -346,6 +373,7 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as temporary:
         test_corepack_install(Path(temporary))
     test_renovate_configuration()
+    test_self_hosted_renovate()
     print("passed scripts/test_renovate_helpers.py")
 
 
