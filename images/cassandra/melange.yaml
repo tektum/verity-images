@@ -16,6 +16,12 @@ package:
 vars:
   python-version: 3.11
   java-version: 17
+  lz4-version: "1.11.1"  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=maven
+  logback-classic: "1.5.34"  # renovate: datasource=maven depName=ch.qos.logback:logback-classic versioning=maven
+  logback-core: "1.5.34"  # renovate: datasource=maven depName=ch.qos.logback:logback-core versioning=maven
+  jack-ann: "2.21"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations versioning=maven
+  jackson-core: "2.21.5"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-core versioning=maven
+  jack-db: "2.21.5"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
 
 environment:
   contents:
@@ -50,12 +56,12 @@ pipeline:
       namespace = {"m": "http://maven.apache.org/POM/4.0.0"}
       netty_version = "4.1.137.Final"  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
       versions = {
-          ("at.yawk.lz4", "lz4-java"): "1.11.1",
-          ("ch.qos.logback", "logback-classic"): "1.5.34",
-          ("ch.qos.logback", "logback-core"): "1.5.34",
-          ("com.fasterxml.jackson.core", "jackson-annotations"): "2.21",
-          ("com.fasterxml.jackson.core", "jackson-core"): "2.21.5",
-          ("com.fasterxml.jackson.core", "jackson-databind"): "2.21.5",
+          ("at.yawk.lz4", "lz4-java"): "${{vars.lz4-version}}",
+          ("ch.qos.logback", "logback-classic"): "${{vars.logback-classic}}",
+          ("ch.qos.logback", "logback-core"): "${{vars.logback-core}}",
+          ("com.fasterxml.jackson.core", "jackson-annotations"): "${{vars.jack-ann}}",
+          ("com.fasterxml.jackson.core", "jackson-core"): "${{vars.jackson-core}}",
+          ("com.fasterxml.jackson.core", "jackson-databind"): "${{vars.jack-db}}",
           ("io.netty", "netty-all"): netty_version,
           ("io.netty", "netty-transport-native-epoll"): netty_version,
       }
