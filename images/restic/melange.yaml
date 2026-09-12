@@ -78,7 +78,7 @@ pipeline:
 
 vars:
   source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423
-  grpc-floor: v1.83.2
+  grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
 
 subpackages:
   - name: verity-restic-0.18-build-metadata
