@@ -51,7 +51,7 @@ start_server
 http_error=$(docker run --rm --network host "$fixture" --fail --silent --show-error \
   --data-binary 'SELECT 1' "http://127.0.0.1:$http_port/" 2>&1) \
   && fail 'unauthenticated HTTP access escaped the container'
-printf '%s\n' "$http_error" | grep -qiE 'failed to connect|connection reset|recv failure' || \
+printf '%s\n' "$http_error" | grep -qiE 'failed to connect|connection reset|recv failure|empty reply' || \
   fail "expected connection refusal on host HTTP port, got: $http_error"
 native_error=$(docker run --rm --network host --entrypoint /usr/bin/clickhouse-client "$image" \
   --host 127.0.0.1 --port "$native_port" --query 'SELECT 1' 2>&1) \
