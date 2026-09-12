@@ -1,0 +1,48 @@
+name: Renovate
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: renovate
+  cancel-in-progress: false
+
+env:
+  APKO_VERSION: 1.2.31
+  APKO_SHA256: abd57139139f4f5ce567f914bd168b7b2f4a3d39851711f0b1dd0c83c518f867
+
+jobs:
+  renovate:
+    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted runner configuration
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned APKO
+        run: scripts/install_renovate_apko.sh
+
+      - name: Mint Squawk GitHub App token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Run Renovate
+        env:
+          LOG_LEVEL: info
+          RENOVATE_CONFIG_FILE: .github/renovate-global.json
+          RENOVATE_TOKEN: ${{ steps.squawk.outputs.token }}
+        run: ./scripts/devbox.sh run renovate
