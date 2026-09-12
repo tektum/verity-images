@@ -19,6 +19,12 @@ package:
       - procps
       - sed
 
+vars:
+  jackson: 2.18.9  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
+  jline-version: 4.2.1  # renovate: datasource=maven depName=org.jline:jline versioning=maven
+  logback-version: 1.5.34  # renovate: datasource=maven depName=ch.qos.logback:logback-classic versioning=maven
+  netty-version: 4.1.137.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
+
 environment:
   contents:
     repositories:
@@ -42,10 +48,10 @@ pipeline:
       expected-commit: 293c895a8d966a3ecb92872be4a1daf87d725da2
   - runs: |
       mvn -T 4 -DskipTests install \
-        -Djackson.version=2.18.9 \
-        -Djline.version=4.2.1 \
-        -Dlogback-version=1.5.34 \
-        -Dnetty.version=4.1.137.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
+        -Djackson.version=${{vars.jackson}} \
+        -Djline.version=${{vars.jline-version}} \
+        -Dlogback-version=${{vars.logback-version}} \
+        -Dnetty.version=${{vars.netty-version}}
       tar -xzf zookeeper-assembly/target/apache-zookeeper-${{package.version}}-bin.tar.gz
       root=apache-zookeeper-${{package.version}}-bin
       # ponytail: omit Jetty while the safe default disables the admin server.
