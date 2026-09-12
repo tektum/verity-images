@@ -194,6 +194,13 @@ in the same pull request. Pure APKO images have no upstream OCI image version;
 their reviewed `apko.lock.json` remains the update boundary, refreshed by
 `.github/workflows/apko-lock-refresh.yaml`.
 
+- Exact Wolfi package pins in a pure image's `apko.yaml` use the APK datasource.
+  Renovate groups non-major updates per image and requires review; regenerate
+  and review the adjacent `apko.lock.json` before merging because Renovate's
+  APKO manager and lockfile maintenance are not available yet. Major updates
+  stay disabled because they also require coordinated metadata or directory
+  changes.
+
 Update policy lives in `renovate.json`, not in a second copy of a version
 string. A major upstream transition under `images/**/melange.yaml` opens a pull
 request but never automerges. A nested `images/<name>/<stream>/` directory is

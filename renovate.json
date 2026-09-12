@@ -42,6 +42,15 @@
       "matchStrings": [
         "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?"
       ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^images\\/.+\\/apko\\.yaml$/"],
+      "matchStrings": [
+        "(?m)^(?<indentation>[ \\t]*)-[ \\t]*(?<depName>[a-z0-9][a-z0-9+._-]*)=(?<currentValue>[^\\s#]+)[ \\t]*(?:#[^\\n]*)?$"
+      ],
+      "datasourceTemplate": "apk",
+      "registryUrlTemplate": "https://packages.wolfi.dev/os?arch=x86_64"
     }
   ],
   "packageRules": [
@@ -72,6 +81,24 @@
       "automerge": true,
       "platformAutomerge": true,
       "labels": ["security-floor", "review-required"]
+    },
+    {
+      "description": "Track exact Wolfi APK pins, but require review because the adjacent APKO lockfile must be regenerated and reviewed.",
+      "matchDatasources": ["apk"],
+      "matchFileNames": ["images/**/apko.yaml"],
+      "groupName": "APK packages {{packageFileDir}}",
+      "groupSlug": "{{packageFileDir}}-apk",
+      "enabled": true,
+      "automerge": false,
+      "platformAutomerge": false,
+      "labels": ["apk-package-update", "review-required"]
+    },
+    {
+      "description": "A pure APKO image's metadata owns its major stream. Do not update an APK pin across that boundary without the required metadata and directory changes.",
+      "matchDatasources": ["apk"],
+      "matchFileNames": ["images/**/apko.yaml"],
+      "matchUpdateTypes": ["major"],
+      "enabled": false
     }
   ]
 }
