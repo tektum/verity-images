@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 
 git clone -q "$root" "$work/repo"
-cp "$root/scripts/renovate_refresh_apko_locks.sh" "$work/repo/scripts/"
+cp "$root/scripts/renovate_refresh_apko_locks.sh" "$root/scripts/gen_apko_lock_targets.py" "$work/repo/scripts/"
 mkdir -p "$work/bin"
 cat > "$work/bin/apko" <<'EOF'
 #!/bin/bash
@@ -33,7 +33,7 @@ grep -Fx 'lock images/helm/apko.yaml --arch amd64,arm64 --output images/helm/apk
 grep -Fx '{"generated":true}' images/helm/apko.lock.json
 
 git reset --hard -q HEAD
-cp "$root/scripts/renovate_refresh_apko_locks.sh" scripts/
+cp "$root/scripts/renovate_refresh_apko_locks.sh" "$root/scripts/gen_apko_lock_targets.py" scripts/
 if APKO_LOG="$work/apko.log" PATH="$work/bin:$PATH" scripts/renovate_refresh_apko_locks.sh; then
   printf 'expected unchanged tree rejection\n' >&2
   exit 1

@@ -149,11 +149,12 @@ def env_pins(workflow: str) -> dict[str, str]:
 def check_lock_refresh_policy(build: str) -> None:
     refresh = (ROOT / ".github/workflows/apko-lock-refresh.yaml").read_text(encoding="utf-8")
     triggers = between(refresh, "\non:\n", "\npermissions: {}\n")
-    # Manual exact-image only: monitoring findings, not package novelty, drive refreshes.
-    assert "  schedule:\n" not in triggers
+    # The monitor passes one validated context batch and scheduled maintenance
+    # refreshes every pure APKO context through the same serialized controller.
+    assert "  schedule:\n" in triggers
     assert "  workflow_dispatch:\n" in triggers
-    assert "      image:\n" in triggers
-    assert "        required: true\n" in triggers
+    assert "      contexts:\n" in triggers
+    assert "        required: false\n" in triggers
     assert "pull_request" not in refresh and "workflow_run" not in refresh
     assert "\n  push:\n" not in refresh
 
@@ -168,37 +169,23 @@ def check_lock_refresh_policy(build: str) -> None:
         "    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'\n"
     ) in job
     assert "persist-credentials: false\n" in job
-    # The pinned toolchain has one source of truth, so a build.yaml bump cannot drift.
     pins = env_pins(refresh)
     assert set(pins) == {
-        "APKO_VERSION",
-        "APKO_SHA256",
-        "MELANGE_VERSION",
-        "MELANGE_SHA256",
-        "GRYPE_VERSION",
-        "GRYPE_SHA256",
-        "SYFT_VERSION",
-        "SYFT_SHA256",
+        "APKO_VERSION", "APKO_SHA256", "MELANGE_VERSION", "MELANGE_SHA256",
+        "GRYPE_VERSION", "GRYPE_SHA256", "SYFT_VERSION", "SYFT_SHA256",
     }
     assert all(env_pins(build)[name] == value for name, value in pins.items())
     assert "scripts/install_image_tools.sh wolfi\n" in job
-    # Untrusted-looking input reaches the shell only through the environment.
-    assert "          IMAGE: ${{ inputs.image }}\n" in job
-    assert 'python3 scripts/gen_apko_lock_targets.py --image "$IMAGE"' in job
-    assert "gen_apko_lock_targets.py --all" not in job
-    assert 'if [[ -n "$IMAGE" ]]' not in job
-
+    assert "          CONTEXTS: ${{ inputs.contexts }}\n" in job
+    assert 'python3 scripts/gen_apko_lock_targets.py --contexts "$CONTEXTS"' in job
+    assert "python3 scripts/gen_apko_lock_targets.py --all" in job
     assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
-    # Squawk supplies a short-lived, repository-scoped token. PRs authored by
-    # github.token do not start the required checks.
     token_step = between(
         job,
         "\n      - name: Mint Squawk GitHub App token\n",
         "\n      - name: Propose one lock refresh per changed image\n",
     )
-    proposal_step = job.split(
-        "\n      - name: Propose one lock refresh per changed image\n", maxsplit=1
-    )[1]
+    proposal_step = job.split("\n      - name: Propose one lock refresh per changed image\n", maxsplit=1)[1]
     assert "        id: squawk\n" in token_step
     assert "uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in token_step
     assert "          app-id: ${{ secrets.APP_ID }}\n" in token_step
@@ -208,10 +195,16 @@ def check_lock_refresh_policy(build: str) -> None:
     assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in proposal_step
     assert "APKO_LOCK_REFRESH_TOKEN" not in refresh
     assert "github.token" not in refresh
-    # Refresh automation is not an image build input, so it never rebuilds sample images.
     assert ".github/workflows/apko-lock-refresh.yaml" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/refresh_apko_locks.sh" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_apko_lock_targets.py" not in gen_matrix.GLOBAL_PATHS
+
+    revisions = (ROOT / ".github/workflows/local-package-revision.yaml").read_text(encoding="utf-8")
+    assert "group: local-package-revision" in revisions
+    assert "cancel-in-progress: false" in revisions
+    assert "Propose image-local package revisions" in revisions
+    assert "permission-pull-requests: write" in revisions
+    assert "scripts/propose_local_package_revisions.py" in revisions
 
 
 def main() -> None:
@@ -853,12 +846,8 @@ def main() -> None:
     assert "uses: ./.github/workflows/monitor.yaml" in catalog_monitor_job
     assert "shards: ${{ needs.catalog.outputs.monitor-shards }}" in catalog_monitor_job
     assert "security-events: write" in catalog_monitor_job
-    # Every affected stream gets an unconditional nightly rebuild attempt; the
-    # zero-fixable publication gate is what decides whether it actually
-    # resolves, exactly as it already does for a manually dispatched rebuild.
-    # Evidence upload happens first so a transient dispatch failure never
-    # costs the generated dashboard artifacts, since the dispatch step exits
-    # non-zero and a later step would otherwise be skipped by success().
+    # Evidence upload happens before the finding-aware dispatcher, so a failed
+    # controller dispatch cannot lose the consolidated monitor evidence.
     assert "scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json\n" in dashboard_job
     assert dashboard_job.index('gh issue edit "$DASHBOARD_ISSUE"') < dashboard_job.index(
         "Upload dashboard evidence"

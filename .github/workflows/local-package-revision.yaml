@@ -1,0 +1,66 @@
+name: Propose local package revisions
+
+on:
+  workflow_dispatch:
+    inputs:
+      proposals:
+        description: Validated local package epoch proposals from the monitor controller.
+        required: true
+        type: string
+
+permissions: {}
+
+# Monitor dispatches one controller run for every proposal batch. Do not fan out
+# workflow runs because GitHub retains only one pending run for this group.
+concurrency:
+  group: local-package-revision
+  cancel-in-progress: false
+
+jobs:
+  propose:
+    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Validate proposal batch
+        env:
+          PROPOSALS: ${{ inputs.proposals }}
+        run: |
+          set -euo pipefail
+          jq -ce '
+            type == "array" and length > 0 and
+            all(.[];
+              . as $proposal |
+              ($proposal.context | type == "string" and startswith("images/")) and
+              ($proposal.recipe | type == "string" and startswith($proposal.context + "/")) and
+              ($proposal.package | type == "string" and length > 0) and
+              ($proposal.version | type == "string" and length > 0) and
+              ($proposal.fromEpoch | type == "number" and floor == . and . >= 0) and
+              ($proposal.toEpoch | type == "number" and floor == . and . > $proposal.fromEpoch) and
+              ($proposal.streams | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
+            ([.[].context] | length == unique | length)
+          ' <<<"$PROPOSALS" > local-package-proposals.json
+
+      - name: Mint Squawk GitHub App token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Propose image-local package revisions
+        env:
+          BASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/propose_local_package_revisions.py local-package-proposals.json
