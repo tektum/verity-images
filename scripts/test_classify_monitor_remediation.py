@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import gzip
+import http.client
 import io
 import subprocess
 import tarfile
@@ -205,12 +206,19 @@ def test_missing_one_and_both_architectures_block_context() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
         image(root, "images/go/1", name="go", flavors=("plain", "fips"))
-        repository = SignedRepository(root, {"x86_64": {("openssl", "1-r1")}})
+        image(root, "images/other", name="other")
+        repository = SignedRepository(root, {
+            "aarch64": {("busybox", "1-r1"), ("curl", "1-r1")},
+            "x86_64": {("busybox", "1-r1"), ("curl", "1-r1"), ("openssl", "1-r1")},
+        })
         plan = classify(root, [
             finding("go", "1", "openssl", "1-r0", ["1-r1"], "CVE-one"),
             finding("go", "1-fips", "zlib", "1-r0", ["1-r1"], "CVE-two"),
+            finding("go", "1", "busybox", "1-r0", ["1-r1"], "CVE-three"),
+            finding("other", "1", "curl", "1-r0", ["1-r1"], "CVE-four"),
         ], repository.query)
-        assert plan["exact"] == [] and plan["apko"] == [] and plan["localPackageRevisions"] == []
+        assert plan["exact"] == [] and plan["localPackageRevisions"] == []
+        assert plan["apko"] == [{"context": "images/other", "streams": ["other@1"]}]
         assert plan["blocked"] == [
             {
                 "stream": "go@1",
@@ -221,6 +229,12 @@ def test_missing_one_and_both_architectures_block_context() -> None:
                 "missingArchitectures": ["aarch64"],
             },
             {
+                "stream": "go@1",
+                "advisory": "CVE-three",
+                "package": "busybox",
+                "reason": "remediation suppressed by another blocked finding in image context",
+            },
+            {
                 "stream": "go@1-fips",
                 "advisory": "CVE-two",
                 "package": "zlib",
@@ -229,6 +243,31 @@ def test_missing_one_and_both_architectures_block_context() -> None:
                 "missingArchitectures": ["aarch64", "x86_64"],
             },
         ]
+
+
+def test_truncated_http_response_fails_closed() -> None:
+    class TruncatedResponse:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_):
+            return None
+
+        def geturl(self) -> str:
+            return classify_monitor_remediation.WOLFI_KEY
+
+        def read(self, _: int) -> bytes:
+            raise http.client.IncompleteRead(b"partial", 10)
+
+    with patch.object(classify_monitor_remediation.urllib.request, "urlopen", return_value=TruncatedResponse()):
+        try:
+            classify_monitor_remediation.fetch_url(classify_monitor_remediation.WOLFI_KEY, 1024)
+        except classify_monitor_remediation.RepositoryError as error:
+            assert str(error) == "Wolfi repository request failed"
+        else:
+            raise AssertionError("truncated HTTP response was accepted")
 
 
 def test_repository_failure_blocks_wolfi_but_preserves_patched() -> None:
@@ -308,6 +347,7 @@ def main() -> None:
     test_available_on_both_architectures_and_deduplication()
     test_missing_one_and_both_architectures_block_context()
     test_repository_failure_blocks_wolfi_but_preserves_patched()
+    test_truncated_http_response_fails_closed()
     test_non_apk_wolfi_findings_do_not_query_or_dispatch()
     test_fail_closed_contexts_and_epochs()
     print("passed scripts/test_classify_monitor_remediation.py")

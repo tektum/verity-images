@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import re
@@ -93,7 +94,7 @@ def fetch_url(url: str, limit: int) -> bytes:
             if response.status != 200 or not response.geturl().startswith("https://"):
                 raise RepositoryError("Wolfi repository request was not a successful HTTPS response")
             data = response.read(limit + 1)
-    except (OSError, TimeoutError, urllib.error.URLError) as error:
+    except (OSError, TimeoutError, urllib.error.URLError, http.client.HTTPException) as error:
         raise RepositoryError("Wolfi repository request failed") from error
     if not data or len(data) > limit:
         raise RepositoryError("Wolfi repository response has an invalid size")
@@ -390,6 +391,7 @@ def classify(
     blocked_findings: list[dict[str, object]] = []
     invalid_contexts: set[str] = set()
     wolfi_by_context: dict[str, list[WolfiFinding]] = defaultdict(list)
+    blocked_candidate_ids: set[int] = set()
 
     for finding in validate_report(report):
         image = scalar(finding.get("image"), "finding.image")
@@ -464,6 +466,7 @@ def classify(
                         "Wolfi repository availability check failed",
                     )
                 )
+                blocked_candidate_ids.add(id(candidate))
                 invalid_contexts.add(candidate.stream.context)
 
     available_by_candidate: dict[int, set[str]] = {}
@@ -488,15 +491,26 @@ def classify(
             blocked_findings.append(
                 unavailable(candidate, required, availability.get((name, required), APK_ARCHITECTURES))
             )
+            blocked_candidate_ids.add(id(candidate))
             invalid_contexts.add(candidate.stream.context)
 
     for context, context_findings in sorted(wolfi_by_context.items()):
         if context in invalid_contexts:
+            for candidate in context_findings:
+                if id(candidate) not in blocked_candidate_ids:
+                    blocked_findings.append(
+                        blocked(
+                            candidate.stream.target,
+                            candidate.finding,
+                            "remediation suppressed by another blocked finding in image context",
+                        )
+                    )
             continue
         context_exact: dict[str, dict[str, object]] = {}
         context_apko: set[str] = set()
         context_revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
         context_blocked: list[dict[str, object]] = []
+        context_blocked_ids: set[int] = set()
         target_cache: dict[str, list[gen_apko_lock_targets.LockTarget]] = {}
         for candidate in context_findings:
             finding = candidate.finding
@@ -511,6 +525,7 @@ def classify(
                         context_blocked.append(
                             blocked(target, finding, f"unsafe local package revision for {identity.name}")
                         )
+                        context_blocked_ids.add(id(candidate))
                     else:
                         recipe = candidate.recipe.relative_to(ROOT).as_posix()
                         context_revisions[(context, recipe)].append((epoch, target))
@@ -528,6 +543,7 @@ def classify(
                 targets = target_cache[stream.flavor]
             except gen_apko_lock_targets.LockDiscoveryError as error:
                 context_blocked.append(blocked(target, finding, f"unrefreshable pure APKO context: {error}"))
+                context_blocked_ids.add(id(candidate))
                 continue
             if (
                 not candidate.config.is_file()
@@ -537,6 +553,7 @@ def classify(
                 context_blocked.append(
                     blocked(target, finding, "pure APKO context has no committed lock for stream flavor")
                 )
+                context_blocked_ids.add(id(candidate))
                 continue
             context_apko.add(target)
 
@@ -553,7 +570,22 @@ def classify(
                         "reason": "ambiguous local package revision epoch",
                     }
                 )
+                context_blocked_ids.update(
+                    id(candidate)
+                    for candidate in context_findings
+                    if candidate.stream.target == stream
+                    and candidate.recipe.relative_to(ROOT).as_posix() == recipe
+                )
         if context_blocked:
+            for candidate in context_findings:
+                if id(candidate) not in context_blocked_ids:
+                    context_blocked.append(
+                        blocked(
+                            candidate.stream.target,
+                            candidate.finding,
+                            "remediation suppressed by another blocked finding in image context",
+                        )
+                    )
             blocked_findings.extend(context_blocked)
             continue
         exact.update(context_exact)
