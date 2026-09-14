@@ -36,6 +36,28 @@ def rejects(value: dict[str, object], expected: str) -> None:
         raise AssertionError("unsafe local package proposal was accepted")
 
 
+def test_published_proposal_is_idempotent() -> None:
+    entries = [{"path": "images/example/melange.yaml", "content": "epoch: 3\n"}]
+    blob = propose_local_package_revisions.blob_sha(entries[0]["content"])
+
+    def gh(*args: str, input: str | None = None) -> str:
+        del input
+        if "/compare/" in args[1]:
+            return "images/example/melange.yaml\n"
+        if "/contents/" in args[1]:
+            return f"{blob}\n"
+        raise AssertionError(args)
+
+    with patch.object(propose_local_package_revisions, "gh", gh):
+        assert propose_local_package_revisions.proposal_published(
+            "owner/repo", "0" * 40, "local-package-revision/images-example", entries
+        )
+        assert not propose_local_package_revisions.proposal_published(
+            "owner/repo", "0" * 40, "local-package-revision/images-example",
+            [{"path": "images/example/other.melange.yaml", "content": "epoch: 3\n"}],
+        )
+
+
 def main() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -54,6 +76,7 @@ def main() -> None:
             rejects(proposal(version="1.0.1"), "current package identity")
             rejects(proposal(package="other"), "current package identity")
             rejects(proposal(recipe="images/example/not-a-recipe.yaml"), "not an image-local Melange recipe")
+    test_published_proposal_is_idempotent()
     print("passed scripts/test_propose_local_package_revisions.py")
 
 

@@ -205,6 +205,8 @@ def check_lock_refresh_policy(build: str) -> None:
     assert "Propose image-local package revisions" in revisions
     assert "permission-pull-requests: write" in revisions
     assert "scripts/propose_local_package_revisions.py" in revisions
+    assert "then . else error(\"invalid local package proposal batch\") end" in revisions
+    assert "(([.[].context] | length) == ([.[].context] | unique | length))" in revisions
 
 
 def main() -> None:

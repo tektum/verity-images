@@ -35,17 +35,19 @@ jobs:
         run: |
           set -euo pipefail
           jq -ce '
-            type == "array" and length > 0 and
-            all(.[];
-              . as $proposal |
-              ($proposal.context | type == "string" and startswith("images/")) and
-              ($proposal.recipe | type == "string" and startswith($proposal.context + "/")) and
-              ($proposal.package | type == "string" and length > 0) and
-              ($proposal.version | type == "string" and length > 0) and
-              ($proposal.fromEpoch | type == "number" and floor == . and . >= 0) and
-              ($proposal.toEpoch | type == "number" and floor == . and . > $proposal.fromEpoch) and
-              ($proposal.streams | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
-            ([.[].context] | length == unique | length)
+            if (
+              type == "array" and length > 0 and
+              all(.[];
+                . as $proposal |
+                ($proposal.context | type == "string" and startswith("images/")) and
+                ($proposal.recipe | type == "string" and startswith($proposal.context + "/")) and
+                ($proposal.package | type == "string" and length > 0) and
+                ($proposal.version | type == "string" and length > 0) and
+                ($proposal.fromEpoch | type == "number" and floor == . and . >= 0) and
+                ($proposal.toEpoch | type == "number" and floor == . and . > $proposal.fromEpoch) and
+                ($proposal.streams | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
+              (([.[].context] | length) == ([.[].context] | unique | length))
+            ) then . else error("invalid local package proposal batch") end
           ' <<<"$PROPOSALS" > local-package-proposals.json
 
       - name: Mint Squawk GitHub App token

@@ -82,6 +82,33 @@ def changed_recipe(proposal: dict[str, object]) -> tuple[str, bytes]:
     return recipe, rewritten.encode()
 
 
+def blob_sha(contents: str) -> str:
+    return subprocess.run(
+        ["git", "hash-object", "--stdin"], input=contents, text=True,
+        check=True, capture_output=True,
+    ).stdout.strip()
+
+
+def proposal_published(repository: str, base_sha: str, branch: str, entries: list[dict[str, str]]) -> bool:
+    """Whether a branch already contains exactly this image-local proposal."""
+    try:
+        changed = gh("api", f"repos/{repository}/compare/{base_sha}...{branch}", "--jq", ".files[].filename")
+    except subprocess.CalledProcessError:
+        return False
+    if sorted(changed.splitlines()) != sorted(entry["path"] for entry in entries):
+        return False
+    for entry in entries:
+        try:
+            published = gh(
+                "api", f"repos/{repository}/contents/{entry['path']}?ref={branch}", "--jq", ".sha"
+            ).strip()
+        except subprocess.CalledProcessError:
+            return False
+        if published != blob_sha(entry["content"]):
+            return False
+    return True
+
+
 def open_pr_count(repository: str, branch: str) -> int:
     return int(gh("pr", "list", "--repo", repository, "--head", branch, "--state", "open", "--json", "number", "--jq", "length").strip())
 
@@ -125,6 +152,10 @@ def propose(repository: str, base_sha: str, base: str, proposals: list[dict[str,
         open_count = open_pr_count(repository, branch) if head else 0
         if open_count > 1:
             raise ProposalError(f"{context}: {open_count} open pull requests for {branch}")
+        if head and proposal_published(repository, base_sha, branch, entries):
+            if open_count == 0:
+                create_pr(repository, base, branch, context, sorted(recipes), run_url)
+            continue
         tree = gh("api", "--method", "POST", f"repos/{repository}/git/trees", "--input", "-", "--jq", ".sha",
                   input=json.dumps({"base_tree": base_tree, "tree": entries})).strip()
         commit = gh("api", "--method", "POST", f"repos/{repository}/git/commits",
