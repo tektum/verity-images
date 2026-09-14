@@ -7,6 +7,7 @@ contents:
     - "@LOCAL_KEY@"
   packages:
     - gitlab-runner@local
+    - zlib=1.3.3-r0
 
 entrypoint:
   command: /usr/bin/dumb-init -- /usr/bin/gitlab-runner-entrypoint
