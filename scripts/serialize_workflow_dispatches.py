@@ -48,6 +48,13 @@ def workflow_runs(repository: str) -> object:
     return json.loads(result.stdout)
 
 
+def initial_attempt(value: str) -> int:
+    attempt = int(value)
+    if attempt != 1:
+        raise ValueError("workflow reruns are refused; dispatch a fresh proposal batch")
+    return attempt
+
+
 def wait_turn(repository: str, current_run: int, *, interval: int = 15, timeout: int = 3300) -> None:
     deadline = time.monotonic() + timeout
     while older := older_active_runs(workflow_runs(repository), current_run):
@@ -61,6 +68,7 @@ def main() -> None:
     try:
         repository = os.environ["REPOSITORY"]
         current_run = int(os.environ["RUN_ID"])
+        initial_attempt(os.environ["RUN_ATTEMPT"])
         if current_run <= 0 or not os.environ.get("GH_TOKEN"):
             raise ValueError("RUN_ID and GH_TOKEN are required")
         wait_turn(repository, current_run)

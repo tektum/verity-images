@@ -205,6 +205,7 @@ def check_lock_refresh_policy(build: str) -> None:
     assert "actions: read" in revisions
     assert "Wait for older proposal batches" in revisions
     assert "scripts/serialize_workflow_dispatches.py" in revisions
+    assert "RUN_ATTEMPT: ${{ github.run_attempt }}" in revisions
     assert "Propose image-local package revisions" in revisions
     assert "permission-pull-requests: write" in revisions
     assert "scripts/propose_local_package_revisions.py" in revisions

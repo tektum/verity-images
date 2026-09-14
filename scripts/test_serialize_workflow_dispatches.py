@@ -24,6 +24,14 @@ def main() -> None:
     ]
     assert serialize_workflow_dispatches.older_active_runs(pages, 44) == [39, 42]
     assert serialize_workflow_dispatches.older_active_runs(pages, 39) == []
+    assert serialize_workflow_dispatches.initial_attempt("1") == 1
+    for rerun in ("0", "2", "invalid"):
+        try:
+            serialize_workflow_dispatches.initial_attempt(rerun)
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("unsafe workflow rerun was accepted")
     for invalid in ([{"workflow_runs": [{}]}], [{"workflow_runs": "bad"}]):
         try:
             serialize_workflow_dispatches.older_active_runs(invalid, 44)
