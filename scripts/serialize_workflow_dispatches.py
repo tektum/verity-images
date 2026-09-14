@@ -36,17 +36,20 @@ def older_active_runs(value: object, current_run: int) -> list[int]:
 
 
 def workflow_runs(repository: str) -> object:
-    result = subprocess.run(
-        [
-            "gh", "api", "--paginate", "--slurp",
-            f"repos/{repository}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=100",
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
+    try:
+        result = subprocess.run(
+            [
+                "gh", "api", "--paginate", "--slurp",
+                f"repos/{repository}/actions/workflows/{WORKFLOW}/runs?event=workflow_dispatch&per_page=100",
+            ],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+    except subprocess.TimeoutExpired as error:
+        raise TimeoutError("GitHub API request timed out") from error
     return json.loads(result.stdout)
-
 
 def initial_attempt(value: str) -> int:
     attempt = int(value)

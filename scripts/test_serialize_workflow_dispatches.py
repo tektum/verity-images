@@ -5,8 +5,23 @@
 # ///
 
 from __future__ import annotations
+from unittest.mock import patch
 
 import serialize_workflow_dispatches
+
+
+def test_request_timeout() -> None:
+    with patch.object(
+        serialize_workflow_dispatches.subprocess,
+        "run",
+        side_effect=serialize_workflow_dispatches.subprocess.TimeoutExpired(["gh"], 60),
+    ):
+        try:
+            serialize_workflow_dispatches.workflow_runs("owner/repo")
+        except TimeoutError as error:
+            assert "GitHub API request timed out" in str(error)
+        else:
+            raise AssertionError("stalled GitHub request was accepted")
 
 
 def main() -> None:
@@ -39,6 +54,7 @@ def main() -> None:
             pass
         else:
             raise AssertionError("invalid workflow run response was accepted")
+    test_request_timeout()
     print("passed scripts/test_serialize_workflow_dispatches.py")
 
 
