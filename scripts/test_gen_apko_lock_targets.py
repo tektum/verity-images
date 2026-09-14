@@ -62,14 +62,14 @@ def write_image(
     for lock in locks:
         (directory / lock).write_text("{}\n", encoding="utf-8")
 
-
 def generated(root: Path, image: str | None = None) -> list[dict[str, object]]:
     directories = sorted(path.parent for path in root.glob("**/metadata.yaml"))
     with (
         patch.object(gen_apko_lock_targets, "ROOT", root),
         patch.object(gen_apko_lock_targets.gen_matrix, "image_directories", return_value=directories),
     ):
-        return gen_apko_lock_targets.generate(image)["images"]
+        contexts = None if image is None else [image]
+        return gen_apko_lock_targets.generate(contexts)["images"]
 
 
 def refused(root: Path, image: str | None = None) -> str:
@@ -166,6 +166,19 @@ def check_branch_isolation() -> None:
         # One image-local branch per image, derived from its context and never the base branch.
         assert [entry["branch"] for entry in images] == ["apko-lock/images-go-1.26", "apko-lock/images-redis"]
         assert all(entry["branch"].startswith("apko-lock/") for entry in images)
+        assert [entry["context"] for entry in generated(root, "images/redis")] == ["images/redis"]
+
+        directories = sorted(path.parent for path in root.glob("**/metadata.yaml"))
+        with (
+            patch.object(gen_apko_lock_targets, "ROOT", root),
+            patch.object(gen_apko_lock_targets.gen_matrix, "image_directories", return_value=directories),
+        ):
+            try:
+                gen_apko_lock_targets.generate(["images/redis", "images/redis"])
+            except gen_apko_lock_targets.LockDiscoveryError as error:
+                assert "non-empty unique array" in str(error)
+            else:
+                raise AssertionError("duplicate controller contexts were accepted")
 
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -173,7 +186,6 @@ def check_branch_isolation() -> None:
         write_image(root / "images/go-1.26", name="go", versions="1.26")
         write_image(root / "images/go/1.26", name="go", versions="1.26")
         assert "collide on one refresh branch name" in refused(root)
-
 
 def check_repository_targets() -> None:
     images = gen_apko_lock_targets.generate()["images"]

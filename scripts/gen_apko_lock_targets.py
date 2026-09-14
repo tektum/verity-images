@@ -94,11 +94,14 @@ def lock_targets(directory: Path) -> list[LockTarget]:
     return targets
 
 
-def generate(image: str | None = None) -> Targets:
+def generate(contexts: list[str] | None = None) -> Targets:
+    if contexts is not None and (not contexts or len(contexts) != len(set(contexts))):
+        raise LockDiscoveryError("refresh contexts must be a non-empty unique array")
+    requested = set(contexts or ())
     images: list[ImageTarget] = []
     for directory in gen_matrix.image_directories():
         context = directory.relative_to(ROOT).as_posix()
-        if image is not None and context != image:
+        if contexts is not None and context not in requested:
             continue
         locks = lock_targets(directory)
         if not locks:
@@ -107,8 +110,12 @@ def generate(image: str | None = None) -> Targets:
     branches = {entry["branch"] for entry in images}
     if len(branches) != len(images):
         raise LockDiscoveryError("image contexts collide on one refresh branch name")
-    if image is not None and not images:
-        raise LockDiscoveryError(f"{image}: not an enabled pure APKO image context")
+    found = {entry["context"] for entry in images}
+    if contexts is not None and found != requested:
+        missing = sorted(requested - found)
+        raise LockDiscoveryError(
+            f"{', '.join(missing)}: not an enabled pure APKO image context"
+        )
     return {"images": images}
 
 
@@ -117,10 +124,16 @@ def main() -> None:
     match arguments:
         case ["--all"]:
             targets = generate()
-        case ["--image", image] if image:
-            targets = generate(image)
+        case ["--contexts", raw_contexts]:
+            try:
+                contexts = json.loads(raw_contexts)
+            except json.JSONDecodeError as error:
+                raise SystemExit(f"contexts must be JSON: {error}") from error
+            if not isinstance(contexts, list) or not all(isinstance(context, str) for context in contexts):
+                raise SystemExit("contexts must be a JSON array of strings")
+            targets = generate(contexts)
         case _:
-            raise SystemExit("usage: gen_apko_lock_targets.py --all | --image CONTEXT")
+            raise SystemExit("usage: gen_apko_lock_targets.py --all | --contexts JSON_ARRAY")
     print(json.dumps(targets, separators=(",", ":"), sort_keys=True))
 
 

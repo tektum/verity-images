@@ -1,13 +1,15 @@
 name: Refresh APKO locks
 
 on:
+  schedule:
+    - cron: "41 4 * * *"
   workflow_dispatch:
     inputs:
-      image:
-        description: One enabled pure APKO image context.
-        required: true
+      contexts:
+        description: JSON array of enabled pure APKO image contexts; empty refreshes all.
+        required: false
+        default: ""
         type: string
-
 permissions: {}
 
 # One refresh at a time: concurrent runs would race on the same automation branches.
@@ -42,12 +44,16 @@ jobs:
       - name: Install pinned image tools
         run: scripts/install_image_tools.sh wolfi
 
-      - name: Discover refreshable pure APKO locks
+      - name: Discover validated pure APKO lock contexts
         env:
-          IMAGE: ${{ inputs.image }}
+          CONTEXTS: ${{ inputs.contexts }}
         run: |
           set -euo pipefail
-          python3 scripts/gen_apko_lock_targets.py --image "$IMAGE" > apko-lock-targets.json
+          if [[ -z "$CONTEXTS" ]]; then
+            python3 scripts/gen_apko_lock_targets.py --all > apko-lock-targets.json
+          else
+            python3 scripts/gen_apko_lock_targets.py --contexts "$CONTEXTS" > apko-lock-targets.json
+          fi
 
       # Squawk mints a short-lived, repository-scoped installation token. PRs
       # authored by the App start the required checks, unlike the default token.

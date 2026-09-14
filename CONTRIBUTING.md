@@ -231,22 +231,28 @@ stream alone bypasses a recent receipt; it still must pass its build, smoke test
 and zero-fixable scan before any tag moves. If source, recipe, dependency, or
 lock inputs must change first, open one image-local pull request instead.
 
-The daily monitor (`.github/workflows/monitor.yaml`) also dispatches this same
-rebuild automatically for every affected stream in its completed scan, using
-`scripts/dispatch_vulnerability_rebuilds.sh`. This is unconditional: it does not
-try to predict whether the committed inputs can resolve the finding first. A
-stream whose fix is already reachable from unchanged inputs (for example, a
-transitive Go module vulnerability `go/remediate` can now discover) republishes
-clean overnight with no pull request. A stream that genuinely needs a recipe or
-source change fails its build the same way a manual attempt would, publishes
-nothing, and the next scan reports the same finding again until an image-local
-pull request lands.
+The daily monitor (`.github/workflows/monitor.yaml`) classifies every consolidated
+finding from repository metadata and the exact build inputs before acting. It fails
+closed for unknown, disabled, ambiguous, or unsupported contexts and records those
+findings in its summary without hiding them. Recipe-backed Wolfi streams and patched
+streams use the same exact `build.yaml` dispatch above. Patched streams always rebuild
+first; if that cannot consume the fix, the adjacent upstream digest remains Renovate's
+separate remediation path.
+
+Pure APKO streams are deduplicated by image context while retaining every exact stream
+and flavor in the controller summary. The monitor queues one serialized APKO refresh
+controller run for its entire context list, never one workflow run per finding or
+context. A local Melange package can instead receive an image-local review pull request
+only when the finding is for that exact local package identity and names the same package
+version at a higher APK epoch. That proposal changes only `package.epoch`; it never
+guesses an upstream version. Every other local-package shape remains blocked and loud.
 
 ### Pure APKO lock refresh
 
-`.github/workflows/apko-lock-refresh.yaml` keeps committed pure APKO locks
-current through an exact-image manual dispatch from `main`, never from a pull
-request event.
+`.github/workflows/apko-lock-refresh.yaml` keeps committed pure APKO locks current from
+`main`, never from a pull request event. Manual and monitor requests supply one validated
+JSON context list; its daily schedule discovers every pure APKO context. Each controller
+run processes contexts serially.
 
 - `scripts/gen_apko_lock_targets.py` discovers every enabled Wolfi variant whose
   build consumes a committed lock: no `melange.yaml` and no
@@ -269,12 +275,10 @@ request event.
   current base. An identical branch whose pull request was closed gets a new pull
   request without rewriting the branch, and more than one open pull request for the
   branch fails the run instead of passing as a no-op.
-- Operator prerequisite: store a GitHub App installation token or fine-grained
-  token with `contents: write` and `pull-requests: write` in the
-  `APKO_LOCK_REFRESH_TOKEN` repository secret. The workflow token is refused
-  because a pull request it opens never starts the required `lint`, `build-gate`,
-  and `apk-gate` checks. Without the secret the refresh fails closed and proposes
-  nothing.
+- The workflow mints a short-lived GitHub App token with `contents: write` and
+  `pull-requests: write`. The default workflow token is refused because a pull request
+  it opens never starts the required `lint`, `build-gate`, and `apk-gate` checks. Without
+  the App credentials the refresh fails closed and proposes nothing.
 
 ### Rust vulnerability remediation
 

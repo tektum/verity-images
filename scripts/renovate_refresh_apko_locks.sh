@@ -16,7 +16,7 @@ trap 'rm -rf "$work"' EXIT
 for config in "${configs[@]}"; do
   context=${config%/apko.yaml}
   targets="$work/targets.json"
-  python3 scripts/gen_apko_lock_targets.py --image "$context" > "$targets"
+  python3 scripts/gen_apko_lock_targets.py --contexts "[\"$context\"]" > "$targets"
   lockfile=$(jq -er --arg config "$config" '
     [.images[].locks[] | select(.config == $config)]
     | if length == 1 then .[0].lockfile else empty end

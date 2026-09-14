@@ -1,0 +1,75 @@
+name: Propose local package revisions
+
+on:
+  workflow_dispatch:
+    inputs:
+      proposals:
+        description: Validated local package epoch proposals from the monitor controller.
+        required: true
+        type: string
+
+permissions: {}
+
+# Workflow dispatches are the durable queue. Every run is retained, starts, and
+# waits for all older active runs before mutating image-local proposal branches.
+
+jobs:
+  propose:
+    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Check out trusted controller
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Wait for older proposal batches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: python3 scripts/serialize_workflow_dispatches.py
+
+      - name: Validate proposal batch
+        env:
+          PROPOSALS: ${{ inputs.proposals }}
+        run: |
+          set -euo pipefail
+          jq -ce '
+            if (
+              type == "array" and length > 0 and
+              all(.[];
+                . as $proposal |
+                ($proposal.context | type == "string" and startswith("images/")) and
+                ($proposal.recipe | type == "string" and startswith($proposal.context + "/")) and
+                ($proposal.package | type == "string" and length > 0) and
+                ($proposal.version | type == "string" and length > 0) and
+                ($proposal.fromEpoch | type == "number" and floor == . and . >= 0) and
+                ($proposal.toEpoch | type == "number" and floor == . and . > $proposal.fromEpoch) and
+                ($proposal.streams | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
+              (([.[] | [.context, .recipe]] | length) ==
+               ([.[] | [.context, .recipe]] | unique | length))
+            ) then . else error("invalid local package proposal batch") end
+          ' <<<"$PROPOSALS" > local-package-proposals.json
+
+      - name: Mint Squawk GitHub App token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Propose image-local package revisions
+        env:
+          BASE_SHA: ${{ github.sha }}
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: python3 scripts/propose_local_package_revisions.py local-package-proposals.json
