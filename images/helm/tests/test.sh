@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*- helm-4=\([0-9][0-9.]*\)-r[0-9][0-9]*$/\1/p' \
+  "$(dirname "$0")/../apko.yaml")
+[ -n "$expected_version" ] || { printf 'Helm package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/chart/templates" "$work/malformed"
@@ -21,7 +24,7 @@ chmod -R a+rX "$work"
 
 version=$(docker run --rm "$image" version --short)
 case "$version" in
-  v4.2.4+*) ;;
+  "v${expected_version}"+*) ;;
   *)
     printf 'unexpected Helm version: %s\n' "$version" >&2
     exit 1
