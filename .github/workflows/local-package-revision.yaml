@@ -10,24 +10,29 @@ on:
 
 permissions: {}
 
-# Monitor dispatches one controller run for every proposal batch. Do not fan out
-# workflow runs because GitHub retains only one pending run for this group.
-concurrency:
-  group: local-package-revision
-  cancel-in-progress: false
+# Workflow dispatches are the durable queue. Every run is retained, starts, and
+# waits for all older active runs before mutating image-local proposal branches.
 
 jobs:
   propose:
     if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Check out trusted controller
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Wait for older proposal batches
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: python3 scripts/serialize_workflow_dispatches.py
 
       - name: Validate proposal batch
         env:
@@ -46,7 +51,8 @@ jobs:
                 ($proposal.fromEpoch | type == "number" and floor == . and . >= 0) and
                 ($proposal.toEpoch | type == "number" and floor == . and . > $proposal.fromEpoch) and
                 ($proposal.streams | type == "array" and length > 0 and all(.[]; type == "string" and length > 0))) and
-              (([.[].context] | length) == ([.[].context] | unique | length))
+              (([.[] | [.context, .recipe]] | length) ==
+               ([.[] | [.context, .recipe]] | unique | length))
             ) then . else error("invalid local package proposal batch") end
           ' <<<"$PROPOSALS" > local-package-proposals.json
 

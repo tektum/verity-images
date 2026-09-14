@@ -200,13 +200,36 @@ def check_lock_refresh_policy(build: str) -> None:
     assert "scripts/gen_apko_lock_targets.py" not in gen_matrix.GLOBAL_PATHS
 
     revisions = (ROOT / ".github/workflows/local-package-revision.yaml").read_text(encoding="utf-8")
-    assert "group: local-package-revision" in revisions
-    assert "cancel-in-progress: false" in revisions
+    assert "concurrency:" not in revisions
+    assert "timeout-minutes: 60" in revisions
+    assert "actions: read" in revisions
+    assert "Wait for older proposal batches" in revisions
+    assert "scripts/serialize_workflow_dispatches.py" in revisions
     assert "Propose image-local package revisions" in revisions
     assert "permission-pull-requests: write" in revisions
     assert "scripts/propose_local_package_revisions.py" in revisions
     assert "then . else error(\"invalid local package proposal batch\") end" in revisions
-    assert "(([.[].context] | length) == ([.[].context] | unique | length))" in revisions
+    assert "([.[] | [.context, .recipe]] | unique | length)" in revisions
+    assert "scripts/serialize_workflow_dispatches.py" not in gen_matrix.GLOBAL_PATHS
+    batch_filter = between(revisions, "          jq -ce '\n", "\n          ' <<<\"$PROPOSALS\"")
+    proposal = {
+        "context": "images/example",
+        "recipe": "images/example/melange.yaml",
+        "package": "example",
+        "version": "1.0.0",
+        "fromEpoch": 0,
+        "toEpoch": 1,
+        "streams": ["example@1"],
+    }
+    multiple_recipes = [proposal, {**proposal, "recipe": "images/example/fips.melange.yaml"}]
+    accepted = subprocess.run(
+        ["jq", "-ce", batch_filter], input=json.dumps(multiple_recipes), text=True, capture_output=True
+    )
+    assert accepted.returncode == 0
+    duplicate = subprocess.run(
+        ["jq", "-ce", batch_filter], input=json.dumps([proposal, proposal]), text=True, capture_output=True
+    )
+    assert duplicate.returncode != 0
 
 
 def main() -> None:
