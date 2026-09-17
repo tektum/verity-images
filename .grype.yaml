@@ -5,15 +5,3 @@ ignore:
       version: 1.3.2-r3
       type: apk
     reason: Advisory applies to RubyGems zlib, not Wolfi APK zlib.
-  - vulnerability: CVE-2026-85091
-    package:
-      name: zlib
-      version: 1.3.2.1_rc20260601-r0
-      type: apk
-    reason: Wolfi metadata points to unavailable zlib 1.3.3-r0; tracked in wolfi-dev/os#78741.
-  - vulnerability: GHSA-g5fp-32jq-cfw2
-    package:
-      name: zlib
-      version: 1.3.2.1_rc20260601-r0
-      type: apk
-    reason: Wolfi metadata points to unavailable zlib 1.3.3-r0; tracked in wolfi-dev/os#78741.
