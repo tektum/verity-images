@@ -38,6 +38,9 @@ PATH="$work/bin:$PATH" python3 "$root/scripts/download_run_artifact.py" \
 [[ $(cat "$work/output/result.json") == current ]]
 [[ ! -e "$work/output/stale.json" ]]
 grep -Fq 'actions/artifacts/22/zip' "$GH_LOG"
+PATH="$work/bin:$PATH" python3 "$root/scripts/download_run_artifact.py" \
+  owner/repo 42 scan-example "$work/fresh-parent/output"
+[[ $(cat "$work/fresh-parent/output/result.json") == current ]]
 if grep -Fq 'actions/artifacts/11/zip' "$GH_LOG"; then
   printf 'older duplicate artifact was downloaded\n' >&2
   exit 1

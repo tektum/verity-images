@@ -52,6 +52,7 @@ def latest_artifact(repository: str, run_id: str, name: str) -> int:
 
 def extract_archive(data: bytes, destination: Path) -> None:
     """Replace destination with one path-safe GitHub artifact archive."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(dir=destination.parent) as temporary:
         staging = Path(temporary)
         try:
@@ -69,7 +70,6 @@ def extract_archive(data: bytes, destination: Path) -> None:
             raise ValueError("artifact archive is not a ZIP file") from error
         if destination.exists():
             shutil.rmtree(destination)
-        destination.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(staging, destination)
 
 
