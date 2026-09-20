@@ -177,6 +177,8 @@ def main() -> None:
                 selected = json.loads(raw_targets)
             except json.JSONDecodeError as error:
                 raise SystemExit(f"targets must be JSON: {error}") from error
+            if selected is None:
+                raise SystemExit("targets must be a non-empty JSON array")
             targets = generate(targets=selected)
         case _:
             raise SystemExit(

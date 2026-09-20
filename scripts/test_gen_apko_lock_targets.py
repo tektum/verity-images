@@ -6,6 +6,7 @@
 # How to run:
 #   uv run scripts/test_gen_apko_lock_targets.py
 
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final
@@ -222,6 +223,17 @@ def check_branch_isolation() -> None:
         write_image(root / "images/go/1.26", name="go", versions="1.26")
         assert "collide on one refresh branch name" in refused(root)
 
+
+def check_null_target_argument() -> None:
+    result = subprocess.run(
+        ["python3", ROOT / "scripts/gen_apko_lock_targets.py", "--targets", "null"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "targets must be a non-empty JSON array" in result.stderr
+
 def check_repository_targets() -> None:
     images = gen_apko_lock_targets.generate()["images"]
     contexts = [entry["context"] for entry in images]
@@ -252,6 +264,7 @@ def main() -> None:
     check_eligibility()
     check_lockable_inputs()
     check_branch_isolation()
+    check_null_target_argument()
     check_repository_targets()
     print("passed scripts/test_gen_apko_lock_targets.py")
 
