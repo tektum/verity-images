@@ -52,6 +52,14 @@ pipeline:
         "$lib/jsoup-1.23.1.jar" | sha256sum -c
       rm "$lib/jsoup-1.22.2.jar"
       sed -i 's/1\.22\.2/1.23.1/g' "$lib/jsoup.properties"
+      bcprov_version=1.85 # renovate: datasource=maven depName=org.bouncycastle:bcprov-jdk18on
+      wget -q "$maven/org/bouncycastle/bcprov-jdk18on/$bcprov_version/bcprov-jdk18on-$bcprov_version.jar" \
+        -O "$lib/plugins/bcprov-jdk18on-$bcprov_version.jar"
+      printf '%s  %s\n' \
+        20af26bf6060bb8005cc2389916812c1e0e998dc48d2ced7131b89461b54cff7 \
+        "$lib/plugins/bcprov-jdk18on-$bcprov_version.jar" | sha256sum -c
+      rm "$lib/plugins/bcprov-jdk18on-1.84.jar"
+      sed -i "s/1\.84/$bcprov_version/g" "$lib/plugins/bcprov-jdk18on.properties"
   - runs: |
       cd gradle-${{package.version}}
       mkdir -p "${{targets.destdir}}/usr/share/java/gradle" \
