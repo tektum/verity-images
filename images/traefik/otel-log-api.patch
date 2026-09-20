@@ -58,13 +58,14 @@ index 52e466262..3362fcd17 100644
 +			attributeValue = attribute.BoolValue(v)
  		case []byte:
 -			attributeValue = otellog.BytesValue(v)
-+			attributeValue = attribute.BytesValue(v)
++			attributeValue = attribute.ByteSliceValue(v)
  		default:
 -			attributeValue = otellog.StringValue(fmt.Sprintf("%v", v))
 +			attributeValue = attribute.StringValue(fmt.Sprintf("%v", v))
  		}
 -		recordAttributes = append(recordAttributes, otellog.KeyValue{
 +		recordAttributes = append(recordAttributes, attribute.KeyValue{
- 			Key:   k,
+-			Key:   k,
++			Key:   attribute.Key(k),
  			Value: attributeValue,
  		})
