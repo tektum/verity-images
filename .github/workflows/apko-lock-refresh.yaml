@@ -5,8 +5,8 @@ on:
     - cron: "41 4 * * *"
   workflow_dispatch:
     inputs:
-      contexts:
-        description: JSON array of enabled pure APKO image contexts; empty refreshes all.
+      targets:
+        description: JSON array of selected pure APKO lock inputs; empty refreshes all.
         required: false
         default: ""
         type: string
@@ -44,15 +44,15 @@ jobs:
       - name: Install pinned image tools
         run: scripts/install_image_tools.sh wolfi
 
-      - name: Discover validated pure APKO lock contexts
+      - name: Discover validated pure APKO lock inputs
         env:
-          CONTEXTS: ${{ inputs.contexts }}
+          TARGETS: ${{ inputs.targets }}
         run: |
           set -euo pipefail
-          if [[ -z "$CONTEXTS" ]]; then
+          if [[ -z "$TARGETS" ]]; then
             python3 scripts/gen_apko_lock_targets.py --all > apko-lock-targets.json
           else
-            python3 scripts/gen_apko_lock_targets.py --contexts "$CONTEXTS" > apko-lock-targets.json
+            python3 scripts/gen_apko_lock_targets.py --targets "$TARGETS" > apko-lock-targets.json
           fi
 
       # Squawk mints a short-lived, repository-scoped installation token. PRs

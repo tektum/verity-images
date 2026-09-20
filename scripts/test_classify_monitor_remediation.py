@@ -30,6 +30,7 @@ def image(
     enabled: bool = True,
     flavors: tuple[str, ...] = ("plain",),
     recipe: tuple[str, str, int] | None = None,
+    go_remediate: bool = False,
 ) -> None:
     directory = root / context
     (directory / "tests").mkdir(parents=True)
@@ -57,8 +58,9 @@ def image(
                 (directory / f"{item}.apko.lock.json").write_text("{}\n", encoding="utf-8")
         if recipe is not None:
             package, package_version, epoch = recipe
+            pipeline = "pipeline:\n  - uses: go/remediate\n" if go_remediate else ""
             (directory / "melange.yaml").write_text(
-                f"package:\n  name: {package}\n  version: {package_version}\n  epoch: {epoch}\n",
+                f"package:\n  name: {package}\n  version: {package_version}\n  epoch: {epoch}\n{pipeline}",
                 encoding="utf-8",
             )
     else:
@@ -88,6 +90,20 @@ def finding(
         "package": {"name": package, "type": package_type, "installedVersion": installed},
         "fixedVersions": fixed,
     }
+
+
+def apko_route(context: str, streams: list[str], flavors: tuple[str, ...]) -> dict:
+    locks = []
+    for flavor in flavors:
+        prefix = "" if flavor == "plain" else f"{flavor}."
+        locks.append(
+            {
+                "flavor": flavor,
+                "config": f"{context}/{prefix}apko.yaml",
+                "lockfile": f"{context}/{prefix}apko.lock.json",
+            }
+        )
+    return {"context": context, "streams": streams, "locks": locks}
 
 
 def gzip_tar(files: dict[str, bytes]) -> bytes:
@@ -190,9 +206,10 @@ def test_available_on_both_architectures_and_deduplication() -> None:
             f"{classify_monitor_remediation.WOLFI_REPOSITORY}/aarch64/APKINDEX.tar.gz",
             f"{classify_monitor_remediation.WOLFI_REPOSITORY}/x86_64/APKINDEX.tar.gz",
         ]
-        assert plan["apko"] == [{"context": "images/go/1", "streams": ["go@1", "go@1-fips"]}]
+        assert plan["apko"] == [
+            apko_route("images/go/1", ["go@1", "go@1-fips"], ("plain", "fips"))
+        ]
         assert plan["exact"] == [
-            {"stream": "app@2", "context": "images/app", "flavor": "plain", "kind": "recipe"},
             {"stream": "base@1", "context": "patched/base", "flavor": "plain", "kind": "patched"},
         ]
         assert plan["localPackageRevisions"] == [{
@@ -218,7 +235,7 @@ def test_missing_one_and_both_architectures_block_context() -> None:
             finding("other", "1", "curl", "1-r0", ["1-r1"], "CVE-four"),
         ], repository.query)
         assert plan["exact"] == [] and plan["localPackageRevisions"] == []
-        assert plan["apko"] == [{"context": "images/other", "streams": ["other@1"]}]
+        assert plan["apko"] == [apko_route("images/other", ["other@1"], ("plain",))]
         assert plan["blocked"] == [
             {
                 "stream": "go@1",
@@ -232,7 +249,7 @@ def test_missing_one_and_both_architectures_block_context() -> None:
                 "stream": "go@1",
                 "advisory": "CVE-three",
                 "package": "busybox",
-                "reason": "remediation suppressed by another blocked finding in image context",
+                "reason": "remediation suppressed by another blocked finding in build input group",
             },
             {
                 "stream": "go@1-fips",
@@ -297,23 +314,71 @@ def test_repository_failure_blocks_wolfi_but_preserves_patched() -> None:
         }]
 
 
-def test_non_apk_wolfi_findings_do_not_query_or_dispatch() -> None:
+def test_recipe_go_findings_require_remediation_pipeline() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
-        image(root, "images/go", name="go")
-        image(root, "patched/base", name="base", track="patched")
+        image(root, "images/safe", name="safe", recipe=("safe", "1.0", 0), go_remediate=True)
+        image(root, "images/blocked", name="blocked", recipe=("blocked", "1.0", 0))
         plan = classify(root, [
-            finding("go", "1", "openssl", "1", ["2"], "CVE-one", "deb"),
-            finding("base", "1", "openssl", "1", ["2"], "CVE-two", "deb"),
+            finding("safe", "1", "example.com/module", "v1.0.0", ["1.1.0"], "GO-safe", "go-module"),
+            finding("blocked", "1", "example.com/module", "v1.0.0", ["1.1.0"], "GO-blocked", "go-module"),
         ])
         assert plan["exact"] == [
-            {"stream": "base@1", "context": "patched/base", "flavor": "plain", "kind": "patched"}
+            {"stream": "safe@1", "context": "images/safe", "flavor": "plain", "kind": "recipe"}
         ]
         assert plan["apko"] == [] and plan["localPackageRevisions"] == []
         assert plan["blocked"] == [{
-            "stream": "go@1",
-            "advisory": "CVE-one",
-            "package": "openssl",
+            "stream": "blocked@1",
+            "advisory": "GO-blocked",
+            "package": "example.com/module",
+            "reason": "unsupported package type for Wolfi remediation",
+        }]
+
+
+def test_blocked_pure_flavor_does_not_suppress_recipe_flavor() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/mixed", name="mixed", flavors=("plain", "fips"))
+        (root / "images/mixed/fips.melange.yaml").write_text(
+            "package:\n  name: mixed-fips\n  version: 1.0\n  epoch: 0\n"
+            "pipeline:\n  - uses: go/remediate\n",
+            encoding="utf-8",
+        )
+        plan = classify(root, [
+            finding("mixed", "1", "archive", "1", ["2"], "JAVA-one", "java-archive"),
+            finding("mixed", "1-fips", "example.com/module", "v1.0.0", ["1.1.0"], "GO-one", "go-module"),
+        ])
+        assert plan["exact"] == [
+            {"stream": "mixed@1-fips", "context": "images/mixed", "flavor": "fips", "kind": "recipe"}
+        ]
+        assert plan["apko"] == [] and plan["localPackageRevisions"] == []
+        assert plan["blocked"] == [{
+            "stream": "mixed@1",
+            "advisory": "JAVA-one",
+            "package": "archive",
+            "reason": "unsupported package type for Wolfi remediation",
+        }]
+
+
+def test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/mixed", name="mixed", flavors=("plain", "fips"))
+        packages = {("openssl", "1-r1")}
+        repository = SignedRepository(
+            root,
+            {architecture: packages for architecture in classify_monitor_remediation.APK_ARCHITECTURES},
+        )
+        plan = classify(root, [
+            finding("mixed", "1", "archive", "1", ["2"], "JAVA-one", "java-archive"),
+            finding("mixed", "1-fips", "openssl", "1-r0", ["1-r1"], "CVE-one"),
+        ], repository.query)
+        assert plan["exact"] == [] and plan["localPackageRevisions"] == []
+        assert plan["apko"] == [apko_route("images/mixed", ["mixed@1-fips"], ("fips",))]
+        assert plan["blocked"] == [{
+            "stream": "mixed@1",
+            "advisory": "JAVA-one",
+            "package": "archive",
             "reason": "unsupported package type for Wolfi remediation",
         }]
 
@@ -348,7 +413,9 @@ def main() -> None:
     test_missing_one_and_both_architectures_block_context()
     test_repository_failure_blocks_wolfi_but_preserves_patched()
     test_truncated_http_response_fails_closed()
-    test_non_apk_wolfi_findings_do_not_query_or_dispatch()
+    test_recipe_go_findings_require_remediation_pipeline()
+    test_blocked_pure_flavor_does_not_suppress_recipe_flavor()
+    test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor()
     test_fail_closed_contexts_and_epochs()
     print("passed scripts/test_classify_monitor_remediation.py")
 

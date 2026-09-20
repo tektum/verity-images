@@ -149,11 +149,11 @@ def env_pins(workflow: str) -> dict[str, str]:
 def check_lock_refresh_policy(build: str) -> None:
     refresh = (ROOT / ".github/workflows/apko-lock-refresh.yaml").read_text(encoding="utf-8")
     triggers = between(refresh, "\non:\n", "\npermissions: {}\n")
-    # The monitor passes one validated context batch and scheduled maintenance
-    # refreshes every pure APKO context through the same serialized controller.
+    # The monitor passes one validated lock-input batch and scheduled maintenance
+    # refreshes every pure APKO input through the same serialized controller.
     assert "  schedule:\n" in triggers
     assert "  workflow_dispatch:\n" in triggers
-    assert "      contexts:\n" in triggers
+    assert "      targets:\n" in triggers
     assert "        required: false\n" in triggers
     assert "pull_request" not in refresh and "workflow_run" not in refresh
     assert "\n  push:\n" not in refresh
@@ -176,8 +176,8 @@ def check_lock_refresh_policy(build: str) -> None:
     }
     assert all(env_pins(build)[name] == value for name, value in pins.items())
     assert "scripts/install_image_tools.sh wolfi\n" in job
-    assert "          CONTEXTS: ${{ inputs.contexts }}\n" in job
-    assert 'python3 scripts/gen_apko_lock_targets.py --contexts "$CONTEXTS"' in job
+    assert "          TARGETS: ${{ inputs.targets }}\n" in job
+    assert 'python3 scripts/gen_apko_lock_targets.py --targets "$TARGETS"' in job
     assert "python3 scripts/gen_apko_lock_targets.py --all" in job
     assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
     token_step = between(

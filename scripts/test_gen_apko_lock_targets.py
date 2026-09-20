@@ -6,6 +6,7 @@
 # How to run:
 #   uv run scripts/test_gen_apko_lock_targets.py
 
+import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final
@@ -72,6 +73,15 @@ def generated(root: Path, image: str | None = None) -> list[dict[str, object]]:
         return gen_apko_lock_targets.generate(contexts)["images"]
 
 
+def selected(root: Path, targets: list[dict[str, object]]) -> list[dict[str, object]]:
+    directories = sorted(path.parent for path in root.glob("**/metadata.yaml"))
+    with (
+        patch.object(gen_apko_lock_targets, "ROOT", root),
+        patch.object(gen_apko_lock_targets.gen_matrix, "image_directories", return_value=directories),
+    ):
+        return gen_apko_lock_targets.generate(targets=targets)["images"]
+
+
 def refused(root: Path, image: str | None = None) -> str:
     try:
         generated(root, image)
@@ -115,6 +125,32 @@ def check_eligibility() -> None:
         ]
         # Selecting one image keeps its full lock set and drops every other image.
         assert [entry["context"] for entry in generated(root, "images/dual")] == ["images/dual"]
+        selected_images = selected(root, [{
+            "context": "images/dual",
+            "locks": [{
+                "flavor": "dev",
+                "config": "images/dual/dev.apko.yaml",
+                "lockfile": "images/dual/dev.apko.lock.json",
+            }],
+        }])
+        assert selected_images[0]["locks"] == [{
+            "flavor": "dev",
+            "config": "images/dual/dev.apko.yaml",
+            "lockfile": "images/dual/dev.apko.lock.json",
+        }]
+        try:
+            selected(root, [{
+                "context": "images/dual",
+                "locks": [{
+                    "flavor": "dev",
+                    "config": "images/dual/dev.apko.yaml",
+                    "lockfile": "images/dual/wrong.lock.json",
+                }],
+            }])
+        except gen_apko_lock_targets.LockDiscoveryError as error:
+            assert "selected lock does not match build inputs" in str(error)
+        else:
+            raise AssertionError("mismatched monitor lock selection was accepted")
         assert "not an enabled pure APKO image context" in refused(root, "images/quarantined")
         assert "not an enabled pure APKO image context" in refused(root, "patched/upstream")
         assert "not an enabled pure APKO image context" in refused(root, "images/absent")
@@ -187,6 +223,17 @@ def check_branch_isolation() -> None:
         write_image(root / "images/go/1.26", name="go", versions="1.26")
         assert "collide on one refresh branch name" in refused(root)
 
+
+def check_null_target_argument() -> None:
+    result = subprocess.run(
+        ["python3", ROOT / "scripts/gen_apko_lock_targets.py", "--targets", "null"],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert "targets must be a non-empty JSON array" in result.stderr
+
 def check_repository_targets() -> None:
     images = gen_apko_lock_targets.generate()["images"]
     contexts = [entry["context"] for entry in images]
@@ -217,6 +264,7 @@ def main() -> None:
     check_eligibility()
     check_lockable_inputs()
     check_branch_isolation()
+    check_null_target_argument()
     check_repository_targets()
     print("passed scripts/test_gen_apko_lock_targets.py")
 
