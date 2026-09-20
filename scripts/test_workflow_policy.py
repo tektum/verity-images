@@ -1219,9 +1219,10 @@ def main() -> None:
         "\n      - name: Generate expected images\n",
     )
     assert 'done < <(jq -c \'.[]\' reconciliation.json)' in batch_step
-    assert 'gh run download "$run_id" --repo "$REPOSITORY"' in batch_step
-    assert "--name build-report --dir \"$destination/report\"" in batch_step
-    assert "--name \"$artifact\" --dir \"$destination/scans/$artifact\"" in batch_step
+    assert 'python3 scripts/download_run_artifact.py \\' in batch_step
+    assert '"$REPOSITORY" "$run_id" build-report "$destination/report"' in batch_step
+    assert '"$REPOSITORY" "$run_id" "$artifact" "$destination/scans/$artifact"' in batch_step
+    assert "[.images[] | \"scan-\\(.name)-\\(.version)\"] | unique[]" in batch_step
 
     catalog_step = between(
         catalog,

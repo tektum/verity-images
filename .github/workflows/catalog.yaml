@@ -20,6 +20,7 @@ on:  # zizmor: ignore[dangerous-triggers]
       - scripts/apk_repository_policy.py
       - scripts/build_catalog.py
       - scripts/catalog_inventory.jq
+      - scripts/download_run_artifact.py
       - scripts/catalog_reconciliation.jq
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
@@ -228,9 +229,7 @@ jobs:
               <<<"$artifacts")
             if [[ "$report_count" -gt 0 ]]; then
               report_dir="input/${run_id}/report"
-              mkdir -p "$report_dir"
-              gh run download "$run_id" --repo "$REPOSITORY" \
-                --name build-report --dir "$report_dir"
+              python3 scripts/download_run_artifact.py "$REPOSITORY" "$run_id" build-report "$report_dir"
               report="$report_dir/build-report.json"
               if ! jq -e '
                 (.images | type == "array" and length > 0) and
@@ -298,17 +297,15 @@ jobs:
             destination="input/${run_id}"
             mkdir -p "$destination/report" "$destination/scans"
             if [[ ! -f "$destination/report/build-report.json" ]]; then
-              gh run download "$run_id" --repo "$REPOSITORY" \
-                --name build-report --dir "$destination/report"
+              python3 scripts/download_run_artifact.py \
+                "$REPOSITORY" "$run_id" build-report "$destination/report"
             fi
             while IFS= read -r artifact; do
-              mkdir -p "$destination/scans/$artifact"
-              gh run download "$run_id" --repo "$REPOSITORY" \
-                --name "$artifact" --dir "$destination/scans/$artifact"
+              python3 scripts/download_run_artifact.py \
+                "$REPOSITORY" "$run_id" "$artifact" "$destination/scans/$artifact"
             done < <(
-              gh api --paginate \
-                "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" \
-                --jq '.artifacts[] | select(.expired == false and (.name | startswith("scan-"))) | .name'
+              jq -r '[.images[] | "scan-\(.name)-\(.version)"] | unique[]' \
+                "$destination/report/build-report.json"
             )
             jq -e '
               (.images | length > 0) and
