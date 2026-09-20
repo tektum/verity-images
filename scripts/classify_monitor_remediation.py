@@ -291,6 +291,14 @@ def recipe_identity(path: Path) -> RecipeIdentity:
     return RecipeIdentity(values["name"], values["version"], int(values["epoch"]))
 
 
+def uses_pipeline(path: Path, pipeline: str) -> bool:
+    """Whether one exact Melange recipe invokes the named shared pipeline."""
+    marker = f"- uses: {pipeline}"
+    return path.is_file() and any(
+        line.strip() == marker for line in path.read_text(encoding="utf-8").splitlines()
+    )
+
+
 def streams() -> dict[tuple[str, str], list[Stream]]:
     found: dict[tuple[str, str], list[Stream]] = defaultdict(list)
     for directory in gen_matrix.image_directories():
@@ -389,8 +397,9 @@ def classify(
     apko: dict[str, set[str]] = defaultdict(set)
     revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
     blocked_findings: list[dict[str, object]] = []
-    invalid_contexts: set[str] = set()
-    wolfi_by_context: dict[str, list[WolfiFinding]] = defaultdict(list)
+    invalid_groups: set[tuple[str, str]] = set()
+    wolfi_by_group: dict[tuple[str, str], list[WolfiFinding]] = defaultdict(list)
+    recipe_exact: dict[tuple[str, str], list[tuple[dict[str, object], Stream]]] = defaultdict(list)
     blocked_candidate_ids: set[int] = set()
 
     for finding in validate_report(report):
@@ -418,26 +427,34 @@ def classify(
         package = finding["package"]
         if not isinstance(package, dict):
             raise ClassificationError("finding.package must be an object")
+        config, lockfile, recipe = gen_apko_lock_targets.build_inputs(directory, stream.flavor)
+        group = (
+            ("recipe", recipe.relative_to(ROOT).as_posix())
+            if recipe.is_file()
+            else ("apko", stream.context)
+        )
+        if package.get("type") == "go-module" and uses_pipeline(recipe, "go/remediate"):
+            recipe_exact[group].append((finding, stream))
+            continue
         if package.get("type") != "apk":
             blocked_findings.append(blocked(target, finding, "unsupported package type for Wolfi remediation"))
-            invalid_contexts.add(stream.context)
+            invalid_groups.add(group)
             continue
-        config, lockfile, recipe = gen_apko_lock_targets.build_inputs(directory, stream.flavor)
         try:
             require_wolfi_repository(config)
         except (OSError, UnicodeDecodeError, RepositoryError) as error:
             blocked_findings.append(blocked(target, finding, f"unqueryable Wolfi repository configuration: {error}"))
-            invalid_contexts.add(stream.context)
+            invalid_groups.add(group)
             continue
-        wolfi_by_context[stream.context].append(
+        wolfi_by_group[group].append(
             WolfiFinding(finding, stream, config, lockfile, recipe, fixed_versions(finding))
         )
 
     candidates = [
         candidate
-        for context, context_findings in wolfi_by_context.items()
-        if context not in invalid_contexts
-        for candidate in context_findings
+        for group, group_findings in wolfi_by_group.items()
+        if group not in invalid_groups
+        for candidate in group_findings
     ]
     requirements = {
         (scalar(candidate.finding["package"].get("name"), "finding.package.name"), version)
@@ -467,7 +484,12 @@ def classify(
                     )
                 )
                 blocked_candidate_ids.add(id(candidate))
-                invalid_contexts.add(candidate.stream.context)
+                group = (
+                    ("recipe", candidate.recipe.relative_to(ROOT).as_posix())
+                    if candidate.recipe.is_file()
+                    else ("apko", candidate.stream.context)
+                )
+                invalid_groups.add(group)
 
     available_by_candidate: dict[int, set[str]] = {}
     if availability:
@@ -492,27 +514,44 @@ def classify(
                 unavailable(candidate, required, availability.get((name, required), APK_ARCHITECTURES))
             )
             blocked_candidate_ids.add(id(candidate))
-            invalid_contexts.add(candidate.stream.context)
+            group = (
+                ("recipe", candidate.recipe.relative_to(ROOT).as_posix())
+                if candidate.recipe.is_file()
+                else ("apko", candidate.stream.context)
+            )
+            invalid_groups.add(group)
 
-    for context, context_findings in sorted(wolfi_by_context.items()):
-        if context in invalid_contexts:
-            for candidate in context_findings:
+    groups = sorted(set(wolfi_by_group) | set(recipe_exact))
+    for group in groups:
+        group_findings = wolfi_by_group.get(group, [])
+        exact_findings = recipe_exact.get(group, [])
+        if group in invalid_groups:
+            for candidate in group_findings:
                 if id(candidate) not in blocked_candidate_ids:
                     blocked_findings.append(
                         blocked(
                             candidate.stream.target,
                             candidate.finding,
-                            "remediation suppressed by another blocked finding in image context",
+                            "remediation suppressed by another blocked finding in build input group",
                         )
                     )
+            for finding, stream in exact_findings:
+                blocked_findings.append(
+                    blocked(
+                        stream.target,
+                        finding,
+                        "remediation suppressed by another blocked finding in build input group",
+                    )
+                )
             continue
+        context = (group_findings[0].stream if group_findings else exact_findings[0][1]).context
         context_exact: dict[str, dict[str, object]] = {}
         context_apko: set[str] = set()
         context_revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
         context_blocked: list[dict[str, object]] = []
         context_blocked_ids: set[int] = set()
         target_cache: dict[str, list[gen_apko_lock_targets.LockTarget]] = {}
-        for candidate in context_findings:
+        for candidate in group_findings:
             finding = candidate.finding
             stream = candidate.stream
             target = stream.target
@@ -572,22 +611,43 @@ def classify(
                 )
                 context_blocked_ids.update(
                     id(candidate)
-                    for candidate in context_findings
+                    for candidate in group_findings
                     if candidate.stream.target == stream
                     and candidate.recipe.relative_to(ROOT).as_posix() == recipe
                 )
         if context_blocked:
-            for candidate in context_findings:
+            for candidate in group_findings:
                 if id(candidate) not in context_blocked_ids:
                     context_blocked.append(
                         blocked(
                             candidate.stream.target,
                             candidate.finding,
-                            "remediation suppressed by another blocked finding in image context",
+                            "remediation suppressed by another blocked finding in build input group",
                         )
                     )
+            for finding, stream in exact_findings:
+                context_blocked.append(
+                    blocked(
+                        stream.target,
+                        finding,
+                        "remediation suppressed by another blocked finding in build input group",
+                    )
+                )
             blocked_findings.extend(context_blocked)
             continue
+        revision_targets = {
+            target for values in context_revisions.values() for _, target in values
+        }
+        for finding, stream in exact_findings:
+            if stream.target not in revision_targets:
+                context_exact[stream.target] = {
+                    "stream": stream.target,
+                    "context": stream.context,
+                    "flavor": stream.flavor,
+                    "kind": "recipe",
+                }
+        for target in revision_targets:
+            context_exact.pop(target, None)
         exact.update(context_exact)
         apko[context].update(context_apko)
         for key, values in context_revisions.items():

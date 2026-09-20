@@ -233,10 +233,13 @@ lock inputs must change first, open one image-local pull request instead.
 
 The daily monitor (`.github/workflows/monitor.yaml`) classifies every consolidated
 finding from repository metadata and the exact build inputs before acting. It fails
-closed for unknown, disabled, ambiguous, or unsupported contexts and records those
+closed for unknown, disabled, ambiguous, or unsupported inputs and records those
 findings in its summary without hiding them. Patched streams preserve the exact
-`build.yaml` rebuild route; if that cannot consume a Debian fix, the adjacent upstream
-digest remains Renovate's separate remediation path.
+`build.yaml` rebuild route; if that cannot consume an operating-system fix, the
+adjacent upstream digest remains Renovate's separate remediation path. A Go module
+finding in a Wolfi recipe receives the same exact rebuild route only when that exact
+recipe invokes `go/remediate`; other language-package findings remain blocked rather
+than causing speculative source edits.
 
 Before dispatching any Wolfi APK route, the classifier verifies the configured Wolfi
 signing key against the signed `APKINDEX.tar.gz` for both `x86_64` and `aarch64`. It
@@ -244,9 +247,10 @@ loads each architecture index once and groups exact package/version lookups acro
 findings, streams, and flavors. A finding proceeds only when at least one exact fixed
 version advertised by the scanner is present in both indexes. An unavailable version
 is reported with its package, required fixed version, and missing architectures, and
-suppresses every build or proposal for that image context. A failed download, malformed
-index, or invalid signature blocks Wolfi remediation; it never suppresses patched-image
-routing.
+suppresses every action sharing that recipe or pure-APKO input set. It does not
+suppress an independent flavor with different build inputs. A failed download,
+malformed index, or invalid signature blocks Wolfi APK remediation; it never
+suppresses patched-image routing.
 
 Pure APKO streams are deduplicated by image context while retaining every exact stream
 and flavor in the controller summary. The monitor queues one serialized APKO refresh
@@ -255,7 +259,8 @@ context. A local Melange package can instead receive an image-local review pull 
 only when its fixed version passed the same repository-availability gate, the finding is
 for that exact local package identity, and it names the same package version at a higher
 APK epoch. That proposal changes only `package.epoch`; it never guesses an upstream
-version. Every other local-package shape remains blocked and loud.
+version. One proposal supersedes an otherwise redundant exact rebuild for the same
+stream. Every other local-package shape remains blocked and loud.
 
 ### Pure APKO lock refresh
 

@@ -49,6 +49,12 @@ source, package, language dependency, recipe, or lock must change.
 Infrastructure dependency maintenance is separate and does not advance image
 inputs.
 
+The monitor automatically routes a Wolfi Go-module finding to an exact rebuild only
+when the stream's exact Melange recipe invokes the reviewed `go/remediate` pipeline.
+It does not infer dependency edits for other recipes or language package types.
+Blocked findings are scoped to their shared recipe or pure-APKO input set so an
+independent flavor can still take its safe remediation route.
+
 An operator starts an exact rebuild from `main` with an Image Dashboard stream
 identifier such as `nats@2`:
 
