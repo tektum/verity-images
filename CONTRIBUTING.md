@@ -252,10 +252,11 @@ suppress an independent flavor with different build inputs. A failed download,
 malformed index, or invalid signature blocks Wolfi APK remediation; it never
 suppresses patched-image routing.
 
-Pure APKO streams are deduplicated by image context while retaining every exact stream
-and flavor in the controller summary. The monitor queues one serialized APKO refresh
-controller run for its entire context list, never one workflow run per finding or
-context. A local Melange package can instead receive an image-local review pull request
+Pure APKO findings are deduplicated by their selected config and committed lock while
+retaining every exact stream and flavor in the controller summary. The monitor queues
+one serialized APKO refresh controller run for its selected input list, never one
+workflow run per finding or image. A local Melange package can instead receive an
+image-local review pull request
 only when its fixed version passed the same repository-availability gate, the finding is
 for that exact local package identity, and it names the same package version at a higher
 APK epoch. That proposal changes only `package.epoch`; it never guesses an upstream
@@ -265,9 +266,9 @@ stream. Every other local-package shape remains blocked and loud.
 ### Pure APKO lock refresh
 
 `.github/workflows/apko-lock-refresh.yaml` keeps committed pure APKO locks current from
-`main`, never from a pull request event. Manual and monitor requests supply one validated
-JSON context list; its daily schedule discovers every pure APKO context. Each controller
-run processes contexts serially.
+`main`, never from a pull request event. Monitor requests supply a validated JSON list
+of exact config and lock inputs; its daily schedule discovers every pure APKO input.
+Each controller run processes image contexts serially.
 
 - `scripts/gen_apko_lock_targets.py` discovers every enabled Wolfi variant whose
   build consumes a committed lock: no `melange.yaml` and no

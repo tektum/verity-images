@@ -405,7 +405,8 @@ def classify(
 ) -> dict[str, object]:
     entries = streams()
     exact: dict[str, dict[str, object]] = {}
-    apko: dict[str, set[str]] = defaultdict(set)
+    apko_streams: dict[str, set[str]] = defaultdict(set)
+    apko_locks: dict[str, dict[tuple[str, str], gen_apko_lock_targets.LockTarget]] = defaultdict(dict)
     revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
     blocked_findings: list[dict[str, object]] = []
     invalid_groups: set[tuple[str, ...]] = set()
@@ -546,10 +547,10 @@ def classify(
         context = (group_findings[0].stream if group_findings else exact_findings[0][1]).context
         context_exact: dict[str, dict[str, object]] = {}
         context_apko: set[str] = set()
+        context_apko_locks: dict[tuple[str, str], gen_apko_lock_targets.LockTarget] = {}
         context_revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
         context_blocked: list[dict[str, object]] = []
         context_blocked_ids: set[int] = set()
-        target_cache: dict[str, list[gen_apko_lock_targets.LockTarget]] = {}
         for candidate in group_findings:
             finding = candidate.finding
             stream = candidate.stream
@@ -576,24 +577,25 @@ def classify(
                 }
                 continue
             try:
-                if stream.flavor not in target_cache:
-                    target_cache[stream.flavor] = gen_apko_lock_targets.lock_targets(ROOT / context)
-                targets = target_cache[stream.flavor]
+                targets = gen_apko_lock_targets.lock_targets(ROOT / context)
             except gen_apko_lock_targets.LockDiscoveryError as error:
                 context_blocked.append(blocked(target, finding, f"unrefreshable pure APKO context: {error}"))
                 context_blocked_ids.add(id(candidate))
                 continue
+            selected = [item for item in targets if item["flavor"] == stream.flavor]
             if (
                 not candidate.config.is_file()
                 or not candidate.lockfile.is_file()
-                or stream.flavor not in {item["flavor"] for item in targets}
+                or len(selected) != 1
             ):
                 context_blocked.append(
                     blocked(target, finding, "pure APKO context has no committed lock for stream flavor")
                 )
                 context_blocked_ids.add(id(candidate))
                 continue
+            lock = selected[0]
             context_apko.add(target)
+            context_apko_locks[(lock["config"], lock["lockfile"])] = lock
 
         for (_, recipe), values in sorted(context_revisions.items()):
             epochs = {epoch for epoch, _ in values}
@@ -648,7 +650,8 @@ def classify(
         for target in revision_targets:
             context_exact.pop(target, None)
         exact.update(context_exact)
-        apko[context].update(context_apko)
+        apko_streams[context].update(context_apko)
+        apko_locks[context].update(context_apko_locks)
         for key, values in context_revisions.items():
             revisions[key].extend(values)
 
@@ -683,9 +686,13 @@ def classify(
         "schemaVersion": SCHEMA,
         "exact": [exact[target] for target in sorted(exact)],
         "apko": [
-            {"context": context, "streams": sorted(targets)}
-            for context, targets in sorted(apko.items())
-            if targets
+            {
+                "context": context,
+                "streams": sorted(apko_streams[context]),
+                "locks": [apko_locks[context][key] for key in sorted(apko_locks[context])],
+            }
+            for context in sorted(apko_streams)
+            if apko_streams[context]
         ],
         "localPackageRevisions": proposals,
         "blocked": [unique_blocked[key] for key in sorted(unique_blocked)],

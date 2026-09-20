@@ -92,6 +92,20 @@ def finding(
     }
 
 
+def apko_route(context: str, streams: list[str], flavors: tuple[str, ...]) -> dict:
+    locks = []
+    for flavor in flavors:
+        prefix = "" if flavor == "plain" else f"{flavor}."
+        locks.append(
+            {
+                "flavor": flavor,
+                "config": f"{context}/{prefix}apko.yaml",
+                "lockfile": f"{context}/{prefix}apko.lock.json",
+            }
+        )
+    return {"context": context, "streams": streams, "locks": locks}
+
+
 def gzip_tar(files: dict[str, bytes]) -> bytes:
     plain = io.BytesIO()
     with tarfile.open(fileobj=plain, mode="w", format=tarfile.USTAR_FORMAT) as archive:
@@ -192,7 +206,9 @@ def test_available_on_both_architectures_and_deduplication() -> None:
             f"{classify_monitor_remediation.WOLFI_REPOSITORY}/aarch64/APKINDEX.tar.gz",
             f"{classify_monitor_remediation.WOLFI_REPOSITORY}/x86_64/APKINDEX.tar.gz",
         ]
-        assert plan["apko"] == [{"context": "images/go/1", "streams": ["go@1", "go@1-fips"]}]
+        assert plan["apko"] == [
+            apko_route("images/go/1", ["go@1", "go@1-fips"], ("plain", "fips"))
+        ]
         assert plan["exact"] == [
             {"stream": "base@1", "context": "patched/base", "flavor": "plain", "kind": "patched"},
         ]
@@ -219,7 +235,7 @@ def test_missing_one_and_both_architectures_block_context() -> None:
             finding("other", "1", "curl", "1-r0", ["1-r1"], "CVE-four"),
         ], repository.query)
         assert plan["exact"] == [] and plan["localPackageRevisions"] == []
-        assert plan["apko"] == [{"context": "images/other", "streams": ["other@1"]}]
+        assert plan["apko"] == [apko_route("images/other", ["other@1"], ("plain",))]
         assert plan["blocked"] == [
             {
                 "stream": "go@1",
@@ -358,7 +374,7 @@ def test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor() -> None
             finding("mixed", "1-fips", "openssl", "1-r0", ["1-r1"], "CVE-one"),
         ], repository.query)
         assert plan["exact"] == [] and plan["localPackageRevisions"] == []
-        assert plan["apko"] == [{"context": "images/mixed", "streams": ["mixed@1-fips"]}]
+        assert plan["apko"] == [apko_route("images/mixed", ["mixed@1-fips"], ("fips",))]
         assert plan["blocked"] == [{
             "stream": "mixed@1",
             "advisory": "JAVA-one",
