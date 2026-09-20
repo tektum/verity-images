@@ -344,6 +344,29 @@ def test_blocked_pure_flavor_does_not_suppress_recipe_flavor() -> None:
         }]
 
 
+def test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/mixed", name="mixed", flavors=("plain", "fips"))
+        packages = {("openssl", "1-r1")}
+        repository = SignedRepository(
+            root,
+            {architecture: packages for architecture in classify_monitor_remediation.APK_ARCHITECTURES},
+        )
+        plan = classify(root, [
+            finding("mixed", "1", "archive", "1", ["2"], "JAVA-one", "java-archive"),
+            finding("mixed", "1-fips", "openssl", "1-r0", ["1-r1"], "CVE-one"),
+        ], repository.query)
+        assert plan["exact"] == [] and plan["localPackageRevisions"] == []
+        assert plan["apko"] == [{"context": "images/mixed", "streams": ["mixed@1-fips"]}]
+        assert plan["blocked"] == [{
+            "stream": "mixed@1",
+            "advisory": "JAVA-one",
+            "package": "archive",
+            "reason": "unsupported package type for Wolfi remediation",
+        }]
+
+
 def test_fail_closed_contexts_and_epochs() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -376,6 +399,7 @@ def main() -> None:
     test_truncated_http_response_fails_closed()
     test_recipe_go_findings_require_remediation_pipeline()
     test_blocked_pure_flavor_does_not_suppress_recipe_flavor()
+    test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor()
     test_fail_closed_contexts_and_epochs()
     print("passed scripts/test_classify_monitor_remediation.py")
 

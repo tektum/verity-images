@@ -299,6 +299,17 @@ def uses_pipeline(path: Path, pipeline: str) -> bool:
     )
 
 
+def build_group(config: Path, lockfile: Path, recipe: Path) -> tuple[str, ...]:
+    """Identity of inputs that must be remediated atomically."""
+    if recipe.is_file():
+        return ("recipe", recipe.relative_to(ROOT).as_posix())
+    return (
+        "apko",
+        config.relative_to(ROOT).as_posix(),
+        lockfile.relative_to(ROOT).as_posix(),
+    )
+
+
 def streams() -> dict[tuple[str, str], list[Stream]]:
     found: dict[tuple[str, str], list[Stream]] = defaultdict(list)
     for directory in gen_matrix.image_directories():
@@ -397,9 +408,9 @@ def classify(
     apko: dict[str, set[str]] = defaultdict(set)
     revisions: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
     blocked_findings: list[dict[str, object]] = []
-    invalid_groups: set[tuple[str, str]] = set()
-    wolfi_by_group: dict[tuple[str, str], list[WolfiFinding]] = defaultdict(list)
-    recipe_exact: dict[tuple[str, str], list[tuple[dict[str, object], Stream]]] = defaultdict(list)
+    invalid_groups: set[tuple[str, ...]] = set()
+    wolfi_by_group: dict[tuple[str, ...], list[WolfiFinding]] = defaultdict(list)
+    recipe_exact: dict[tuple[str, ...], list[tuple[dict[str, object], Stream]]] = defaultdict(list)
     blocked_candidate_ids: set[int] = set()
 
     for finding in validate_report(report):
@@ -428,11 +439,7 @@ def classify(
         if not isinstance(package, dict):
             raise ClassificationError("finding.package must be an object")
         config, lockfile, recipe = gen_apko_lock_targets.build_inputs(directory, stream.flavor)
-        group = (
-            ("recipe", recipe.relative_to(ROOT).as_posix())
-            if recipe.is_file()
-            else ("apko", stream.context)
-        )
+        group = build_group(config, lockfile, recipe)
         if package.get("type") == "go-module" and uses_pipeline(recipe, "go/remediate"):
             recipe_exact[group].append((finding, stream))
             continue
@@ -484,11 +491,7 @@ def classify(
                     )
                 )
                 blocked_candidate_ids.add(id(candidate))
-                group = (
-                    ("recipe", candidate.recipe.relative_to(ROOT).as_posix())
-                    if candidate.recipe.is_file()
-                    else ("apko", candidate.stream.context)
-                )
+                group = build_group(candidate.config, candidate.lockfile, candidate.recipe)
                 invalid_groups.add(group)
 
     available_by_candidate: dict[int, set[str]] = {}
@@ -514,11 +517,7 @@ def classify(
                 unavailable(candidate, required, availability.get((name, required), APK_ARCHITECTURES))
             )
             blocked_candidate_ids.add(id(candidate))
-            group = (
-                ("recipe", candidate.recipe.relative_to(ROOT).as_posix())
-                if candidate.recipe.is_file()
-                else ("apko", candidate.stream.context)
-            )
+            group = build_group(candidate.config, candidate.lockfile, candidate.recipe)
             invalid_groups.add(group)
 
     groups = sorted(set(wolfi_by_group) | set(recipe_exact))
