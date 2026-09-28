@@ -729,6 +729,10 @@ def main() -> None:
     assert 'startswith("dependabot/github_actions/")' in dependabot_job
     assert 'repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100' in dependabot_job
     assert '.author.login == "dependabot[bot]"' in dependabot_job
+    assert 'jq -e --arg head "$head_sha"' in dependabot_job
+    assert ".[-1].sha == $head" in dependabot_job
+    assert '.committer.login == "web-flow"' in dependabot_job
+    assert '.commit.committer.email == "noreply@github.com"' in dependabot_job
     assert '.commit.author.email == "49699333+dependabot[bot]@users.noreply.github.com"' in dependabot_job
     assert ".commit.verification.verified == true" in dependabot_job
     assert '.commit.verification.reason == "valid"' in dependabot_job

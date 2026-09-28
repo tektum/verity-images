@@ -43,11 +43,14 @@ jobs:
           ' <<<"$pr")
           commits=$(gh api --paginate --slurp \
             "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100" | jq 'flatten')
-          jq -e '
+          jq -e --arg head "$head_sha" '
             length > 0 and
+            .[-1].sha == $head and
             all(.[];
               .author.login == "dependabot[bot]" and
+              .committer.login == "web-flow" and
               .commit.author.email == "49699333+dependabot[bot]@users.noreply.github.com" and
+              .commit.committer.email == "noreply@github.com" and
               .commit.verification.verified == true and
               .commit.verification.reason == "valid"
             )
