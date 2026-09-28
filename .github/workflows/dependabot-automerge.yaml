@@ -1,0 +1,74 @@
+name: Automerge Dependabot actions
+
+on:  # zizmor: ignore[dangerous-triggers]
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+    paths:
+      - .github/workflows/**
+
+permissions: {}
+
+concurrency:
+  group: dependabot-automerge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    if: >-
+      github.repository == 'tektum/verity-images' &&
+      github.actor == 'dependabot[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Validate Dependabot action update
+        id: validate
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          pr=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")
+          head_sha=$(jq -er --arg repository "$REPOSITORY" '
+            select(
+              .user.login == "dependabot[bot]" and
+              .head.repo.full_name == $repository and
+              (.head.ref | startswith("dependabot/github_actions/")) and
+              .draft == false
+            ) | .head.sha
+          ' <<<"$pr")
+          files=$(gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq 'flatten')
+          jq -e '
+            length > 0 and
+            all(.[].filename; startswith(".github/workflows/"))
+          ' <<<"$files" >/dev/null
+          printf 'head-sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Mint Squawk approval token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.0.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Approve and enable protected automerge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            --field event=APPROVE \
+            --field commit_id="$HEAD_SHA" \
+            --field body='Trusted Dependabot action update; required checks still gate merge.'
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto

@@ -245,6 +245,9 @@ def main() -> None:
     security_automerge = (
         ROOT / ".github/workflows/security-floor-automerge.yaml"
     ).read_text(encoding="utf-8")
+    dependabot_automerge = (
+        ROOT / ".github/workflows/dependabot-automerge.yaml"
+    ).read_text(encoding="utf-8")
     monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
     monitor_sarif = (ROOT / "scripts/build_monitor_sarif.py").read_text(
         encoding="utf-8"
@@ -709,6 +712,28 @@ def main() -> None:
     assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in security_job
     assert '            --field commit_id="$HEAD_SHA" \\\n' in security_job
     assert "--admin" not in security_job
+    dependabot_triggers = dependabot_automerge.split("\npermissions: {}\n", maxsplit=1)[0]
+    assert "on:  # zizmor: ignore[dangerous-triggers]\n" in dependabot_triggers
+    assert "  pull_request_target:\n" in dependabot_triggers
+    assert "  pull_request:" not in dependabot_triggers
+    assert "      - .github/workflows/**\n" in dependabot_triggers
+    dependabot_policy = between(dependabot_automerge, "permissions: {}\n", "\njobs:\n")
+    assert "dependabot-automerge-${{ github.event.pull_request.number }}" in dependabot_policy
+    assert "  cancel-in-progress: true\n" in dependabot_policy
+    dependabot_job = dependabot_automerge.split("\n  approve:\n", maxsplit=1)[1]
+    assert "github.actor == 'dependabot[bot]'" in dependabot_job
+    assert "!github.event.pull_request.draft" in dependabot_job
+    assert runner(dependabot_job) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 5\n" in dependabot_job
+    assert "github.event.pull_request.head" not in dependabot_job
+    assert 'startswith("dependabot/github_actions/")' in dependabot_job
+    assert 'all(.[].filename; startswith(".github/workflows/"))' in dependabot_job
+    assert "          permission-contents: write\n" in dependabot_job
+    assert "          permission-pull-requests: write\n" in dependabot_job
+    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in dependabot_job
+    assert 'commit_id="$HEAD_SHA"' in dependabot_job
+    assert 'gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto' in dependabot_job
+    assert "--admin" not in dependabot_job
     assert "\n  schedule:\n" not in workflow
     assert (
         "  GRYPE_VERSION: 0.116.1\n"
