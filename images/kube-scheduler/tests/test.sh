@@ -12,7 +12,7 @@ fail() {
 
 user=$(docker image inspect --format '{{.Config.User}}' "$image")
 [ -z "$user" ] || [ "$user" = 0 ] || fail "unexpected image user: $user"
-[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/kube-scheduler-1.36"]' ] \
+[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/kube-scheduler-1.37"]' ] \
   || fail 'unexpected image entrypoint'
 metadata=$(dirname "$0")/../metadata.yaml
 supported_channel=$(sed -n 's/^versions: *\[\([^]]*\)\].*/\1/p' "$metadata")
