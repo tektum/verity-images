@@ -167,6 +167,8 @@ for image in "${images[@]}"; do
 
   if [[ "$open" -eq 0 ]]; then
     create_pull_request "$branch" "$context" "$summary" "$message"
+  else
+    queue_automerge "$branch"
   fi
   printf -- '- %s on %s\n' "$context" "$branch" >> "$proposals"
   proposed=$((proposed + 1))

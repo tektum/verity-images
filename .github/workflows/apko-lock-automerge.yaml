@@ -35,12 +35,17 @@ jobs:
           pr=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")
           head_sha=$(jq -er --arg repository "$REPOSITORY" '
             select(
-              .user.login == "github-actions[bot]" and
+              .user.login == "github-actions[bot]" and .user.type == "Bot" and
+              .state == "open" and .draft == false and .base.ref == "main" and
               .head.repo.full_name == $repository and
-              (.head.ref | startswith("apko-lock/")) and
-              .draft == false
+              (.head.ref | startswith("apko-lock/"))
             ) | .head.sha
           ' <<<"$pr")
+          gh api "repos/${REPOSITORY}/commits/${head_sha}" | jq -e '
+            .author.login == "github-actions[bot]" and
+            .commit.verification.verified == true and
+            (.parents | length) == 1
+          ' >/dev/null
           files=$(gh api --paginate --slurp \
             "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq 'flatten')
           jq -e --argjson expected "$(jq -er .changed_files <<<"$pr")" '
@@ -71,15 +76,19 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
-          gh api --paginate --slurp \
-            "repos/${REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&status=action_required&per_page=100" \
-            | jq -r --argjson pr "$PR_NUMBER" '
-                flatten | .[].workflow_runs[]
-                | select(any(.pull_requests[]?; .number == $pr)) | .id
-              ' \
-            | while read -r run_id; do
-                gh api --method POST "repos/${REPOSITORY}/actions/runs/${run_id}/approve"
-              done
+          for _ in {1..12}; do
+            run_ids=$(gh api --paginate --slurp \
+              "repos/${REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&status=action_required&per_page=100" \
+              | jq -r --argjson pr "$PR_NUMBER" '
+                  flatten | .[].workflow_runs[]
+                  | select(any(.pull_requests[]?; .number == $pr)) | .id
+                ')
+            [[ -n "$run_ids" ]] && break
+            sleep 10
+          done
+          for run_id in $run_ids; do
+            gh api --method POST "repos/${REPOSITORY}/actions/runs/${run_id}/approve"
+          done
 
       - name: Approve and enable protected automerge
         shell: bash
