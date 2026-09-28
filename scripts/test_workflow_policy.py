@@ -727,7 +727,13 @@ def main() -> None:
     assert "\n    timeout-minutes: 5\n" in dependabot_job
     assert "github.event.pull_request.head" not in dependabot_job
     assert 'startswith("dependabot/github_actions/")' in dependabot_job
-    assert 'all(.[].filename; startswith(".github/workflows/"))' in dependabot_job
+    assert 'repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100' in dependabot_job
+    assert '.author.login == "dependabot[bot]"' in dependabot_job
+    assert '.commit.author.email == "49699333+dependabot[bot]@users.noreply.github.com"' in dependabot_job
+    assert ".commit.verification.verified == true" in dependabot_job
+    assert '.commit.verification.reason == "valid"' in dependabot_job
+    assert '(.filename | startswith(".github/workflows/"))' in dependabot_job
+    assert '(.previous_filename // .filename)' in dependabot_job
     assert "          permission-contents: write\n" in dependabot_job
     assert "          permission-pull-requests: write\n" in dependabot_job
     assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in dependabot_job

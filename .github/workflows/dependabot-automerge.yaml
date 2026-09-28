@@ -41,11 +41,25 @@ jobs:
               .draft == false
             ) | .head.sha
           ' <<<"$pr")
+          commits=$(gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100" | jq 'flatten')
+          jq -e '
+            length > 0 and
+            all(.[];
+              .author.login == "dependabot[bot]" and
+              .commit.author.email == "49699333+dependabot[bot]@users.noreply.github.com" and
+              .commit.verification.verified == true and
+              .commit.verification.reason == "valid"
+            )
+          ' <<<"$commits" >/dev/null
           files=$(gh api --paginate --slurp \
             "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq 'flatten')
           jq -e '
             length > 0 and
-            all(.[].filename; startswith(".github/workflows/"))
+            all(.[];
+              (.filename | startswith(".github/workflows/")) and
+              ((.previous_filename // .filename) | startswith(".github/workflows/"))
+            )
           ' <<<"$files" >/dev/null
           printf 'head-sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
 
