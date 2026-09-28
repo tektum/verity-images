@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/kube-apiserver/apko.yaml",
-    "checksum": "sha256-AJjfpNnbc0ua3oOf0tZgtYIS3pZLEda/Qzs202mJLXg="
+    "checksum": "sha256-jgTqm3Tkj64zSUkp4ZoC6JWvOO8SHdlt5UnxrAJCDu0="
   },
   "contents": {
     "keyring": [
@@ -66,23 +66,23 @@
         "checksum": "Q1wITWZ+kxqTqLhGONBuiW43Vifvk="
       },
       {
-        "name": "kube-apiserver-1.36",
-        "url": "https://packages.wolfi.dev/os/x86_64/kube-apiserver-1.36-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-apiserver-1.37",
+        "url": "https://packages.wolfi.dev/os/x86_64/kube-apiserver-1.37-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13866",
-          "checksum": "sha1-lxlV6xwau4Z66dXPWlDRhJUZE4Y="
+          "range": "bytes=0-13929",
+          "checksum": "sha1-UvJAEHZfjrGrEk62JvKiC1Krdg8="
         },
         "data": {
-          "range": "bytes=13867-27799757",
-          "checksum": "sha256-9Z8mhkkLC8A6JzcarlX655v+y0BUqLBpwQhvCxicYTE="
+          "range": "bytes=13930-29086148",
+          "checksum": "sha256-JpnXun9HC7WY8Qjz2Ftl0Ds3kDcGWN9KnT1mtcCwgHY="
         },
-        "checksum": "Q1lxlV6xwau4Z66dXPWlDRhJUZE4Y="
+        "checksum": "Q1UvJAEHZfjrGrEk62JvKiC1Krdg8="
       },
       {
         "name": "wolfi-baselayout",
@@ -123,23 +123,23 @@
         "checksum": "Q1VRejqJ4mpISZYu/Z6OxC6eXQfFA="
       },
       {
-        "name": "kube-apiserver-1.36",
-        "url": "https://packages.wolfi.dev/os/aarch64/kube-apiserver-1.36-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-apiserver-1.37",
+        "url": "https://packages.wolfi.dev/os/aarch64/kube-apiserver-1.37-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13905",
-          "checksum": "sha1-sRtnPfDVihEf6EM2H4W2ZkKnphc="
+          "range": "bytes=0-13957",
+          "checksum": "sha1-4zmvdyWHVgciaO72msSqF17hEXk="
         },
         "data": {
-          "range": "bytes=13906-24407484",
-          "checksum": "sha256-cFKQ7DL35djAinNk3+wlve8sr6Z3t6JFncPO8eFx9w4="
+          "range": "bytes=13958-25604513",
+          "checksum": "sha256-iBfJS5/EY3/T+ypDtNvXFMDW33McfwvnzekvgDgFJBs="
         },
-        "checksum": "Q1sRtnPfDVihEf6EM2H4W2ZkKnphc="
+        "checksum": "Q14zmvdyWHVgciaO72msSqF17hEXk="
       }
     ]
   }
