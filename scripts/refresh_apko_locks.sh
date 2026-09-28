@@ -12,6 +12,7 @@ base_sha=${BASE_SHA:?BASE_SHA is required}
 base_branch=${BASE_BRANCH:-main}
 architectures=${APKO_ARCHITECTURES:-amd64,arm64}
 run_url=${RUN_URL:-}
+automerge_workflow=${AUTOMERGE_WORKFLOW:-}
 
 if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
   printf '::error title=Lock refresh refused::BASE_SHA "%s" is not a full commit SHA.\n' "$base_sha"
@@ -19,7 +20,7 @@ if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
 fi
 
 if [[ -z "${GH_TOKEN:-}" ]]; then
-  printf '::error title=Lock refresh credential missing::GH_TOKEN must be a short-lived GitHub App installation token with contents:write and pull-requests:write.\n'
+  printf '::error title=Lock refresh credential missing::GH_TOKEN must have contents:write and pull-requests:write.\n'
   exit 2
 fi
 
@@ -58,6 +59,14 @@ open_pull_requests() {
   gh pr list --repo "$repository" --head "$1" --state open --json number --jq length
 }
 
+queue_automerge() {
+  [[ -n "$automerge_workflow" ]] || return 0
+  local number
+  number=$(gh pr list --repo "$repository" --head "$1" --state open --json number --jq '.[0].number')
+  [[ "$number" =~ ^[1-9][0-9]*$ ]]
+  gh workflow run "$automerge_workflow" --repo "$repository" --ref "$base_branch" -f "pr-number=$number"
+}
+
 create_pull_request() {
   local branch=$1 context=$2 summary=$3 message=$4 body="$work/body.md"
   {
@@ -73,6 +82,7 @@ create_pull_request() {
   } > "$body"
   gh pr create --repo "$repository" --base "$base_branch" --head "$branch" \
     --title "$message" --body-file "$body"
+  queue_automerge "$branch"
 }
 
 mapfile -t images < <(jq -c '.images[]' "$targets")
@@ -130,6 +140,7 @@ for image in "${images[@]}"; do
     fi
     if proposal_published "$branch" "$entries"; then
       if [[ "$open" -eq 1 ]]; then
+        queue_automerge "$branch"
         continue
       fi
       # The branch already carries this proposal but lost its pull request, so the

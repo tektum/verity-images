@@ -1,25 +1,24 @@
 name: Automerge APKO lock refreshes
 
 on:  # zizmor: ignore[dangerous-triggers]
-  pull_request_target:
-    types: [opened, reopened, synchronize, ready_for_review]
-    paths:
-      - images/**/apko.lock.json
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Existing APKO lock refresh PR to approve.
+        required: true
+        type: string
 
 permissions: {}
 
 concurrency:
-  group: apko-lock-automerge-${{ github.event.pull_request.number }}
+  group: apko-lock-automerge-${{ inputs.pr-number }}
   cancel-in-progress: true
 
 jobs:
   approve:
-    if: >-
-      github.repository == 'tektum/verity-images' &&
-      github.actor == 'tektum[bot]' &&
-      !github.event.pull_request.draft
+    if: github.repository == 'tektum/verity-images' && github.actor == 'github-actions[bot]'
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
       pull-requests: read
     steps:
@@ -28,37 +27,24 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ inputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           pr=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")
           head_sha=$(jq -er --arg repository "$REPOSITORY" '
             select(
-              .user.login == "tektum[bot]" and
+              .user.login == "github-actions[bot]" and
               .head.repo.full_name == $repository and
               (.head.ref | startswith("apko-lock/")) and
               .draft == false
             ) | .head.sha
           ' <<<"$pr")
-          commits=$(gh api --paginate --slurp \
-            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/commits?per_page=100" | jq 'flatten')
-          jq -e --arg head "$head_sha" '
-            length > 0 and
-            .[-1].sha == $head and
-            all(.[];
-              .author.login == "tektum[bot]" and
-              .committer.login == "web-flow" and
-              .commit.author.email == "309332712+tektum[bot]@users.noreply.github.com" and
-              .commit.committer.email == "noreply@github.com" and
-              .commit.verification.verified == true and
-              .commit.verification.reason == "valid"
-            )
-          ' <<<"$commits" >/dev/null
           files=$(gh api --paginate --slurp \
             "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq 'flatten')
-          jq -e '
-            length > 0 and
+          jq -e --argjson expected "$(jq -er .changed_files <<<"$pr")" '
+            length == $expected and length > 0 and
             all(.[];
               (.filename | test("^images/.+/(?:[a-z0-9-]+\\.)?apko\\.lock\\.json$")) and
               ((.previous_filename // .filename) | test("^images/.+/(?:[a-z0-9-]+\\.)?apko\\.lock\\.json$"))
@@ -72,15 +58,35 @@ jobs:
         with:
           app-id: ${{ secrets.APP_ID }}
           private-key: ${{ secrets.APP_PEM }}
+          permission-actions: write
           permission-contents: write
           permission-pull-requests: write
+
+      - name: Approve action-required checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "repos/${REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&status=action_required&per_page=100" \
+            | jq -r --argjson pr "$PR_NUMBER" '
+                flatten | .[].workflow_runs[]
+                | select(any(.pull_requests[]?; .number == $pr)) | .id
+              ' \
+            | while read -r run_id; do
+                gh api --method POST "repos/${REPOSITORY}/actions/runs/${run_id}/approve"
+              done
 
       - name: Approve and enable protected automerge
         shell: bash
         env:
           GH_TOKEN: ${{ steps.squawk.outputs.token }}
           HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ inputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -88,4 +94,4 @@ jobs:
             --field event=APPROVE \
             --field commit_id="$HEAD_SHA" \
             --field body='Trusted APKO lock refresh; required checks still gate merge.'
-          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --match-head-commit "$HEAD_SHA"

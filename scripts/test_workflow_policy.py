@@ -164,7 +164,7 @@ def check_lock_refresh_policy(build: str) -> None:
     job = refresh.split("\n  refresh:\n", maxsplit=1)[1]
     assert runner(job) == "ubuntu-latest"
     assert "\n    timeout-minutes: 60\n" in job
-    assert "\n    permissions:\n      contents: read\n    steps:\n" in job
+    assert "\n    permissions:\n      actions: write\n      contents: write\n      pull-requests: write\n    steps:\n" in job
     assert (
         "    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'\n"
     ) in job
@@ -180,21 +180,11 @@ def check_lock_refresh_policy(build: str) -> None:
     assert 'python3 scripts/gen_apko_lock_targets.py --targets "$TARGETS"' in job
     assert "python3 scripts/gen_apko_lock_targets.py --all" in job
     assert "scripts/refresh_apko_locks.sh apko-lock-targets.json\n" in job
-    token_step = between(
-        job,
-        "\n      - name: Mint Squawk GitHub App token\n",
-        "\n      - name: Propose one lock refresh per changed image\n",
-    )
     proposal_step = job.split("\n      - name: Propose one lock refresh per changed image\n", maxsplit=1)[1]
-    assert "        id: squawk\n" in token_step
-    assert "uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in token_step
-    assert "          app-id: ${{ secrets.APP_ID }}\n" in token_step
-    assert "          private-key: ${{ secrets.APP_PEM }}\n" in token_step
-    assert "          permission-contents: write\n" in token_step
-    assert "          permission-pull-requests: write\n" in token_step
-    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in proposal_step
+    assert "          AUTOMERGE_WORKFLOW: apko-lock-automerge.yaml\n" in proposal_step
+    assert "          GH_TOKEN: ${{ github.token }}\n" in proposal_step
+    assert "actions/create-github-app-token" not in job
     assert "APKO_LOCK_REFRESH_TOKEN" not in refresh
-    assert "github.token" not in refresh
     assert ".github/workflows/apko-lock-refresh.yaml" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/refresh_apko_locks.sh" not in gen_matrix.GLOBAL_PATHS
     assert "scripts/gen_apko_lock_targets.py" not in gen_matrix.GLOBAL_PATHS
@@ -713,33 +703,24 @@ def main() -> None:
     assert '            --field commit_id="$HEAD_SHA" \\\n' in security_job
     assert "--admin" not in security_job
     apko_lock_triggers = apko_lock_automerge.split("\npermissions: {}\n", maxsplit=1)[0]
-    assert "on:  # zizmor: ignore[dangerous-triggers]\n" in apko_lock_triggers
-    assert "  pull_request_target:\n" in apko_lock_triggers
-    assert "  pull_request:" not in apko_lock_triggers
-    assert "      - images/**/apko.lock.json\n" in apko_lock_triggers
+    assert "  workflow_dispatch:\n" in apko_lock_triggers
+    assert "      pr-number:\n" in apko_lock_triggers
+    assert "pull_request" not in apko_lock_triggers
     apko_lock_policy = between(apko_lock_automerge, "permissions: {}\n", "\njobs:\n")
-    assert "apko-lock-automerge-${{ github.event.pull_request.number }}" in apko_lock_policy
+    assert "apko-lock-automerge-${{ inputs.pr-number }}" in apko_lock_policy
     assert "  cancel-in-progress: true\n" in apko_lock_policy
     apko_lock_job = apko_lock_automerge.split("\n  approve:\n", maxsplit=1)[1]
-    assert "github.actor == 'tektum[bot]'" in apko_lock_job
-    assert "!github.event.pull_request.draft" in apko_lock_job
+    assert "github.actor == 'github-actions[bot]'" in apko_lock_job
     assert runner(apko_lock_job) == "ubuntu-latest"
-    assert "\n    timeout-minutes: 5\n" in apko_lock_job
-    assert "github.event.pull_request.head" not in apko_lock_job
+    assert "\n    timeout-minutes: 10\n" in apko_lock_job
     assert 'startswith("apko-lock/")' in apko_lock_job
-    assert '.author.login == "tektum[bot]"' in apko_lock_job
-    assert '.committer.login == "web-flow"' in apko_lock_job
-    assert '.commit.author.email == "309332712+tektum[bot]@users.noreply.github.com"' in apko_lock_job
-    assert '.commit.committer.email == "noreply@github.com"' in apko_lock_job
-    assert ".commit.verification.verified == true" in apko_lock_job
-    assert ".[-1].sha == $head" in apko_lock_job
-    assert 'test("^images/' in apko_lock_job
+    assert '.user.login == "github-actions[bot]"' in apko_lock_job
+    assert ".changed_files" in apko_lock_job
     assert "previous_filename" in apko_lock_job
-    assert "          permission-contents: write\n" in apko_lock_job
-    assert "          permission-pull-requests: write\n" in apko_lock_job
-    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in apko_lock_job
+    assert "permission-actions: write" in apko_lock_job
+    assert "/actions/runs/${run_id}/approve" in apko_lock_job
     assert 'commit_id="$HEAD_SHA"' in apko_lock_job
-    assert 'gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto' in apko_lock_job
+    assert '--match-head-commit "$HEAD_SHA"' in apko_lock_job
     assert "--admin" not in apko_lock_job
     assert "\n  schedule:\n" not in workflow
     assert (

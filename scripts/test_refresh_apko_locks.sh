@@ -292,8 +292,7 @@ fi
 # Missing App authentication fails closed before any GitHub mutation.
 reset
 GH_TOKEN="" refuses 2
-grep -Fq 'short-lived GitHub App installation token' "$work/output.txt"
-grep -Fq 'contents:write and pull-requests:write' "$work/output.txt"
+grep -Fq 'GH_TOKEN must have contents:write and pull-requests:write' "$work/output.txt"
 [[ ! -s "$GH_LOG" ]]
 
 # An unusable base commit or a branch outside the automation namespace is refused.
