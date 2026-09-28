@@ -245,6 +245,9 @@ def main() -> None:
     security_automerge = (
         ROOT / ".github/workflows/security-floor-automerge.yaml"
     ).read_text(encoding="utf-8")
+    apko_lock_automerge = (
+        ROOT / ".github/workflows/apko-lock-automerge.yaml"
+    ).read_text(encoding="utf-8")
     monitor_script = (ROOT / "scripts/monitor_sboms.sh").read_text(encoding="utf-8")
     monitor_sarif = (ROOT / "scripts/build_monitor_sarif.py").read_text(
         encoding="utf-8"
@@ -709,6 +712,35 @@ def main() -> None:
     assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in security_job
     assert '            --field commit_id="$HEAD_SHA" \\\n' in security_job
     assert "--admin" not in security_job
+    apko_lock_triggers = apko_lock_automerge.split("\npermissions: {}\n", maxsplit=1)[0]
+    assert "on:  # zizmor: ignore[dangerous-triggers]\n" in apko_lock_triggers
+    assert "  pull_request_target:\n" in apko_lock_triggers
+    assert "  pull_request:" not in apko_lock_triggers
+    assert "      - images/**/apko.lock.json\n" in apko_lock_triggers
+    apko_lock_policy = between(apko_lock_automerge, "permissions: {}\n", "\njobs:\n")
+    assert "apko-lock-automerge-${{ github.event.pull_request.number }}" in apko_lock_policy
+    assert "  cancel-in-progress: true\n" in apko_lock_policy
+    apko_lock_job = apko_lock_automerge.split("\n  approve:\n", maxsplit=1)[1]
+    assert "github.actor == 'tektum[bot]'" in apko_lock_job
+    assert "!github.event.pull_request.draft" in apko_lock_job
+    assert runner(apko_lock_job) == "ubuntu-latest"
+    assert "\n    timeout-minutes: 5\n" in apko_lock_job
+    assert "github.event.pull_request.head" not in apko_lock_job
+    assert 'startswith("apko-lock/")' in apko_lock_job
+    assert '.author.login == "tektum[bot]"' in apko_lock_job
+    assert '.committer.login == "web-flow"' in apko_lock_job
+    assert '.commit.author.email == "309332712+tektum[bot]@users.noreply.github.com"' in apko_lock_job
+    assert '.commit.committer.email == "noreply@github.com"' in apko_lock_job
+    assert ".commit.verification.verified == true" in apko_lock_job
+    assert ".[-1].sha == $head" in apko_lock_job
+    assert 'test("^images/' in apko_lock_job
+    assert "previous_filename" in apko_lock_job
+    assert "          permission-contents: write\n" in apko_lock_job
+    assert "          permission-pull-requests: write\n" in apko_lock_job
+    assert "          GH_TOKEN: ${{ steps.squawk.outputs.token }}\n" in apko_lock_job
+    assert 'commit_id="$HEAD_SHA"' in apko_lock_job
+    assert 'gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto' in apko_lock_job
+    assert "--admin" not in apko_lock_job
     assert "\n  schedule:\n" not in workflow
     assert (
         "  GRYPE_VERSION: 0.116.1\n"
