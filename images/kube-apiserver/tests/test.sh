@@ -11,7 +11,7 @@ fail() {
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] ||
   fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = \
-  '["/usr/bin/kube-apiserver-1.36"]' ] || fail 'unexpected OCI entrypoint'
+  '["/usr/bin/kube-apiserver-1.37"]' ] || fail 'unexpected OCI entrypoint'
 
 metadata_file=$(dirname -- "$0")/../metadata.yaml
 supported_channel=$(awk '/^versions:/ { gsub(/[\[\],]/, ""); print $2; exit }' "$metadata_file")
