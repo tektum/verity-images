@@ -5,10 +5,10 @@ contents:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
     - ca-certificates-bundle
-    - kube-scheduler-1.36
+    - kube-scheduler-1.37
 
 entrypoint:
-  command: /usr/bin/kube-scheduler-1.36
+  command: /usr/bin/kube-scheduler-1.37
 
 environment:
   PATH: /usr/bin:/bin
