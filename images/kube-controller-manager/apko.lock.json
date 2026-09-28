@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/kube-controller-manager/apko.yaml",
-    "checksum": "sha256-16pHqeF+9pD+COkRrciXlai8Y/XH3pFHAloTAhsrE0E="
+    "checksum": "sha256-HkzF/sJFfhOH351Ijmt4CXuPmgT92hvP7d/fciMDrSo="
   },
   "contents": {
     "keyring": [
@@ -66,42 +66,42 @@
         "checksum": "Q1wITWZ+kxqTqLhGONBuiW43Vifvk="
       },
       {
-        "name": "kube-controller-manager-1.36",
-        "url": "https://packages.wolfi.dev/os/x86_64/kube-controller-manager-1.36-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-controller-manager-1.37",
+        "url": "https://packages.wolfi.dev/os/x86_64/kube-controller-manager-1.37-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13866",
-          "checksum": "sha1-PJgDZZiQo291wCH7ozmDZHuxhP4="
+          "range": "bytes=0-13927",
+          "checksum": "sha1-olz96iKosf77qP+65W3kEzCYvjo="
         },
         "data": {
-          "range": "bytes=13867-22917941",
-          "checksum": "sha256-d4DBTIPGvi1cAVjYKOw5lAaJY/00mWbAEfOdMo0gWuc="
+          "range": "bytes=13928-23618282",
+          "checksum": "sha256-td0ZZebm9uvjt4izMAvMMqRd51M9PgHvHYl/OHh05mM="
         },
-        "checksum": "Q1PJgDZZiQo291wCH7ozmDZHuxhP4="
+        "checksum": "Q1olz96iKosf77qP+65W3kEzCYvjo="
       },
       {
-        "name": "kube-controller-manager-1.36-default",
-        "url": "https://packages.wolfi.dev/os/x86_64/kube-controller-manager-1.36-default-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-controller-manager-1.37-default",
+        "url": "https://packages.wolfi.dev/os/x86_64/kube-controller-manager-1.37-default-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13878",
-          "checksum": "sha1-+wnR37AWdQKXcAfkonzrjXI4PUI="
+          "range": "bytes=0-13934",
+          "checksum": "sha1-D/yMKKk/PvyFlWwBtQJmdyVtTSE="
         },
         "data": {
-          "range": "bytes=13879-15469",
-          "checksum": "sha256-Gkf1gH2pVj53YW1ClSpZw6BW/6VqIhkgyXOf4/RpGAA="
+          "range": "bytes=13935-15520",
+          "checksum": "sha256-yKZO+ek9p05W/eP1YO5UKlAag6lhIv7AMxgOY07HPn4="
         },
-        "checksum": "Q1+wnR37AWdQKXcAfkonzrjXI4PUI="
+        "checksum": "Q1D/yMKKk/PvyFlWwBtQJmdyVtTSE="
       },
       {
         "name": "wolfi-baselayout",
@@ -142,42 +142,42 @@
         "checksum": "Q1VRejqJ4mpISZYu/Z6OxC6eXQfFA="
       },
       {
-        "name": "kube-controller-manager-1.36",
-        "url": "https://packages.wolfi.dev/os/aarch64/kube-controller-manager-1.36-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-controller-manager-1.37",
+        "url": "https://packages.wolfi.dev/os/aarch64/kube-controller-manager-1.37-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13906",
-          "checksum": "sha1-tTbF3PbXaNkKoqDESrO1YjZf1E0="
+          "range": "bytes=0-13956",
+          "checksum": "sha1-d1pj+8gJUhixKW4ym0TxE9RaxW4="
         },
         "data": {
-          "range": "bytes=13907-20132725",
-          "checksum": "sha256-MYpuQ1y8C9+6MqAw7xl/QAVhKX27XG+t3iM84wVM8ig="
+          "range": "bytes=13957-20773729",
+          "checksum": "sha256-n8qhpoipnNFPxmOMYOcYkwd+GI3XBRLgE5tNAg0ZbLU="
         },
-        "checksum": "Q1tTbF3PbXaNkKoqDESrO1YjZf1E0="
+        "checksum": "Q1d1pj+8gJUhixKW4ym0TxE9RaxW4="
       },
       {
-        "name": "kube-controller-manager-1.36-default",
-        "url": "https://packages.wolfi.dev/os/aarch64/kube-controller-manager-1.36-default-1.36.4-r8.apk",
-        "version": "1.36.4-r8",
+        "name": "kube-controller-manager-1.37-default",
+        "url": "https://packages.wolfi.dev/os/aarch64/kube-controller-manager-1.37-default-1.37.1-r0.apk",
+        "version": "1.37.1-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13908",
-          "checksum": "sha1-xfhFKdg/Fw8VTY+gylkFmkxQneo="
+          "range": "bytes=0-13966",
+          "checksum": "sha1-MyuKdmKVGtph9FTs/9xMyW8XB5M="
         },
         "data": {
-          "range": "bytes=13909-15492",
-          "checksum": "sha256-6x5LrpNBU3IzVcMyO+hGrf3VqyzWMEqHNztxI28iX1k="
+          "range": "bytes=13967-15549",
+          "checksum": "sha256-Hx31uwT1d+LDboeZAfqKrjki/cmPpiqiT1mqL8swAQM="
         },
-        "checksum": "Q1xfhFKdg/Fw8VTY+gylkFmkxQneo="
+        "checksum": "Q1MyuKdmKVGtph9FTs/9xMyW8XB5M="
       }
     ]
   }
