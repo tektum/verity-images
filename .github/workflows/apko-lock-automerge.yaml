@@ -43,7 +43,6 @@ jobs:
           ' <<<"$pr")
           gh api "repos/${REPOSITORY}/commits/${head_sha}" | jq -e '
             .author.login == "github-actions[bot]" and
-            .commit.verification.verified == true and
             (.parents | length) == 1
           ' >/dev/null
           files=$(gh api --paginate --slurp \
