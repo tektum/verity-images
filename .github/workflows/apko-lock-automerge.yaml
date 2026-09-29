@@ -1,0 +1,115 @@
+name: Automerge APKO lock refreshes
+
+on:  # zizmor: ignore[dangerous-triggers]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: Existing APKO lock refresh PR to approve.
+        required: true
+        type: string
+      head-sha:
+        description: Head commit the trusted refresh run produced for that PR.
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: apko-lock-automerge-${{ inputs.pr-number }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    if: github.repository == 'tektum/verity-images' && github.actor == 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pull-requests: read
+    steps:
+      - name: Validate APKO lock refresh
+        id: validate
+        shell: bash
+        env:
+          EXPECTED_HEAD_SHA: ${{ inputs.head-sha }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          pr=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")
+          head_sha=$(jq -er --arg repository "$REPOSITORY" --arg expected "$EXPECTED_HEAD_SHA" '
+            select(
+              .user.login == "github-actions[bot]" and .user.type == "Bot" and
+              .state == "open" and .draft == false and .base.ref == "main" and
+              .head.repo.full_name == $repository and .head.sha == $expected and
+              (.head.ref | startswith("apko-lock/"))
+            ) | .head.sha
+          ' <<<"$pr")
+          gh api "repos/${REPOSITORY}/commits/${head_sha}" | jq -e '
+            .author.login == "github-actions[bot]" and
+            (.parents | length) == 1
+          ' >/dev/null
+          files=$(gh api --paginate --slurp \
+            "repos/${REPOSITORY}/pulls/${PR_NUMBER}/files?per_page=100" | jq 'flatten')
+          jq -e --argjson expected "$(jq -er .changed_files <<<"$pr")" '
+            length == $expected and length > 0 and
+            all(.[];
+              (.filename | test("^images/.+/(?:[a-z0-9-]+\\.)?apko\\.lock\\.json$")) and
+              ((.previous_filename // .filename) | test("^images/.+/(?:[a-z0-9-]+\\.)?apko\\.lock\\.json$"))
+            )
+          ' <<<"$files" >/dev/null
+          printf 'head-sha=%s\n' "$head_sha" >> "$GITHUB_OUTPUT"
+
+      - name: Mint Squawk approval token
+        id: squawk
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3.0.0
+        with:
+          app-id: ${{ secrets.APP_ID }}
+          private-key: ${{ secrets.APP_PEM }}
+          permission-actions: write
+          permission-contents: write
+          permission-pull-requests: write
+
+      - name: Approve action-required checks
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          for _ in {1..12}; do
+            run_ids=$(gh api --paginate --slurp \
+              "repos/${REPOSITORY}/actions/runs?head_sha=${HEAD_SHA}&status=action_required&per_page=100" \
+              | jq -r --argjson pr "$PR_NUMBER" '
+                  flatten | .[].workflow_runs[]
+                  | select(any(.pull_requests[]?; .number == $pr)) | .id
+                ')
+            [[ -n "$run_ids" ]] && break
+            sleep 10
+          done
+          if [[ -z "$run_ids" ]]; then
+            printf '::error title=No runs to approve::No action_required runs found for %s.\n' "$HEAD_SHA"
+            exit 1
+          fi
+          for run_id in $run_ids; do
+            gh api --method POST "repos/${REPOSITORY}/actions/runs/${run_id}/approve"
+          done
+
+      - name: Approve and enable protected automerge
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          HEAD_SHA: ${{ steps.validate.outputs.head-sha }}
+          PR_NUMBER: ${{ inputs.pr-number }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh api --method POST "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            --field event=APPROVE \
+            --field commit_id="$HEAD_SHA" \
+            --field body='Trusted APKO lock refresh; required checks still gate merge.'
+          gh pr merge "$PR_NUMBER" --repo "$REPOSITORY" --auto --match-head-commit "$HEAD_SHA"

@@ -34,7 +34,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      actions: write
+      contents: write
+      pull-requests: write
     steps:
       - name: Check out trusted refresher
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -55,21 +57,11 @@ jobs:
             python3 scripts/gen_apko_lock_targets.py --targets "$TARGETS" > apko-lock-targets.json
           fi
 
-      # Squawk mints a short-lived, repository-scoped installation token. PRs
-      # authored by the App start the required checks, unlike the default token.
-      - name: Mint Squawk GitHub App token
-        id: squawk
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1  # v3
-        with:
-          app-id: ${{ secrets.APP_ID }}
-          private-key: ${{ secrets.APP_PEM }}
-          permission-contents: write
-          permission-pull-requests: write
-
       - name: Propose one lock refresh per changed image
         env:
+          AUTOMERGE_WORKFLOW: apko-lock-automerge.yaml
           BASE_SHA: ${{ github.sha }}
-          GH_TOKEN: ${{ steps.squawk.outputs.token }}
+          GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: scripts/refresh_apko_locks.sh apko-lock-targets.json
