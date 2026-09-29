@@ -86,6 +86,10 @@ jobs:
             [[ -n "$run_ids" ]] && break
             sleep 10
           done
+          if [[ -z "$run_ids" ]]; then
+            printf '::error title=No runs to approve::No action_required runs found for %s.\n' "$HEAD_SHA"
+            exit 1
+          fi
           for run_id in $run_ids; do
             gh api --method POST "repos/${REPOSITORY}/actions/runs/${run_id}/approve"
           done
