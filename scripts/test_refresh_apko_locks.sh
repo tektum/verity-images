@@ -203,6 +203,13 @@ jq -e '.base_tree == "base-tree" and (.tree | length) == 1
 grep -Fxq '  "alpha": "current"' "$work/repo/images/alpha/apko.lock.json"
 grep -Fq 'images/alpha' "$GITHUB_STEP_SUMMARY"
 
+# The approval dispatch names the exact commit this run wrote, so a head pushed by anyone
+# else before or after it can never be approved.
+reset
+printf '{\n  "alpha": "refreshed"\n}\n' >"$work/repo/images/alpha/apko.yaml.next"
+AUTOMERGE_WORKFLOW=apko-lock-automerge.yaml PR_OPEN=7 refresh >"$work/output.txt"
+grep -Fq 'workflow run apko-lock-automerge.yaml --repo owner/repo --ref main -f pr-number=7 -f head-sha=new-commit' "$GH_LOG"
+
 # Every changed flavor of one image lands in that image's single branch, and an existing
 # branch with an open pull request is force-updated instead of duplicated.
 reset

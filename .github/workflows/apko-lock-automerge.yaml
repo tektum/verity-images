@@ -7,6 +7,10 @@ on:  # zizmor: ignore[dangerous-triggers]
         description: Existing APKO lock refresh PR to approve.
         required: true
         type: string
+      head-sha:
+        description: Head commit the trusted refresh run produced for that PR.
+        required: true
+        type: string
 
 permissions: {}
 
@@ -26,18 +30,20 @@ jobs:
         id: validate
         shell: bash
         env:
+          EXPECTED_HEAD_SHA: ${{ inputs.head-sha }}
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ inputs.pr-number }}
           REPOSITORY: ${{ github.repository }}
         run: |
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
+          [[ "$EXPECTED_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
           pr=$(gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}")
-          head_sha=$(jq -er --arg repository "$REPOSITORY" '
+          head_sha=$(jq -er --arg repository "$REPOSITORY" --arg expected "$EXPECTED_HEAD_SHA" '
             select(
               .user.login == "github-actions[bot]" and .user.type == "Bot" and
               .state == "open" and .draft == false and .base.ref == "main" and
-              .head.repo.full_name == $repository and
+              .head.repo.full_name == $repository and .head.sha == $expected and
               (.head.ref | startswith("apko-lock/"))
             ) | .head.sha
           ' <<<"$pr")

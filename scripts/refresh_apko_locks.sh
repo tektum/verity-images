@@ -64,11 +64,12 @@ queue_automerge() {
   local number
   number=$(gh pr list --repo "$repository" --head "$1" --state open --json number --jq '.[0].number')
   [[ "$number" =~ ^[1-9][0-9]*$ ]]
-  gh workflow run "$automerge_workflow" --repo "$repository" --ref "$base_branch" -f "pr-number=$number"
+  gh workflow run "$automerge_workflow" --repo "$repository" --ref "$base_branch" \
+    -f "pr-number=$number" -f "head-sha=$2"
 }
 
 create_pull_request() {
-  local branch=$1 context=$2 summary=$3 message=$4 body="$work/body.md"
+  local branch=$1 context=$2 summary=$3 message=$4 head=$5 body="$work/body.md"
   {
     printf 'Automated pure APKO lock refresh for "%s".\n\nRefreshed locks:\n\n' "$context"
     cat "$summary"
@@ -82,7 +83,7 @@ create_pull_request() {
   } > "$body"
   gh pr create --repo "$repository" --base "$base_branch" --head "$branch" \
     --title "$message" --body-file "$body"
-  queue_automerge "$branch"
+  queue_automerge "$branch" "$head"
 }
 
 mapfile -t images < <(jq -c '.images[]' "$targets")
@@ -140,12 +141,12 @@ for image in "${images[@]}"; do
     fi
     if proposal_published "$branch" "$entries"; then
       if [[ "$open" -eq 1 ]]; then
-        queue_automerge "$branch"
+        queue_automerge "$branch" "$head_sha"
         continue
       fi
       # The branch already carries this proposal but lost its pull request, so the
       # pull request is recreated without a redundant commit or ref update.
-      create_pull_request "$branch" "$context" "$summary" "$message"
+      create_pull_request "$branch" "$context" "$summary" "$message" "$head_sha"
       printf -- '- %s on %s\n' "$context" "$branch" >> "$proposals"
       proposed=$((proposed + 1))
       continue
@@ -166,9 +167,9 @@ for image in "${images[@]}"; do
   fi
 
   if [[ "$open" -eq 0 ]]; then
-    create_pull_request "$branch" "$context" "$summary" "$message"
+    create_pull_request "$branch" "$context" "$summary" "$message" "$commit_sha"
   else
-    queue_automerge "$branch"
+    queue_automerge "$branch" "$commit_sha"
   fi
   printf -- '- %s on %s\n' "$context" "$branch" >> "$proposals"
   proposed=$((proposed + 1))

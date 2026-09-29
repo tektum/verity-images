@@ -715,6 +715,8 @@ def main() -> None:
     assert "\n    timeout-minutes: 10\n" in apko_lock_job
     assert 'startswith("apko-lock/")' in apko_lock_job
     assert '.user.login == "github-actions[bot]"' in apko_lock_job
+    assert "      head-sha:\n" in apko_lock_triggers
+    assert ".head.sha == $expected" in apko_lock_job
     assert ".changed_files" in apko_lock_job
     assert "previous_filename" in apko_lock_job
     assert "permission-actions: write" in apko_lock_job
