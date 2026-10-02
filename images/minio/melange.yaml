@@ -1,0 +1,92 @@
+package:
+  name: verity-minio
+  # yamllint disable-line rule:line-length
+  # renovate: datasource=github-tags depName=pgsty/silo versioning=regex:^(?<major>\d{4})[.-](?<minor>\d{2})[.-](?<patch>\d{2})[.T]\d{2}[.-]\d{2}[.-](?<build>\d{2})$ extractVersion=^RELEASE\.(?<version>.+)Z$
+  version: "2026.09.16.00.00.00"
+  epoch: 0
+  description: MinIO-compatible object storage server built from PGSTY Silo
+  copyright:
+    - license: AGPL-3.0-or-later
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+var-transforms:
+  - from: ${{package.version}}
+    match: '^(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)$'
+    replace: 'RELEASE.${1}-${2}-${3}T${4}-${5}-${6}Z'
+    to: release-tag
+  - from: ${{package.version}}
+    match: '^(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)\.(\d+)$'
+    replace: '${1}-${2}-${3}T${4}:${5}:${6}Z'
+    to: release-time
+  - from: ${{package.version}}
+    match: '^(\d+)\..*$'
+    replace: '${1}'
+    to: release-year
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/pgsty/silo
+      tag: ${{vars.release-tag}}
+      expected-commit: 2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      pkg=github.com/minio/minio/cmd
+      commit=2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c
+      flags="-s -w"
+      flags="$flags -X $pkg.Version=${{vars.release-time}}"
+      flags="$flags -X $pkg.ReleaseTag=${{vars.release-tag}}"
+      flags="$flags -X $pkg.CopyrightYear=${{vars.release-year}}"
+      flags="$flags -X $pkg.CommitID=$commit"
+      flags="$flags -X $pkg.ShortCommitID=$(printf '%.12s' "$commit")"
+      go build -trimpath -ldflags "$flags" -o minio .
+      install -m755 -D minio "${{targets.destdir}}/usr/bin/minio"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-minio-build-metadata
+    description: Resolved Go module metadata for the MinIO build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/minio-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/minio-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/minio --version 2>&1 | grep -F '${{vars.release-tag}}'
+        /usr/bin/minio --version 2>&1 | grep -F 2a4d51406b7e
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: pgsty/silo
+    strip-prefix: RELEASE.
+    use-tag: true
+    tag-filter: RELEASE.
