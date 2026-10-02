@@ -78,10 +78,18 @@ start
   || fail 'object did not survive restart'
 docker rm -f "$container" >/dev/null
 
-if docker run --rm --cpus 4 --tmpfs /tmp:uid=65532,gid=65532 \
+docker run --name "$container" -d --cpus 4 --tmpfs /tmp:uid=65532,gid=65532 \
   -e MINIO_ROOT_USER="$user" -e MINIO_ROOT_PASSWORD=short \
-  "$image" server /tmp/invalid >/dev/null 2>&1; then
-  fail 'short root password unexpectedly started the server'
-fi
+  "$image" server /tmp/invalid >/dev/null
+attempts=0
+while [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ]; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 30 ] || fail 'short root password did not stop the server'
+  sleep 1
+done
+[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" != 0 ] \
+  || fail 'short root password exited successfully'
+docker logs "$container" 2>&1 | grep -F 'MINIO_ROOT_PASSWORD length at least 8 characters' >/dev/null \
+  || fail 'short root password was rejected for an unexpected reason'
 
 printf 'SMOKE PASS image=%s\n' "$image"
