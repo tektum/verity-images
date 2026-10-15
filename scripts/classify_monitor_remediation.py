@@ -33,6 +33,7 @@ APK_RELEASE: Final = re.compile(r"(?P<version>.+)-r(?P<epoch>[0-9]+)$")
 WOLFI_REPOSITORY: Final = "https://packages.wolfi.dev/os"
 WOLFI_KEY: Final = f"{WOLFI_REPOSITORY}/wolfi-signing.rsa.pub"
 APK_ARCHITECTURES: Final = ("aarch64", "x86_64")
+OS_PACKAGE_TYPES: Final = ("apk", "deb", "rpm")
 MAX_INDEX_DOWNLOAD: Final = 64 * 1024 * 1024
 MAX_INDEX_CONTENTS: Final = 64 * 1024 * 1024
 MAX_KEY_DOWNLOAD: Final = 16 * 1024
@@ -429,6 +430,12 @@ def classify(
             continue
         directory = ROOT / stream.context
         if stream.track == "patched":
+            package_type = (finding.get("package") or {}).get("type")
+            if package_type not in OS_PACKAGE_TYPES:
+                blocked_findings.append(
+                    blocked(target, finding, "patched image cannot fix embedded non-OS package; needs a new upstream image")
+                )
+                continue
             exact[target] = {
                 "stream": target,
                 "context": stream.context,
