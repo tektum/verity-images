@@ -982,10 +982,9 @@ def main() -> None:
     deploy_job = catalog.split("\n  deploy:\n", maxsplit=1)[1]
     assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
-        "${{ matrix.track == 'patched' && format('runs-on={0}-{1}-validate-{2}/"
-        "family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
-        "extras=otel/spot=false', github.run_id, github.run_attempt, strategy.job-index) "
-        "|| 'namespace-profile-verity-ci-heavy' }}"
+        "runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-"
+        "${{ strategy.job-index }}/family=c8i.*/cpu=32/ram=64/"
+        "image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false"
     )
     assert "          smoke-before-scan: ${{ matrix.track == 'wolfi' }}\n" in validate_job
     assert "smoke-before-scan:" not in publish_job
