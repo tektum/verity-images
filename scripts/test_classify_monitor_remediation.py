@@ -408,6 +408,29 @@ def test_fail_closed_contexts_and_epochs() -> None:
         }
 
 
+def test_unpublished_local_package_fix_does_not_suppress_go_remediation() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/app", name="app", recipe=("app", "2.0", 3), go_remediate=True)
+        repository = SignedRepository(root, {})
+        plan = classify(root, [
+            finding("app", "2", "app", "2.0-r3", ["2.1-r0"], "CVE-version"),
+            finding("app", "2", "example.com/module", "v1.0.0", ["1.1.0"], "GO-one", "go-module"),
+        ], repository.query)
+        assert plan["exact"] == [
+            {"stream": "app@2", "context": "images/app", "flavor": "plain", "kind": "recipe"}
+        ]
+        assert plan["apko"] == [] and plan["localPackageRevisions"] == []
+        assert plan["blocked"] == [{
+            "stream": "app@2",
+            "advisory": "CVE-version",
+            "package": "app",
+            "reason": "local package fix requires a recipe version update; Wolfi does not publish it",
+            "requiredFixedVersion": "2.1-r0",
+            "missingArchitectures": ["aarch64", "x86_64"],
+        }]
+
+
 def main() -> None:
     test_available_on_both_architectures_and_deduplication()
     test_missing_one_and_both_architectures_block_context()
@@ -417,6 +440,7 @@ def main() -> None:
     test_blocked_pure_flavor_does_not_suppress_recipe_flavor()
     test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor()
     test_fail_closed_contexts_and_epochs()
+    test_unpublished_local_package_fix_does_not_suppress_go_remediation()
     print("passed scripts/test_classify_monitor_remediation.py")
 
 
