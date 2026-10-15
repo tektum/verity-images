@@ -91,8 +91,22 @@ while IFS=$'\t' read -r name version track reference digest input_digest context
       "$name" "$version" >&2
     exit 1
   fi
-  cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
-    --certificate-oidc-issuer "$issuer" "$reference" >"$work/attestation.json"
+  # One transient sigstore TUF or registry fetch must not discard a whole
+  # shard, so verification is retried a bounded number of times. The
+  # verification itself is unchanged: a signature that stays unverified after
+  # the last attempt still fails the shard.
+  for attempt in 1 2 3; do
+    if cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
+      --certificate-oidc-issuer "$issuer" "$reference" >"$work/attestation.json"; then
+      break
+    fi
+    if ((attempt == 3)); then
+      printf '::error title=Unverified attestation::%s %s could not be verified.\n' \
+        "$name" "$version" >&2
+      exit 1
+    fi
+    sleep 5
+  done
   platforms=()
   for arch in amd64 arm64; do
     selection=$work/selection-$arch.json
