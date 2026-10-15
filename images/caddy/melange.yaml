@@ -1,7 +1,7 @@
 package:
   name: caddy
-  version: "2.11.4"
-  epoch: 12
+  version: "2.11.7"  # renovate: datasource=github-releases depName=caddyserver/caddy
+  epoch: 3
   description: Fast and extensible HTTP/1-2-3 web server with automatic HTTPS
   copyright:
     - license: Apache-2.0
@@ -23,9 +23,7 @@ pipeline:
     with:
       repository: https://github.com/caddyserver/caddy
       tag: v${{package.version}}
-      expected-commit: e2eee6a7fce366321294c9c2a79f3146891dcbdf
-      cherry-picks: |
-        master/b2693fb63a30e6d7be0972c3645e9a2c0a500e93: update CEL APIs for cel-go v0.29.2
+      expected-commit: 72dd0fb067f6d7826c7f79907670ba4a713bfe37
   - uses: go/remediate
     with:
       modroot: .
