@@ -33,8 +33,9 @@ APK_RELEASE: Final = re.compile(r"(?P<version>.+)-r(?P<epoch>[0-9]+)$")
 WOLFI_REPOSITORY: Final = "https://packages.wolfi.dev/os"
 WOLFI_KEY: Final = f"{WOLFI_REPOSITORY}/wolfi-signing.rsa.pub"
 APK_ARCHITECTURES: Final = ("aarch64", "x86_64")
-# Binaries compiled into the upstream image; Copa cannot patch them.
-EMBEDDED_PACKAGE_TYPES: Final = ("go-module", "java-archive", "binary")
+# Types the patched build can remediate: Copa OS packages plus its
+# patch-level library patching. Anything else needs a new upstream image.
+PATCHABLE_PACKAGE_TYPES: Final = ("apk", "deb", "rpm", "npm", "python")
 MAX_INDEX_DOWNLOAD: Final = 64 * 1024 * 1024
 MAX_INDEX_CONTENTS: Final = 64 * 1024 * 1024
 MAX_KEY_DOWNLOAD: Final = 16 * 1024
@@ -436,7 +437,7 @@ def classify(
         if stream.track == "patched":
             package_type = (finding.get("package") or {}).get("type")
             patched_targets[target] = stream
-            if package_type in EMBEDDED_PACKAGE_TYPES:
+            if package_type not in PATCHABLE_PACKAGE_TYPES:
                 patched_embedded.add(target)
                 blocked_findings.append(
                     blocked(target, finding, "patched image cannot fix embedded package; needs a new upstream image")

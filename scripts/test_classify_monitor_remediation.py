@@ -436,10 +436,12 @@ def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not(
         root = Path(temporary)
         image(root, "patched/embedded", name="embedded", track="patched")
         image(root, "patched/library", name="library", track="patched")
+        image(root, "patched/erlang", name="erlang", track="patched")
         plan = classify(root, [
             finding("embedded", "1", "stdlib", "go1.27.1", ["1.27.2"], "GO-one", "go-module"),
             finding("embedded", "1", "openssl", "1-r0", ["1-r1"], "CVE-two", "deb"),
             finding("library", "1", "undici", "1.0.0", ["1.0.1"], "GHSA-npm", "npm"),
+            finding("erlang", "1", "cowboy", "2.10.0", ["2.11.0"], "CVE-hex", "erlang-otp"),
         ])
         assert plan["exact"] == [
             {"stream": "library@1", "context": "patched/library", "flavor": "plain", "kind": "patched"}
@@ -447,6 +449,7 @@ def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not(
         assert {(item["stream"], item["advisory"], item["reason"]) for item in plan["blocked"]} == {
             ("embedded@1", "GO-one", "patched image cannot fix embedded package; needs a new upstream image"),
             ("embedded@1", "CVE-two", "remediation suppressed by blocked embedded finding in patched stream"),
+            ("erlang@1", "CVE-hex", "patched image cannot fix embedded package; needs a new upstream image"),
         }
 
 
