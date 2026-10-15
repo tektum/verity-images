@@ -1,7 +1,7 @@
 package:
   name: vector
-  version: "0.58.0"
-  epoch: 0
+  version: "0.59.0"
+  epoch: 2
   description: Minimal Vector stdin-to-console observability pipeline
   copyright:
     - license: MPL-2.0
@@ -35,7 +35,7 @@ pipeline:
     with:
       repository: https://github.com/vectordotdev/vector
       tag: v${{package.version}}
-      expected-commit: 2bcad9bbb84e201dcfd58c22b1f779290101b728
+      expected-commit: a3231c76bdea5078bc54c205cf89f5a1ceddbb73
   - runs: |
       patch -p1 --fuzz=0 < tonic-0.12.patch
       cargo update -p tonic@0.11.0 --precise 0.12.3  # renovate: datasource=crate depName=tonic versioning=semver
