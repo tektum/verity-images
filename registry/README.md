@@ -14,6 +14,7 @@ the requested artifact. Requests outside the OCI read surface return `404`.
 - image manifests, including legacy cosign signature tags
 - `sha256` blobs
 - OCI referrers, used by modern signature and attestation discovery
+- tag listing at `/v2/<name>/tags/list`, with `n` and `last` pagination
 
 For example, the alias request below is resolved upstream as shown:
 
@@ -21,6 +22,12 @@ For example, the alias request below is resolved upstream as shown:
 verity.supply/caddy:latest
 ghcr.io/tektum/caddy:latest
 ```
+
+Tag listings report the alias as `name`. GHCR's `Link: rel="next"` header is
+rewritten to the requesting `verity.supply` host so clients can page without
+seeing the upstream host. GHCR rejects `HEAD` on this endpoint, so the Worker
+lists with `GET` and returns headers only. A repository GHCR does not know
+returns `404`.
 
 `charts` and `tektum` are deliberately reserved and cannot be used as alias
 repositories. This prevents namespace confusion such as
@@ -38,8 +45,8 @@ anonymous, repository-scoped pull tokens from GHCR and never forwards a client
 `Authorization` header upstream.
 
 Cloudflare security controls must allow OCI clients on `/v2/*`. A WAF or bot
-rule that challenges Docker's manifest `HEAD` requests blocks the request before
-it reaches this Worker.
+rule that challenges Docker's manifest `HEAD` requests, or tag listing requests
+from tools such as Renovate, blocks the request before it reaches this Worker.
 
 ## Verification
 
