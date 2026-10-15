@@ -4,7 +4,7 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
 repo=$(docker volume create)
-helper=docker.io/library/busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+helper_index=docker.io/library/busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
 
 cleanup() {
   docker volume rm -f "$repo" >/dev/null
@@ -24,6 +24,28 @@ fail() {
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /data ] ||
   fail 'unexpected OCI working directory'
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the helper by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+helper_raw=$(docker buildx imagetools inspect --raw "$helper_index") ||
+  fail 'cannot inspect helper image index'
+[ "sha256:$(printf '%s' "$helper_raw" | sha256sum | cut -d' ' -f1)" = "${helper_index#*@}" ] ||
+  fail 'helper image index digest mismatch'
+helper_digest=$(printf '%s' "$helper_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve helper image digest'
+case $helper_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch helper image in $helper_index" ;;
+esac
+helper=docker.io/library/busybox@$helper_digest
+docker pull --quiet --platform "linux/$image_arch" "$helper" >/dev/null ||
+  fail 'cannot pull helper image'
 
 version=$(docker run --rm --network none "$image" version)
 printf '%s\n' "$version" | grep -Fq 'restic 0.18.1' || fail 'unexpected Restic version'
