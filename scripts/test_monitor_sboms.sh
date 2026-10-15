@@ -79,6 +79,17 @@ emit_attestation() {
 }
 
 case ${ATTESTATION_MODE:-complete} in
+  unverifiable)
+    exit 1
+    ;;
+  flaky-once)
+    # The first verification of the run fails the way a sigstore TUF timeout does.
+    if (($(wc -l <"$COSIGN_LOG") == 1)); then
+      exit 1
+    fi
+    emit_attestation amd64 2026-09-07T10:00:00Z
+    emit_attestation arm64 2026-09-07T10:00:01Z
+    ;;
   complete)
     emit_attestation amd64 2026-09-07T10:00:00Z
     emit_attestation arm64 2026-09-07T10:00:01Z
@@ -478,6 +489,31 @@ jq -e '
 jq -e '.packages[0].name == "fixture-amd64-2026-09-07T10:00:00Z"' \
   "$SBOM_COPY_DIR/sbom-amd64.spdx.json" >/dev/null ||
   fail "monitor scanned an SBOM other than the newest amd64 attestation"
+
+# A transient verification failure is retried and the shard still succeeds.
+# sleep is stubbed so the backoff costs nothing.
+printf '#!/bin/bash\nexit 0\n' >"$work/bin/sleep"
+chmod +x "$work/bin/sleep"
+: >"$COSIGN_LOG"
+rm -f "$SBOM_COPY_DIR"/*
+run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/clean"
+clean_cosign_runs=$(wc -l <"$COSIGN_LOG")
+: >"$COSIGN_LOG"
+rm -f "$SBOM_COPY_DIR"/*
+export ATTESTATION_MODE=flaky-once
+run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/flaky"
+unset ATTESTATION_MODE
+[[ $(wc -l <"$COSIGN_LOG") -eq $((clean_cosign_runs + 1)) ]] ||
+  fail "a transient cosign failure was not retried exactly once"
+
+# A verification that never succeeds still fails the shard after three attempts.
+: >"$COSIGN_LOG"
+export ATTESTATION_MODE=unverifiable
+expect_failure "an unverifiable attestation was accepted" \
+  run_monitor "$work/catalog.json" "$work/images.json" 0 2 "$work/unverifiable"
+unset ATTESTATION_MODE
+[[ $(wc -l <"$COSIGN_LOG") -eq 3 ]] ||
+  fail "an unverifiable attestation was not attempted exactly three times"
 
 export MUTATE_GRYPE_DB=true
 expect_failure "database mutation during a shard scan was accepted" \
