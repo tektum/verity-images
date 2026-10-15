@@ -431,23 +431,23 @@ def test_unpublished_local_package_fix_does_not_suppress_go_remediation() -> Non
         }]
 
 
-def test_patched_embedded_non_os_findings_are_not_rebuilt() -> None:
+def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
-        image(root, "patched/base", name="base", track="patched")
+        image(root, "patched/embedded", name="embedded", track="patched")
+        image(root, "patched/library", name="library", track="patched")
         plan = classify(root, [
-            finding("base", "1", "stdlib", "go1.27.1", ["1.27.2"], "GO-one", "go-module"),
-            finding("base", "1", "openssl", "1-r0", ["1-r1"], "CVE-two", "deb"),
+            finding("embedded", "1", "stdlib", "go1.27.1", ["1.27.2"], "GO-one", "go-module"),
+            finding("embedded", "1", "openssl", "1-r0", ["1-r1"], "CVE-two", "deb"),
+            finding("library", "1", "undici", "1.0.0", ["1.0.1"], "GHSA-npm", "npm"),
         ])
         assert plan["exact"] == [
-            {"stream": "base@1", "context": "patched/base", "flavor": "plain", "kind": "patched"}
+            {"stream": "library@1", "context": "patched/library", "flavor": "plain", "kind": "patched"}
         ]
-        assert plan["blocked"] == [{
-            "stream": "base@1",
-            "advisory": "GO-one",
-            "package": "stdlib",
-            "reason": "patched image cannot fix embedded non-OS package; needs a new upstream image",
-        }]
+        assert {(item["stream"], item["advisory"], item["reason"]) for item in plan["blocked"]} == {
+            ("embedded@1", "GO-one", "patched image cannot fix embedded package; needs a new upstream image"),
+            ("embedded@1", "CVE-two", "remediation suppressed by blocked embedded finding in patched stream"),
+        }
 
 
 def main() -> None:
@@ -460,7 +460,7 @@ def main() -> None:
     test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor()
     test_fail_closed_contexts_and_epochs()
     test_unpublished_local_package_fix_does_not_suppress_go_remediation()
-    test_patched_embedded_non_os_findings_are_not_rebuilt()
+    test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not()
     print("passed scripts/test_classify_monitor_remediation.py")
 
 
