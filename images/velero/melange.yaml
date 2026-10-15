@@ -1,7 +1,7 @@
 package:
   name: velero
-  version: "1.18.2"
-  epoch: 10
+  version: "1.18.4"
+  epoch: 2
   description: Backup and migrate Kubernetes applications and their persistent volumes
   copyright:
     - license: Apache-2.0
@@ -34,7 +34,7 @@ pipeline:
     with:
       repository: https://github.com/velero-io/velero
       tag: v${{package.version}}
-      expected-commit: c253c7fe37d78c9b7e55c68544f7c5b2608712d8
+      expected-commit: 4ee1e79a7aed367fd9b767b8219ec65bd0c96892
   - uses: go/remediate
     with:
       modroot: .
