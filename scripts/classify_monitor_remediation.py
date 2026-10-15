@@ -514,11 +514,24 @@ def classify(
                 candidate.fixed_versions,
                 key=lambda version: (len(availability.get((name, version), APK_ARCHITECTURES)), version),
             )
+            group = build_group(candidate.config, candidate.lockfile, candidate.recipe)
+            if candidate.recipe.is_file() and recipe_identity(candidate.recipe).name == name:
+                # Wolfi does not build this package; its fix is a local recipe
+                # version bump. Report it without cancelling sibling remediation.
+                blocked_findings.append(
+                    unavailable(
+                        candidate,
+                        required,
+                        availability.get((name, required), APK_ARCHITECTURES),
+                        "local package fix requires a recipe version update; Wolfi does not publish it",
+                    )
+                )
+                blocked_candidate_ids.add(id(candidate))
+                continue
             blocked_findings.append(
                 unavailable(candidate, required, availability.get((name, required), APK_ARCHITECTURES))
             )
             blocked_candidate_ids.add(id(candidate))
-            group = build_group(candidate.config, candidate.lockfile, candidate.recipe)
             invalid_groups.add(group)
 
     groups = sorted(set(wolfi_by_group) | set(recipe_exact))
@@ -552,6 +565,8 @@ def classify(
         context_blocked: list[dict[str, object]] = []
         context_blocked_ids: set[int] = set()
         for candidate in group_findings:
+            if id(candidate) in blocked_candidate_ids:
+                continue
             finding = candidate.finding
             stream = candidate.stream
             target = stream.target
@@ -618,7 +633,7 @@ def classify(
                 )
         if context_blocked:
             for candidate in group_findings:
-                if id(candidate) not in context_blocked_ids:
+                if id(candidate) not in context_blocked_ids and id(candidate) not in blocked_candidate_ids:
                     context_blocked.append(
                         blocked(
                             candidate.stream.target,
