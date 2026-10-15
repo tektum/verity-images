@@ -27,8 +27,14 @@ fail() {
 
 # A classic Docker image store cannot bind the index digest to a second
 # platform's image, so pull the helper by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
 image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
-helper_digest=$(docker buildx imagetools inspect --raw "$helper_index" |
+helper_raw=$(docker buildx imagetools inspect --raw "$helper_index") ||
+  fail 'cannot inspect helper image index'
+[ "sha256:$(printf '%s' "$helper_raw" | sha256sum | cut -d' ' -f1)" = "${helper_index#*@}" ] ||
+  fail 'helper image index digest mismatch'
+helper_digest=$(printf '%s' "$helper_raw" |
   jq -r --arg arch "$image_arch" '
     [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
     | if length == 1 then .[0] else empty end') ||
