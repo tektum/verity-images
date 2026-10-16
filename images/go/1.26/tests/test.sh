@@ -3,7 +3,7 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
-expected_go_version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' \
+expected_go_version=$(sed -n 's/^  version: "\([^"]*\)"\(  #.*\)\{0,1\}$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_go_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 [ "$(docker run --rm "$image" version | awk '{print $3}')" = "go$expected_go_version" ]
