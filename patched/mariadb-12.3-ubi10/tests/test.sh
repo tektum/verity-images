@@ -2,12 +2,41 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-fixture=docker.io/library/mariadb@sha256:c490f21f8d422e9b0cd30eea724b637e02ca2924d11057c35092d7e2784a84cb
+fixture_index=docker.io/library/mariadb@sha256:c490f21f8d422e9b0cd30eea724b637e02ca2924d11057c35092d7e2784a84cb
 arch=$(docker image inspect --format '{{.Architecture}}' "$image")
 case $arch in
   amd64|arm64) platform=linux/$arch ;;
   *) printf 'unsupported candidate architecture: %s\n' "$arch" >&2; exit 1 ;;
 esac
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the fixture by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+fixture_raw=$(docker buildx imagetools inspect --raw "$fixture_index") || {
+  printf 'cannot inspect fixture image index\n' >&2
+  exit 1
+}
+if [ "sha256:$(printf '%s' "$fixture_raw" | sha256sum | cut -d' ' -f1)" != "${fixture_index#*@}" ]; then
+  printf 'fixture image index digest mismatch\n' >&2
+  exit 1
+fi
+fixture_digest=$(printf '%s' "$fixture_raw" |
+  jq -r --arg arch "$arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || {
+  printf 'cannot resolve fixture image digest\n' >&2
+  exit 1
+}
+case $fixture_digest in
+  sha256:*) ;;
+  *) printf 'no unique linux/%s fixture image in %s\n' "$arch" "$fixture_index" >&2; exit 1 ;;
+esac
+fixture=docker.io/library/mariadb@$fixture_digest
+docker pull --quiet --platform "$platform" "$fixture" >/dev/null || {
+  printf 'cannot pull fixture image\n' >&2
+  exit 1
+}
 
 prefix=mariadb-12-3-$$
 primary=$prefix-primary
