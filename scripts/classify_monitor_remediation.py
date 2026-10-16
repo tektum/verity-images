@@ -33,6 +33,9 @@ APK_RELEASE: Final = re.compile(r"(?P<version>.+)-r(?P<epoch>[0-9]+)$")
 WOLFI_REPOSITORY: Final = "https://packages.wolfi.dev/os"
 WOLFI_KEY: Final = f"{WOLFI_REPOSITORY}/wolfi-signing.rsa.pub"
 APK_ARCHITECTURES: Final = ("aarch64", "x86_64")
+# Types the patched build can remediate: Copa OS packages plus its
+# patch-level library patching. Anything else needs a new upstream image.
+PATCHABLE_PACKAGE_TYPES: Final = ("apk", "deb", "rpm", "npm", "python")
 MAX_INDEX_DOWNLOAD: Final = 64 * 1024 * 1024
 MAX_INDEX_CONTENTS: Final = 64 * 1024 * 1024
 MAX_KEY_DOWNLOAD: Final = 16 * 1024
@@ -413,6 +416,9 @@ def classify(
     wolfi_by_group: dict[tuple[str, ...], list[WolfiFinding]] = defaultdict(list)
     recipe_exact: dict[tuple[str, ...], list[tuple[dict[str, object], Stream]]] = defaultdict(list)
     blocked_candidate_ids: set[int] = set()
+    patched_targets: dict[str, Stream] = {}
+    patched_embedded: set[str] = set()
+    patched_findings: dict[str, list[dict[str, object]]] = defaultdict(list)
 
     for finding in validate_report(report):
         image = scalar(finding.get("image"), "finding.image")
@@ -429,12 +435,15 @@ def classify(
             continue
         directory = ROOT / stream.context
         if stream.track == "patched":
-            exact[target] = {
-                "stream": target,
-                "context": stream.context,
-                "flavor": stream.flavor,
-                "kind": "patched",
-            }
+            package_type = (finding.get("package") or {}).get("type")
+            patched_targets[target] = stream
+            if package_type not in PATCHABLE_PACKAGE_TYPES:
+                patched_embedded.add(target)
+                blocked_findings.append(
+                    blocked(target, finding, "patched image cannot fix embedded package; needs a new upstream image")
+                )
+            else:
+                patched_findings[target].append(finding)
             continue
         package = finding["package"]
         if not isinstance(package, dict):
@@ -457,6 +466,20 @@ def classify(
         wolfi_by_group[group].append(
             WolfiFinding(finding, stream, config, lockfile, recipe, fixed_versions(finding))
         )
+
+    for target, stream in patched_targets.items():
+        if target not in patched_embedded:
+            exact[target] = {
+                "stream": target,
+                "context": stream.context,
+                "flavor": stream.flavor,
+                "kind": "patched",
+            }
+            continue
+        for finding in patched_findings[target]:
+            blocked_findings.append(
+                blocked(target, finding, "remediation suppressed by blocked embedded finding in patched stream")
+            )
 
     candidates = [
         candidate

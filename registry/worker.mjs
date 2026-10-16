@@ -9,9 +9,11 @@ const tokenCache = new Map();
 const repositoryPath = "[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*";
 const digest = "sha256:[a-f0-9]{64}";
 const artifactPath = new RegExp(
-  `^/v2/(${repositoryPath})(/(?:manifests/[^/]+|blobs/${digest}|referrers/${digest}))$`
+  `^/v2/(${repositoryPath})(/(?:manifests/[^/]+|blobs/${digest}|referrers/${digest}|tags/list))$`
 );
 const forbiddenRepository = /^(?:charts|tektum)(?:\/|$)/;
+const TAGS_LIST_SUFFIX = "/tags/list";
+const tagsListQueryParameters = ["n", "last"];
 const forwardedHeaders = ["accept", "if-modified-since", "if-none-match", "range"];
 
 export default {
@@ -32,14 +34,27 @@ export default {
 
     try {
       const token = await anonymousPullToken(`${GHCR_ORGANIZATION}/${route.aliasRepository}`);
-      const upstream = await fetch(`${GHCR}/v2/${GHCR_ORGANIZATION}/${route.aliasRepository}${route.suffix}${url.search}`, {
-        method: request.method,
-        headers: upstreamRequestHeaders(request.headers, token),
-        redirect: "manual",
-        cf: { cacheTtl: 0, cacheEverything: false },
-      });
+      const isTagsList = route.suffix === TAGS_LIST_SUFFIX;
+      const upstream = await fetch(
+        `${GHCR}/v2/${GHCR_ORGANIZATION}/${route.aliasRepository}${route.suffix}${isTagsList ? tagsListSearch(url) : url.search}`,
+        {
+          // GHCR answers HEAD on tags/list with 405, so list with GET and drop the body for HEAD.
+          method: isTagsList ? "GET" : request.method,
+          headers: isTagsList
+            ? new Headers({ Accept: "application/json", Authorization: `Bearer ${token}` })
+            : upstreamRequestHeaders(request.headers, token),
+          redirect: "manual",
+          cf: { cacheTtl: 0, cacheEverything: false },
+        }
+      );
+      if (isTagsList) {
+        return await tagsListResponse(upstream, route.aliasRepository, url, request.method);
+      }
       return noStoreUpstreamResponse(upstream, request.method);
     } catch (error) {
+      if (route.suffix === TAGS_LIST_SUFFIX && isUnknownRepositoryStatus(error?.upstreamStatus)) {
+        return unknownRepository();
+      }
       console.error(JSON.stringify({
         event: "registry_proxy_error",
         message: error instanceof Error ? error.message : String(error),
@@ -76,6 +91,74 @@ function registryRoot() {
   });
 }
 
+function tagsListSearch(url) {
+  const search = new URLSearchParams();
+  for (const name of tagsListQueryParameters) {
+    const value = url.searchParams.get(name);
+    if (value !== null) {
+      search.set(name, value);
+    }
+  }
+  const query = search.toString();
+  return query === "" ? "" : `?${query}`;
+}
+
+// GHCR denies the anonymous token (403) for repositories that do not exist.
+function isUnknownRepositoryStatus(status) {
+  return status === 401 || status === 403 || status === 404;
+}
+
+function unknownRepository() {
+  return noStoreResponse(
+    JSON.stringify({ errors: [{ code: "NAME_UNKNOWN", message: "repository name not known to registry" }] }),
+    404,
+    { "Content-Type": "application/json" }
+  );
+}
+
+/** Rewrite a GHCR tag list to the alias name and a verity.supply pagination link. */
+async function tagsListResponse(upstream, aliasRepository, url, requestMethod) {
+  if (isUnknownRepositoryStatus(upstream.status)) {
+    return unknownRepository();
+  }
+  if (!upstream.ok) {
+    return noStoreUpstreamResponse(upstream, requestMethod);
+  }
+
+  const payload = await upstream.json();
+  const body = JSON.stringify({
+    name: aliasRepository,
+    tags: Array.isArray(payload?.tags) ? payload.tags : [],
+  });
+  const headers = new Headers(upstream.headers);
+  headers.delete("set-cookie");
+  headers.delete("www-authenticate");
+  headers.delete("link");
+  headers.set("Cache-Control", "no-store");
+  headers.set("Content-Type", "application/json");
+  headers.set("Content-Length", String(new TextEncoder().encode(body).length));
+  const next = nextTagsLink(upstream.headers.get("link"), aliasRepository, url);
+  if (next) {
+    headers.set("Link", next);
+  }
+  return new Response(requestMethod === "HEAD" ? null : body, { status: 200, headers });
+}
+
+/** Return GHCR's next-page link rebased onto the requested host and alias, or null. */
+function nextTagsLink(link, aliasRepository, url) {
+  const match = /^\s*<([^>]*)>\s*;\s*rel="?next"?\s*$/i.exec(link ?? "");
+  if (!match) {
+    return null;
+  }
+  const upstreamNext = new URL(match[1], GHCR);
+  if (upstreamNext.origin !== GHCR || upstreamNext.pathname !== `/v2/${GHCR_ORGANIZATION}/${aliasRepository}${TAGS_LIST_SUFFIX}`) {
+    return null;
+  }
+  const next = new URL(`/v2/${aliasRepository}${TAGS_LIST_SUFFIX}`, url.origin);
+  next.search = tagsListSearch(upstreamNext);
+  return `<${next}>; rel="next"`;
+}
+
 async function anonymousPullToken(repository) {
   const cached = tokenCache.get(repository);
   if (cached && cached.expiresAt > Date.now()) {
@@ -91,7 +174,7 @@ async function anonymousPullToken(repository) {
     cf: { cacheTtl: 0, cacheEverything: false },
   });
   if (!response.ok || response.status >= 300) {
-    throw new Error(`GHCR token request failed with ${response.status}`);
+    throw Object.assign(new Error(`GHCR token request failed with ${response.status}`), { upstreamStatus: response.status });
   }
 
   const payload = await response.json();
