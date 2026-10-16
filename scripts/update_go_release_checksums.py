@@ -10,7 +10,9 @@ import urllib.request
 from http.client import HTTPException
 from pathlib import Path
 
-VERSION = re.compile(r'^  version: "(?P<version>1\.\d+\.\d+)"$', re.MULTILINE)
+VERSION = re.compile(
+    r'^  version: "(?P<version>1\.\d+\.\d+)"[ \t]*(?:#.*)?$', re.MULTILINE
+)
 CHECKSUM = re.compile(
     r"(?P<prefix>          archive=go\$\{\{package\.version\}\}\.linux-"
     r"(?P<arch>amd64|arm64)\.tar\.gz\n          sha256=)(?P<checksum>[a-f0-9]{64})"

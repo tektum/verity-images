@@ -61,6 +61,22 @@ def main() -> None:
         assert f"sha256={amd64}" in updated
         assert f"sha256={arm64}" in updated
         assert old not in updated
+
+        annotated = Path(temporary) / "annotated.melange.yaml"
+        annotated.write_text(
+            RECIPE.replace("{amd64}", old).replace("{arm64}", old).replace(
+                '  version: "1.25.14"',
+                '  version: "1.25.14"  # renovate: datasource=golang-version depName=go',
+            ),
+            encoding="utf-8",
+        )
+        assert update_go_release_checksums.update(annotated, response(payload)) == {
+            "amd64": amd64,
+            "arm64": arm64,
+        }
+        annotated_text = annotated.read_text(encoding="utf-8")
+        assert "# renovate: datasource=golang-version depName=go" in annotated_text
+        assert old not in annotated_text
         invalid = [{
             **payload[0],
             "files": [
