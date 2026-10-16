@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 expected_version=$(sed -n 's/^[[:space:]]*version: "\([^\"]*\)"$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
-fixture='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
+fixture_index='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 container="verity-node-exporter-test-$$"
 work=$(mktemp -d)
 
@@ -55,6 +55,28 @@ start_exporter() {
 stop_exporter() {
   docker rm -f "$container" >/dev/null
 }
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the fixture by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+fixture_raw=$(docker buildx imagetools inspect --raw "$fixture_index") ||
+  fail 'cannot inspect fixture image index'
+[ "sha256:$(printf '%s' "$fixture_raw" | sha256sum | cut -d' ' -f1)" = "${fixture_index#*@}" ] ||
+  fail 'fixture image index digest mismatch'
+fixture_digest=$(printf '%s' "$fixture_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve fixture image digest'
+case $fixture_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch fixture image in $fixture_index" ;;
+esac
+fixture=docker.io/curlimages/curl@$fixture_digest
+docker pull --quiet --platform "linux/$image_arch" "$fixture" >/dev/null ||
+  fail 'cannot pull fixture image'
 
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/bin/node_exporter"]' ] || fail 'unexpected image entrypoint'

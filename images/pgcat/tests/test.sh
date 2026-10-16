@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-postgres='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
+postgres_index='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
 backend="verity-pgcat-postgres-$$"
 pooler="verity-pgcat-pooler-$$"
 network="verity-pgcat-network-$$"
@@ -14,6 +14,11 @@ cleanup() {
   rm -rf "$tmp"
 }
 trap cleanup EXIT HUP INT TERM
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
 
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 || {
   printf '%s\n' 'image user is not 65532' >&2
@@ -27,6 +32,28 @@ docker run --rm --entrypoint /usr/bin/pgcat "$image" --version | grep -q '^pgcat
   printf '%s\n' 'unexpected PgCat version' >&2
   exit 1
 }
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the helper by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+postgres_raw=$(docker buildx imagetools inspect --raw "$postgres_index") ||
+  fail 'cannot inspect postgres image index'
+[ "sha256:$(printf '%s' "$postgres_raw" | sha256sum | cut -d' ' -f1)" = "${postgres_index#*@}" ] ||
+  fail 'postgres image index digest mismatch'
+postgres_digest=$(printf '%s' "$postgres_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve postgres image digest'
+case $postgres_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch postgres image in $postgres_index" ;;
+esac
+postgres=docker.io/library/postgres@$postgres_digest
+docker pull --quiet --platform "linux/$image_arch" "$postgres" >/dev/null ||
+  fail 'cannot pull postgres image'
 
 cat >"$tmp/pgcat.toml" <<'EOF'
 [general]

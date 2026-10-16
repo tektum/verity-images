@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-fixture='docker.io/library/mariadb:11.8@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf'
+fixture_index='docker.io/library/mariadb:11.8@sha256:d9f7eb2637296652f24b484afd5d246f759f49f5babcadc6a9e344c9acb75fbf'
 network="verity-proxysql-test-$$"
 backend="verity-proxysql-backend-$$"
 proxy="verity-proxysql-test-$$"
@@ -24,6 +24,28 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/proxysql"]' ] || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["-f"]' ] || fail 'unexpected image command'
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the fixture by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+fixture_raw=$(docker buildx imagetools inspect --raw "$fixture_index") ||
+  fail 'cannot inspect fixture image index'
+[ "sha256:$(printf '%s' "$fixture_raw" | sha256sum | cut -d' ' -f1)" = "${fixture_index#*@}" ] ||
+  fail 'fixture image index digest mismatch'
+fixture_digest=$(printf '%s' "$fixture_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve fixture image digest'
+case $fixture_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch fixture image in $fixture_index" ;;
+esac
+fixture=docker.io/library/mariadb@$fixture_digest
+docker pull --quiet --platform "linux/$image_arch" "$fixture" >/dev/null ||
+  fail 'cannot pull fixture image'
 
 cat >"$config" <<'EOF'
 datadir="/var/lib/proxysql"
