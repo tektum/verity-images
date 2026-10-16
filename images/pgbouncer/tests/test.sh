@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf '%s\n' 'package version not found' >&2; exit 1; }
-postgres='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
+postgres_index='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
 backend="verity-pgbouncer-postgres-$$"
 pooler="verity-pgbouncer-pooler-$$"
 network="verity-pgbouncer-network-$$"
@@ -39,6 +39,32 @@ logfile = /var/log/pgbouncer/pgbouncer.log
 EOF
 printf '"smoke" ""\n' >"$tmp/userlist.txt"
 chmod 644 "$tmp/pgbouncer.ini" "$tmp/userlist.txt"
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the helper by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+postgres_raw=$(docker buildx imagetools inspect --raw "$postgres_index") ||
+  fail 'cannot inspect postgres image index'
+[ "sha256:$(printf '%s' "$postgres_raw" | sha256sum | cut -d' ' -f1)" = "${postgres_index#*@}" ] ||
+  fail 'postgres image index digest mismatch'
+postgres_digest=$(printf '%s' "$postgres_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve postgres image digest'
+case $postgres_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch postgres image in $postgres_index" ;;
+esac
+postgres=docker.io/library/postgres@$postgres_digest
+docker pull --quiet --platform "linux/$image_arch" "$postgres" >/dev/null ||
+  fail 'cannot pull postgres image'
 
 docker network create "$network" >/dev/null
 docker run --name "$backend" -d --network "$network" --network-alias postgres \
