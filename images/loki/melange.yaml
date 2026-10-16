@@ -1,7 +1,7 @@
 package:
   name: loki-3.6
-  version: "3.6.16"
-  epoch: 6  # gRPC security floor
+  version: "3.6.17"
+  epoch: 5  # gRPC security floor
   description: Like Prometheus, but for logs
   copyright:
     - license: AGPL-3.0-only
@@ -17,7 +17,7 @@ package:
     memory: 1Gi
 
 vars:
-  source-commit: b87159fa8cd7f93e2445e48e0c0409b403e56db7
+  source-commit: 7fa1224d9f01d83656dc4754456a727b7fb572a0
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
 
 environment:
