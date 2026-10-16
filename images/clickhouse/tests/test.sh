@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-fixture='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
+fixture_index='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 container="verity-clickhouse-test-$$"
 volume="verity-clickhouse-data-$$"
 
@@ -23,6 +23,28 @@ trap cleanup EXIT INT TERM
 docker run --rm --entrypoint /usr/bin/clickhouse-server "$image" --version >/dev/null || fail 'ClickHouse server is missing'
 docker run --rm --entrypoint /usr/bin/clickhouse-client "$image" --version >/dev/null || fail 'ClickHouse client is missing'
 docker volume create "$volume" >/dev/null
+
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the fixture by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+fixture_raw=$(docker buildx imagetools inspect --raw "$fixture_index") ||
+  fail 'cannot inspect fixture image index'
+[ "sha256:$(printf '%s' "$fixture_raw" | sha256sum | cut -d' ' -f1)" = "${fixture_index#*@}" ] ||
+  fail 'fixture image index digest mismatch'
+fixture_digest=$(printf '%s' "$fixture_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve fixture image digest'
+case $fixture_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch fixture image in $fixture_index" ;;
+esac
+fixture=docker.io/curlimages/curl@$fixture_digest
+docker pull --quiet --platform "linux/$image_arch" "$fixture" >/dev/null ||
+  fail 'cannot pull fixture image'
 
 start_server() {
   docker run --name "$container" -d -v "$volume:/var/lib/clickhouse" \
