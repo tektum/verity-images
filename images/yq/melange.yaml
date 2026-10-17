@@ -1,7 +1,9 @@
 package:
   name: yq
   version: "4.54.1"
-  epoch: 0
+  # A high epoch keeps this build above Wolfi yq revisions of the same version,
+  # so the recipe test and package resolution select this package.
+  epoch: 101
   description: Portable command-line YAML, JSON, XML, CSV and properties processor
   copyright:
     - license: MIT
