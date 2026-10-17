@@ -1,6 +1,6 @@
 package:
   name: yq
-  version: "4.54.1"
+  version: "4.54.1"  # renovate: datasource=github-releases depName=mikefarah/yq
   # A high epoch keeps this build above Wolfi yq revisions of the same version,
   # so the recipe test and package resolution select this package.
   epoch: 101
