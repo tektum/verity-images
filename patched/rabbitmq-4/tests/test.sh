@@ -200,7 +200,7 @@ version_at_least "$rabbitmq_version" 4.3.4 || fail "RabbitMQ $rabbitmq_version i
 [ "$rabbitmq_version" = "$image_rabbitmq_version" ] || fail "runtime RabbitMQ $rabbitmq_version does not match image version $image_rabbitmq_version"
 version_at_least "$otp_version" 27.3.4.15 || fail "OTP $otp_version is below 27.3.4.15"
 version_at_least "$otp_version" 28 && fail "OTP $otp_version must be below 28"
-case $openssl_version in 3.5.8*) ;; *) fail "unexpected OpenSSL version $openssl_version" ;; esac
+case $openssl_version in 3.5.9*) ;; *) fail "unexpected OpenSSL version $openssl_version" ;; esac
 crypto_library=$(docker exec "$container" erl -noshell -eval 'io:format("~s", [filename:join([code:priv_dir(crypto), "lib", "crypto.so"])]).' -s init stop)
 docker exec "$container" sh -c "ldd '$crypto_library' | grep -q '/opt/openssl'" || fail "Erlang crypto is not linked to /opt/openssl"
 install_quorum_client
