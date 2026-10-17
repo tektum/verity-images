@@ -327,7 +327,7 @@ grep -Fq 'expected=b0b82bb02e5d240534facd299ef1124ec0f220253e05ba4e1b7abfadc2d60
 grep -Fq 'expected=4001b2743924e7dc43e68685712ab87899b065faaa76b961516a0f87db3c5ba1' "$recipe"
 grep -Fq 'go build -mod=readonly -trimpath -buildvcs=false' "$recipe"
 grep -Fq 'GOTOOLCHAIN=local' "$recipe"
-consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie"
+consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie rabbitmq-4"
 for consumer in $consumers; do
   consumer_source="$root/patched/$consumer/source.yaml"
   grep -Fxq "gosu-version: $version" "$consumer_source"
