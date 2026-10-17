@@ -327,6 +327,59 @@ def streams() -> dict[tuple[str, str], list[Stream]]:
     return found
 
 
+APK_VERSION: Final = re.compile(
+    r"(?P<numbers>[0-9]+(?:\.[0-9]+)*)(?P<letter>[a-z])?"
+    r"(?P<suffixes>(?:_(?:alpha|beta|pre|rc|p)[0-9]*)*)(?:-r(?P<epoch>[0-9]+))?"
+)
+APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "p": 1}
+
+
+def apk_version_key(value: str) -> tuple[object, ...] | None:
+    """Sort key for an APK version, or None when the string is not understood."""
+    match = APK_VERSION.fullmatch(value)
+    if match is None:
+        return None
+    suffixes = tuple(
+        (APK_SUFFIX_RANK[name], int(number or 0))
+        for name, number in re.findall(r"_(alpha|beta|pre|rc|p)([0-9]*)", match.group("suffixes"))
+    )
+    return (
+        tuple(int(part) for part in match.group("numbers").split(".")),
+        match.group("letter") or "",
+        suffixes + ((0, 0),),
+        int(match.group("epoch") or 0),
+    )
+
+
+def pins_fix(current: str, fixed: tuple[str, ...]) -> bool:
+    """Whether one locked version is at or past any fixed version."""
+    have = apk_version_key(current)
+    for version in fixed:
+        if current == version:
+            return True
+        want = apk_version_key(version)
+        if have is not None and want is not None and have >= want:
+            return True
+    return False
+
+
+def lock_already_fixed(lockfile: Path, finding: dict[str, object], fixed: tuple[str, ...]) -> bool:
+    """Whether every architecture's lock entry already pins this finding's package at a fix."""
+    package = finding["package"]
+    if not isinstance(package, dict) or package.get("type") != "apk":
+        return False
+    try:
+        data = json.loads(lockfile.read_text(encoding="utf-8"))
+        versions = [
+            item["version"]
+            for item in data["contents"]["packages"]
+            if isinstance(item, dict) and item.get("name") == package.get("name") and "version" in item
+        ]
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    return bool(versions) and all(pins_fix(current, fixed) for current in versions)
+
+
 def safe_epoch(
     finding: dict[str, object],
     identity: RecipeIdentity,
@@ -632,6 +685,16 @@ def classify(
                 context_blocked_ids.add(id(candidate))
                 continue
             lock = selected[0]
+            if lock_already_fixed(candidate.lockfile, finding, candidate.fixed_versions):
+                # The committed lock already pins the fix, so refreshing it changes
+                # nothing. The published image is stale; republish from the lock.
+                context_exact[target] = {
+                    "stream": target,
+                    "context": context,
+                    "flavor": stream.flavor,
+                    "kind": "apko-republish",
+                }
+                continue
             context_apko.add(target)
             context_apko_locks[(lock["config"], lock["lockfile"])] = lock
 
