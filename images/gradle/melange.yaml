@@ -1,6 +1,6 @@
 package:
   name: verity-gradle-9
-  version: "9.7.0"
+  version: "9.8.1"  # renovate: datasource=github-releases depName=gradle/gradle
   epoch: 0
   description: Gradle 9 build system
   copyright:
@@ -32,34 +32,9 @@ pipeline:
   - uses: fetch
     with:
       uri: https://services.gradle.org/distributions/gradle-${{package.version}}-bin.zip
-      expected-sha256: 84fbba45c7f4c64abc77460e1c00f541e9f960e3c7ed2538f1ede19eacd873ae
+      expected-sha256: dce76f55f8e251a3a1f130eb120f30b3d271de2b76c9b0729d316b5a1b6dc01f
       extract: false
   - runs: unzip gradle-${{package.version}}-bin.zip
-  - runs: |
-      lib=gradle-${{package.version}}/lib
-      maven=https://repo1.maven.org/maven2
-      wget -q "$maven/com/fasterxml/jackson/core/jackson-databind/2.22.1/jackson-databind-2.22.1.jar" \
-        -O "$lib/jackson-databind-2.22.1.jar"
-      printf '%s  %s\n' \
-        7dcd7e53bec1f56c7ad278bd1ca0840bebcc595d61ce44d6a8439abb75b965b2 \
-        "$lib/jackson-databind-2.22.1.jar" | sha256sum -c
-      rm "$lib/jackson-databind-2.22.0.jar"
-      sed -i 's/2\.22\.0/2.22.1/g' "$lib/jackson-databind.properties"
-      wget -q "$maven/org/jsoup/jsoup/1.23.1/jsoup-1.23.1.jar" \
-        -O "$lib/jsoup-1.23.1.jar"
-      printf '%s  %s\n' \
-        8b15e2b28eeb1e0a88a9b7dab4dc0c23524491c56959785dea22f7846897b668 \
-        "$lib/jsoup-1.23.1.jar" | sha256sum -c
-      rm "$lib/jsoup-1.22.2.jar"
-      sed -i 's/1\.22\.2/1.23.1/g' "$lib/jsoup.properties"
-      bcprov_version=1.85 # renovate: datasource=maven depName=org.bouncycastle:bcprov-jdk18on
-      wget -q "$maven/org/bouncycastle/bcprov-jdk18on/$bcprov_version/bcprov-jdk18on-$bcprov_version.jar" \
-        -O "$lib/plugins/bcprov-jdk18on-$bcprov_version.jar"
-      printf '%s  %s\n' \
-        20af26bf6060bb8005cc2389916812c1e0e998dc48d2ced7131b89461b54cff7 \
-        "$lib/plugins/bcprov-jdk18on-$bcprov_version.jar" | sha256sum -c
-      rm "$lib/plugins/bcprov-jdk18on-1.84.jar"
-      sed -i "s/1\.84/$bcprov_version/g" "$lib/plugins/bcprov-jdk18on.properties"
   - runs: |
       cd gradle-${{package.version}}
       mkdir -p "${{targets.destdir}}/usr/share/java/gradle" \
@@ -71,4 +46,4 @@ pipeline:
 
 test:
   pipeline:
-    - runs: gradle --version | grep -q '^Gradle 9.7.0$'
+    - runs: gradle --version | grep -q '^Gradle 9.8.1$'
