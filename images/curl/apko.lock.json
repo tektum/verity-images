@@ -237,63 +237,6 @@
         "checksum": "Q1lw4nbo4LxjEef5I1byYHsAPpBqk="
       },
       {
-        "name": "openssl-provider-legacy-allowed",
-        "url": "https://packages.wolfi.dev/os/x86_64/openssl-provider-legacy-allowed-4.0.3-r1.apk",
-        "version": "4.0.3-r1",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-8345",
-          "checksum": "sha1-GPTXqRetxoF0f0PU1QPba50eqyw="
-        },
-        "data": {
-          "range": "bytes=8346-357536",
-          "checksum": "sha256-v0F9Hb2VO13kSjK3llfawrPbLkHlfpJBeG2za3d5BJk="
-        },
-        "checksum": "Q1GPTXqRetxoF0f0PU1QPba50eqyw="
-      },
-      {
-        "name": "libbrotlienc1",
-        "url": "https://packages.wolfi.dev/os/x86_64/libbrotlienc1-1.2.0-r6.apk",
-        "version": "1.2.0-r6",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-8992",
-          "checksum": "sha1-j2kuwO2hzFSUVqY1zCSjvxDsnk8="
-        },
-        "data": {
-          "range": "bytes=8993-441629",
-          "checksum": "sha256-tCVzD6zy6NMq41r4YwcsCCa2SDdk4HGKTJQ+9C6J5ZI="
-        },
-        "checksum": "Q1j2kuwO2hzFSUVqY1zCSjvxDsnk8="
-      },
-      {
-        "name": "openssl-4.0-libcrypto",
-        "url": "https://packages.wolfi.dev/os/x86_64/openssl-4.0-libcrypto-4.0.3-r6.apk",
-        "version": "4.0.3-r6",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-17426",
-          "checksum": "sha1-Gd2v1sjT5RedxpCLY/wn72oGNtg="
-        },
-        "data": {
-          "range": "bytes=17427-2400608",
-          "checksum": "sha256-5iDamJgKaApaiv1DlnoMQjSVAqPUetd8Ri1QKJk+siI="
-        },
-        "checksum": "Q1Gd2v1sjT5RedxpCLY/wn72oGNtg="
-      },
-      {
         "name": "krb5-conf",
         "url": "https://packages.wolfi.dev/os/x86_64/krb5-conf-1.0-r10.apk",
         "version": "1.0-r10",
@@ -370,23 +313,80 @@
         "checksum": "Q1clzcZn1PrD2HuFWquJ0qANlaq8o="
       },
       {
-        "name": "openssl-4.0-libssl",
-        "url": "https://packages.wolfi.dev/os/x86_64/openssl-4.0-libssl-4.0.3-r6.apk",
-        "version": "4.0.3-r6",
+        "name": "openssl-provider-legacy-allowed",
+        "url": "https://packages.wolfi.dev/os/x86_64/openssl-provider-legacy-allowed-4.0.3-r1.apk",
+        "version": "4.0.3-r1",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-17404",
-          "checksum": "sha1-SdxZYSluzOL+Dl8TUmg6qgJOFlg="
+          "range": "bytes=0-8345",
+          "checksum": "sha1-GPTXqRetxoF0f0PU1QPba50eqyw="
         },
         "data": {
-          "range": "bytes=17405-573477",
-          "checksum": "sha256-q77/ezqIDlwNTYzJaiMbGBnAZg7YzUJY5JghwaaxgKQ="
+          "range": "bytes=8346-357536",
+          "checksum": "sha256-v0F9Hb2VO13kSjK3llfawrPbLkHlfpJBeG2za3d5BJk="
         },
-        "checksum": "Q1SdxZYSluzOL+Dl8TUmg6qgJOFlg="
+        "checksum": "Q1GPTXqRetxoF0f0PU1QPba50eqyw="
+      },
+      {
+        "name": "libbrotlienc1",
+        "url": "https://packages.wolfi.dev/os/x86_64/libbrotlienc1-1.2.0-r6.apk",
+        "version": "1.2.0-r6",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8992",
+          "checksum": "sha1-j2kuwO2hzFSUVqY1zCSjvxDsnk8="
+        },
+        "data": {
+          "range": "bytes=8993-441629",
+          "checksum": "sha256-tCVzD6zy6NMq41r4YwcsCCa2SDdk4HGKTJQ+9C6J5ZI="
+        },
+        "checksum": "Q1j2kuwO2hzFSUVqY1zCSjvxDsnk8="
+      },
+      {
+        "name": "openssl-4.0-libcrypto",
+        "url": "https://packages.wolfi.dev/os/x86_64/openssl-4.0-libcrypto-4.0.3-r7.apk",
+        "version": "4.0.3-r7",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17454",
+          "checksum": "sha1-lAFM+if79Dzv5UCyLJf7ZrqbzYs="
+        },
+        "data": {
+          "range": "bytes=17455-2400636",
+          "checksum": "sha256-wj7BAD8yHNHs+nj/fGHFgf2Y8PZzrH0GQn0p0nZ7GZY="
+        },
+        "checksum": "Q1lAFM+if79Dzv5UCyLJf7ZrqbzYs="
+      },
+      {
+        "name": "openssl-4.0-libssl",
+        "url": "https://packages.wolfi.dev/os/x86_64/openssl-4.0-libssl-4.0.3-r7.apk",
+        "version": "4.0.3-r7",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17433",
+          "checksum": "sha1-MNPrDTNHUagmqWgVL+NJT9OsMg0="
+        },
+        "data": {
+          "range": "bytes=17434-573511",
+          "checksum": "sha256-Vm2918oVTeXA/XOEW2jEdgYFBZbAdFgjjiE2tPTmRY8="
+        },
+        "checksum": "Q1MNPrDTNHUagmqWgVL+NJT9OsMg0="
       },
       {
         "name": "krb5-libs",
@@ -921,63 +921,6 @@
         "checksum": "Q1ew3lvE7AZWVsPe0IWv95ZYu/bvA="
       },
       {
-        "name": "openssl-provider-legacy-allowed",
-        "url": "https://packages.wolfi.dev/os/aarch64/openssl-provider-legacy-allowed-4.0.3-r1.apk",
-        "version": "4.0.3-r1",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-8380",
-          "checksum": "sha1-a1fNGtTpkMb5GgBdxE47Kl28Cxk="
-        },
-        "data": {
-          "range": "bytes=8381-369757",
-          "checksum": "sha256-IJLJdxQpBMzo0DwsHzSCSyyhZoxkmY7TK6gOEzZwzd8="
-        },
-        "checksum": "Q1a1fNGtTpkMb5GgBdxE47Kl28Cxk="
-      },
-      {
-        "name": "libbrotlienc1",
-        "url": "https://packages.wolfi.dev/os/aarch64/libbrotlienc1-1.2.0-r6.apk",
-        "version": "1.2.0-r6",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-9028",
-          "checksum": "sha1-DAKQKH9aN3rtuuZDDAWIyGS9OqI="
-        },
-        "data": {
-          "range": "bytes=9029-450107",
-          "checksum": "sha256-Tgqx8utJhvCuRtaTduvTfV/14W1cpaVh6OoNgA3qbw0="
-        },
-        "checksum": "Q1DAKQKH9aN3rtuuZDDAWIyGS9OqI="
-      },
-      {
-        "name": "openssl-4.0-libcrypto",
-        "url": "https://packages.wolfi.dev/os/aarch64/openssl-4.0-libcrypto-4.0.3-r6.apk",
-        "version": "4.0.3-r6",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-17449",
-          "checksum": "sha1-Ntez0qoDIBGHBD6moOZ2iPegnuU="
-        },
-        "data": {
-          "range": "bytes=17450-2153383",
-          "checksum": "sha256-pEO+AnWriocpD/ZTEHq4scZ+Exf7Fdpmcd8UhUo/s4g="
-        },
-        "checksum": "Q1Ntez0qoDIBGHBD6moOZ2iPegnuU="
-      },
-      {
         "name": "krb5-conf",
         "url": "https://packages.wolfi.dev/os/aarch64/krb5-conf-1.0-r10.apk",
         "version": "1.0-r10",
@@ -1054,23 +997,80 @@
         "checksum": "Q1o6Nj9DShuQkflDRleG4dd/tKXMI="
       },
       {
-        "name": "openssl-4.0-libssl",
-        "url": "https://packages.wolfi.dev/os/aarch64/openssl-4.0-libssl-4.0.3-r6.apk",
-        "version": "4.0.3-r6",
+        "name": "openssl-provider-legacy-allowed",
+        "url": "https://packages.wolfi.dev/os/aarch64/openssl-provider-legacy-allowed-4.0.3-r1.apk",
+        "version": "4.0.3-r1",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-17441",
-          "checksum": "sha1-rQfJCW/px/LCCDsdGRdgc8c/2LI="
+          "range": "bytes=0-8380",
+          "checksum": "sha1-a1fNGtTpkMb5GgBdxE47Kl28Cxk="
         },
         "data": {
-          "range": "bytes=17442-532877",
-          "checksum": "sha256-mr8SsKYlnoH4z2Hz/5iFBfA2icw61vhLxPIr6JKw9nM="
+          "range": "bytes=8381-369757",
+          "checksum": "sha256-IJLJdxQpBMzo0DwsHzSCSyyhZoxkmY7TK6gOEzZwzd8="
         },
-        "checksum": "Q1rQfJCW/px/LCCDsdGRdgc8c/2LI="
+        "checksum": "Q1a1fNGtTpkMb5GgBdxE47Kl28Cxk="
+      },
+      {
+        "name": "libbrotlienc1",
+        "url": "https://packages.wolfi.dev/os/aarch64/libbrotlienc1-1.2.0-r6.apk",
+        "version": "1.2.0-r6",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-9028",
+          "checksum": "sha1-DAKQKH9aN3rtuuZDDAWIyGS9OqI="
+        },
+        "data": {
+          "range": "bytes=9029-450107",
+          "checksum": "sha256-Tgqx8utJhvCuRtaTduvTfV/14W1cpaVh6OoNgA3qbw0="
+        },
+        "checksum": "Q1DAKQKH9aN3rtuuZDDAWIyGS9OqI="
+      },
+      {
+        "name": "openssl-4.0-libcrypto",
+        "url": "https://packages.wolfi.dev/os/aarch64/openssl-4.0-libcrypto-4.0.3-r7.apk",
+        "version": "4.0.3-r7",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17491",
+          "checksum": "sha1-C16kIwI0/388M6ubABRSay6mVME="
+        },
+        "data": {
+          "range": "bytes=17492-2153419",
+          "checksum": "sha256-gmc3tHCUedTL2oIvHp6GWN2IkHGvIlhsId1btaBreHI="
+        },
+        "checksum": "Q1C16kIwI0/388M6ubABRSay6mVME="
+      },
+      {
+        "name": "openssl-4.0-libssl",
+        "url": "https://packages.wolfi.dev/os/aarch64/openssl-4.0-libssl-4.0.3-r7.apk",
+        "version": "4.0.3-r7",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17468",
+          "checksum": "sha1-OKoJSTzktSN6VyKPMMjrAI559kc="
+        },
+        "data": {
+          "range": "bytes=17469-532906",
+          "checksum": "sha256-lHy7W8PuCJpT3ymKxPXhbwDOICCH6bylbnCizCnvfAo="
+        },
+        "checksum": "Q1OKoJSTzktSN6VyKPMMjrAI559kc="
       },
       {
         "name": "krb5-libs",
