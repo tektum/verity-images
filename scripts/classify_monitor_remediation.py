@@ -327,6 +327,38 @@ def streams() -> dict[tuple[str, str], list[Stream]]:
     return found
 
 
+def lock_already_fixed(lockfile: Path, finding: dict[str, object], fixed: tuple[str, ...]) -> bool:
+    """Whether a committed APKO lock already pins this finding's package at a fixed version."""
+    package = finding["package"]
+    if not isinstance(package, dict) or package.get("type") != "apk":
+        return False
+    try:
+        data = json.loads(lockfile.read_text(encoding="utf-8"))
+        locked = {
+            item["name"]: item["version"]
+            for item in data["contents"]["packages"]
+            if isinstance(item, dict) and "name" in item and "version" in item
+        }
+    except (OSError, ValueError, KeyError, TypeError):
+        return False
+    current = locked.get(str(package.get("name")))
+    if current is None:
+        return False
+    have = APK_RELEASE.fullmatch(current)
+    for version in fixed:
+        if current == version:
+            return True
+        want = APK_RELEASE.fullmatch(version)
+        if (
+            have is not None
+            and want is not None
+            and have.group("version") == want.group("version")
+            and int(have.group("epoch")) >= int(want.group("epoch"))
+        ):
+            return True
+    return False
+
+
 def safe_epoch(
     finding: dict[str, object],
     identity: RecipeIdentity,
@@ -632,6 +664,16 @@ def classify(
                 context_blocked_ids.add(id(candidate))
                 continue
             lock = selected[0]
+            if lock_already_fixed(candidate.lockfile, finding, candidate.fixed_versions):
+                # The committed lock already pins the fix, so refreshing it changes
+                # nothing. The published image is stale; republish from the lock.
+                context_exact[target] = {
+                    "stream": target,
+                    "context": context,
+                    "flavor": stream.flavor,
+                    "kind": "apko-republish",
+                }
+                continue
             context_apko.add(target)
             context_apko_locks[(lock["config"], lock["lockfile"])] = lock
 

@@ -453,6 +453,32 @@ def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not(
         }
 
 
+def test_lock_that_already_pins_the_fix_is_republished_not_refreshed() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/locked", name="locked")
+        image(root, "images/stale", name="stale")
+        (root / "images/locked/apko.lock.json").write_text(
+            '{"contents": {"packages": [{"name": "openssl", "version": "1-r1"}]}}\n', encoding="utf-8"
+        )
+        (root / "images/stale/apko.lock.json").write_text(
+            '{"contents": {"packages": [{"name": "openssl", "version": "1-r0"}]}}\n', encoding="utf-8"
+        )
+        packages = {("openssl", "1-r1")}
+        repository = SignedRepository(
+            root, {architecture: packages for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
+        )
+        plan = classify(root, [
+            finding("locked", "1", "openssl", "1-r0", ["1-r1"], "CVE-locked"),
+            finding("stale", "1", "openssl", "1-r0", ["1-r1"], "CVE-stale"),
+        ], repository.query)
+        assert plan["exact"] == [
+            {"stream": "locked@1", "context": "images/locked", "flavor": "plain", "kind": "apko-republish"}
+        ]
+        assert plan["apko"] == [apko_route("images/stale", ["stale@1"], ("plain",))]
+        assert plan["blocked"] == [] and plan["localPackageRevisions"] == []
+
+
 def main() -> None:
     test_available_on_both_architectures_and_deduplication()
     test_missing_one_and_both_architectures_block_context()
@@ -464,6 +490,7 @@ def main() -> None:
     test_fail_closed_contexts_and_epochs()
     test_unpublished_local_package_fix_does_not_suppress_go_remediation()
     test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not()
+    test_lock_that_already_pins_the_fix_is_republished_not_refreshed()
     print("passed scripts/test_classify_monitor_remediation.py")
 
 
