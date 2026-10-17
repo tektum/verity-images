@@ -2,8 +2,9 @@ package:
   name: prometheus-pushgateway
   version: "1.11.3"
   # r2 rebuilds the latest immutable release with its fixed Prometheus v0.311.3
-  # dependency for CVE-2026-42151 and CVE-2026-42154.
-  epoch: 2
+  # dependency for CVE-2026-42151 and CVE-2026-42154. r3 rebuilds with the
+  # Wolfi go-1.26 1.26.9 toolchain, which carries the fixed Go standard library.
+  epoch: 3
   description: Push acceptor for ephemeral and batch jobs
   copyright:
     - license: Apache-2.0
