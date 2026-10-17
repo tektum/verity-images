@@ -3,7 +3,7 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 recipe=$(dirname "$0")/../melange.yaml
-expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' "$recipe")
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' "$recipe")
 expected_commit=$(sed -n 's/^[[:space:]]*expected-commit:[[:space:]]*\([0-9a-f]*\)$/\1/p' "$recipe" | sed -n '1p')
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 [ -n "$expected_commit" ] || { printf 'source commit not found\n' >&2; exit 1; }

@@ -1,7 +1,7 @@
 package:
   name: verity-argocd
-  version: "3.5.2"
-  epoch: 2
+  version: "3.5.5"  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  epoch: 0
   description: Declarative GitOps continuous delivery controller.
   copyright:
     - license: Apache-2.0
@@ -18,6 +18,10 @@ package:
   resources:
     cpu: "4"
     memory: 16Gi
+
+vars:
+  x-net-floor: v0.60.0  # renovate: datasource=go depName=golang.org/x/net
+  x-text-floor: v0.41.0  # renovate: datasource=go depName=golang.org/x/text
 
 environment:
   contents:
@@ -47,7 +51,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj/argo-cd
       tag: v${{package.version}}
-      expected-commit: e258ee23c3e52266d407572f4bcdfe7d9ed36cb5
+      expected-commit: a5038b0e2bbac1715754380ae0084df8e3d5b48c
 
   - uses: git-checkout
     with:
@@ -176,10 +180,23 @@ pipeline:
       "${{targets.destdir}}/usr/bin/git-lfs" version | grep -F 'git-lfs/3.7.1 ('
       git_lfs_build_info=$(go version -m "${{targets.destdir}}/usr/bin/git-lfs")
       printf '%s\n' "$git_lfs_build_info" | grep -F 'go1.26.'
-      printf '%s\n' "$git_lfs_build_info" | \
-        grep -E 'dep[[:space:]]+golang.org/x/net[[:space:]]+v0.57.0'
-      printf '%s\n' "$git_lfs_build_info" | \
-        grep -E 'dep[[:space:]]+golang.org/x/text[[:space:]]+v0.41.0'
+      for module_floor in \
+        golang.org/x/net=${{vars.x-net-floor}} \
+        golang.org/x/text=${{vars.x-text-floor}}; do
+        module=${module_floor%%=*}
+        floor=${module_floor#*=}
+        actual=$(printf '%s\n' "$git_lfs_build_info" | \
+          awk -v module="$module" '$1 == "dep" && $2 == module { print $3 }')
+        test -n "$actual"
+        awk -v have="$actual" -v want="$floor" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 > w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 1 : 0
+        }'
+      done
       rm -rf .verity-source-commit third_party/helm third_party/git-lfs
 
   - uses: strip
