@@ -41,10 +41,12 @@ pipeline:
       expected-commit: 0c071246a412575e07423263404a5d13e7ed6aa2
   - uses: patch
     with:
-      patches: rand-pin-bump.patch
+      patches: rand-pin-bump.patch hickory-0.26.patch
   - runs: |
       cargo update -p rand@0.8.5 --precise 0.8.6 # renovate: datasource=crate depName=rand versioning=semver
       cargo update -p quinn-proto --precise 0.11.17 # renovate: datasource=crate depName=quinn-proto versioning=semver
+      cargo update -p hickory-resolver \
+        --precise 0.26.3 # renovate: datasource=crate depName=hickory-resolver versioning=semver
   - uses: cargo/build
     with:
       output: deno

@@ -13,6 +13,7 @@ docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image" | g
 
 docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --allow-read=/app,/deno-dir /fixture.ts directories || { printf 'wrong directory metadata\n' >&2; exit 1; }
 docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --allow-sys=uid,gid /fixture.ts identity || { printf 'wrong runtime identity\n' >&2; exit 1; }
+docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --unstable-net --allow-net=127.0.0.1 /fixture.ts dns || { printf 'DNS resolution failed\n' >&2; exit 1; }
 [ "$(docker run --rm --network none -v "$fixture:/fixture.ts:ro" "$image" run --no-prompt /fixture.ts)" = 422 ] || { printf 'fixture failed\n' >&2; exit 1; }
 
 for mode in read net; do
