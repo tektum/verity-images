@@ -1,7 +1,7 @@
 package:
   name: verity-kube-bench-0.11
   version: "0.16.0"
-  epoch: 2  # Go remediation
+  epoch: 3  # Build kubectl from source
   description: Checks Kubernetes deployments against CIS benchmarks
   copyright:
     - license: Apache-2.0
@@ -12,12 +12,12 @@ package:
       - ca-certificates-bundle
       - findutils
       - jq
-      - kubectl
       - openssl
       - procps
   resources:
     cpu: "4"
-    memory: 6Gi
+    memory: 8Gi
+    disk: 8Gi
 
 environment:
   contents:
@@ -26,8 +26,16 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - findutils
       - go-1.26
+      - grep
       - python3
+      - rsync
   environment:
     CGO_ENABLED: "0"
 
@@ -54,6 +62,27 @@ pipeline:
       cp -r cfg "${{targets.destdir}}/etc/kube-bench/"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/kubernetes
+      tag: v${{vars.kubectl-version}}
+      expected-commit: ad950d1cc78b0183c476bd4d3f1934c104229727
+      destination: kubernetes
+  - uses: go/remediate
+    with:
+      modroot: kubernetes
+      packages: ./cmd/kubectl
+  - runs: |
+      chmod 755 kubernetes
+      cd kubernetes
+      export FORCE_HOST_GO=true
+      export KUBE_GIT_TREE_STATE=clean
+      make WHAT=cmd/kubectl
+      install -m755 -D _output/bin/kubectl "${{targets.destdir}}/usr/bin/kubectl"
+      "${{targets.destdir}}/usr/bin/kubectl" version --client | grep -F "v${{vars.kubectl-version}}"
+
+vars:
+  kubectl-version: "1.36.5"  # renovate: datasource=github-releases depName=kubernetes/kubernetes
 
 subpackages:
   - name: verity-kube-bench-0.11-build-metadata
