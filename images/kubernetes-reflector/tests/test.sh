@@ -25,13 +25,13 @@ fail() {
 
 case $flavor in plain) ;; *) fail "unsupported flavor $flavor" ;; esac
 
-[ "$(docker image inspect -f '{{.Config.User}}' "$image")" = app ] || fail 'unexpected OCI user'
+[ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 1654 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["dotnet","ES.Kubernetes.Reflector.dll"]' ] ||
   fail 'unexpected entrypoint'
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = null ] || fail 'unexpected command'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /app ] || fail 'unexpected working directory'
-docker image inspect -f '{{json .Config.ExposedPorts}}' "$image" | grep -qx '{"8080/tcp":{}}' ||
-  fail 'port 8080 is not exposed'
+docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image" |
+  grep -qx 'ASPNETCORE_HTTP_PORTS=8080' || fail 'default HTTP port is not 8080'
 
 cat > "$work/api.py" <<'PY'
 import json
@@ -152,6 +152,8 @@ done
 }
 docker top "$container" | grep -q 'dotnet ES.Kubernetes.Reflector.dll' ||
   fail 'reflector .NET process is not running'
+[ "$(docker top "$container" -eo pid,uid,args | awk '/dotnet ES.Kubernetes.Reflector.dll/ {print $2; exit}')" = 1654 ] ||
+  fail 'reflector .NET process is not running as uid 1654'
 
 if docker run --name "$invalid_container" -e KUBECONFIG=/tmp/does-not-exist "$image" \
   >"$work/invalid.log" 2>&1
