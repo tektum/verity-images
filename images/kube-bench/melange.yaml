@@ -65,24 +65,23 @@ pipeline:
   - uses: git-checkout
     with:
       repository: https://github.com/kubernetes/kubernetes
-      tag: v${{vars.kubectl-version}}
+      tag: v1.36.5
       expected-commit: ad950d1cc78b0183c476bd4d3f1934c104229727
       destination: kubernetes
+  - runs: chmod 755 kubernetes
   - uses: go/remediate
+    working-directory: kubernetes
     with:
-      modroot: kubernetes
+      modroot: .
       packages: ./cmd/kubectl
   - runs: |
-      chmod 755 kubernetes
       cd kubernetes
       export FORCE_HOST_GO=true
       export KUBE_GIT_TREE_STATE=clean
       make WHAT=cmd/kubectl
       install -m755 -D _output/bin/kubectl "${{targets.destdir}}/usr/bin/kubectl"
-      "${{targets.destdir}}/usr/bin/kubectl" version --client | grep -F "v${{vars.kubectl-version}}"
-
-vars:
-  kubectl-version: "1.36.5"  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+      "${{targets.destdir}}/usr/bin/kubectl" version --client \
+        | grep -F "Client Version: $(git describe --tags --exact-match)"
 
 subpackages:
   - name: verity-kube-bench-0.11-build-metadata
