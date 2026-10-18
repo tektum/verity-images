@@ -6,7 +6,7 @@ fail() {
   printf '%s\n' "$1" >&2
   exit 1
 }
-recipe_version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' "$(dirname "$0")/../melange.yaml")
+recipe_version=$(sed -n 's/^  version: "\([^"]*\)".*$/\1/p' "$(dirname "$0")/../melange.yaml")
 [ -n "$recipe_version" ] || fail 'Gradle package version is missing'
 
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
