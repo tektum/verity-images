@@ -80,8 +80,9 @@ pipeline:
       export KUBE_GIT_TREE_STATE=clean
       make WHAT=cmd/kubectl
       install -m755 -D _output/bin/kubectl "${{targets.destdir}}/usr/bin/kubectl"
+      tag=$(git describe --tags --exact-match)
       "${{targets.destdir}}/usr/bin/kubectl" version --client \
-        | grep -F "Client Version: $(git describe --tags --exact-match)"
+        | grep -F "Client Version: ${tag}"
 
 subpackages:
   - name: verity-kube-bench-0.11-build-metadata
