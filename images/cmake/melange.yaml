@@ -27,7 +27,9 @@ environment:
       - libuv-dev
       - ncurses-dev
       - nghttp2-dev
-      - openssl-hardened-dev
+      # curl-dev and libarchive-dev depend on openssl-4.0-dev; the hardened
+      # config header must come from the matching 4.0 stream or file conflicts.
+      - openssl-hardened-4.0-dev
       - rhash-dev
       - samurai
       - wolfi-base
