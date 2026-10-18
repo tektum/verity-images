@@ -19,7 +19,8 @@ environment:
       - busybox
       - c-ares-dev
       - libevent-dev
-      - openssl-dev
+      # pgbouncer 1.25 libusual reads ASN1_TIME fields, opaque in OpenSSL 4.
+      - openssl-3.6-dev
       - pkgconf
 
 pipeline:
