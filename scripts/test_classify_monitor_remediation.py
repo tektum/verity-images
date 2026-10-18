@@ -453,62 +453,38 @@ def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not(
         }
 
 
-def test_lock_that_already_pins_the_fix_is_republished_not_refreshed() -> None:
+def test_published_image_built_from_other_inputs_is_republished() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
-        image(root, "images/locked", name="locked")
+        image(root, "patched/embedded", name="embedded", track="patched")
         image(root, "images/stale", name="stale")
-        (root / "images/locked/apko.lock.json").write_text(
-            '{"contents": {"packages": [{"name": "openssl", "version": "1-r1"}]}}\n', encoding="utf-8"
-        )
-        (root / "images/stale/apko.lock.json").write_text(
-            '{"contents": {"packages": [{"name": "openssl", "version": "1-r0"}]}}\n', encoding="utf-8"
-        )
-        packages = {("openssl", "1-r1")}
-        repository = SignedRepository(
-            root, {architecture: packages for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
-        )
-        plan = classify(root, [
-            finding("locked", "1", "openssl", "1-r0", ["1-r1"], "CVE-locked"),
-            finding("stale", "1", "openssl", "1-r0", ["1-r1"], "CVE-stale"),
-        ], repository.query)
-        assert plan["exact"] == [
-            {"stream": "locked@1", "context": "images/locked", "flavor": "plain", "kind": "apko-republish"}
-        ]
-        assert plan["apko"] == [apko_route("images/stale", ["stale@1"], ("plain",))]
-        assert plan["blocked"] == [] and plan["localPackageRevisions"] == []
+        image(root, "images/fresh", name="fresh", recipe=("fresh", "1.0", 0))
+        with patch.object(gen_matrix, "ROOT", root):
+            fresh_digest = gen_matrix.input_digest(root / "images/fresh", "plain")
+        old = "sha256:" + "0" * 64
 
+        def stamped(item: dict, digest: str) -> dict:
+            return {**item, "inputDigest": digest}
 
-def test_republish_needs_every_architecture_fixed_and_understands_newer_upstream() -> None:
-    with TemporaryDirectory() as temporary:
-        root = Path(temporary)
-        image(root, "images/skew", name="skew")
-        image(root, "images/newer", name="newer")
-        (root / "images/skew/apko.lock.json").write_text(
-            '{"contents": {"packages": ['
-            '{"name": "openssl", "version": "1-r0", "architecture": "x86_64"},'
-            '{"name": "openssl", "version": "1-r1", "architecture": "aarch64"}]}}\n',
-            encoding="utf-8",
-        )
-        (root / "images/newer/apko.lock.json").write_text(
-            '{"contents": {"packages": ['
-            '{"name": "openssl", "version": "1.2.5-r1", "architecture": "x86_64"},'
-            '{"name": "openssl", "version": "1.2.5-r1", "architecture": "aarch64"}]}}\n',
-            encoding="utf-8",
-        )
-        packages = {("openssl", "1.2.4-r0"), ("openssl", "1-r1")}
-        repository = SignedRepository(
-            root, {architecture: packages for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
-        )
         plan = classify(root, [
-            finding("skew", "1", "openssl", "1-r0", ["1-r1"], "CVE-skew"),
-            finding("newer", "1", "openssl", "1.2.3-r0", ["1.2.4-r0"], "CVE-newer"),
-        ], repository.query)
+            stamped(finding("embedded", "1", "stdlib", "go1.27.1", ["1.27.2"], "GO-one", "go-module"), old),
+            stamped(finding("stale", "1", "openssl", "1-r0", ["1-r1"], "CVE-stale"), old),
+            stamped(finding("fresh", "1", "example.com/module", "v1.0.0", ["1.1.0"], "GO-fresh", "go-module"), fresh_digest),
+        ])
+        # A stale published image is republished whatever its track or package type, instead
+        # of being blocked (embedded Go module) or sent to a no-op lock refresh (Wolfi apk).
         assert plan["exact"] == [
-            {"stream": "newer@1", "context": "images/newer", "flavor": "plain", "kind": "apko-republish"}
+            {"stream": "embedded@1", "context": "patched/embedded", "flavor": "plain", "kind": "stale-republish"},
+            {"stream": "stale@1", "context": "images/stale", "flavor": "plain", "kind": "stale-republish"},
         ]
-        assert plan["apko"] == [apko_route("images/skew", ["skew@1"], ("plain",))]
-        assert plan["blocked"] == []
+        # An image whose published inputs match main keeps its normal routing.
+        assert plan["apko"] == [] and plan["localPackageRevisions"] == []
+        assert plan["blocked"] == [{
+            "stream": "fresh@1",
+            "advisory": "GO-fresh",
+            "package": "example.com/module",
+            "reason": "unsupported package type for Wolfi remediation",
+        }]
 
 
 def main() -> None:
@@ -522,8 +498,7 @@ def main() -> None:
     test_fail_closed_contexts_and_epochs()
     test_unpublished_local_package_fix_does_not_suppress_go_remediation()
     test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not()
-    test_lock_that_already_pins_the_fix_is_republished_not_refreshed()
-    test_republish_needs_every_architecture_fixed_and_understands_newer_upstream()
+    test_published_image_built_from_other_inputs_is_republished()
     print("passed scripts/test_classify_monitor_remediation.py")
 
 
