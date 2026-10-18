@@ -1,0 +1,48 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - kubernetes-reflector@local
+
+accounts:
+  groups:
+    - groupname: app
+      gid: 1654
+  users:
+    - username: app
+      uid: 1654
+      gid: 1654
+      homedir: /home/app
+  run-as: app
+
+entrypoint:
+  command: dotnet ES.Kubernetes.Reflector.dll
+
+work-dir: /app
+
+environment:
+  APP_UID: "1654"
+  ASPNETCORE_HTTP_PORTS: "8080"
+  DOTNET_RUNNING_IN_CONTAINER: "true"
+  HOME: /home/app
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /home/app
+    type: directory
+    uid: 1654
+    gid: 1654
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+
+annotations:
+  org.opencontainers.image.source: https://github.com/emberstack/kubernetes-reflector
