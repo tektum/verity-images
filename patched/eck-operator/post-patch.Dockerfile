@@ -1,12 +1,14 @@
 ARG BASE
-FROM docker.io/library/golang:1.26.8-alpine@sha256:ce864e7223ac17b1775e6fd0b4c0db580c2eb50e7953a427916379e4b92a1628 AS builder
+FROM docker.io/library/golang:1.26.9-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS builder
 ARG OTEL_TRACE_VERSION=v1.45.0 # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace
 ARG OTEL_TRACE_GRPC_VERSION=v1.45.0 # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc
 ARG OTEL_SDK_VERSION=v1.45.0 # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
+ARG NET_VERSION=v0.60.0 # renovate: datasource=go depName=golang.org/x/net
+ARG CRYPTO_VERSION=v0.57.0 # renovate: datasource=go depName=golang.org/x/crypto
 
 WORKDIR /build
 ADD https://github.com/elastic/cloud-on-k8s.git#386c7b14f2d1bbb7f2af1e7da997e64875f16e47 .
-RUN go get github.com/google/cel-go@v0.29.0 golang.org/x/crypto@v0.56.0 \
+RUN go get github.com/google/cel-go@v0.29.0 golang.org/x/crypto@${CRYPTO_VERSION} golang.org/x/net@${NET_VERSION} \
       google.golang.org/grpc@v1.83.2 \
       go.opentelemetry.io/otel/exporters/otlp/otlptrace@${OTEL_TRACE_VERSION} \
       go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc@${OTEL_TRACE_GRPC_VERSION} \
