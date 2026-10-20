@@ -1,0 +1,93 @@
+package:
+  name: verity-influxdb3
+  version: "3.8.3"  # renovate: datasource=github-releases depName=influxdata/influxdb
+  epoch: 0
+  description: InfluxDB 3 Core time series database
+  copyright:
+    - license: MIT OR Apache-2.0
+  resources:
+    cpu: "22"
+    memory: 36Gi
+  test-resources:
+    cpu: "1"
+  dependencies:
+    runtime:
+      - python-3.13
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - clang
+      - cmake
+      - git
+      - openssl-dev
+      - pkgconf
+      - protobuf-dev
+      - protoc
+      - python-3.13-dev
+      - rust-1.95
+      - zlib-dev
+  environment:
+    PYO3_PYTHON: /usr/bin/python3.13
+    # Replaces .cargo/config.toml rustflags so one portable build serves amd64
+    # and arm64: upstream's x86_64 block also forces lld and target-cpu=haswell.
+    RUSTFLAGS: --cfg tokio_unstable
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/influxdata/influxdb
+      tag: v${{package.version}}
+      expected-commit: 73f689bb31d5ca13c4f950fefb40d5f6e6163019
+  # cargo/remediate cannot run here: omnibump aborts on the git-sourced
+  # datafusion fork and influxdb3_core crates ("datafusion_util ... is not a
+  # known workspace member"), so the advisory fixes below are explicit. Each
+  # pin is the lowest release grype or cargo-audit reports as fixed.
+  - runs: |
+      set -eu
+      # Upstream pins tokio-rustls 0.25 (rustls 0.22, rustls-webpki 0.102) and
+      # pyo3 0.27; both have fixed releases reachable without source changes.
+      grep -q '^pyo3 = { version = "0.27.2"' Cargo.toml
+      grep -q '^tokio-rustls = { version = "0.25"' Cargo.toml
+      sed -i 's/^pyo3 = { version = "0.27.2"/pyo3 = { version = "${{vars.pyo3}}"/' Cargo.toml
+      sed -i 's/^tokio-rustls = { version = "0.25"/tokio-rustls = { version = "=${{vars.tokio-rustls}}"/' Cargo.toml
+      cargo update --workspace
+      cargo update -p pyo3 --precise ${{vars.pyo3}}
+      cargo update -p quinn-proto@0.11.13 --precise 0.11.18  # renovate: datasource=crate depName=quinn-proto
+      cargo update -p lz4_flex@0.11.5 --precise 0.11.6  # renovate: datasource=crate depName=lz4_flex
+      cargo update -p rustls@0.23.36 --precise 0.23.46  # renovate: datasource=crate depName=rustls
+      cargo update -p serde_with@3.16.1 --precise 3.21.0  # renovate: datasource=crate depName=serde_with
+      cargo update -p rand@0.8.5 --precise 0.8.6  # renovate: datasource=crate depName=rand
+      cargo update -p rand@0.9.2 --precise 0.9.3  # renovate: datasource=crate depName=rand
+      cargo update -p h2@0.4.13 --precise 0.4.16  # renovate: datasource=crate depName=h2
+  # thrift 0.17 is pinned by parquet 55 and influxdb3_core; no release of
+  # either accepts the fixed thrift, so patch them (see thrift-floor.py).
+  - runs: |
+      set -eu
+      python3.13 thrift-floor.py ${{vars.thrift}}
+      cargo update --workspace
+  - runs: |
+      cargo auditable build --release --locked --package influxdb3
+      install -m755 -D target/release/influxdb3 "${{targets.destdir}}/usr/bin/influxdb3"
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: /usr/bin/influxdb3 --version | grep -F "${{package.version}}"
+
+vars:
+  pyo3: "0.29.3"  # renovate: datasource=crate depName=pyo3
+  thrift: "0.23.0"  # renovate: datasource=crate depName=thrift
+  tokio-rustls: "0.26.4"  # renovate: datasource=crate depName=tokio-rustls
