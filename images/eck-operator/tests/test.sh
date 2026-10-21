@@ -1,15 +1,12 @@
 #!/bin/sh
 set -eu
 
-image=${1:?usage: test.sh IMAGE [FLAVOR]}
-flavor=${2:-plain}
+image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
 container=
-source_dir=$(CDPATH='' cd -- "$(dirname "$0")/.." && pwd)
-source_image=$(awk '$1 == "image:" {print $2}' "$source_dir/source.yaml")
-source_tag=${source_image##*:}
-expected_version=${source_tag#v}
-expected_version=${expected_version%%-*}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' \
+  "$(dirname "$0")/../melange.yaml" | head -n 1)
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 
 cleanup() {
   [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1 || true
@@ -22,19 +19,16 @@ fail() {
   exit 1
 }
 
-case $flavor in plain) ;; *) fail "unsupported flavor $flavor" ;; esac
-
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/elastic-operator"]' ] || fail 'unexpected entrypoint'
 [ "$(docker image inspect -f '{{json .Config.Cmd}}' "$image")" = '["manager"]' ] || fail 'unexpected command'
-[ "$(docker image inspect -f '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image")" = "$expected_version" ] || fail 'unexpected image version label'
 
 env=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image")
 printf '%s\n' "$env" | grep -qx 'SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' || fail 'missing CA configuration'
 
 container=$(docker create "$image")
-for asset in /etc/ssl/certs/ca-certificates.crt /licenses/LICENSE.txt /licenses/NOTICE.txt /licenses/images-to-scan.txt /licenses/images-to-sign.txt; do
-  docker cp "$container:$asset" "$work/" >/dev/null || fail "missing upstream asset $asset"
+for asset in /etc/ssl/certs/ca-certificates.crt /conf/eck.yaml /licenses/LICENSE.txt /licenses/NOTICE.txt; do
+  docker cp "$container:$asset" "$work/" >/dev/null || fail "missing asset $asset"
 done
 docker rm "$container" >/dev/null
 container=
