@@ -40,8 +40,8 @@ pipeline:
       go-package: go-1.26
       ldflags: |
         -X github.com/elastic/cloud-on-k8s/v3/pkg/about.version=${{package.version}}
-        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildHash=386c7b14
-        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildDate=2026-08-04T08:29:12Z
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildHash=$(git rev-parse --short=8 HEAD)
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildDate=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
         -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildSnapshot=false
   - runs: |
       mv "${{targets.destdir}}/usr/bin/elastic-operator" "${{targets.destdir}}/elastic-operator"
