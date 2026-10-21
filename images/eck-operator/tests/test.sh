@@ -15,6 +15,9 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 fail() {
+  for log in "$work"/*.log; do
+    [ ! -f "$log" ] || { printf '== %s\n' "$log" >&2; cat "$log" >&2; }
+  done
   printf '%s\n' "$1" >&2
   exit 1
 }
