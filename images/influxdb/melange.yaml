@@ -40,6 +40,11 @@ environment:
     # Replaces .cargo/config.toml rustflags so one portable build serves amd64
     # and arm64: upstream's x86_64 block also forces lld and target-cpu=haswell.
     RUSTFLAGS: --cfg tokio_unstable
+    # Upstream's release profile uses fat LTO, a single-threaded link step that
+    # took 4h08m of the 4h43m arm64 build under QEMU (x86_64 takes 28m). Thin LTO
+    # parallelizes it and keeps the build inside the publish job timeout.
+    CARGO_PROFILE_RELEASE_LTO: thin
+    CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
 
 pipeline:
   - uses: git-checkout
