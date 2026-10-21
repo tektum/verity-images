@@ -23,10 +23,10 @@ environment:
 
 paths:
   - path: /elastic-operator
-    type: symlink
-    source: /usr/bin/elastic-operator
+    type: permissions
     uid: 0
     gid: 0
+    permissions: 0o755
 
 annotations:
   org.opencontainers.image.source: https://github.com/elastic/cloud-on-k8s
