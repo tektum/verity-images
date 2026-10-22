@@ -46,6 +46,7 @@ jobs:
       contents: read
     outputs:
       images: ${{ steps.generate.outputs.images }}
+      native: ${{ steps.native.outputs.images }}
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -91,12 +92,65 @@ jobs:
           fi
           printf 'images=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
 
+      - name: Select source-built images
+        id: native
+        shell: bash
+        env:
+          IMAGES: ${{ steps.generate.outputs.images }}
+        run: |
+          native=$(jq -c '{include: [.include[] | select(.source_built)]}' <<<"$IMAGES")
+          printf 'images=%s\n' "$native" >> "$GITHUB_OUTPUT"
+
+  native-arm64:
+    if: >-
+      github.event_name != 'merge_group' &&
+      fromJSON(needs.matrix.outputs.native).include[0] != null
+    needs: matrix
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-native-arm64-${{ strategy.job-index }}/family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
+    timeout-minutes: 300
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.matrix.outputs.native) }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install native melange
+        shell: bash
+        run: scripts/install_image_tools.sh apk
+
+      - name: Build arm64 packages
+        shell: bash
+        env:
+          BUILD_NAME: ${{ matrix.build_name }}
+          CONTEXT: ${{ matrix.context }}
+          FLAVOR: ${{ matrix.flavor }}
+          NATIVE_ARM64_ONLY: "true"
+          TRACK: ${{ matrix.track }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          [[ "$(uname -m)" == aarch64 ]]
+          scripts/build_candidate.sh "$CONTEXT" "$BUILD_NAME" "$FLAVOR" "$TRACK" "$VERSION"
+
+      - name: Upload arm64 packages
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}
+          path: dist/${{ matrix.build_name }}/packages
+          retention-days: 1
+          if-no-files-found: error
+
   validate:
     if: >-
+      !cancelled() && needs.matrix.result == 'success' &&
       github.event_name != 'merge_group' &&
       github.ref != 'refs/heads/main' &&
       fromJSON(needs.matrix.outputs.images).include[0] != null
-    needs: matrix
+    needs: [matrix, native-arm64]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
     permissions:
       contents: read
@@ -108,6 +162,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Download native arm64 packages
+        if: matrix.source_built
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}
+          path: native-arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
@@ -132,6 +193,7 @@ jobs:
           BUILD_NAME: ${{ matrix.build_name }}
           CONTEXT: ${{ matrix.context }}
           FLAVOR: ${{ matrix.flavor }}
+          PREBUILT_ARM64: ${{ matrix.source_built && 'native-arm64' || '' }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
         run: |
@@ -190,7 +252,7 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: read
@@ -219,10 +281,11 @@ jobs:
 
   publish:
     if: >-
+      !cancelled() && needs.matrix.result == 'success' &&
       github.ref == 'refs/heads/main' &&
       github.event_name != 'pull_request' &&
       fromJSON(needs.matrix.outputs.images).include[0] != null
-    needs: matrix
+    needs: [matrix, native-arm64]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-publish-${{ strategy.job-index }}/family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/extras=otel/spot=false  # yamllint disable-line rule:line-length
     timeout-minutes: 300
     permissions:
@@ -242,6 +305,13 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+
+      - name: Download native arm64 packages
+        if: matrix.source_built
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+        with:
+          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}
+          path: native-arm64
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
@@ -266,6 +336,7 @@ jobs:
           BUILD_NAME: ${{ matrix.build_name }}
           CONTEXT: ${{ matrix.context }}
           FLAVOR: ${{ matrix.flavor }}
+          PREBUILT_ARM64: ${{ matrix.source_built && 'native-arm64' || '' }}
           TRACK: ${{ matrix.track }}
           VERSION: ${{ matrix.version }}
         run: |

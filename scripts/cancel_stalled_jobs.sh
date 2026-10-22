@@ -7,13 +7,13 @@ stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 now=$(date -u +%s)
 
 jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
-  jq '[.[].jobs[]] | map(select(.name | test("^(validate|publish) \\(")))')
+  jq '[.[].jobs[]] | map(select(.name | test("^(native-arm64|validate|publish) \\(")))')
 
 # The caller only starts this script once matrix has produced at least one
 # image, so an empty result here means the API hasn't caught up with the
-# newly created validate/publish jobs yet, not that none exist. Treat that
-# as pending too, or a lagging first poll could report DONE before those
-# jobs are even visible.
+# newly created native-arm64/validate/publish jobs yet, not that none exist.
+# Treat that as pending too, or a lagging first poll could report DONE before
+# those jobs are even visible.
 if [[ "$(jq 'length' <<<"$jobs")" -eq 0 ]]; then
   exit 42
 fi
@@ -45,11 +45,15 @@ while IFS= read -r job; do
     "$name" "$id" "$age_minutes"
 done < <(jq -c '.[]' <<<"$jobs")
 
-# Exit 0 once every watched job is terminal; exit 42 while any remain so the
-# caller keeps polling. Annotations above still go to stdout for GitHub to
-# render, so the exit code (not stdout) is the only pending/done signal, and
-# 42 is reserved so a genuine script failure (any other non-zero status)
-# still aborts the caller's loop instead of being retried forever.
-if [[ "$pending" == true ]]; then
+# Exit 0 once every watched job is terminal and a validate/publish row has been
+# seen; exit 42 while any remain or none exist yet. validate/publish need
+# native-arm64, so their rows appear only after the slowest native compile, and
+# an all-terminal native set must not end the watch before they exist. Annotations
+# above still go to stdout for GitHub to render, so the exit code (not stdout) is
+# the only pending/done signal, and 42 is reserved so a genuine script failure
+# (any other non-zero status) still aborts the caller's loop instead of being
+# retried forever.
+rows=$(jq 'map(select(.name | test("^(validate|publish) \\("))) | length' <<<"$jobs")
+if [[ "$pending" == true || "$rows" -eq 0 ]]; then
   exit 42
 fi

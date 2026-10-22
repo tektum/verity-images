@@ -1017,6 +1017,42 @@ def main() -> None:
     assert runner(dashboard_job) == "ubuntu-latest"
     assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
 
+    # The arm64 compile is the only emulation-heavy step; it runs natively and
+    # hands signed packages to the per-image jobs. A failed native row must leave
+    # its image row to fail on the missing artifact, never skip unrelated images.
+    native_job = between(workflow, "\n  native-arm64:\n", "\n  validate:\n")
+    assert runner(native_job) == (
+        f"{RUNS_ON_PREFIX}native-arm64-${{{{ strategy.job-index }}}}/"
+        "family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=100gb:gp3/"
+        "extras=otel/spot=false"
+    )
+    assert "    needs: matrix\n" in native_job
+    assert "fromJSON(needs.matrix.outputs.native).include[0] != null" in native_job
+    assert "github.event_name != 'merge_group' &&" in native_job
+    assert "      fail-fast: false\n" in native_job
+    assert "scripts/install_image_tools.sh apk\n" in native_job
+    assert '          NATIVE_ARM64_ONLY: "true"\n' in native_job
+    assert '[[ "$(uname -m)" == aarch64 ]]\n' in native_job
+    assert "\n    permissions:\n      contents: read\n" in native_job
+    assert "id-token" not in native_job and "packages: write" not in native_job
+    assert "qemu" not in native_job.lower()
+    assert "name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n" in native_job
+    assert "select(.source_built)" in matrix_job
+    download_step = (
+        "      - name: Download native arm64 packages\n"
+        "        if: matrix.source_built\n"
+        "        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1\n"
+        "        with:\n"
+        "          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n"
+        "          path: native-arm64\n"
+    )
+    for consumer in (validate_job, publish_job):
+        assert "    needs: [matrix, native-arm64]\n" in consumer
+        assert "      !cancelled() && needs.matrix.result == 'success' &&\n" in consumer
+        assert download_step in consumer
+        assert "          PREBUILT_ARM64: ${{ matrix.source_built && 'native-arm64' || '' }}\n" in consumer
+        assert consumer.index(download_step) < consumer.index("      - name: Build candidate\n")
+
     assert "needs: matrix\n" in stall_guard_job
     assert (
         "\n    permissions:\n"
@@ -1024,7 +1060,8 @@ def main() -> None:
         "      contents: read\n"
         in stall_guard_job
     )
-    assert "\n    timeout-minutes: 50\n" in stall_guard_job
+    # validate/publish rows exist only after the slowest native-arm64 compile (up to 300 minutes).
+    assert "\n    timeout-minutes: 360\n" in stall_guard_job
     assert "github.event_name != 'merge_group' &&" in stall_guard_job
     assert "fromJSON(needs.matrix.outputs.images).include[0] != null" in stall_guard_job
     guard_script = stall_guard_job.split("        run: |\n", maxsplit=1)[1]

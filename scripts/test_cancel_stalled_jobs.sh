@@ -90,6 +90,27 @@ if grep -q '/cancel' "$GH_LOG"; then
   exit 1
 fi
 
+# Every native row is terminal but validate/publish rows do not exist yet: keep
+# watching, or runner starvation of the deferred rows would go unguarded.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [{id: 6, name: "native-arm64 (etcd, images/etcd, desc)", status: "completed", started_at: $started, steps: []}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
+[[ "$status" -eq 42 ]]
+
+# A native row that never got a runner is cancelled like any other watched job.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [{id: 7, name: "native-arm64 (etcd, images/etcd, desc)", status: "queued", started_at: $started, steps: []}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || true)
+grep -Fq 'api -X POST repos/owner/repo/actions/jobs/7/cancel' "$GH_LOG"
+grep -Fq '::error title=Runner allocation stalled::' <<<"$output"
+
 # Completed jobs and unrelated job names never trigger a cancel; nothing left to watch is done.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$stalled_started" \

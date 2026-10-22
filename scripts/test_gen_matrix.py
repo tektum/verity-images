@@ -212,6 +212,27 @@ def check_flavor_only_melange() -> None:
         assert gen_matrix.parse_metadata(metadata).versions == ("1.26",)
 
 
+def check_source_built_flag() -> None:
+    # Only a local melange recipe needs a native arm64 compile job; a flavor
+    # helper recipe applies to its own flavor alone, as in build_candidate.sh.
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        pure = root / "images/pure"
+        write_image(pure, name="pure", versions="1")
+        recipe = root / "images/recipe"
+        write_image(recipe, name="recipe", versions="1", package_version="1.2.3")
+        helper = root / "images/helper"
+        write_image(helper, name="helper", versions="1")
+        (helper / "fips.melange.yaml").write_text("package:\n  name: helper\n", encoding="utf-8")
+        assert not gen_matrix.is_source_built(pure, "plain")
+        assert gen_matrix.is_source_built(recipe, "plain")
+        assert gen_matrix.is_source_built(helper, "fips")
+        assert not gen_matrix.is_source_built(helper, "plain")
+    entries = gen_matrix.generate(None)["include"]
+    assert any(entry["source_built"] for entry in entries)
+    assert not any(entry["source_built"] for entry in entries if entry["track"] == "patched")
+
+
 def check_published_gap_selection() -> None:
     # `--published` rebuilds an identity the catalog does not carry yet, so a
     # version-authority change cannot wait for an unrelated image push.
@@ -501,6 +522,7 @@ def main() -> None:
     check_source_bump_matrix()
     check_major_tag()
     check_flavor_only_melange()
+    check_source_built_flag()
     check_published_gap_selection()
     check_authority_drift()
     check_apk_repository_consumers()
