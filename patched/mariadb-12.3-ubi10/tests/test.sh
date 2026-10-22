@@ -78,6 +78,11 @@ wait_ready() {
 docker image inspect --format '{{json .Config.Entrypoint}}' "$image" | grep -q 'docker-entrypoint.sh'
 docker image inspect --format '{{range $path, $_ := .Config.Volumes}}{{println $path}}{{end}}' "$image" | grep -qx /var/lib/mysql
 docker run --rm --entrypoint sh "$image" -c 'test "$(id -u mysql)" = 999'
+# The compromised eMudhra roots must be blocklisted and absent from the trust anchors and bundle.
+docker run --rm --entrypoint sh "$image" -c '
+  ! trust list --filter=ca-anchors | grep -Eq "label: (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" &&
+  trust list --filter=blocklist | grep -q "label: emSign ECC Root CA - G3" &&
+  ! grep -Eq "^# (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem'
 expect_fail timeout 30 docker run --rm "$image"
 
 mkdir "$tmp/init"
