@@ -1,7 +1,7 @@
 package:
   name: deno
-  version: "2.9.7"
-  epoch: 4
+  version: "2.9.8"  # renovate: datasource=github-releases depName=denoland/deno
+  epoch: 0
   description: A modern runtime for JavaScript and TypeScript.
   copyright:
     - license: MIT
@@ -38,7 +38,7 @@ pipeline:
     with:
       repository: https://github.com/denoland/deno
       tag: v${{package.version}}
-      expected-commit: 0c071246a412575e07423263404a5d13e7ed6aa2
+      expected-commit: fe7ed012d92c642fd8e5607ac5a45d517538b5c5
   - uses: patch
     with:
       patches: rand-pin-bump.patch hickory-0.26.patch
