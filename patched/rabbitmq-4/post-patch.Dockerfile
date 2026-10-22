@@ -43,5 +43,10 @@ RUN set -eux; \
 
 FROM ${BASE}
 COPY --from=openssl-builder /opt/openssl /opt/openssl
+# Copa follows the lagging Trivy report, so upgrade ca-certificates explicitly to
+# drop the compromised eMudhra roots (emSign ECC Root CA - G3, AAA Certificate Services).
+RUN apt-get update \
+ && apt-get install --only-upgrade --no-install-recommends -y ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 RUN openssl version \
  && erl -noshell -eval '[{<<"OpenSSL">>, _, Version}] = crypto:info_lib(), io:format("~s", [Version]).' -s init stop
