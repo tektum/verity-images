@@ -1,0 +1,33 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-eck-operator@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /elastic-operator
+
+cmd: manager
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /elastic-operator
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+
+annotations:
+  org.opencontainers.image.source: https://github.com/elastic/cloud-on-k8s
+  org.opencontainers.image.licenses: Elastic-2.0

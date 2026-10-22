@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
 mkdir -p "$work/bin" "$work/packages" "$work/archive/apk" "$work/repo/scripts" "$work/repo/packages"
 
-version=1.19-r2
+version=1.19-r3
 release_tag=apk-repo-v0006
 asset_name=verity-apk-repository.tar.zst
 tar_bin=$(command -v tar)
@@ -315,25 +315,25 @@ for forbidden in 'go build' 'go mod tidy' 'library/golang' 'tianon/gosu'; do
 done
 
 recipe="$root/packages/gosu/melange.yaml"
-grep -Fq 'epoch: 2' "$recipe"
+grep -Fq 'epoch: 3' "$recipe"
 grep -Fq 'source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513' "$recipe"
 grep -Fq 'expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b' "$recipe"
-grep -Fq 'go-version: go1.27.2' "$recipe"
+grep -Fq 'go-version: go1.27.3' "$recipe"
 grep -Fq 'x-sys-version: v0.44.0' "$recipe"
 grep -Fq 'moby-sys-user-version: v0.4.1' "$recipe"
-grep -Fq 'toolchain_sha256=ecbadb99091a3f46e31f5f934b068b1864eafa7995211b39eaddf76996045fe5' "$recipe"
-grep -Fq 'toolchain_sha256=94f3e30b8e374bc285e7dadc11e0865726b9bc6e85b841ccceaabc0214c6b7c8' "$recipe"
-grep -Fq 'expected=b0b82bb02e5d240534facd299ef1124ec0f220253e05ba4e1b7abfadc2d60d7a' "$recipe"
-grep -Fq 'expected=4001b2743924e7dc43e68685712ab87899b065faaa76b961516a0f87db3c5ba1' "$recipe"
+grep -Fq 'toolchain_sha256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40' "$recipe"
+grep -Fq 'toolchain_sha256=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49' "$recipe"
+grep -Fq 'expected=5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea' "$recipe"
+grep -Fq 'expected=f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69' "$recipe"
 grep -Fq 'go build -mod=readonly -trimpath -buildvcs=false' "$recipe"
 grep -Fq 'GOTOOLCHAIN=local' "$recipe"
 consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie rabbitmq-4"
 for consumer in $consumers; do
   consumer_source="$root/patched/$consumer/source.yaml"
   grep -Fxq "gosu-version: $version" "$consumer_source"
-  grep -Fxq "gosu-amd64-sha256: b0b82bb02e5d240534facd299ef1124ec0f220253e05ba4e1b7abfadc2d60d7a" \
+  grep -Fxq "gosu-amd64-sha256: 5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea" \
     "$consumer_source"
-  grep -Fxq "gosu-arm64-sha256: 4001b2743924e7dc43e68685712ab87899b065faaa76b961516a0f87db3c5ba1" \
+  grep -Fxq "gosu-arm64-sha256: f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69" \
     "$consumer_source"
   [ "$(grep -c '^gosu-' "$consumer_source")" -eq 4 ]
 done

@@ -1,0 +1,70 @@
+package:
+  name: verity-eck-operator
+  version: "3.5.0"  # renovate: datasource=github-releases depName=elastic/cloud-on-k8s
+  epoch: 0
+  description: Elastic Cloud on Kubernetes operator
+  copyright:
+    - license: Elastic-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/elastic/cloud-on-k8s
+      tag: v${{package.version}}
+      expected-commit: 386c7b14f2d1bbb7f2af1e7da997e64875f16e47
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/...
+  - uses: go/build
+    with:
+      packages: ./cmd
+      output: elastic-operator
+      go-package: go-1.26
+      ldflags: |
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.version=${{package.version}}
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildHash=$(git rev-parse --short=8 HEAD)
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildDate=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
+        -X github.com/elastic/cloud-on-k8s/v3/pkg/about.buildSnapshot=false
+  - runs: |
+      mv "${{targets.destdir}}/usr/bin/elastic-operator" "${{targets.destdir}}/elastic-operator"
+      install -Dm644 config/eck.yaml "${{targets.destdir}}/conf/eck.yaml"
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"
+      install -Dm644 NOTICE.txt "${{targets.destdir}}/licenses/NOTICE.txt"
+  - uses: strip
+
+subpackages:
+  - name: verity-eck-operator-build-metadata
+    description: Resolved Go module metadata for the ECK operator build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/eck-operator-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/eck-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        /elastic-operator --help 2>&1 | grep -F 'Elastic Cloud on Kubernetes (ECK) operator'
+        test -s /conf/eck.yaml
+        test -s /licenses/LICENSE.txt
