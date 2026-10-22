@@ -82,6 +82,7 @@ docker run --rm --entrypoint sh "$image" -c 'test "$(id -u mysql)" = 999'
 docker run --rm --entrypoint sh "$image" -c '
   ! trust list --filter=ca-anchors | grep -Eq "label: (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" &&
   trust list --filter=blocklist | grep -q "label: emSign ECC Root CA - G3" &&
+  trust list --filter=blocklist | grep -Eq "label: (AAA Certificate Services|Comodo AAA Services root)\$" &&
   ! grep -Eq "^# (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem'
 expect_fail timeout 30 docker run --rm "$image"
 
