@@ -252,7 +252,7 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: matrix
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 360
     permissions:
       actions: write
       contents: read
