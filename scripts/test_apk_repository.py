@@ -145,8 +145,14 @@ def gosu_tests() -> None:
         "x86_64": hashlib.sha256(third_binary).hexdigest(),
         "aarch64": hashlib.sha256(third_arm_binary).hexdigest(),
     }
+    fourth_binary = elf("x86_64") + b"\3" * 64
+    fourth_arm_binary = elf("aarch64") + b"\3" * 64
+    fourth_digests = {
+        "x86_64": hashlib.sha256(fourth_binary).hexdigest(),
+        "aarch64": hashlib.sha256(fourth_arm_binary).hexdigest(),
+    }
     revisions = apk_repository_policy.GOSU_REVISIONS
-    assert set(revisions) == {"1.19-r0", "1.19-r1", "1.19-r2"}
+    assert set(revisions) == {"1.19-r0", "1.19-r1", "1.19-r2", "1.19-r3"}
     assert revisions["1.19-r0"][1] == {
         "x86_64": "8db7d29ba324c44235b2407ec826f955a7025da25f2832cdab8e0cbcbcbc6025",
         "aarch64": "420aa319c70e55403461e67ea2f1b50159b7b8c07317567c5c62397f2abdc859",
@@ -159,11 +165,16 @@ def gosu_tests() -> None:
         "x86_64": "b0b82bb02e5d240534facd299ef1124ec0f220253e05ba4e1b7abfadc2d60d7a",
         "aarch64": "4001b2743924e7dc43e68685712ab87899b065faaa76b961516a0f87db3c5ba1",
     }
+    assert revisions["1.19-r3"][1] == {
+        "x86_64": "5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea",
+        "aarch64": "f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69",
+    }
     # Fixture digests exercise the policy around the immutable production pins.
     with (
         patch.dict(revisions["1.19-r0"][1], old_digests),
         patch.dict(revisions["1.19-r1"][1], new_digests),
         patch.dict(revisions["1.19-r2"][1], third_digests),
+        patch.dict(revisions["1.19-r3"][1], fourth_digests),
     ):
         info = apk_repository_policy.validate_package(apk_archive.package_info(gosu_package(gosu_payload(old_binary)), "x86_64"))
         assert (info.name, info.version, info.epoch, info.architecture) == ("gosu", "1.19-r0", 0, "x86_64")
@@ -216,6 +227,40 @@ def gosu_tests() -> None:
         rejects_package(
             gosu_package(
                 gosu_payload(new_binary, "1.19-r2"), version="1.19-r2", recipe_vars=GOSU_RECIPE_VARS["1.19-r2"]
+            )
+        )
+        rebuilt = apk_repository_policy.validate_package(
+            apk_archive.package_info(
+                gosu_package(
+                    gosu_payload(fourth_binary, "1.19-r3"), version="1.19-r3", recipe_vars=GOSU_RECIPE_VARS["1.19-r3"]
+                ),
+                "x86_64",
+            )
+        )
+        assert (rebuilt.name, rebuilt.version, rebuilt.epoch, rebuilt.architecture) == ("gosu", "1.19-r3", 3, "x86_64")
+        rebuilt_arm = apk_repository_policy.validate_package(
+            apk_archive.package_info(
+                gosu_package(
+                    gosu_payload(fourth_arm_binary, "1.19-r3"),
+                    "aarch64",
+                    version="1.19-r3",
+                    recipe_vars=GOSU_RECIPE_VARS["1.19-r3"],
+                ),
+                "aarch64",
+            )
+        )
+        assert (rebuilt_arm.version, rebuilt_arm.epoch, rebuilt_arm.architecture) == ("1.19-r3", 3, "aarch64")
+        # The r3 recipe must carry the Go 1.27.3 toolchain, and its binary cannot be relabeled as r2.
+        rejects_package(
+            gosu_package(
+                gosu_payload(fourth_binary, "1.19-r3"),
+                version="1.19-r3",
+                recipe_vars=GOSU_RECIPE_VARS["1.19-r2"],
+            )
+        )
+        rejects_package(
+            gosu_package(
+                gosu_payload(third_binary, "1.19-r3"), version="1.19-r3", recipe_vars=GOSU_RECIPE_VARS["1.19-r3"]
             )
         )
         rejects_package(gosu_package(gosu_payload(old_arm_binary)))
