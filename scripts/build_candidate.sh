@@ -55,7 +55,8 @@ if [[ "$track" == wolfi ]]; then
       --out-dir "${output}/packages" --generate-provenance \
       --pipeline-dir "$root/pipelines")
     # arm64 compiles natively in its own job; its signed packages arrive in
-    # PREBUILT_ARM64 and are trusted through a second, job-local key.
+    # PREBUILT_ARM64 and are trusted through a second, job-local key. apko keys
+    # its keyring by file name, so the two public keys must not share one.
     melange_arches=(amd64 arm64)
     [[ -z "${PREBUILT_ARM64:-}" ]] || melange_arches=(amd64)
     [[ -z "${NATIVE_ARM64_ONLY:-}" ]] || melange_arches=(arm64)
@@ -68,13 +69,13 @@ if [[ "$track" == wolfi ]]; then
       fi
     done
     if [[ -n "${NATIVE_ARM64_ONLY:-}" ]]; then
-      cp "$key.pub" "${output}/packages/melange.rsa.pub"
+      cp "$key.pub" "${output}/packages/melange-arm64.rsa.pub"
       exit
     fi
     keyring=()
     if [[ -n "${PREBUILT_ARM64:-}" ]]; then
       cp -R "${PREBUILT_ARM64}/." "${output}/packages/"
-      keyring=(--keyring-append "${output}/packages/melange.rsa.pub")
+      keyring=(--keyring-append "${output}/packages/melange-arm64.rsa.pub")
     fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=only

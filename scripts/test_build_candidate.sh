@@ -227,7 +227,9 @@ if grep -q -- '--arch amd64' "$MELANGE_LOG"; then
   printf 'native arm64 job compiled amd64\n' >&2
   exit 1
 fi
-[[ -f "$work/dist/native-arm64/packages/melange.rsa.pub" ]]
+[[ -f "$work/dist/native-arm64/packages/melange-arm64.rsa.pub" ]]
+# apko keys its keyring by file name; the exported key must not share the amd64 key's name.
+[[ ! -e "$work/dist/native-arm64/packages/melange.rsa.pub" ]]
 [[ ! -s "$APKO_ARGS_LOG" ]]
 
 # Image job with prebuilt arm64: compile only amd64, merge the arm64 tree, trust its key.
@@ -235,7 +237,7 @@ fi
 : >"$APKO_ARGS_LOG"
 mkdir -p "$work/prebuilt/aarch64"
 : >"$work/prebuilt/aarch64/caddy.apk"
-: >"$work/prebuilt/melange.rsa.pub"
+: >"$work/prebuilt/melange-arm64.rsa.pub"
 (cd "$work" && PATH="$work/bin:$PATH" GITHUB_SHA=test PREBUILT_ARM64="$work/prebuilt" "$script" "$work/caddy" merged plain wolfi 1)
 [[ $(grep -c "^start " "$MELANGE_LOG") -eq 1 ]]
 grep -q -- '--arch amd64' "$MELANGE_LOG"
@@ -244,6 +246,10 @@ if grep -q -- '--arch arm64' "$MELANGE_LOG"; then
   exit 1
 fi
 [[ -f "$work/dist/merged/packages/aarch64/caddy.apk" ]]
-[[ $(grep -c -- '--keyring-append dist/merged/packages/melange.rsa.pub' "$APKO_ARGS_LOG") -eq 2 ]]
+[[ $(grep -c -- '--keyring-append dist/merged/packages/melange-arm64.rsa.pub' "$APKO_ARGS_LOG") -eq 2 ]]
+if grep -q -- '--keyring-append [^ ]*/melange.rsa.pub' "$APKO_ARGS_LOG"; then
+  printf 'prebuilt arm64 key collides with the amd64 key name\n' >&2
+  exit 1
+fi
 grep -q '^lock ' "$APKO_ARGS_LOG"
 grep -q '^build ' "$APKO_ARGS_LOG"
