@@ -73,6 +73,7 @@ pipeline:
       cargo update -p rand@0.8.5 --precise 0.8.6  # renovate: datasource=crate depName=rand
       cargo update -p rand@0.9.2 --precise 0.9.3  # renovate: datasource=crate depName=rand
       cargo update -p h2@0.4.13 --precise 0.4.16  # renovate: datasource=crate depName=h2
+      cargo update -p webpki-roots@1.0.5 --precise 1.0.10  # renovate: datasource=crate depName=webpki-roots
   # thrift 0.17 is pinned by parquet 55 and influxdb3_core; no release of
   # either accepts the fixed thrift, so patch them (see thrift-floor.py).
   - runs: |
