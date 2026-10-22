@@ -47,6 +47,7 @@ COPY --from=openssl-builder /opt/openssl /opt/openssl
 # drop the compromised eMudhra roots (emSign ECC Root CA - G3, AAA Certificate Services).
 RUN apt-get update \
  && apt-get install --only-upgrade --no-install-recommends -y ca-certificates \
+ && dpkg --compare-versions "$(dpkg-query -W -f='${Version}' ca-certificates)" ge 20260816ubuntu0.24.04.1 \
  && rm -rf /var/lib/apt/lists/*
 RUN openssl version \
  && erl -noshell -eval '[{<<"OpenSSL">>, _, Version}] = crypto:info_lib(), io:format("~s", [Version]).' -s init stop
