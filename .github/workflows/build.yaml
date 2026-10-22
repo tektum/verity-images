@@ -137,7 +137,7 @@ jobs:
           scripts/build_candidate.sh "$CONTEXT" "$BUILD_NAME" "$FLAVOR" "$TRACK" "$VERSION"
 
       - name: Upload arm64 packages
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}
           path: dist/${{ matrix.build_name }}/packages
@@ -241,7 +241,7 @@ jobs:
             > "report-${NAME}-${VERSION}.json"
 
       - name: Upload build report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: report-${{ matrix.name }}-${{ matrix.tag_version }}
           path: report-${{ matrix.name }}-${{ matrix.tag_version }}.json
@@ -394,7 +394,7 @@ jobs:
             > "report-${NAME}-${VERSION}.json"
 
       - name: Upload build report
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: report-${{ matrix.name }}-${{ matrix.tag_version }}
           path: report-${{ matrix.name }}-${{ matrix.tag_version }}.json
@@ -496,7 +496,7 @@ jobs:
         if: >-
           always() && github.event_name != 'merge_group' &&
           fromJSON(needs.matrix.outputs.images).include[0] != null && hashFiles('build-report.json') != ''
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9  # v7.0.2
         with:
           name: build-report
           path: build-report.json
