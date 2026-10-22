@@ -46,7 +46,10 @@ if [[ "$track" == wolfi ]]; then
   [[ -f "${context}/${flavor}.melange.yaml" ]] && recipe="${context}/${flavor}.melange.yaml"
   if [[ -f "$recipe" ]]; then
     key_dir=$(mktemp -d)
+    # An APKINDEX signature embeds the signing key's file name and apk resolves
+    # it by that name, so the native arm64 key must be generated under its own.
     key="$key_dir/melange.rsa"
+    [[ -z "${NATIVE_ARM64_ONLY:-}" ]] || key="$key_dir/melange-arm64.rsa"
     config=$(mktemp)
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
     mkdir -p "${output}/packages"
@@ -55,8 +58,7 @@ if [[ "$track" == wolfi ]]; then
       --out-dir "${output}/packages" --generate-provenance \
       --pipeline-dir "$root/pipelines")
     # arm64 compiles natively in its own job; its signed packages arrive in
-    # PREBUILT_ARM64 and are trusted through a second, job-local key. apko keys
-    # its keyring by file name, so the two public keys must not share one.
+    # PREBUILT_ARM64 and are trusted through that job's key, appended to the keyring.
     melange_arches=(amd64 arm64)
     [[ -z "${PREBUILT_ARM64:-}" ]] || melange_arches=(amd64)
     [[ -z "${NATIVE_ARM64_ONLY:-}" ]] || melange_arches=(arm64)

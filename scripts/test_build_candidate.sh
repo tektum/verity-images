@@ -228,7 +228,9 @@ if grep -q -- '--arch amd64' "$MELANGE_LOG"; then
   exit 1
 fi
 [[ -f "$work/dist/native-arm64/packages/melange-arm64.rsa.pub" ]]
-# apko keys its keyring by file name; the exported key must not share the amd64 key's name.
+# An APKINDEX signature embeds the signing key's name, so apko can only resolve the
+# appended key when it was generated under a name distinct from the amd64 key.
+grep -q -- '--signing-key [^ ]*/melange-arm64.rsa ' "$MELANGE_LOG"
 [[ ! -e "$work/dist/native-arm64/packages/melange.rsa.pub" ]]
 [[ ! -s "$APKO_ARGS_LOG" ]]
 
