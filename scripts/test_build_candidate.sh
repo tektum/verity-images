@@ -6,7 +6,7 @@ script="$root/scripts/build_candidate.sh"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir -p "$work/bin"
-export APKO_LOG="$work/apko.log" MELANGE_LOG="$work/melange.log" SYFT_LOG="$work/syft.log"
+export APKO_LOG="$work/apko.log" APKO_ARGS_LOG="$work/apko-args.log" MELANGE_LOG="$work/melange.log" SYFT_LOG="$work/syft.log"
 
 cat >"$work/bin/melange" <<'EOF'
 #!/bin/bash
@@ -34,6 +34,7 @@ EOF
 cat >"$work/bin/apko" <<'EOF'
 #!/bin/bash
 set -euo pipefail
+printf '%s\n' "$*" >>"$APKO_ARGS_LOG"
 case "$1" in
   show-config)
     cat "$2" >>"$APKO_LOG"
@@ -215,3 +216,34 @@ if SYFT_FAIL_ARCH=arm64 run_candidate "$work/caddy" syft-failure plain; then
 fi
 [[ -f "$work/dist/syft-failure/sbom/sbom-amd64.spdx.json" ]]
 [[ ! -e "$work/dist/syft-failure/sbom/sbom-arm64.spdx.json" ]]
+
+# Native arm64 job: compile only arm64, export its job-local public key, stop before apko.
+: >"$MELANGE_LOG"
+: >"$APKO_ARGS_LOG"
+(cd "$work" && PATH="$work/bin:$PATH" GITHUB_SHA=test NATIVE_ARM64_ONLY=true "$script" "$work/caddy" native-arm64 plain wolfi 1)
+[[ $(grep -c "^start " "$MELANGE_LOG") -eq 1 ]]
+grep -q -- '--arch arm64' "$MELANGE_LOG"
+if grep -q -- '--arch amd64' "$MELANGE_LOG"; then
+  printf 'native arm64 job compiled amd64\n' >&2
+  exit 1
+fi
+[[ -f "$work/dist/native-arm64/packages/melange.rsa.pub" ]]
+[[ ! -s "$APKO_ARGS_LOG" ]]
+
+# Image job with prebuilt arm64: compile only amd64, merge the arm64 tree, trust its key.
+: >"$MELANGE_LOG"
+: >"$APKO_ARGS_LOG"
+mkdir -p "$work/prebuilt/aarch64"
+: >"$work/prebuilt/aarch64/caddy.apk"
+: >"$work/prebuilt/melange.rsa.pub"
+(cd "$work" && PATH="$work/bin:$PATH" GITHUB_SHA=test PREBUILT_ARM64="$work/prebuilt" "$script" "$work/caddy" merged plain wolfi 1)
+[[ $(grep -c "^start " "$MELANGE_LOG") -eq 1 ]]
+grep -q -- '--arch amd64' "$MELANGE_LOG"
+if grep -q -- '--arch arm64' "$MELANGE_LOG"; then
+  printf 'image job emulated the prebuilt arm64 compile\n' >&2
+  exit 1
+fi
+[[ -f "$work/dist/merged/packages/aarch64/caddy.apk" ]]
+[[ $(grep -c -- '--keyring-append dist/merged/packages/melange.rsa.pub' "$APKO_ARGS_LOG") -eq 2 ]]
+grep -q '^lock ' "$APKO_ARGS_LOG"
+grep -q '^build ' "$APKO_ARGS_LOG"

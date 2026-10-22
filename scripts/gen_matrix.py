@@ -72,6 +72,7 @@ class MatrixEntry(TypedDict):
     latest: bool
     owner: str
     evidence_file: str
+    source_built: bool
     input_digest: str
 
 
@@ -298,6 +299,11 @@ def uses_apk_repository(directory: Path, flavor: str) -> bool:
 
 
 
+def is_source_built(directory: Path, flavor: str) -> bool:
+    """Whether scripts/build_candidate.sh compiles a local melange recipe for this variant."""
+    return (directory / "melange.yaml").is_file() or (directory / f"{flavor}.melange.yaml").is_file()
+
+
 def uses_go_remediate(directory: Path) -> bool:
     return any("uses: go/remediate" in path.read_text(encoding="utf-8") for path in directory.glob("*melange.yaml"))
 
@@ -507,6 +513,7 @@ def generate(
                     "major": version.split(".")[0] if metadata.major and is_latest else "",
                     "latest": is_latest,
                     "owner": metadata.owner,
+                    "source_built": metadata.track == "wolfi" and is_source_built(directory, flavor),
                     "evidence_file": (
                         f"dist/{build_name}/apko.lock.json"
                         if metadata.track == "wolfi"

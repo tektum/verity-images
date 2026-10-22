@@ -54,7 +54,12 @@ if [[ "$track" == wolfi ]]; then
     melange_args=(--runner docker --signing-key "$key" \
       --out-dir "${output}/packages" --generate-provenance \
       --pipeline-dir "$root/pipelines")
-    for arch in amd64 arm64; do
+    # arm64 compiles natively in its own job; its signed packages arrive in
+    # PREBUILT_ARM64 and are trusted through a second, job-local key.
+    melange_arches=(amd64 arm64)
+    [[ -z "${PREBUILT_ARM64:-}" ]] || melange_arches=(amd64)
+    [[ -z "${NATIVE_ARM64_ONLY:-}" ]] || melange_arches=(arm64)
+    for arch in "${melange_arches[@]}"; do
       if [[ -f "${context}/${flavor}.env" ]]; then
         melange build "$recipe" --arch "$arch" "${melange_args[@]}" \
           --env-file "${context}/${flavor}.env"
@@ -62,6 +67,15 @@ if [[ "$track" == wolfi ]]; then
         melange build "$recipe" --arch "$arch" "${melange_args[@]}"
       fi
     done
+    if [[ -n "${NATIVE_ARM64_ONLY:-}" ]]; then
+      cp "$key.pub" "${output}/packages/melange.rsa.pub"
+      exit
+    fi
+    keyring=()
+    if [[ -n "${PREBUILT_ARM64:-}" ]]; then
+      cp -R "${PREBUILT_ARM64}/." "${output}/packages/"
+      keyring=(--keyring-append "${output}/packages/melange.rsa.pub")
+    fi
     godebug=fips140=off
     [[ "$flavor" == fips ]] && godebug=fips140=only
     sed -e "s|@LOCAL_REPOSITORY@|$(realpath "${output}/packages")|" \
@@ -69,13 +83,14 @@ if [[ "$track" == wolfi ]]; then
       -e "s|@REPOSITORY_KEY@|$root/packages/keys/verity-apk-2026.rsa.pub|" \
       "$template" > "$config"
     apko show-config "$config" >/dev/null
-    apko lock "$config" --arch amd64,arm64 --output "${output}/apko.lock.json"
+    apko lock "$config" --arch amd64,arm64 "${keyring[@]}" --output "${output}/apko.lock.json"
   else
     apko show-config "$config" >/dev/null
     cp "$lockfile" "${output}/apko.lock.json"
+    keyring=()
   fi
   apko build "$config" "$candidate" "${output}/image.tar" \
-    --arch amd64,arm64 --lockfile "${output}/apko.lock.json" --sbom-path "${output}/apko-sbom"
+    --arch amd64,arm64 "${keyring[@]}" --lockfile "${output}/apko.lock.json" --sbom-path "${output}/apko-sbom"
   docker load < "${output}/image.tar"
   for arch in amd64 arm64; do
     syft "docker:${candidate}-${arch}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
