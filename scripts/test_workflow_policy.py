@@ -983,8 +983,8 @@ def main() -> None:
     assert runner(matrix_job) == "ubuntu-latest"
     assert runner(validate_job) == (
         f"{RUNS_ON_PREFIX}validate-${{{{ strategy.job-index }}}}/"
-        "family=c8i.*/cpu=32/ram=64/image=ubuntu24-full-x64/volume=100gb:gp3/"
-        "extras=otel/spot=false"
+        "family=c8i.*+m8i.*/cpu=32/ram=64+128/image=ubuntu24-full-x64/volume=100gb:gp3/"
+        "extras=otel"
     )
     assert "          smoke-before-scan: ${{ matrix.track == 'wolfi' }}\n" in validate_job
     assert "smoke-before-scan:" not in publish_job
@@ -1002,7 +1002,7 @@ def main() -> None:
     assert runner(stall_guard_job) == "ubuntu-latest"
     assert runner(publish_job) == (
         f"{RUNS_ON_PREFIX}publish-${{{{ strategy.job-index }}}}/"
-        "family=c8i+m8i/cpu=32/ram=64/image=ubuntu24-full-x64/volume=200gb:gp3/"
+        "family=c8i.*+m8i.*/cpu=32/ram=64+128/image=ubuntu24-full-x64/volume=200gb:gp3/"
         "extras=otel/spot=false"
     )
     assert runner(build_gate_job) == "ubuntu-latest"
@@ -1023,8 +1023,8 @@ def main() -> None:
     native_job = between(workflow, "\n  native-arm64:\n", "\n  validate:\n")
     assert runner(native_job) == (
         f"{RUNS_ON_PREFIX}native-arm64-${{{{ strategy.job-index }}}}/"
-        "family=c8g+m8g/cpu=32/ram=64/image=ubuntu24-full-arm64/volume=100gb:gp3/"
-        "extras=otel/spot=false"
+        "family=c8g.*+m8g.*/cpu=32/ram=64+128/image=ubuntu24-full-arm64/volume=100gb:gp3/"
+        "extras=otel"
     )
     assert "    needs: matrix\n" in native_job
     assert "fromJSON(needs.matrix.outputs.native).include[0] != null" in native_job
