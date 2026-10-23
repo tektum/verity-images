@@ -1,0 +1,57 @@
+package:
+  name: verity-mariadb-12.3-container
+  # Version of this glue package only. Its first two components carry the
+  # stream channel (12.3); the MariaDB server version comes from the Wolfi
+  # mariadb-12.3 package resolved when the image is built.
+  version: "12.3.0"
+  epoch: 0
+  description: Docker-library healthcheck script and server configuration for the MariaDB 12.3 image
+  copyright:
+    - license: GPL-2.0-only
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - mariadb-12.3-client
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+
+pipeline:
+  # healthcheck.sh is not packaged by Wolfi's mariadb-12.3-oci-entrypoint. This
+  # is the exact docker-library script the 12.3 upstream image ships.
+  - uses: fetch
+    with:
+      uri: "https://raw.githubusercontent.com/MariaDB/mariadb-docker/\
+        d7fd0db865db98973fc4761c5d72ddde30b8c4bd/12.3/healthcheck.sh"
+      expected-sha256: 592f89cb39308f8425693221b0476932918e2f3e451cad39b822e23ea0103ef0
+      extract: false
+  # The upstream UBI image keeps its socket at /run/mariadb/mariadb.sock and
+  # persists that path in the data volume's .my-healthcheck.cnf, so an in-place
+  # upgrade only works when this image uses the same socket.
+  - uses: fetch
+    with:
+      uri: "https://raw.githubusercontent.com/MariaDB/mariadb-docker/\
+        d7fd0db865db98973fc4761c5d72ddde30b8c4bd/12.3-ubi/docker.cnf"
+      expected-sha256: 989ad5eb098c24128dd596394376c7f084afbbaa34ce829bcea8141ada820b48
+      extract: false
+  - runs: |
+      install -Dm755 healthcheck.sh "${{targets.destdir}}/usr/local/bin/healthcheck.sh"
+      install -Dm644 docker.cnf "${{targets.destdir}}/etc/mysql/my.cnf"
+      install -d "${{targets.destdir}}/etc/mysql/conf.d" "${{targets.destdir}}/etc/mysql/mariadb.conf.d"
+
+test:
+  pipeline:
+    - runs: |
+        test -x /usr/local/bin/healthcheck.sh
+        status=0
+        /usr/local/bin/healthcheck.sh --no-such-test 2>/dev/null || status=$?
+        test "$status" -eq 1
+        grep -qx 'socket=/run/mariadb/mariadb.sock' /etc/mysql/my.cnf

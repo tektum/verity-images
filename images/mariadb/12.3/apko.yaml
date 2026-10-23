@@ -1,0 +1,59 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - findutils
+    - gosu
+    - mariadb-12.3
+    - mariadb-12.3-backup
+    - mariadb-12.3-client
+    - mariadb-12.3-oci-entrypoint
+    - tzdata
+    - verity-mariadb-12.3-container@local
+
+accounts:
+  groups:
+    - groupname: mysql
+      gid: 999
+  users:
+    - username: mysql
+      uid: 999
+      gid: 999
+      homedir: /var/lib/mysql
+      shell: /sbin/nologin
+  run-as: mysql
+
+entrypoint:
+  command: docker-entrypoint.sh
+
+cmd: mariadbd
+
+environment:
+  PATH: /usr/local/bin:/usr/bin:/bin
+
+paths:
+  - path: /var/lib/mysql
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /run/mariadb
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o1777
+  - path: /docker-entrypoint-initdb.d
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+
+volumes:
+  - /var/lib/mysql
