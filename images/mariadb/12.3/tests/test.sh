@@ -78,12 +78,24 @@ wait_ready() {
 docker image inspect --format '{{json .Config.Entrypoint}}' "$image" | grep -q 'docker-entrypoint.sh'
 docker image inspect --format '{{range $path, $_ := .Config.Volumes}}{{println $path}}{{end}}' "$image" | grep -qx /var/lib/mysql
 docker run --rm --entrypoint sh "$image" -c 'test "$(id -u mysql)" = 999'
-# The compromised eMudhra roots must be blocklisted and absent from the trust anchors and bundle.
-docker run --rm --entrypoint sh "$image" -c '
-  ! trust list --filter=ca-anchors | grep -Eq "label: (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" &&
-  trust list --filter=blocklist | grep -q "label: emSign ECC Root CA - G3" &&
-  trust list --filter=blocklist | grep -Eq "label: (AAA Certificate Services|Comodo AAA Services root)\$" &&
-  ! grep -Eq "^# (AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3)\$" /etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem'
+docker image inspect --format '{{.Config.User}}' "$image" | grep -Eqx '999|mysql'
+docker image inspect --format '{{json .Config.Cmd}}' "$image" | grep -qx '\["mariadbd"\]'
+# The compromised eMudhra roots must be absent from the CA bundle. The bundle
+# carries no labels, so compare the subject of every certificate.
+docker run --rm --entrypoint cat "$image" /etc/ssl/certs/ca-certificates.crt > "$tmp/ca-bundle.crt"
+openssl crl2pkcs7 -nocrl -certfile "$tmp/ca-bundle.crt" | openssl pkcs7 -print_certs -noout > "$tmp/ca-subjects"
+grep -q 'ISRG Root X1' "$tmp/ca-subjects" || {
+  printf 'CA bundle subject listing lacks ISRG Root X1; parsing is broken\n' >&2
+  exit 1
+}
+if grep -Eq 'AAA Certificate Services|Comodo AAA Services root|emSign ECC Root CA - G3' "$tmp/ca-subjects"; then
+  printf 'CA bundle still trusts a compromised eMudhra root\n' >&2
+  exit 1
+fi
+docker run --rm --entrypoint healthcheck.sh "$image" --no-such-test 2>&1 | grep -q "unknown option or test" || {
+  printf 'healthcheck.sh is missing or not runnable\n' >&2
+  exit 1
+}
 expect_fail timeout 30 docker run --rm "$image"
 
 mkdir "$tmp/init"
@@ -135,7 +147,11 @@ app_sql() {
 expect_fail timeout 30 docker exec -e MYSQL_PWD=mysql-root "$primary" mariadb -uroot -Nse 'SELECT 1'
 expect_fail timeout 30 docker exec -e MYSQL_PWD=mysql-user "$primary" mariadb -uapp appdb -Nse 'SELECT 1'
 root_sql 'UPDATE appdb.init_sql SET value = 2'
-root_sql 'INSTALL SONAME "ha_blackhole"; CREATE TABLE appdb.blackhole_test (value INT) ENGINE=BLACKHOLE; INSERT INTO appdb.blackhole_test VALUES (1);'
+# BLACKHOLE is compiled into the Wolfi server, so exercise the engine directly
+# and prove that dynamically loadable plugins install from the plugin directory.
+root_sql 'CREATE TABLE appdb.blackhole_test (value INT) ENGINE=BLACKHOLE; INSERT INTO appdb.blackhole_test VALUES (1);'
+root_sql 'INSTALL SONAME "metadata_lock_info"'
+[ "$(root_sql 'SELECT PLUGIN_STATUS FROM information_schema.PLUGINS WHERE PLUGIN_NAME = "METADATA_LOCK_INFO"')" = ACTIVE ]
 [ "$(root_sql 'SELECT COUNT(*) FROM appdb.blackhole_test')" = 0 ]
 
 docker stop "$primary" >/dev/null
