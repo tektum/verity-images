@@ -329,6 +329,8 @@ grep -Fq 'go build -mod=readonly -trimpath -buildvcs=false' "$recipe"
 grep -Fq 'GOTOOLCHAIN=local' "$recipe"
 consumers="postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie rabbitmq-4"
 for consumer in $consumers; do
+  # A stream migrated to Wolfi no longer carries a patched definition to pin.
+  [ -d "$root/patched/$consumer" ] || continue
   consumer_source="$root/patched/$consumer/source.yaml"
   grep -Fxq "gosu-version: $version" "$consumer_source"
   grep -Fxq "gosu-amd64-sha256: 5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea" \
@@ -337,8 +339,10 @@ for consumer in $consumers; do
     "$consumer_source"
   [ "$(grep -c '^gosu-' "$consumer_source")" -eq 4 ]
 done
-grep -Fxq 'gosu-path: /usr/sbin/gosu' "$root/patched/rabbitmq-4/source.yaml"
+[ ! -d "$root/patched/rabbitmq-4" ] ||
+  grep -Fxq 'gosu-path: /usr/sbin/gosu' "$root/patched/rabbitmq-4/source.yaml"
 for consumer in postgres-15-trixie postgres-16-trixie postgres-17-trixie postgres-18-trixie; do
+  [ -d "$root/patched/$consumer" ] || continue
   grep -Fxq 'gosu-path: /usr/local/bin/gosu' "$root/patched/$consumer/source.yaml"
 done
 
