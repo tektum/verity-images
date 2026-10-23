@@ -47,3 +47,5 @@ pipeline:
 test:
   pipeline:
     - runs: /usr/bin/vector --version | grep -F "vector ${{package.version}}"
+
+# native arm64 timing probe, do not merge
