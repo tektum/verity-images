@@ -27,6 +27,9 @@ test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
 docker image inspect --format '{{range $path, $_ := .Config.Volumes}}{{println $path}}{{end}}' "$image" \
   | grep -qx /var/lib/postgresql/data
 
+# The entrypoint decompresses .sql.gz, .sql.xz and .sql.zst init files with these tools.
+docker run --rm --entrypoint sh "$image" -c 'command -v gunzip && command -v xz && command -v zstd' >/dev/null
+
 # Without a superuser password the entrypoint must refuse to initialize.
 if docker run --rm "$image" >"$tmp/negative.log" 2>&1; then
   cat "$tmp/negative.log"

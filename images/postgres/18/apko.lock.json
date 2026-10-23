@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "apko.yaml",
-    "checksum": "sha256-ZXUpqGq9sZLR2O846ZoCMBX0dIVZ+HILF0fO4de+hhM="
+    "checksum": "sha256-KTSjtHUj1WPz536S8dUxG2Uv9dAw6BlmMsX3xo4wo3g="
   },
   "contents": {
     "keyring": [
@@ -1111,6 +1111,44 @@
         "checksum": "Q1dZWpgGMEOKBaE2SQ3RUJ/k9UP6M="
       },
       {
+        "name": "xz",
+        "url": "https://packages.wolfi.dev/os/x86_64/xz-5.8.4-r0.apk",
+        "version": "5.8.4-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8078",
+          "checksum": "sha1-krKZR0I/kPCVPgULCI8yz9N3BZc="
+        },
+        "data": {
+          "range": "bytes=8079-397389",
+          "checksum": "sha256-rWMi7a6sln2PSDLtPHXB0xj3OqqbkICTnTh0HNR7d24="
+        },
+        "checksum": "Q1krKZR0I/kPCVPgULCI8yz9N3BZc="
+      },
+      {
+        "name": "zstd",
+        "url": "https://packages.wolfi.dev/os/x86_64/zstd-1.5.7-r10.apk",
+        "version": "1.5.7-r10",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7624",
+          "checksum": "sha1-eXP7Zggk0B76FUDf4Yk9cRm6hBw="
+        },
+        "data": {
+          "range": "bytes=7625-654095",
+          "checksum": "sha256-KMAQTI5HK3wu68nlmZP5gCA1vYg0qQjEDDUthhhXdf4="
+        },
+        "checksum": "Q1eXP7Zggk0B76FUDf4Yk9cRm6hBw="
+      },
+      {
         "name": "wolfi-baselayout",
         "url": "https://packages.wolfi.dev/os/aarch64/wolfi-baselayout-20230201-r30.apk",
         "version": "20230201-r30",
@@ -2192,6 +2230,44 @@
           "checksum": "sha256-UZuirLWAzynlSbeFHvOqQ+0CDjrALgMXKVvASjbS+Jg="
         },
         "checksum": "Q1plwLcl4xaxeVuxmHlNAhnO/VBHs="
+      },
+      {
+        "name": "xz",
+        "url": "https://packages.wolfi.dev/os/aarch64/xz-5.8.4-r0.apk",
+        "version": "5.8.4-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-8116",
+          "checksum": "sha1-FUHAkrcEZSBakKOelv4sEd0GHI8="
+        },
+        "data": {
+          "range": "bytes=8117-393428",
+          "checksum": "sha256-QFISSE2DG2GyEGy8MtjVUi6gNTV9UsFuiqh71Yp9upk="
+        },
+        "checksum": "Q1FUHAkrcEZSBakKOelv4sEd0GHI8="
+      },
+      {
+        "name": "zstd",
+        "url": "https://packages.wolfi.dev/os/aarch64/zstd-1.5.7-r10.apk",
+        "version": "1.5.7-r10",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-7653",
+          "checksum": "sha1-zCdDreZm1mcH4bXQiZBK7FNr+XI="
+        },
+        "data": {
+          "range": "bytes=7654-612584",
+          "checksum": "sha256-V6JgsFHuI9JKRlI5NeMAZHjsITZe4Dx0R5cRDqiZx6M="
+        },
+        "checksum": "Q1zCdDreZm1mcH4bXQiZBK7FNr+XI="
       }
     ]
   }
