@@ -38,15 +38,25 @@ if (new Intl.NumberFormat("de-DE").format(1234.56) !== "1.234,56") process.exit(
 require("crypto").createHash("sha256").update("x").digest("hex");
 ' || fail 'ICU or crypto is broken'
 
-# The bundled root store must not carry the roots dropped from the 22.23 line
-# (negative case).
+# Neither root store may carry the roots dropped from the 22.23 line (negative
+# case). tls.rootCertificates is Node's compiled-in snapshot; the build uses
+# --openssl-use-def-ca-store, so TLS verification trusts the system bundle in
+# /etc/ssl/certs, which must be checked as well.
 docker run --rm "$image" -e '
+const fs = require("fs");
 const tls = require("tls");
 const { X509Certificate } = require("crypto");
-const subjects = tls.rootCertificates.map((pem) => new X509Certificate(pem).subject);
-if (subjects.length < 100) { console.error("root store too small: " + subjects.length); process.exit(2); }
-const banned = subjects.filter((s) => /^CN=(emSign ECC Root CA - G3|AAA Certificate Services)$/m.test(s));
-if (banned.length) { console.error("removed roots present:\n" + banned.join("\n")); process.exit(1); }
+const pems = {
+  bundled: tls.rootCertificates,
+  system: fs.readFileSync("/etc/ssl/certs/ca-certificates.crt", "utf8")
+    .match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) || [],
+};
+for (const [store, list] of Object.entries(pems)) {
+  const subjects = list.map((pem) => new X509Certificate(pem).subject);
+  if (subjects.length < 100) { console.error(store + " root store too small: " + subjects.length); process.exit(2); }
+  const banned = subjects.filter((s) => /^CN=(emSign ECC Root CA - G3|AAA Certificate Services)$/m.test(s));
+  if (banned.length) { console.error("removed roots in " + store + " store:\n" + banned.join("\n")); process.exit(1); }
+}
 ' || fail 'root store contains removed roots or is incomplete'
 
 # Unsupported input is rejected with a non-zero status.

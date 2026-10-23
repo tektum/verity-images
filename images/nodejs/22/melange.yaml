@@ -165,6 +165,10 @@ pipeline:
   - uses: strip
 
 test:
+  environment:
+    contents:
+      packages:
+        - busybox
   pipeline:
     - name: Version, npm and corepack
       runs: |
@@ -174,11 +178,21 @@ test:
     - name: Execute JavaScript and Intl
       runs: |
         node -e 'console.log(new Intl.NumberFormat("de-DE").format(1234.56))' | grep -Fx '1.234,56'
-    - name: Bundled root store excludes removed roots
+    - name: Root stores exclude removed roots
       runs: |
         node -e '
-        const tls = require("tls"), crypto = require("crypto");
-        const subjects = tls.rootCertificates.map((pem) => new crypto.X509Certificate(pem).subject);
-        const banned = subjects.filter((s) => /^CN=(emSign ECC Root CA - G3|AAA Certificate Services)$/m.test(s));
-        if (banned.length) { console.error(banned.join("\n")); process.exit(1); }
+        const fs = require("fs");
+        const tls = require("tls");
+        const { X509Certificate } = require("crypto");
+        const pems = {
+          bundled: tls.rootCertificates,
+          system: fs.readFileSync("/etc/ssl/certs/ca-certificates.crt", "utf8")
+            .match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) || [],
+        };
+        for (const [store, list] of Object.entries(pems)) {
+          const subjects = list.map((pem) => new X509Certificate(pem).subject);
+          const re = /^CN=(emSign ECC Root CA - G3|AAA Certificate Services)$/m;
+          const banned = subjects.filter((s) => re.test(s));
+          if (banned.length) { console.error(store + ": " + banned.join("\n")); process.exit(1); }
+        }
         '
