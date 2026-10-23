@@ -133,6 +133,14 @@ Tags are mutable discovery aids. Consumers should pin
 Wolfi images publish for linux/amd64 and linux/arm64. Patched images preserve
 the platforms available from their pinned upstream digest.
 
+Source-built Wolfi images compile their arm64 packages in a separate native arm64
+job of the same `build.yaml` run and commit, then merge them with the amd64
+packages in the image job. The two package sets are signed by distinct ephemeral
+Melange keys that exist only for that run and are never published; apko trusts both
+for the candidate build. This changes where arm64 compiles, not what is published:
+the image index, its signature identity, and the per-platform SBOMs and scans are
+produced and verified exactly as for any other image.
+
 ## Signing identity
 
 Every image index is signed by digest with keyless cosign. The expected Fulcio

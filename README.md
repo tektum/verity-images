@@ -60,6 +60,11 @@ plain and FIPS flavors share one upstream version and preserve the same runtime
 contract. Disabled definitions remain quarantined until their documented
 vulnerability or compatibility blocker is resolved.
 
+Source-built images compile their arm64 packages on a native arm64 runner and
+their amd64 packages on an amd64 runner, then assemble one multi-architecture
+image. This replaced hours of emulated compilation with minutes; see
+[Native arm64 compile](CONTRIBUTING.md#native-arm64-compile).
+
 The patched track starts from a pinned upstream image, scans it with Trivy,
 patches it with Copacetic, and records the residual vulnerability delta. It
 preserves upstream compatibility across linux/amd64 and linux/arm64.
