@@ -1,0 +1,198 @@
+package:
+  name: verity-nodejs-22
+  version: "22.23.4"  # renovate: datasource=github-releases depName=nodejs/node
+  epoch: 0
+  description: Node.js 22 built from the official source release, with npm and corepack.
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "30"
+    memory: 52Gi
+  test-resources:
+    cpu: "2"
+    memory: 2Gi
+
+vars:
+  python-version: "3.13"
+  # npm replaces the copy bundled in the Node.js tarball, whose dependency
+  # tree carries fixable advisories. The overlays below patch the same
+  # packages the patched node-22-slim stream overlays on npm.
+  npm-version: "12.0.2"  # renovate: datasource=npm depName=npm
+  ip-address-version: "10.7.4"  # renovate: datasource=npm depName=ip-address
+  undici-version: "6.28.1"  # renovate: datasource=npm depName=undici
+  brace-expansion-version: "5.0.12"  # renovate: datasource=npm depName=brace-expansion
+  postcss-selector-parser-version: "7.1.6"  # renovate: datasource=npm depName=postcss-selector-parser
+  tar-version: "7.5.22"  # renovate: datasource=npm depName=tar
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - brotli-dev
+      - build-base
+      - busybox
+      - c-ares-dev
+      - ca-certificates-bundle
+      - icu-dev
+      - libuv-dev
+      - linux-headers
+      - nghttp2-dev
+      - openssl-3.6-dev
+      - py${{vars.python-version}}-jinja2
+      - py${{vars.python-version}}-setuptools
+      - python-${{vars.python-version}}-base
+      - samurai
+      - wolfi-base
+      - zlib-dev
+  environment:
+    # V8 relies on null pointer checks being kept; see wolfi-dev/os#34075.
+    CXXFLAGS: -fdelete-null-pointer-checks
+
+pipeline:
+  # The official release tarball. Its SHA-256 is the entry for node-v${version}.tar.gz
+  # in https://nodejs.org/dist/v${version}/SHASUMS256.txt, whose detached
+  # signature (SHASUMS256.txt.asc) verifies against the Node.js release keys.
+  - uses: fetch
+    with:
+      uri: https://nodejs.org/dist/v${{package.version}}/node-v${{package.version}}.tar.gz
+      expected-sha256: 4dd79de8cdc85d65cb32f48a75aee1067bf00bf94b96ecc8e4c2f82f6f0272c2
+
+  # npm registry tarballs, kept as files and unpacked in the install step. The
+  # SHA-256 values are of the registry tarballs; the registry also publishes a
+  # SHA-512 integrity value for each, which was checked when they were pinned.
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/npm/-/npm-${{vars.npm-version}}.tgz
+      expected-sha256: 5dbb86c71d07a1957f2e90734092dd6a58bdcd9ebc2d8d41ca1c6e6a21d364e1
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/ip-address/-/ip-address-${{vars.ip-address-version}}.tgz
+      expected-sha256: f9e1d0dd369c002f43770c6ee35942c8078e76d080a1e18e89113eef865f26ff
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/undici/-/undici-${{vars.undici-version}}.tgz
+      expected-sha256: e18191aac9c0ff43dac7fe9b10b7041a22d07addb7b66a6e8ac14a52a5b69b74
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/brace-expansion/-/brace-expansion-${{vars.brace-expansion-version}}.tgz
+      expected-sha256: ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4
+      extract: false
+
+  - uses: fetch
+    with:
+      # yamllint disable-line rule:line-length
+      uri: https://registry.npmjs.org/postcss-selector-parser/-/postcss-selector-parser-${{vars.postcss-selector-parser-version}}.tgz
+      expected-sha256: 48c903f98c5591d8d26f16f389d5cb3435459474c645209a79f6241bf4b657b6
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/tar/-/tar-${{vars.tar-version}}.tgz
+      expected-sha256: b792c2d1c7fc770910522ca1ffc29eee02ee38de4fa3a01e7832eb705879c6c6
+      extract: false
+
+  - name: Configure and build
+    runs: |
+      # Defines recommended in the libuv readme.
+      common_flags="-D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64"
+      # O2 instead of Os trades about 10% binary size for about 20% speed.
+      export CFLAGS="${CFLAGS/-Os/-O2} $common_flags"
+      export CXXFLAGS="${CXXFLAGS/-Os/-O2} $common_flags"
+      export CPPFLAGS="${CPPFLAGS/-Os/-O2} $common_flags"
+
+      python${{vars.python-version}} configure.py \
+        --prefix=/usr \
+        --shared-brotli \
+        --shared-zlib \
+        --shared-openssl \
+        --shared-cares \
+        --shared-nghttp2 \
+        --shared-libuv \
+        --ninja \
+        --openssl-use-def-ca-store \
+        --with-icu-default-data-dir="$(icu-config --icudatadir)" \
+        --with-intl=system-icu \
+        --openssl-conf-name=openssl_conf
+
+      # A V8 translation unit needs about 2.5 GiB, so cap the job count by
+      # memory as well as by CPU to keep the compile out of the OOM killer.
+      jobs=$(nproc)
+      mem_jobs=$(($(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 2621440))
+      [ "$mem_jobs" -ge "$jobs" ] || jobs=$mem_jobs
+      [ "$jobs" -ge 1 ] || jobs=1
+      make BUILDTYPE=Release JOBS="$jobs"
+
+  - name: Install
+    runs: |
+      make DESTDIR="${{targets.destdir}}" install
+
+      npm_dir="${{targets.destdir}}/usr/lib/node_modules/npm"
+      rm -rf "$npm_dir"
+      mkdir -p "$npm_dir"
+      tar -xzf "npm-${{vars.npm-version}}.tgz" --strip-components=1 -C "$npm_dir"
+      for spec in \
+        "ip-address ${{vars.ip-address-version}}" \
+        "undici ${{vars.undici-version}}" \
+        "brace-expansion ${{vars.brace-expansion-version}}" \
+        "postcss-selector-parser ${{vars.postcss-selector-parser-version}}" \
+        "tar ${{vars.tar-version}}"; do
+        set -- $spec
+        rm -rf "$npm_dir/node_modules/$1"
+        mkdir -p "$npm_dir/node_modules/$1"
+        tar -xzf "$1-$2.tgz" --strip-components=1 -C "$npm_dir/node_modules/$1"
+        [ "$(./out/Release/node -p "require('$npm_dir/node_modules/$1/package.json').version")" = "$2" ]
+      done
+      [ "$(./out/Release/node -p "require('$npm_dir/package.json').version")" = "${{vars.npm-version}}" ]
+
+      rm -rf "${{targets.destdir}}"/usr/include \
+        "${{targets.destdir}}"/usr/share/doc \
+        "${{targets.destdir}}"/usr/share/man \
+        "${{targets.destdir}}"/usr/share/systemtap
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - name: Version, npm and corepack
+      runs: |
+        node --version | grep -Fx "v${{package.version}}"
+        npm --version
+        corepack --version
+    - name: Execute JavaScript and Intl
+      runs: |
+        node -e 'console.log(new Intl.NumberFormat("de-DE").format(1234.56))' | grep -Fx '1.234,56'
+    - name: Root stores exclude removed roots
+      runs: |
+        node -e '
+        const fs = require("fs");
+        const tls = require("tls");
+        const { X509Certificate } = require("crypto");
+        const pems = {
+          bundled: tls.rootCertificates,
+          system: fs.readFileSync("/etc/ssl/certs/ca-certificates.crt", "utf8")
+            .match(/-----BEGIN CERTIFICATE-----[^-]+-----END CERTIFICATE-----/g) || [],
+        };
+        for (const [store, list] of Object.entries(pems)) {
+          const subjects = list.map((pem) => new X509Certificate(pem).subject);
+          const re = /^CN=(emSign ECC Root CA - G3|AAA Certificate Services)$/m;
+          const banned = subjects.filter((s) => re.test(s));
+          if (banned.length) { console.error(store + ": " + banned.join("\n")); process.exit(1); }
+        }
+        '
