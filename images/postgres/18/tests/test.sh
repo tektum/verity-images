@@ -20,6 +20,21 @@ INSERT INTO smoke_marker VALUES ('initialized');
 EOF
 docker volume create "$volume" >/dev/null
 
+test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["docker-entrypoint.sh"]'
+test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["postgres"]'
+test "$(docker image inspect --format '{{.Config.StopSignal}}' "$image")" = SIGINT
+test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
+docker image inspect --format '{{range $path, $_ := .Config.Volumes}}{{println $path}}{{end}}' "$image" \
+  | grep -qx /var/lib/postgresql
+
+# Without a superuser password the entrypoint must refuse to initialize.
+if docker run --rm "$image" >"$tmp/negative.log" 2>&1; then
+  cat "$tmp/negative.log"
+  printf 'image started without POSTGRES_PASSWORD\n' >&2
+  exit 1
+fi
+grep -q 'Database is uninitialized and superuser password is not specified' "$tmp/negative.log"
+
 start() {
   docker run -d --name "$container" \
     -e POSTGRES_PASSWORD_FILE=/run/secrets/password \
@@ -56,6 +71,9 @@ docker exec "$container" sh -c \
   'PGPASSWORD=smoke-password psql -h 127.0.0.1 -U postgres -d postgres -Atqc "SHOW server_version_num"' \
   | grep -q '^18'
 test "$(marker 'SELECT value FROM smoke_marker')" = initialized
+test "$(marker "SELECT datcollate FROM pg_database WHERE datname = 'postgres'")" = en_US.utf8
+marker 'CREATE EXTENSION pgcrypto' >/dev/null
+test "$(marker "SELECT length(encode(digest('x', 'sha256'), 'hex'))")" = 64
 docker stop "$container" >/dev/null
 docker rm "$container" >/dev/null
 

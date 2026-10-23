@@ -1,0 +1,57 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - glibc-locale-en
+    - postgresql-18
+    - postgresql-18-client
+    - postgresql-18-contrib
+    - postgresql-18-oci-entrypoint-compat
+    - tzdata
+
+accounts:
+  groups:
+    - groupname: postgres
+      gid: 999
+  users:
+    - username: postgres
+      uid: 999
+      gid: 999
+      shell: /bin/bash
+      homedir: /var/lib/postgresql
+
+entrypoint:
+  command: docker-entrypoint.sh
+
+cmd: postgres
+
+stop-signal: SIGINT
+
+environment:
+  LANG: en_US.utf8
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  PG_MAJOR: "18"
+  PGDATA: /var/lib/postgresql/18/docker
+
+paths:
+  - path: /var/lib/postgresql
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o1777
+  - path: /var/run/postgresql
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o3777
+  - path: /docker-entrypoint-initdb.d
+    type: directory
+    permissions: 0o755
+
+volumes:
+  - /var/lib/postgresql
