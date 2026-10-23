@@ -195,11 +195,14 @@ if grep -q 'openssl-fips-provider' "$traefik"/{apko.yaml,melange.yaml,metadata.y
   exit 1
 fi
 
-mariadb="$root/patched/mariadb-12.3-ubi10/post-patch.Dockerfile"
-[[ -f "$mariadb" ]]
 grep -Fq 'post-patch.Dockerfile' "$script"
-grep -Fq 'microdnf update -y libarchive p11-kit p11-kit-trust perl-DBI' "$mariadb"
-grep -Fxq 'USER mysql' "$mariadb"
+# A stream migrated to Wolfi no longer carries a patched post-patch definition.
+mariadb="$root/patched/mariadb-12.3-ubi10/post-patch.Dockerfile"
+if [[ -d "$root/patched/mariadb-12.3-ubi10" ]]; then
+  [[ -f "$mariadb" ]]
+  grep -Fq 'microdnf update -y libarchive p11-kit p11-kit-trust perl-DBI' "$mariadb"
+  grep -Fxq 'USER mysql' "$mariadb"
+fi
 
 grep -Fq "docker image history \"\$image\"" "$script"
 grep -Fq "docker image save \"\$image\" --output \"\$archive\"" "$script"
