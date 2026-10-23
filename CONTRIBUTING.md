@@ -164,6 +164,46 @@ An `enabled: false` definition is quarantined work, not supported catalog
 coverage. Record its blocker and unblock condition in the pull request and
 revalidate it before enabling.
 
+### Native arm64 compile
+
+Source-built Wolfi images (any variant with `melange.yaml` or `<flavor>.melange.yaml`)
+compile each architecture on a native runner. Emulated compiles took hours: before
+this change influxdb needed about 2h46m, deno 2h51m, and vector 1h38m for one run;
+their rows now finish in about 9 to 16 minutes.
+
+- `scripts/gen_matrix.py` marks every such row `source_built`. The `matrix` job
+  derives a second matrix from those rows, and the `native-arm64` job runs
+  `scripts/build_candidate.sh` with `NATIVE_ARM64_ONLY=true` on an arm64 runner.
+  It compiles arm64 only, with a job-local ephemeral key, and uploads
+  `dist/<build>/packages` as `native-arm64-<name>-<tag_version>`. It has
+  `contents: read` only and no QEMU.
+- `validate` and `publish` download that artifact, set `PREBUILT_ARM64`, compile
+  amd64 only, merge the arm64 tree into `dist/<build>/packages`, and pass the arm64
+  public key to `apko lock` and `apko build` with `--keyring-append`. apko assembly,
+  SBOMs, scans, smoke tests, signing, provenance, and tag promotion are unchanged.
+- A recipe needs no change. It must build natively on both architectures, so do not
+  hard-code a host architecture or rely on running the other one. Pure APKO and
+  patched rows have no native job.
+- Failures stay per image. A failed or cancelled native row leaves its own image
+  row to fail on the missing artifact; unrelated images in the same run still build
+  and publish. `publish` starts after every native row in the run has finished, so
+  one slow compile delays the others.
+- QEMU remains in `validate` and `publish` only to execute arm64 smoke tests. The
+  patched track still patches arm64 under QEMU.
+- `scripts/cancel_stalled_jobs.sh` also cancels a `native-arm64` row that never got a
+  runner, and stays pending until a `validate` or `publish` row exists. Its job
+  timeout must stay above the native job's 300 minute limit.
+
+Do not give the arm64 key the amd64 key's file name. An APKINDEX signature embeds the
+signing key's file name and apk resolves the key by that name, so the native job
+generates `melange-arm64.rsa` and the image job trusts `melange-arm64.rsa.pub`.
+Copying the public key under another name does not work.
+
+To debug a native failure, open the `native-arm64 (<image>, ...)` job: its
+`Build arm64 packages` step is the same `build_candidate.sh` melange build that the
+image job runs for amd64. If the image row reports `Download native arm64 packages`
+failing, the native row for that image did not produce its artifact.
+
 ### Renovate coverage
 
 Keep external sources in one of these layouts so Renovate can open update pull
