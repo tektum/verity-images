@@ -1,7 +1,7 @@
 package:
   name: cassandra-5.0
   version: "5.0.9"
-  epoch: 15
+  epoch: 16
   description: Open Source NoSQL Database
   copyright:
     - license: Apache-2.0
@@ -22,6 +22,8 @@ vars:
   jack-ann: "2.21"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-annotations versioning=maven
   jackson-core: "2.21.7"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-core versioning=maven
   jack-db: "2.21.7"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
+  # yamllint disable-line rule:line-length
+  guava: "33.7.2-jre"  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
 
 environment:
   contents:
@@ -62,6 +64,7 @@ pipeline:
           ("com.fasterxml.jackson.core", "jackson-annotations"): "${{vars.jack-ann}}",
           ("com.fasterxml.jackson.core", "jackson-core"): "${{vars.jackson-core}}",
           ("com.fasterxml.jackson.core", "jackson-databind"): "${{vars.jack-db}}",
+          ("com.google.guava", "guava"): "${{vars.guava}}",
           ("io.netty", "netty-all"): netty_version,
           ("io.netty", "netty-transport-native-epoll"): netty_version,
       }

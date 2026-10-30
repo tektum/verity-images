@@ -1,7 +1,7 @@
 package:
   name: verity-gradle-9
   version: "9.8.1"  # renovate: datasource=github-releases depName=gradle/gradle
-  epoch: 0
+  epoch: 1
   description: Gradle 9 build system
   copyright:
     - license: Apache-2.0
@@ -15,6 +15,9 @@ package:
   resources:
     cpu: "4"
     memory: 4Gi
+
+vars:
+  guava: 33.7.2-jre  # renovate: datasource=maven depName=com.google.guava:guava versioning=maven
 
 environment:
   contents:
@@ -35,6 +38,17 @@ pipeline:
       expected-sha256: dce76f55f8e251a3a1f130eb120f30b3d271de2b76c9b0729d316b5a1b6dc01f
       extract: false
   - runs: unzip gradle-${{package.version}}-bin.zip
+  - uses: fetch
+    with:
+      uri: https://repo1.maven.org/maven2/com/google/guava/guava/${{vars.guava}}/guava-${{vars.guava}}.jar
+      expected-sha256: b530942257fb935f8b2cfaa5f8eb5bd59c555fd8e8d01b8ce98912e077ea606c
+      extract: false
+  - runs: |
+      lib=gradle-${{package.version}}/lib
+      rm "$lib"/guava-*.jar
+      mv guava-${{vars.guava}}.jar "$lib/"
+      sed -i -e 's/^alias.version=.*/alias.version=${{vars.guava}}/' \
+        -e 's/^jarFile=.*/jarFile=guava-${{vars.guava}}.jar/' "$lib/guava.properties"
   - runs: |
       cd gradle-${{package.version}}
       mkdir -p "${{targets.destdir}}/usr/share/java/gradle" \

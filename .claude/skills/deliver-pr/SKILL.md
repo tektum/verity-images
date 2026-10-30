@@ -35,7 +35,7 @@ Never force-push a bot branch; open a replacement PR or ask the bot to rebase.
 2. Wait for automated reviewers after the final push.
 3. Paginated GraphQL scan of `reviewThreads`. Reply to every thread with the commit that addresses it, or the reason it does not apply. Behavior bugs get a regression test.
 4. Resolve threads you answered. If the tool refuses, report the thread ids; do not work around it.
-5. If `BEHIND`, cancel the obsolete run, rebase once, validate only the current head.
+5. If `BEHIND` and the required up-to-date policy makes it necessary, cancel the obsolete run, rebase once, validate only the current head.
 6. Exit the loop only when checks are green, the head is current, and unresolved threads are zero.
 
 ## 4. Merge approval
@@ -48,7 +48,7 @@ Merge only when all hold:
 - the user asked to merge, or the project instructions require a merged terminal result and the PR is clean.
 
 Merge through the merge queue (`gh pr merge <n> --auto`; the strategy is set by the
-queue). Never use `--admin`, never bypass branch protection on `descope/*`. If
+queue). Never use `--admin`, never bypass branch protection. If
 merge is blocked, report the blocker and stop. Merge prerequisite PRs before
 dependents.
 
