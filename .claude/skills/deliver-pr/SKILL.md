@@ -55,6 +55,7 @@ dependents.
 ## 5. After merge
 
 Verify, then report: GHCR digest, signature, SBOM, provenance, and a public catalog
-entry with the matching source SHA and `fixable=0`. If the `main` publish fails, rely
-on the automatic catch-up before manual recovery. Re-run `clean-images` so nothing
+entry with the matching source SHA and `fixable=0`. If the `main` publish fails, keep
+the catalog source-run failure loud, then rely on the automatic catch-up. Use manual
+delta recovery only when the automatic path cannot complete. Re-run `clean-images` so nothing
 reappears. Archive the agent and workspace only when this task owns them.

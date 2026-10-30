@@ -11,7 +11,7 @@ Get the real error, not the noise (logs include huge metrics charts):
 gh run view --job <job_id> --log-failed | sed 's/^[^\t]*\t[^\t]*\t//' | grep -E '##\[error\]|ERRO|rror:' | head
 ```
 
-Job id is the number after `/job/` in `gh pr checks <n>` links. `./check` needs
+Job id is the number after `/job/` in `gh pr checks <n>` links. For a `main` or monitor run with no PR, use `gh run view <run_id> --json jobs --jq '.jobs[]|select(.conclusion=="failure")|"\(.databaseId) \(.name)"'` to list failed jobs. `./check` needs
 `/nix/var/nix/profiles/default/bin` on PATH if it reports nix missing.
 
 | Symptom | Cause | Action |

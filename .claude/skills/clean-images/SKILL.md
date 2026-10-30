@@ -10,7 +10,7 @@ Read `CONTRIBUTING.md` first. Never admin-merge or bypass branch protection.
 ## Sweep (do all of it, in order)
 
 1. `git fetch origin`. Work from `origin/main`.
-2. Open PRs: `gh pr list --state open --json number,title,headRefName,mergeStateStatus,reviewDecision,author`.
+2. Open PRs: `gh pr list --state open --limit 500 --json number,title,headRefName,mergeStateStatus,reviewDecision,author`.
    For each: merge state, review decision, failing checks. A green PR that only
    lacks review is a report item, not an action.
 3. Monitor, not just PRs: `gh run list --workflow monitor.yaml --limit 3`. Read the
@@ -20,7 +20,7 @@ Read `CONTRIBUTING.md` first. Never admin-merge or bypass branch protection.
    (package, required version, missing architectures); a red run usually means
    blocked findings. Check the dispatched runs and the PRs they open. An image with NO
    open PR can still be failing here; this is where caddy-type problems hide.
-4. Failed `main` builds: `gh run list --workflow build.yaml --branch main`.
+4. Failed `main` builds: `gh run list --workflow build.yaml --branch main --limit 200`.
 5. Classify every failure with `triage-image-failure`, then act.
 6. Re-check: after each fix, confirm the PR opened and list what remains.
 
@@ -33,7 +33,7 @@ Repeat per PR; do not stop at "PR opened".
 3. After the final push wait for automated reviewers. Fetch review threads with a paginated GraphQL scan; reply to every thread, apply valid ones with a regression test for behavior bugs, then resolve. Require zero unresolved threads.
 4. If `main` advanced and up-to-date policy requires it (`BEHIND`), cancel the obsolete run, rebase once, validate only the current head.
 5. Needs a human review: report it, do not self-approve. Merge only through the normal path (merge queue). Never `--admin` or bypass branch protection.
-6. After merge, verify completion: GHCR digest, signature, SBOM, provenance, and a public catalog entry with the matching source SHA and `fixable=0`. If `main` publish fails, rely on the automatic catch-up before manual recovery.
+6. After merge, verify completion: GHCR digest, signature, SBOM, provenance, and a public catalog entry with the matching source SHA and `fixable=0`. If `main` publish fails, keep the catalog source-run failure loud, then rely on the automatic catch-up. Use manual delta recovery only when the automatic path cannot complete.
 7. Follow `deliver-pr` for intent, review loop and merge approval.
 8. Re-run the sweep. Done only when no open PR, monitor summary, or `main` build still reports the image.
 
