@@ -26,3 +26,14 @@
   resources proven to be owned by this task.
 - Never wait on obsolete validation for a `BEHIND` head. Rebase and cancel only
   when GitHub shows that the required up-to-date policy makes it necessary.
+
+# Image cleanup
+
+- For CVE, refresh, or "clean all images" requests use the `clean-images` skill
+  and classify failures with `triage-image-failure` (both under `.claude/skills`).
+- Sweep the daily monitor run and failed `main` builds as well as open pull
+  requests. An image with no open pull request can still fail the gate.
+- Do not force-push bot branches; open a replacement pull request or ask the bot
+  to rebase.
+- If `./check` reports nix missing, add `/nix/var/nix/profiles/default/bin` to
+  `PATH`. Install any other needed tool with mise, never globally.
