@@ -23,7 +23,7 @@ vars:
   # packages the patched node-22-slim stream overlays on npm.
   npm-version: "12.0.2"  # renovate: datasource=npm depName=npm
   ip-address-version: "10.7.4"  # renovate: datasource=npm depName=ip-address
-  undici-version: "6.28.1"  # renovate: datasource=npm depName=undici
+  undici-version: "6.29.1"  # renovate: datasource=npm depName=undici
   brace-expansion-version: "5.0.12"  # renovate: datasource=npm depName=brace-expansion
   postcss-selector-parser-version: "7.1.6"  # renovate: datasource=npm depName=postcss-selector-parser
   tar-version: "7.5.22"  # renovate: datasource=npm depName=tar
@@ -40,7 +40,10 @@ environment:
       - busybox
       - c-ares-dev
       - ca-certificates-bundle
-      - icu-dev
+      # V8 in Node.js 22 aborts in gen-regexp-special-case (`ch <= 0xffff`)
+      # against ICU 79. Stay on ICU 78, which the linked runtime then requires
+      # as libicu78. This is a compatibility ceiling, not a tracked version.
+      - icu-dev<79
       - libuv-dev
       - linux-headers
       - nghttp2-dev
@@ -82,7 +85,7 @@ pipeline:
   - uses: fetch
     with:
       uri: https://registry.npmjs.org/undici/-/undici-${{vars.undici-version}}.tgz
-      expected-sha256: e18191aac9c0ff43dac7fe9b10b7041a22d07addb7b66a6e8ac14a52a5b69b74
+      expected-sha256: 29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f
       extract: false
 
   - uses: fetch
