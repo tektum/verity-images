@@ -34,7 +34,8 @@ Repeat per PR; do not stop at "PR opened".
 4. If `main` advanced and up-to-date policy requires it (`BEHIND`), cancel the obsolete run, rebase once, validate only the current head.
 5. Needs a human review: report it, do not self-approve. Merge only through the normal path (merge queue). Never `--admin` or bypass protection on `descope/*`.
 6. After merge, verify completion: GHCR digest, signature, SBOM, provenance, and a public catalog entry with the matching source SHA and `fixable=0`. If `main` publish fails, rely on the automatic catch-up before manual recovery.
-7. Re-run the sweep. Done only when no open PR, monitor summary, or `main` build still reports the image.
+7. Follow `deliver-pr` for intent, review loop and merge approval.
+8. Re-run the sweep. Done only when no open PR, monitor summary, or `main` build still reports the image.
 
 Merge prerequisites (shared script/workflow PRs) before dependent image PRs.
 
