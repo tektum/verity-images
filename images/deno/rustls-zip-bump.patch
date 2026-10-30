@@ -1,0 +1,38 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 365cdb38..0323db79 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -297,7 +297,7 @@ reqwest = { version = "=0.12.5", default-features = false, features = ["rustls-t
+ rpm = { version = "0.25.1", default-features = false, features = ["payload", "zstd-compression"] }
+ rstest = "0"
+ rusqlite = { version = "0.40.0", features = ["unlock_notify", "bundled", "session", "modern_sqlite", "limits", "backup", "fallible_uint"] } # "modern_sqlite": need sqlite >= 3.49.0 for some db configs; "fallible_uint": ToSql for u64/usize (needed when crates like deno_cache are published/built standalone, not just feature-unified via denokv_sqlite)
+-rustls = { version = "=0.23.40", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] }
++rustls = { version = "=0.23.46", default-features = false, features = ["logging", "std", "tls12", "aws_lc_rs"] } # renovate: datasource=crate depName=rustls versioning=semver
+ rustls-pemfile = "2"
+ rustls-tokio-stream = "=0.8.0"
+ rustls-webpki = "0.103.16"
+@@ -349,7 +349,7 @@ webpki-roots = "1.0.10"
+ which = { version = "8.0.0", default-features = false }
+ yoke = { version = "0.7.4", features = ["derive"] }
+ zeromq = "0.6"
+-zip = { version = "2.4.1", default-features = false, features = ["flate2"] }
++zip = { version = "9.0.5", default-features = false, features = ["deflate-flate2"] } # renovate: datasource=crate depName=zip versioning=semver
+ 
+ opentelemetry = "0.32.0"
+ opentelemetry-http = "0.32.0"
+diff --git a/cli/tools/desktop.rs b/cli/tools/desktop.rs
+index 1ccf7816..961b126b 100644
+--- a/cli/tools/desktop.rs
++++ b/cli/tools/desktop.rs
+@@ -2270,7 +2270,10 @@ fn extract_laufey_archive(
+       // components. Anything that fails this check is a zip-slip attempt
+       // (or a legitimately weird archive we don't want to handle).
+       let Some(rel_path) = entry.enclosed_name() else {
+-        bail!("refusing zip entry with unsafe path: {}", entry.name());
++        bail!(
++          "refusing zip entry with unsafe path: {}",
++          String::from_utf8_lossy(entry.name_raw())
++        );
+       };
+       // Defence in depth — re-check the components ourselves.
+       if rel_path.components().any(|c| {
