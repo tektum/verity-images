@@ -40,7 +40,10 @@ environment:
       - busybox
       - c-ares-dev
       - ca-certificates-bundle
-      - icu-dev
+      # V8 in Node.js 22 aborts in gen-regexp-special-case (`ch <= 0xffff`)
+      # against ICU 79. Stay on ICU 78, which the linked runtime then requires
+      # as libicu78. This is a compatibility ceiling, not a tracked version.
+      - icu-dev<79
       - libuv-dev
       - linux-headers
       - nghttp2-dev
