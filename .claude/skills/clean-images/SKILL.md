@@ -13,13 +13,30 @@ Read `CONTRIBUTING.md` first. Never admin-merge or bypass branch protection.
 2. Open PRs: `gh pr list --state open --json number,title,headRefName,mergeStateStatus,reviewDecision,author`.
    For each: merge state, review decision, failing checks. A green PR that only
    lacks review is a report item, not an action.
-3. Monitor, not just PRs: `gh run list --workflow monitor.yaml --limit 3`. A failed
-   monitor run dispatches exact `build.yaml` rebuilds. List them from the run log
-   (URLs at the tail) and read each one's `##[error]` line. An image with NO open
-   PR can still be failing here; this is where caddy-type problems hide.
+3. Monitor, not just PRs: `gh run list --workflow monitor.yaml --limit 3`. Read the
+   "Finding-aware vulnerability remediation" step summary of every recent run, green
+   or red. It lists exact `build.yaml` rebuilds, queued `apko-lock-refresh.yaml` and
+   `local-package-revision.yaml` proposals, and "Blocked or unsupported findings"
+   (package, required version, missing architectures); a red run usually means
+   blocked findings. Check the dispatched runs and the PRs they open. An image with NO
+   open PR can still be failing here; this is where caddy-type problems hide.
 4. Failed `main` builds: `gh run list --workflow build.yaml --branch main`.
 5. Classify every failure with `triage-image-failure`, then act.
 6. Re-check: after each fix, confirm the PR opened and list what remains.
+
+## Process loop (every PR, until merged)
+
+Repeat per PR; do not stop at "PR opened".
+
+1. Rebase on `origin/main`; run `./check` (add `/nix/var/nix/profiles/default/bin` to PATH if nix is missing). Zero exit required.
+2. Push, then wait for required checks `lint`, `build-gate`, `apk-gate` plus every affected image validation. Read failures with `triage-image-failure`; fix, push, repeat.
+3. After the final push wait for automated reviewers. Fetch review threads with a paginated GraphQL scan; reply to every thread, apply valid ones with a regression test for behavior bugs, then resolve. Require zero unresolved threads.
+4. If `main` advanced and up-to-date policy requires it (`BEHIND`), cancel the obsolete run, rebase once, validate only the current head.
+5. Needs a human review: report it, do not self-approve. Merge only through the normal path (merge queue). Never `--admin` or bypass protection on `descope/*`.
+6. After merge, verify completion: GHCR digest, signature, SBOM, provenance, and a public catalog entry with the matching source SHA and `fixable=0`. If `main` publish fails, rely on the automatic catch-up before manual recovery.
+7. Re-run the sweep. Done only when no open PR, monitor summary, or `main` build still reports the image.
+
+Merge prerequisites (shared script/workflow PRs) before dependent image PRs.
 
 ## Never miss
 
