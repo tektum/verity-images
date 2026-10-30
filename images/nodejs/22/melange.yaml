@@ -82,7 +82,7 @@ pipeline:
   - uses: fetch
     with:
       uri: https://registry.npmjs.org/undici/-/undici-${{vars.undici-version}}.tgz
-      expected-sha256: e18191aac9c0ff43dac7fe9b10b7041a22d07addb7b66a6e8ac14a52a5b69b74
+      expected-sha256: 29c4b8e0b2d86cb8795571c1959012ce057a14ecfd34858335f47c31e770a04f
       extract: false
 
   - uses: fetch
