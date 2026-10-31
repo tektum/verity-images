@@ -1,0 +1,122 @@
+package:
+  name: clickhouse-26.5
+  # yamllint disable-line rule:line-length
+  version: "26.5.7.64"  # renovate: datasource=github-tags depName=ClickHouse/ClickHouse versioning=regex:^v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)(-stable|-lts)?$
+  # The Wolfi security feed fixes CVE-2026-111497 and GHSA-9v8h-qqgm-4m35 in
+  # clickhouse-26.5 26.5.7.64-r5. The fixed build is no longer published, so
+  # this local package keeps the Wolfi name and needs epoch 5 or higher for
+  # 26.5.7.64 to satisfy that fixed version.
+  epoch: 5
+  description: ClickHouse column-oriented database built from the upstream stable release
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    provides:
+      - clickhouse=${{package.full-version}}
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "30"
+    memory: 52Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+vars:
+  clang-version: "21"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - clang-${{vars.clang-version}}
+      - cmake
+      - coreutils
+      - findutils
+      - git
+      - lld-${{vars.clang-version}}
+      - llvm-${{vars.clang-version}}
+      # The upstream builder image assembles isa-l with NASM 2.16. This is a
+      # compatibility ceiling, not a tracked version.
+      - nasm<3
+      - ninja-build
+      - perl
+      - python3
+      - rust-1.95
+      - wolfi-base
+      - yasm
+
+pipeline:
+  # Every bundled third-party library is a pinned submodule of the release tag.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ClickHouse/ClickHouse
+      tag: v${{package.version}}-stable
+      expected-commit: 77a35148bbcdb78cf1a3d47fcea90b593bca671f
+      recurse-submodules: true
+      shallow-submodules: true
+      submodule-jobs: 16
+
+  - name: Configure
+    runs: |
+      # The upstream build refuses inherited compiler flags and supplies its own
+      # hermetic toolchain and sysroot from the source tree.
+      unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+      cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_COMPILER=clang-${{vars.clang-version}} \
+        -DCMAKE_CXX_COMPILER=clang++-${{vars.clang-version}} \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_SYSCONFDIR=/etc \
+        -DCMAKE_INSTALL_LOCALSTATEDIR=/var \
+        -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=ON \
+        -DCOMPILER_CACHE=disabled \
+        -DDISABLE_ALL_DEBUG_SYMBOLS=1 \
+        -DENABLE_TESTS=0 \
+        -DENABLE_THINLTO=0 \
+        -DENABLE_UTILS=0
+
+  - name: Build
+    runs: |
+      unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
+      # The build limits compile and link jobs by available memory itself.
+      cmake --build build --target clickhouse-bundle
+
+  - name: Install
+    runs: |
+      DESTDIR="${{targets.destdir}}" cmake --install build
+      install -d "${{targets.destdir}}"/var/log/clickhouse-server
+      rm -rf "${{targets.destdir}}"/usr/lib/debug
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - name: Version
+      runs: |
+        clickhouse --version | grep -F "${{package.version}}"
+        clickhouse-server --version | grep -F "${{package.version}}"
+        clickhouse-client --version | grep -F "${{package.version}}"
+    - name: Local query
+      runs: |
+        [ "$(clickhouse-local --query 'SELECT 40 + 2')" = 42 ]
+        if clickhouse-local --query 'NOT VALID SQL' 2>err.txt; then
+          echo 'invalid SQL unexpectedly succeeded' >&2
+          exit 1
+        fi
+        grep -qi 'syntax error' err.txt
+    - name: Default server configuration
+      runs: |
+        test -f /etc/clickhouse-server/config.xml
+        test -f /etc/clickhouse-server/users.xml
