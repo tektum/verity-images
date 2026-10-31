@@ -127,7 +127,6 @@ pipeline:
   - name: Install
     runs: |
       DESTDIR="${{targets.destdir}}" cmake --install build
-      install -d "${{targets.destdir}}"/var/log/clickhouse-server
       rm -rf "${{targets.destdir}}"/usr/lib/debug
 
   - uses: strip
