@@ -46,10 +46,10 @@ environment:
       # The upstream builder image assembles isa-l with NASM 2.16. This is a
       # compatibility ceiling, not a tracked version.
       - nasm<3
-      - ninja-build
       - perl
       - python3
       - rust-1.95
+      - samurai
       - wolfi-base
       - yasm
 
