@@ -27,6 +27,12 @@ vars:
   brace-expansion-version: "5.0.12"  # renovate: datasource=npm depName=brace-expansion
   postcss-selector-parser-version: "7.1.6"  # renovate: datasource=npm depName=postcss-selector-parser
   tar-version: "7.5.22"  # renovate: datasource=npm depName=tar
+  # glob 14 needs minimatch 11 and path-scurry 3; minimatch 11 needs
+  # @isaacs/nonrecursive-glob-match. npm still bundles glob 13 and minimatch 10.
+  glob-version: "14.0.3"  # renovate: datasource=npm depName=glob
+  minimatch-version: "11.0.3"  # renovate: datasource=npm depName=minimatch
+  path-scurry-version: "3.0.0"  # renovate: datasource=npm depName=path-scurry
+  nonrecursive-glob-match-version: "1.0.3"  # renovate: datasource=npm depName=@isaacs/nonrecursive-glob-match
 
 environment:
   contents:
@@ -107,6 +113,31 @@ pipeline:
       expected-sha256: b792c2d1c7fc770910522ca1ffc29eee02ee38de4fa3a01e7832eb705879c6c6
       extract: false
 
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/glob/-/glob-${{vars.glob-version}}.tgz
+      expected-sha256: f936d47081e316874bcd0ad9ed38a4275c7a16f5dd3300917231e0030a0acd91
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/minimatch/-/minimatch-${{vars.minimatch-version}}.tgz
+      expected-sha256: 175b2fd9c9d3611e06980341c1be226c7af72b1f414eefb424dca1be9cd9e8ae
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/path-scurry/-/path-scurry-${{vars.path-scurry-version}}.tgz
+      expected-sha256: 28d5862f70595973f00d63bb219083d6ed7a28488685a73a1c3340ba55688675
+      extract: false
+
+  - uses: fetch
+    with:
+      # yamllint disable-line rule:line-length
+      uri: https://registry.npmjs.org/@isaacs/nonrecursive-glob-match/-/nonrecursive-glob-match-${{vars.nonrecursive-glob-match-version}}.tgz
+      expected-sha256: 9c67e29b5fea7f3736c427cf061c81fa0546f3587f397fa303e46c8dbf8e9998
+      extract: false
+
   - name: Configure and build
     runs: |
       # Defines recommended in the libuv readme.
@@ -151,13 +182,71 @@ pipeline:
         "undici ${{vars.undici-version}}" \
         "brace-expansion ${{vars.brace-expansion-version}}" \
         "postcss-selector-parser ${{vars.postcss-selector-parser-version}}" \
-        "tar ${{vars.tar-version}}"; do
+        "tar ${{vars.tar-version}}" \
+        "glob ${{vars.glob-version}}" \
+        "minimatch ${{vars.minimatch-version}}" \
+        "path-scurry ${{vars.path-scurry-version}}" \
+        "@isaacs/nonrecursive-glob-match ${{vars.nonrecursive-glob-match-version}}"; do
         set -- $spec
         rm -rf "$npm_dir/node_modules/$1"
         mkdir -p "$npm_dir/node_modules/$1"
-        tar -xzf "$1-$2.tgz" --strip-components=1 -C "$npm_dir/node_modules/$1"
+        # A scoped tarball is fetched under its unscoped base name.
+        tar -xzf "${1##*/}-$2.tgz" --strip-components=1 -C "$npm_dir/node_modules/$1"
         [ "$(./out/Release/node -p "require('$npm_dir/node_modules/$1/package.json').version")" = "$2" ]
       done
+      # glob 14 and minimatch 11 are outside the ranges npm and its bundled
+      # dependents declare, so `npm ls -g --all` would report them invalid.
+      # Raise each such range to the overlaid version. The rewritten consumers
+      # are pinned below and were checked for APIs that glob 14 and minimatch 11
+      # removed; the build fails if an npm bump changes that set.
+      ./out/Release/node -e '
+      const fs = require("fs");
+      const path = require("path");
+      const [dir, ...names] = process.argv.slice(1);
+      const expected = [
+        "node_modules/@npmcli/arborist/package.json:minimatch",
+        "node_modules/@npmcli/map-workspaces/package.json:glob",
+        "node_modules/@npmcli/map-workspaces/package.json:minimatch",
+        "node_modules/@npmcli/package-json/package.json:glob",
+        "node_modules/@tufjs/models/package.json:minimatch",
+        "node_modules/cacache/package.json:glob",
+        "node_modules/libnpmdiff/package.json:minimatch",
+        "node_modules/npm-packlist/node_modules/ignore-walk/package.json:minimatch",
+        "node_modules/npm-packlist/package.json:glob",
+        "package.json:glob",
+        "package.json:minimatch",
+      ];
+      const rewritten = [];
+      const semver = require(path.join(dir, "node_modules/semver"));
+      const resolve = (from, name) => {
+        for (let d = from; ; d = path.dirname(d)) {
+          const p = path.join(d, "node_modules", name);
+          if (fs.existsSync(p)) return p;
+          if (d === dir) return null;
+        }
+      };
+      for (const f of fs.readdirSync(dir, { recursive: true })) {
+        if (!/^(node_modules\/(@[^/]+\/)?[^/]+\/)*package\.json$/.test(f)) continue;
+        const file = path.join(dir, f);
+        const pkg = JSON.parse(fs.readFileSync(file, "utf8"));
+        const before = rewritten.length;
+        for (const deps of [pkg.dependencies, pkg.optionalDependencies, pkg.peerDependencies]) {
+          for (const name of names) {
+            const top = path.join(dir, "node_modules", name);
+            const { version } = require(path.join(top, "package.json"));
+            if (deps?.[name] && resolve(path.dirname(file), name) === top && !semver.satisfies(version, deps[name])) {
+              deps[name] = "^" + version;
+              rewritten.push(f + ":" + name);
+            }
+          }
+        }
+        if (rewritten.length > before) fs.writeFileSync(file, JSON.stringify(pkg, null, 2) + "\n");
+      }
+      if (rewritten.sort().join(" ") !== expected.join(" ")) {
+        console.error("rewritten npm dependency ranges changed: " + rewritten.join(" "));
+        process.exit(1);
+      }
+      ' "$npm_dir" glob minimatch path-scurry
       [ "$(./out/Release/node -p "require('$npm_dir/package.json').version")" = "${{vars.npm-version}}" ]
 
       rm -rf "${{targets.destdir}}"/usr/include \
@@ -177,6 +266,8 @@ test:
       runs: |
         node --version | grep -Fx "v${{package.version}}"
         npm --version
+        # The overlaid npm dependencies must satisfy the declared ranges.
+        npm ls --global --all >/dev/null
         corepack --version
     - name: Execute JavaScript and Intl
       runs: |

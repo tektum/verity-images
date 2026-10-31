@@ -23,6 +23,8 @@ version=$(docker run --rm "$image" -p process.versions.node)
 # npm and corepack ship with the runtime and must run.
 docker run --rm "$image" /usr/lib/node_modules/npm/bin/npm-cli.js --version >/dev/null || fail 'npm does not run'
 docker run --rm "$image" /usr/lib/node_modules/corepack/dist/corepack.js --version >/dev/null || fail 'corepack does not run'
+docker run --rm "$image" /usr/lib/node_modules/npm/bin/npm-cli.js ls --global --all >/dev/null ||
+  fail 'npm global tree has invalid dependencies'
 docker run --rm "$image" -e '
 const { execFileSync } = require("child_process");
 const fs = require("fs");
