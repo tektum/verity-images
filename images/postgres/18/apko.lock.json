@@ -579,6 +579,25 @@
         "checksum": "Q1gZY9KeWPIWMl4XhKlmOtDt+EYLQ="
       },
       {
+        "name": "libzstd1",
+        "url": "https://packages.wolfi.dev/os/x86_64/libzstd1-1.5.7-r12.apk",
+        "version": "1.5.7-r12",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-15332",
+          "checksum": "sha1-BZiPRxu5HdYxq9AQJxdbIuB4DxU="
+        },
+        "data": {
+          "range": "bytes=15333-647246",
+          "checksum": "sha256-YQAG+3OmtVTsd8Us+q82SDLGH1MlKzIfN8L0+Mej9Us="
+        },
+        "checksum": "Q1BZiPRxu5HdYxq9AQJxdbIuB4DxU="
+      },
+      {
         "name": "libpcre2-8-0",
         "url": "https://packages.wolfi.dev/os/x86_64/libpcre2-8-0-10.49-r1.apk",
         "version": "10.49-r1",
@@ -637,41 +656,22 @@
       },
       {
         "name": "linux-pam",
-        "url": "https://packages.wolfi.dev/os/x86_64/linux-pam-1.7.3-r1.apk",
-        "version": "1.7.3-r1",
+        "url": "https://packages.wolfi.dev/os/x86_64/linux-pam-1.7.3-r3.apk",
+        "version": "1.7.3-r3",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-8798",
-          "checksum": "sha1-MCq2YqYgbkorvMCWB8Ql68MKMiw="
+          "range": "bytes=0-14516",
+          "checksum": "sha1-YJ3caxgPAouNPah2NmEiu+nGk20="
         },
         "data": {
-          "range": "bytes=8799-900683",
-          "checksum": "sha256-RlMyLVhro27WcGomteW+xDXH9LVZCWF40rzK4Ck2UQ0="
+          "range": "bytes=14517-550658",
+          "checksum": "sha256-VlREgiz9HXrrpzA19fNeGBcMbbuoDfxSqOeva18Nikw="
         },
-        "checksum": "Q1MCq2YqYgbkorvMCWB8Ql68MKMiw="
-      },
-      {
-        "name": "libzstd1",
-        "url": "https://packages.wolfi.dev/os/x86_64/libzstd1-1.5.7-r12.apk",
-        "version": "1.5.7-r12",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-15332",
-          "checksum": "sha1-BZiPRxu5HdYxq9AQJxdbIuB4DxU="
-        },
-        "data": {
-          "range": "bytes=15333-647246",
-          "checksum": "sha256-YQAG+3OmtVTsd8Us+q82SDLGH1MlKzIfN8L0+Mej9Us="
-        },
-        "checksum": "Q1BZiPRxu5HdYxq9AQJxdbIuB4DxU="
+        "checksum": "Q1YJ3caxgPAouNPah2NmEiu+nGk20="
       },
       {
         "name": "zlib",
@@ -1036,22 +1036,22 @@
       },
       {
         "name": "libuuid",
-        "url": "https://packages.wolfi.dev/os/x86_64/libuuid-2.42.4-r1.apk",
-        "version": "2.42.4-r1",
+        "url": "https://packages.wolfi.dev/os/x86_64/libuuid-2.42.4-r2.apk",
+        "version": "2.42.4-r2",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-12923",
-          "checksum": "sha1-Iw0G6iqM4Kw9TSzZtsXNj8sabmI="
+          "range": "bytes=0-18726",
+          "checksum": "sha1-RMgxwtEheWi8izRUHv/oGNNwqKA="
         },
         "data": {
-          "range": "bytes=12924-34163",
-          "checksum": "sha256-rgkEkFaGu7+m16HkWyZ4cl9r7uR+fQW6uuQvlfkIJcc="
+          "range": "bytes=18727-39967",
+          "checksum": "sha256-uGJbNiTtZNSh+oG//yOA+GNGTpfRQkVR8RV2ptFYEds="
         },
-        "checksum": "Q1Iw0G6iqM4Kw9TSzZtsXNj8sabmI="
+        "checksum": "Q1RMgxwtEheWi8izRUHv/oGNNwqKA="
       },
       {
         "name": "postgresql-18-contrib-base",
@@ -1719,6 +1719,25 @@
         "checksum": "Q15gVCBS8eVVRSoVyXGLW6FTQsk7M="
       },
       {
+        "name": "libzstd1",
+        "url": "https://packages.wolfi.dev/os/aarch64/libzstd1-1.5.7-r12.apk",
+        "version": "1.5.7-r12",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-15372",
+          "checksum": "sha1-ehf0/gTL5twMf3lqkLKsz+lz2xo="
+        },
+        "data": {
+          "range": "bytes=15373-595495",
+          "checksum": "sha256-B+pV6RirzhiQ1sxHCWQSQsjMQV6k/B19Suh1dfcwPg0="
+        },
+        "checksum": "Q1ehf0/gTL5twMf3lqkLKsz+lz2xo="
+      },
+      {
         "name": "libpcre2-8-0",
         "url": "https://packages.wolfi.dev/os/aarch64/libpcre2-8-0-10.49-r1.apk",
         "version": "10.49-r1",
@@ -1777,41 +1796,22 @@
       },
       {
         "name": "linux-pam",
-        "url": "https://packages.wolfi.dev/os/aarch64/linux-pam-1.7.3-r1.apk",
-        "version": "1.7.3-r1",
+        "url": "https://packages.wolfi.dev/os/aarch64/linux-pam-1.7.3-r3.apk",
+        "version": "1.7.3-r3",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-8818",
-          "checksum": "sha1-66Gf3YxEp1eRFVc3V3b4z75t7s4="
+          "range": "bytes=0-14539",
+          "checksum": "sha1-AQnz2S68tqhpEbg+apmr+mxmoeY="
         },
         "data": {
-          "range": "bytes=8819-972718",
-          "checksum": "sha256-lY99MCyB5AxtNNSRiT1JP+XEsOBkXsB+CHVp99G+CwQ="
+          "range": "bytes=14540-652337",
+          "checksum": "sha256-d1Ed53AsVGNpUXKJ4CoYH8+Izhjy/xVO6CSpFlzEnuU="
         },
-        "checksum": "Q166Gf3YxEp1eRFVc3V3b4z75t7s4="
-      },
-      {
-        "name": "libzstd1",
-        "url": "https://packages.wolfi.dev/os/aarch64/libzstd1-1.5.7-r12.apk",
-        "version": "1.5.7-r12",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-15372",
-          "checksum": "sha1-ehf0/gTL5twMf3lqkLKsz+lz2xo="
-        },
-        "data": {
-          "range": "bytes=15373-595495",
-          "checksum": "sha256-B+pV6RirzhiQ1sxHCWQSQsjMQV6k/B19Suh1dfcwPg0="
-        },
-        "checksum": "Q1ehf0/gTL5twMf3lqkLKsz+lz2xo="
+        "checksum": "Q1AQnz2S68tqhpEbg+apmr+mxmoeY="
       },
       {
         "name": "zlib",
@@ -2176,22 +2176,22 @@
       },
       {
         "name": "libuuid",
-        "url": "https://packages.wolfi.dev/os/aarch64/libuuid-2.42.4-r1.apk",
-        "version": "2.42.4-r1",
+        "url": "https://packages.wolfi.dev/os/aarch64/libuuid-2.42.4-r2.apk",
+        "version": "2.42.4-r2",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-12969",
-          "checksum": "sha1-ISncHZFvTPvNUa2mDkQM/Yqn1xU="
+          "range": "bytes=0-18765",
+          "checksum": "sha1-gRKPSbz5jnlOkE5J1kmDIF+6lxA="
         },
         "data": {
-          "range": "bytes=12970-33980",
-          "checksum": "sha256-KI8UrQdWY+qAAnOlDmEQvSK0xSW3fDH6IEBLwS2N1WM="
+          "range": "bytes=18766-39770",
+          "checksum": "sha256-srd+as1DmbyBwBPD1qvW+CMuFoKGL9w9HOIxH6VFC3Q="
         },
-        "checksum": "Q1ISncHZFvTPvNUa2mDkQM/Yqn1xU="
+        "checksum": "Q1gRKPSbz5jnlOkE5J1kmDIF+6lxA="
       },
       {
         "name": "postgresql-18-contrib-base",
