@@ -48,7 +48,9 @@ environment:
       - nasm<3
       - perl
       - python3
-      - rust-1.95
+      # Upstream pins a nightly from the 1.96 cycle; release builds need no
+      # nightly features.
+      - rust-1.96
       - samurai
       - wolfi-base
       - yasm
@@ -71,8 +73,8 @@ pipeline:
       unset CFLAGS CXXFLAGS CPPFLAGS LDFLAGS
       cmake -S . -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_C_COMPILER=clang-${{vars.clang-version}} \
-        -DCMAKE_CXX_COMPILER=clang++-${{vars.clang-version}} \
+        -DCMAKE_C_COMPILER=clang \
+        -DCMAKE_CXX_COMPILER=clang++ \
         -DCMAKE_INSTALL_PREFIX=/usr \
         -DCMAKE_INSTALL_SYSCONFDIR=/etc \
         -DCMAKE_INSTALL_LOCALSTATEDIR=/var \
