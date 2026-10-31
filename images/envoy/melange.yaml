@@ -87,18 +87,28 @@ pipeline:
         -c opt \
         //source/exe:envoy-static
 
-      install -Dm755 bazel-bin/source/exe/envoy-static "${{targets.destdir}}/usr/bin/envoy"
+      # binutils strip cannot parse the attribute sections lld writes on
+      # aarch64 and leaves the binary unstripped, so strip with LLVM.
+      install -d "${{targets.destdir}}/usr/bin"
+      "$llvm_root/bin/llvm-strip" --strip-unneeded -o "${{targets.destdir}}/usr/bin/envoy" \
+        bazel-bin/source/exe/envoy-static
+      chmod 755 "${{targets.destdir}}/usr/bin/envoy"
       bazel --output_user_root="$HOME/.cache/bazel" shutdown
       rm -rf "$HOME/.cache/bazel"
 
-  - uses: strip
+      # The root-owned checkout is not readable by the host user that reads
+      # back workspace xattrs after the build. Keep only
+      # the default configuration for the config subpackage.
+      cd ..
+      install -Dm644 envoy/configs/envoyproxy_io_proxy.yaml envoyproxy_io_proxy.yaml
+      rm -rf envoy
 
 subpackages:
   - name: ${{package.name}}-config
     description: Default Envoy configuration
     pipeline:
       - runs: |
-          install -Dm644 envoy/configs/envoyproxy_io_proxy.yaml \
+          install -Dm644 envoyproxy_io_proxy.yaml \
             "${{targets.subpkgdir}}/etc/envoy/envoy.yaml"
     test:
       pipeline:
