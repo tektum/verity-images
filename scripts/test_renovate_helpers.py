@@ -352,7 +352,7 @@ def test_self_hosted_renovate() -> None:
     assert "github.ref == 'refs/heads/main'" in workflow
     assert "persist-credentials: false" in workflow
     assert "scripts/install_renovate_apko.sh" in workflow
-    assert "actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1" in workflow
+    assert re.search(r"actions/create-github-app-token@[0-9a-f]{40}  # v\S+\n", workflow)
     assert "app-id: ${{ secrets.APP_ID }}" in workflow
     assert "private-key: ${{ secrets.APP_PEM }}" in workflow
     assert "RENOVATE_TOKEN: ${{ steps.squawk.outputs.token }}" in workflow

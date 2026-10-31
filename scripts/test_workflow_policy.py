@@ -8,6 +8,7 @@
 
 import json
 import os
+import re
 import shlex
 import subprocess
 from dataclasses import replace
@@ -1038,20 +1039,27 @@ def main() -> None:
     assert "qemu" not in native_job.lower()
     assert "name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n" in native_job
     assert "select(.source_built)" in matrix_job
-    download_step = (
-        "      - name: Download native arm64 packages\n"
-        "        if: matrix.source_built\n"
-        "        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1\n"
-        "        with:\n"
-        "          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n"
-        "          path: native-arm64\n"
+    # Dependabot bumps the pinned SHA; enforce pinning, not a specific release.
+    download_step = re.compile(
+        re.escape(
+            "      - name: Download native arm64 packages\n"
+            "        if: matrix.source_built\n"
+            "        uses: actions/download-artifact@"
+        )
+        + r"[0-9a-f]{40}  # v\S+\n"
+        + re.escape(
+            "        with:\n"
+            "          name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n"
+            "          path: native-arm64\n"
+        )
     )
     for consumer in (validate_job, publish_job):
         assert "    needs: [matrix, native-arm64]\n" in consumer
         assert "      !cancelled() && needs.matrix.result == 'success' &&\n" in consumer
-        assert download_step in consumer
+        download = download_step.search(consumer)
+        assert download
         assert "          PREBUILT_ARM64: ${{ matrix.source_built && 'native-arm64' || '' }}\n" in consumer
-        assert consumer.index(download_step) < consumer.index("      - name: Build candidate\n")
+        assert download.start() < consumer.index("      - name: Build candidate\n")
 
     assert "needs: matrix\n" in stall_guard_job
     assert (
