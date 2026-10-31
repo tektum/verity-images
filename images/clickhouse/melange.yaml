@@ -41,6 +41,8 @@ environment:
       - coreutils
       - findutils
       - git
+      # The aarch64 CPU probe runs `grep -P`, which busybox lacks.
+      - grep
       - lld-${{vars.clang-version}}
       - llvm-${{vars.clang-version}}
       # The upstream builder image assembles isa-l with NASM 2.16. This is a
