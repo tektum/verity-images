@@ -2,10 +2,11 @@ package:
   name: clickhouse-26.5
   # yamllint disable-line rule:line-length
   version: "26.5.7.64"  # renovate: datasource=github-tags depName=ClickHouse/ClickHouse versioning=regex:^v?(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)\.(?<build>\d+)(-stable|-lts)?$
-  # The Wolfi security feed fixes CVE-2026-111497 and GHSA-9v8h-qqgm-4m35 in
-  # clickhouse-26.5 26.5.7.64-r5. The fixed build is no longer published, so
-  # this local package keeps the Wolfi name and needs epoch 5 or higher for
-  # 26.5.7.64 to satisfy that fixed version.
+  # CVE-2026-111497 (GHSA-9v8h-qqgm-4m35) is in the bundled Brotli decoder,
+  # which the release tag still pins at 1.0.9. The recipe replaces it with
+  # Brotli 1.2.1 as upstream main does. The Wolfi security feed records the
+  # fix as clickhouse-26.5 26.5.7.64-r5, which is no longer published, so this
+  # package keeps the Wolfi name and uses epoch 5 to match that revision.
   epoch: 5
   description: ClickHouse column-oriented database built from the upstream stable release
   copyright:
@@ -25,6 +26,7 @@ package:
 
 vars:
   clang-version: "21"
+  brotli-version: "1.2.1"  # renovate: datasource=github-tags depName=google/brotli versioning=semver-coerced
 
 environment:
   contents:
@@ -69,6 +71,23 @@ pipeline:
       recurse-submodules: true
       shallow-submodules: true
       submodule-jobs: 16
+
+  # Upstream main moved contrib/brotli to 1.2.1 and extended the source list in
+  # contrib/brotli-cmake (ClickHouse commit a4e1ef85eb4a). The patch is that
+  # source-list change; 1.2.1 only adds the decoder fix on top of 1.2.0.
+  - runs: rm -rf contrib/brotli
+  - uses: git-checkout
+    with:
+      repository: https://github.com/google/brotli
+      tag: v${{vars.brotli-version}}
+      expected-commit: db24a98aed38a16de78cc05ca15cdd8dc2a0d92d
+      destination: contrib/brotli
+  - uses: patch
+    with:
+      patches: brotli-1.2.1.patch
+  - runs: |
+      grep -Fx '#define BROTLI_VERSION_PATCH 1' contrib/brotli/c/common/version.h
+      grep -Fx '#define BROTLI_VERSION_MINOR 2' contrib/brotli/c/common/version.h
 
   # The release tag carries the branch version (26.5.7.1). Upstream release
   # builds stamp the published version, tag, and commit before configuring.
