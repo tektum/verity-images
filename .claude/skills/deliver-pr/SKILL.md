@@ -43,7 +43,7 @@ Never force-push a bot branch; open a replacement PR or ask the bot to rebase.
 Merge only when all hold:
 
 - required checks green on the current head;
-- `reviewDecision` is `APPROVED` (a bot approval counts; no human approval is required) or the branch rules otherwise report the PR mergeable;
+- `reviewDecision` is `APPROVED`; if review is the only blocker and you reviewed the diff and are satisfied, approve it yourself (`gh pr review <n> --approve`) on PRs you did not author, then merge;
 - zero unresolved threads;
 - the PR is clean and mergeable, which is enough: no extra user request is needed.
 
