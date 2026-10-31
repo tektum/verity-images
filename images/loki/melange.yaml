@@ -1,7 +1,7 @@
 package:
   name: loki-3.6
-  version: "3.6.17"
-  epoch: 5  # gRPC security floor
+  version: "3.6.19"  # renovate: datasource=github-releases depName=grafana/loki
+  epoch: 2  # First revision recognized as fixed by the vulnerability feed.
   description: Like Prometheus, but for logs
   copyright:
     - license: AGPL-3.0-only
@@ -17,7 +17,7 @@ package:
     memory: 1Gi
 
 vars:
-  source-commit: 7fa1224d9f01d83656dc4754456a727b7fb572a0
+  source-commit: de41836f1cfe918cc2c053deed98a751a6f639ee
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
 
 environment:
@@ -65,7 +65,7 @@ pipeline:
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.Version=${{package.version}}"
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.Revision=${{vars.source-commit}}"
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildUser=verity"
-      flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildDate=2026-08-27T17:35:40Z"
+      flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildDate=2026-10-20T21:21:42Z"
       go build -mod=readonly -trimpath -tags netgo -ldflags "$flags" \
         -o "${{targets.destdir}}/usr/bin/loki" ./cmd/loki
       actual="$(go version -m "${{targets.destdir}}/usr/bin/loki" \
