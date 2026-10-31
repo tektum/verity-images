@@ -1,0 +1,274 @@
+package:
+  # Keeps Wolfi's package identity so the image contents, the APKO package
+  # references, and the vulnerability feed match stay the same as before.
+  name: postgresql-17
+  version: "17.11"  # renovate: datasource=docker depName=postgres versioning=docker
+  epoch: 0
+  description: PostgreSQL 17 server built from the official source release
+  copyright:
+    - license: PostgreSQL
+  dependencies:
+    provides:
+      - postgresql=${{package.full-version}}
+    runtime:
+      - ${{package.name}}-base=${{package.full-version}}
+      - ecpg-17=${{package.full-version}}
+      - tzdata
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      # PostgreSQL 17 tarballs no longer ship generated parser sources.
+      - bison
+      - build-base
+      - busybox
+      - clang-19
+      - flex
+      - icu-dev
+      - krb5-dev
+      - libedit-dev
+      - libxml2-dev
+      - libxslt-dev
+      - linux-pam-dev
+      - llvm-19-dev
+      - lz4-dev
+      - openldap-2.7-dev
+      - openssl-3.6-dev
+      - perl
+      - pkgconf
+      - util-linux-dev
+      - zlib-dev
+      - zstd-dev
+
+vars:
+  client-tools: >-
+    clusterdb createdb createuser dropdb dropuser pg_amcheck pg_basebackup
+    pg_dump pg_dumpall pg_isready pg_receivewal pg_recvlogical pg_restore
+    pg_verifybackup psql reindexdb vacuumdb
+
+pipeline:
+  # The official release tarball. Its SHA-256 matches the published
+  # postgresql-17.11.tar.bz2.sha256 next to it; tag REL_17_11 in
+  # https://github.com/postgres/postgres resolves to
+  # 083ac033419f690758508e08c1736089384bbee8.
+  - uses: fetch
+    with:
+      uri: https://ftp.postgresql.org/pub/source/v${{package.version}}/postgresql-${{package.version}}.tar.bz2
+      expected-sha256: dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979
+
+  # The docker-library entrypoint the image runs, installed by the
+  # oci-entrypoint-compat subpackage. Same pinned commit and SHA-256 as Wolfi's
+  # postgresql-17-oci-entrypoint-compat; the alpine3.23 and trixie copies of
+  # this script are byte-identical at that commit. It is fetched here because
+  # a fetch inside a subpackage reuses the main source SPDX ID, which apko
+  # rejects as a conflicting SBOM package.
+  - uses: fetch
+    with:
+      uri: "https://raw.githubusercontent.com/docker-library/postgres/\
+        2353f0380c24944616282f94544cec2d462e1e2a/17/alpine3.23/docker-entrypoint.sh"
+      expected-sha256: aa35cfa675a64ac7687909c83a98798c9ff72ab3855722a0d9643e48408b6c12
+      extract: false
+
+  # Debian's per-version layout, as Wolfi's postgresql-17 used: server
+  # modules in /usr/lib/postgresql17 and server headers in
+  # /usr/include/postgresql/17/server.
+  - uses: patch
+    with:
+      patches: per-version-dirs.patch
+
+  - uses: autoconf/configure
+    with:
+      opts: |
+        --bindir=/usr/libexec/postgresql17 \
+        --datadir=/usr/share/postgresql17 \
+        --docdir=/usr/share/doc/postgresql17 \
+        --mandir=/usr/share/postgresql17/man \
+        --with-openssl \
+        --with-libedit-preferred \
+        --with-uuid=e2fs \
+        --with-libxml \
+        --with-libxslt \
+        --with-icu \
+        --with-lz4 \
+        --with-zstd \
+        --with-gssapi \
+        --with-ldap \
+        --with-llvm \
+        LLVM_CONFIG=/usr/lib/llvm-19/bin/llvm-config \
+        CLANG=/usr/lib/llvm-19/bin/clang \
+        --with-pam
+
+  - uses: autoconf/make
+
+  - uses: autoconf/make-install
+
+  - runs: |
+      mkdir -p "${{targets.destdir}}/usr/bin"
+      ln -sf /usr/libexec/postgresql17/postgres "${{targets.destdir}}/usr/bin/postgres17"
+
+      # The upstream image listens on all interfaces by default.
+      sample="${{targets.destdir}}/usr/share/postgresql17/postgresql.conf.sample"
+      sed -ri "s!^#?(listen_addresses)\s*=\s*\S+.*!\1 = '*'!" "$sample"
+      grep -F "listen_addresses = '*'" "$sample"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-dev
+    description: PostgreSQL 17 development files
+    pipeline:
+      - uses: split/dev
+    dependencies:
+      runtime:
+        - ${{package.name}}=${{package.full-version}}
+        - libpq-17=${{package.full-version}}
+
+  - name: ${{package.name}}-client-base
+    description: PostgreSQL 17 client tools
+    dependencies:
+      runtime:
+        - libpq-17=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}/usr/libexec/postgresql17"
+          for binary in ${{vars.client-tools}}; do
+            mv "${{targets.destdir}}/usr/libexec/postgresql17/${binary}" \
+              "${{targets.subpkgdir}}/usr/libexec/postgresql17/${binary}"
+          done
+
+  - name: ${{package.name}}-client
+    description: PostgreSQL 17 client tools on PATH
+    dependencies:
+      provides:
+        - postgresql-client=${{package.full-version}}
+      runtime:
+        - ${{package.name}}-client-base=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}/usr/bin"
+          for binary in ${{vars.client-tools}}; do
+            ln -sf "/usr/libexec/postgresql17/${binary}" "${{targets.subpkgdir}}/usr/bin/${binary}"
+          done
+
+  - name: ${{package.name}}-contrib
+    description: Extension modules distributed with PostgreSQL 17
+    dependencies:
+      provides:
+        - postgresql-contrib=${{package.full-version}}
+      runtime:
+        - libpq-17=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}"
+          make DESTDIR="${{targets.subpkgdir}}" -C contrib install
+      - uses: strip
+
+  - name: libpq-17
+    description: PostgreSQL 17 client library
+    dependencies:
+      provider-priority: 17
+      provides:
+        - libpq=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}/usr/lib"
+          mv "${{targets.destdir}}"/usr/lib/libpq.so* "${{targets.subpkgdir}}/usr/lib/"
+
+  - name: libecpg-17
+    description: PostgreSQL 17 embedded SQL libraries
+    dependencies:
+      provider-priority: 17
+      provides:
+        - libecpg=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}/usr/lib"
+          for library in libecpg libecpg_compat libpgtypes; do
+            mv "${{targets.destdir}}/usr/lib/${library}".so* "${{targets.subpkgdir}}/usr/lib/"
+          done
+
+  - name: ecpg-17
+    description: PostgreSQL 17 embedded SQL preprocessor for C programs
+    dependencies:
+      provider-priority: 17
+      provides:
+        - ecpg=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}/usr/bin"
+          mv "${{targets.destdir}}/usr/libexec/postgresql17/ecpg" "${{targets.subpkgdir}}/usr/bin/"
+
+  - name: postgresql-17-oci-entrypoint-compat
+    description: Docker Hub-compatible entrypoint for PostgreSQL 17
+    dependencies:
+      provides:
+        - postgres-oci-entrypoint-compat=${{package.full-version}}
+      runtime:
+        - bash
+        - gosu
+    pipeline:
+      - runs: |
+          install -Dm755 docker-entrypoint.sh "${{targets.contextdir}}/usr/local/bin/docker-entrypoint.sh"
+
+  # Must stay last: it takes everything the earlier subpackages left behind.
+  - name: ${{package.name}}-base
+    description: PostgreSQL 17 server
+    dependencies:
+      runtime:
+        - libpq-17=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p "${{targets.subpkgdir}}"
+          mv "${{targets.destdir}}"/* "${{targets.subpkgdir}}/"
+
+          execdir=/usr/libexec/postgresql17
+          bindir="${{targets.destdir}}/usr/bin"
+          mkdir -p "$bindir"
+          cd "${{targets.subpkgdir}}${execdir}"
+          for binary in *; do
+            ln -sf "${execdir}/${binary}" "${bindir}/${binary}"
+          done
+
+test:
+  environment:
+    contents:
+      packages:
+        - ${{package.name}}-client
+        - ${{package.name}}-contrib
+        - busybox
+        - shadow
+        - sudo-rs
+    environment:
+      PGDATA: /tmp/pgdata
+  pipeline:
+    - name: Binaries and versions
+      runs: |
+        postgres --version | grep -Fx "postgres (PostgreSQL) ${{package.version}}"
+        psql --version | grep -Fx "psql (PostgreSQL) ${{package.version}}"
+        ecpg --version | grep -Fx "ecpg (PostgreSQL) ${{package.version}}"
+        pg_config --version | grep -Fx "PostgreSQL ${{package.version}}"
+        test "$(readlink /usr/bin/postgres17)" = /usr/libexec/postgresql17/postgres
+        test -f /usr/lib/postgresql17/pgcrypto.so
+        test -f /usr/lib/postgresql17/llvmjit.so
+        grep -F "listen_addresses = '*'" /usr/share/postgresql17/postgresql.conf.sample
+    - name: Server features
+      runs: |
+        useradd pgtest
+        sudo -u pgtest initdb -D "$PGDATA" >/dev/null
+        sudo -u pgtest pg_ctl -D "$PGDATA" -l /tmp/pg.log -o "-k /tmp" -w start
+        q() { sudo -u pgtest psql -h /tmp -d postgres -Atqc "$1"; }
+        q "SHOW server_version" | grep -Fx "${{package.version}}"
+        q "SHOW ssl_library" | grep -Fx OpenSSL
+        q "CREATE EXTENSION pgcrypto"
+        test "$(q "SELECT length(encode(digest('x', 'sha256'), 'hex'))")" = 64
+        q "CREATE EXTENSION \"uuid-ossp\""
+        q "SELECT uuid_generate_v4()" | grep -Eq '^[0-9a-f-]{36}$'
+        q "SELECT xpath('/b/t/text()', '<b><t>ok</t></b>')" | grep -Fx '{ok}'
+        q "SELECT count(*) > 0 FROM pg_collation WHERE collprovider = 'i'" | grep -Fx t
+        q "SET default_toast_compression = 'lz4'; SHOW default_toast_compression" | grep -Fx lz4
+        q "SET jit_above_cost = 0; SELECT pg_jit_available()" | grep -Fx t
+        sudo -u pgtest pg_ctl -D "$PGDATA" -w stop
