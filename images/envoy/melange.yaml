@@ -1,0 +1,121 @@
+package:
+  name: envoy-1.37
+  version: "1.37.11"  # renovate: datasource=github-releases depName=envoyproxy/envoy
+  epoch: 0
+  description: Cloud-native high-performance edge/middle/service proxy
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "30"
+    memory: 56Gi
+  test-resources:
+    cpu: "1"
+    memory: 2Gi
+
+vars:
+  llvm-version: "18"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - bazel-7
+      - binutils
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - clang-${{vars.llvm-version}}
+      - cmake
+      - coreutils
+      - git
+      - go-1.24
+      - libtool
+      - linux-headers
+      - llvm-${{vars.llvm-version}}
+      - llvm-${{vars.llvm-version}}-dev
+      - llvm-libcxx-${{vars.llvm-version}}
+      - llvm-libcxx-${{vars.llvm-version}}-dev
+      - llvm-libcxxabi-${{vars.llvm-version}}
+      - llvm-lld-${{vars.llvm-version}}
+      - nodejs
+      - openjdk-21-default-jdk
+      - patch
+      - python3-dev
+      - samurai
+      - wolfi-baselayout
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/envoyproxy/envoy
+      tag: v${{package.version}}
+      expected-commit: 0ce6eee982e6df4a873b28184b396eeacfad938f
+      destination: envoy
+
+  - working-directory: envoy
+    uses: patch
+    with:
+      patches: ../toolchains-llvm-wolfi.patch
+
+  - runs: |
+      install -Dm644 toolchains_llvm-wolfi-distribution.patch \
+        envoy/bazel/toolchains_llvm-wolfi-distribution.patch
+
+      # toolchains_llvm resolves version-suffixed tool names under the LLVM root.
+      llvm_root=/usr/lib/llvm-${{vars.llvm-version}}
+      ln -sf /usr/bin/llvm-ar /usr/bin/llvm-ar-${{vars.llvm-version}}
+      ln -sf /usr/bin/lld /usr/bin/ld.lld-${{vars.llvm-version}}
+      ln -sf /usr/bin/lld "$llvm_root/bin/ld.lld-${{vars.llvm-version}}"
+
+      cd envoy
+      # The build runs as root, which the rules_python interpreter refuses by default.
+      sed -i 's/^envoy_dependencies_extra()$/envoy_dependencies_extra(ignore_root_user_error=True)/' WORKSPACE
+      grep -qx 'envoy_dependencies_extra(ignore_root_user_error=True)' WORKSPACE
+
+      export CARGO_BAZEL_REPIN=true
+      # liburing is built without builtins and fails to link with
+      # -ftrivial-auto-var-init=zero.
+      bazel --output_user_root="$HOME/.cache/bazel" build \
+        --verbose_failures \
+        --config=clang-local \
+        --action_env=LIBURING_CFLAGS="-ftrivial-auto-var-init=uninitialized" \
+        --repo_env=BAZEL_LLVM_PATH="$llvm_root" \
+        -c opt \
+        //source/exe:envoy-static
+
+      install -Dm755 bazel-bin/source/exe/envoy-static "${{targets.destdir}}/usr/bin/envoy"
+      bazel --output_user_root="$HOME/.cache/bazel" shutdown
+      rm -rf "$HOME/.cache/bazel"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-config
+    description: Default Envoy configuration
+    pipeline:
+      - runs: |
+          install -Dm644 envoy/configs/envoyproxy_io_proxy.yaml \
+            "${{targets.subpkgdir}}/etc/envoy/envoy.yaml"
+    test:
+      pipeline:
+        - runs: test -s /etc/envoy/envoy.yaml
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+        - envoy-1.37-config
+  pipeline:
+    - runs: |
+        envoy --version | grep -F "/${{package.version}}/"
+        envoy --mode validate -c /etc/envoy/envoy.yaml
+        printf '%s\n' 'not: [valid' > /tmp/invalid.yaml
+        if envoy --mode validate -c /tmp/invalid.yaml; then
+          echo 'invalid configuration unexpectedly validated' >&2
+          exit 1
+        fi
