@@ -29,7 +29,7 @@
 
 # Image cleanup
 
-- Deliver every PR with the `deliver-pr` skill (intent, review loop, merge approval).
+- Deliver every PR with the `deliver-pr` skill (intent, review loop, merge). Approval and merge follow `deliver-pr` section 4; merge via the merge queue, never `--admin`.
 - For CVE, refresh, or "clean all images" requests use the `clean-images` skill
   and classify failures with `triage-image-failure` (both under `.claude/skills`).
 - Sweep the daily monitor run and failed `main` builds as well as open pull

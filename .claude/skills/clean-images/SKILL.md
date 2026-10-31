@@ -32,7 +32,7 @@ Repeat per PR; do not stop at "PR opened".
 2. Push, then wait for required checks `lint`, `build-gate`, `apk-gate` plus every affected image validation. Read failures with `triage-image-failure`; fix, push, repeat.
 3. After the final push wait for automated reviewers. Fetch review threads with a paginated GraphQL scan; reply to every thread, apply valid ones with a regression test for behavior bugs, then resolve. Require zero unresolved threads.
 4. If `main` advanced and up-to-date policy requires it (`BEHIND`), cancel the obsolete run, rebase once, validate only the current head.
-5. Needs a human review: report it, do not self-approve. Merge only through the normal path (merge queue). Never `--admin` or bypass branch protection.
+5. When checks are green and threads are resolved, merge per `deliver-pr` section 4 (including its self-approval conditions) via `gh pr merge <n> --auto`. Never `--admin` or bypass branch protection.
 6. After merge, verify completion: GHCR digest, signature, SBOM, provenance, and a public catalog entry with the matching source SHA and `fixable=0`. If `main` publish fails, keep the catalog source-run failure loud, then rely on the automatic catch-up. Use manual delta recovery only when the automatic path cannot complete.
 7. Follow `deliver-pr` for intent, review loop and merge approval.
 8. Re-run the sweep. Done only when no open PR, monitor summary, or `main` build still reports the image.
@@ -56,4 +56,4 @@ Merge prerequisites (shared script/workflow PRs) before dependent image PRs.
 
 ## Report
 
-One line per PR or image: number, state, blocker or action. Name anything blocked upstream (for example Wolfi has not published the fixed version) and anything waiting only on human review.
+One line per PR or image: number, state, blocker or action. Name anything blocked upstream (for example Wolfi has not published the fixed version).
