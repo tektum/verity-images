@@ -88,6 +88,9 @@ pipeline:
   - runs: |
       grep -Fx '#define BROTLI_VERSION_PATCH 1' contrib/brotli/c/common/version.h
       grep -Fx '#define BROTLI_VERSION_MINOR 2' contrib/brotli/c/common/version.h
+      # git-checkout copies its 0700 clone directory mode to the destination, which the runner
+      # cannot read back when it retrieves the workspace.
+      chmod -R a+rX contrib/brotli
 
   # The release tag carries the branch version (26.5.7.1). Upstream release
   # builds stamp the published version, tag, and commit before configuring.
