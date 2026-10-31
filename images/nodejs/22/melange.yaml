@@ -27,6 +27,12 @@ vars:
   brace-expansion-version: "5.0.12"  # renovate: datasource=npm depName=brace-expansion
   postcss-selector-parser-version: "7.1.6"  # renovate: datasource=npm depName=postcss-selector-parser
   tar-version: "7.5.22"  # renovate: datasource=npm depName=tar
+  # glob 14 needs minimatch 11 and path-scurry 3; minimatch 11 needs
+  # @isaacs/nonrecursive-glob-match. npm still bundles glob 13 and minimatch 10.
+  glob-version: "14.0.3"  # renovate: datasource=npm depName=glob
+  minimatch-version: "11.0.3"  # renovate: datasource=npm depName=minimatch
+  path-scurry-version: "3.0.0"  # renovate: datasource=npm depName=path-scurry
+  nonrecursive-glob-match-version: "1.0.3"  # renovate: datasource=npm depName=@isaacs/nonrecursive-glob-match
 
 environment:
   contents:
@@ -107,6 +113,31 @@ pipeline:
       expected-sha256: b792c2d1c7fc770910522ca1ffc29eee02ee38de4fa3a01e7832eb705879c6c6
       extract: false
 
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/glob/-/glob-${{vars.glob-version}}.tgz
+      expected-sha256: f936d47081e316874bcd0ad9ed38a4275c7a16f5dd3300917231e0030a0acd91
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/minimatch/-/minimatch-${{vars.minimatch-version}}.tgz
+      expected-sha256: 175b2fd9c9d3611e06980341c1be226c7af72b1f414eefb424dca1be9cd9e8ae
+      extract: false
+
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/path-scurry/-/path-scurry-${{vars.path-scurry-version}}.tgz
+      expected-sha256: 28d5862f70595973f00d63bb219083d6ed7a28488685a73a1c3340ba55688675
+      extract: false
+
+  - uses: fetch
+    with:
+      # yamllint disable-line rule:line-length
+      uri: https://registry.npmjs.org/@isaacs/nonrecursive-glob-match/-/nonrecursive-glob-match-${{vars.nonrecursive-glob-match-version}}.tgz
+      expected-sha256: 9c67e29b5fea7f3736c427cf061c81fa0546f3587f397fa303e46c8dbf8e9998
+      extract: false
+
   - name: Configure and build
     runs: |
       # Defines recommended in the libuv readme.
@@ -151,11 +182,16 @@ pipeline:
         "undici ${{vars.undici-version}}" \
         "brace-expansion ${{vars.brace-expansion-version}}" \
         "postcss-selector-parser ${{vars.postcss-selector-parser-version}}" \
-        "tar ${{vars.tar-version}}"; do
+        "tar ${{vars.tar-version}}" \
+        "glob ${{vars.glob-version}}" \
+        "minimatch ${{vars.minimatch-version}}" \
+        "path-scurry ${{vars.path-scurry-version}}" \
+        "@isaacs/nonrecursive-glob-match ${{vars.nonrecursive-glob-match-version}}"; do
         set -- $spec
         rm -rf "$npm_dir/node_modules/$1"
         mkdir -p "$npm_dir/node_modules/$1"
-        tar -xzf "$1-$2.tgz" --strip-components=1 -C "$npm_dir/node_modules/$1"
+        # A scoped tarball is fetched under its unscoped base name.
+        tar -xzf "${1##*/}-$2.tgz" --strip-components=1 -C "$npm_dir/node_modules/$1"
         [ "$(./out/Release/node -p "require('$npm_dir/node_modules/$1/package.json').version")" = "$2" ]
       done
       [ "$(./out/Release/node -p "require('$npm_dir/package.json').version")" = "${{vars.npm-version}}" ]
