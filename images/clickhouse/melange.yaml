@@ -84,6 +84,20 @@ pipeline:
       grep -Fx "SET(VERSION_DESCRIBE v${{package.version}}-stable)" "$versions"
       grep -Fx "SET(VERSION_GITHASH $(git rev-parse HEAD))" "$versions"
 
+  # Upstream partially links the PRQL and polyglot Rust archives with ld.lld
+  # to hide internal symbols. With the Wolfi Rust and LLVM pair the stripped
+  # archive loses local symbols and the final link fails with undefined
+  # symbols, so take the existing ppc64le skip on every architecture. This
+  # only affects symbol table size.
+  - name: Skip Rust archive symbol stripping
+    runs: |
+      cmake_file=rust/workspace/CMakeLists.txt
+      old='CMAKE_SYSTEM_PROCESSOR STREQUAL "ppc64le")'
+      new='CMAKE_SYSTEM_PROCESSOR MATCHES "ppc64le|x86_64|aarch64")'
+      sed -i "s/$old/$new/" "$cmake_file"
+      [ "$(grep -cF "$new" "$cmake_file")" -eq 2 ]
+      ! grep -F "$old" "$cmake_file"
+
   - name: Configure
     runs: |
       # The upstream build refuses inherited compiler flags and supplies its own
