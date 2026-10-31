@@ -2,6 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' \
+  "$(dirname "$0")/../melange.yaml" | sed -n '1p')
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container=postgres-17-trixie-smoke-$$
 volume=$container-data
 tmp=$(mktemp -d)
@@ -29,6 +32,7 @@ docker image inspect --format '{{range $path, $_ := .Config.Volumes}}{{println $
 
 # The entrypoint decompresses .sql.gz, .sql.xz and .sql.zst init files with these tools.
 docker run --rm --entrypoint sh "$image" -c 'command -v gunzip && command -v xz && command -v zstd' >/dev/null
+docker run --rm --entrypoint ecpg "$image" --version | grep -qFx "ecpg (PostgreSQL) $expected_version"
 
 # Without a superuser password the entrypoint must refuse to initialize.
 if docker run --rm "$image" >"$tmp/negative.log" 2>&1; then
@@ -73,6 +77,8 @@ docker exec "$container" sh -c \
 docker exec "$container" sh -c \
   'PGPASSWORD=smoke-password psql -h 127.0.0.1 -U postgres -d postgres -Atqc "SHOW server_version_num"' \
   | grep -q '^17'
+test "$(marker 'SHOW server_version')" = "$expected_version"
+test "$(marker 'SELECT pg_jit_available()')" = t
 test "$(marker 'SELECT value FROM smoke_marker')" = initialized
 test "$(marker "SELECT datcollate FROM pg_database WHERE datname = 'postgres'")" = en_US.utf8
 marker 'CREATE EXTENSION pgcrypto' >/dev/null

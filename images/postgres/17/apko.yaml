@@ -1,20 +1,28 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - bash
     - busybox
     - ca-certificates-bundle
     - glibc-locale-en
-    - postgresql-17
-    - postgresql-17-client
-    - postgresql-17-contrib
-    - postgresql-17-oci-entrypoint-compat
     - tzdata
     - xz
     - zstd
+    # Locally built packages, including the subpackages they depend on: apk
+    # only installs from a tagged repository what is requested with its tag.
+    - ecpg-17@local
+    - libpq-17@local
+    - postgresql-17@local
+    - postgresql-17-base@local
+    - postgresql-17-client@local
+    - postgresql-17-client-base@local
+    - postgresql-17-contrib@local
+    - postgresql-17-oci-entrypoint-compat@local
 
 accounts:
   groups:
