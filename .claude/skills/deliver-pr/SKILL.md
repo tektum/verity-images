@@ -43,9 +43,9 @@ Never force-push a bot branch; open a replacement PR or ask the bot to rebase.
 Merge only when all hold:
 
 - required checks green on the current head;
-- `reviewDecision` is `APPROVED`; if review is the only blocker and you reviewed the diff and are satisfied, approve it yourself (`gh pr review <n> --approve`) on PRs you did not author, then merge;
+- `reviewDecision` is `APPROVED`. An automated reviewer bot counts. If review is the only blocker, the diff is reviewed and sound, and no automated gate (for example the `approve` job or security-floor validator) rejected it, you may approve PRs you did not author (`gh pr review <n> --approve`) at the owner's direction. Never approve a PR a gate rejected;
 - zero unresolved threads;
-- the PR is clean and mergeable, which is enough: no extra user request is needed.
+- the PR is clean and mergeable and its "Open questions" are resolved or empty; no extra user request is needed.
 
 Merge through the merge queue (`gh pr merge <n> --auto`; the strategy is set by the
 queue). Never use `--admin`, never bypass branch protection. If
