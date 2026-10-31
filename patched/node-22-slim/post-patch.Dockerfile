@@ -3,7 +3,7 @@ FROM ${BASE}
 
 ARG NPM_VERSION=12.0.2 # renovate: datasource=npm depName=npm
 ARG IP_ADDRESS_VERSION=10.7.4 # renovate: datasource=npm depName=ip-address
-ARG UNDICI_VERSION=6.29.1 # renovate: datasource=npm depName=undici
+ARG UNDICI_VERSION=7.30.1 # renovate: datasource=npm depName=undici
 ARG BRACE_EXPANSION_VERSION=5.0.12 # renovate: datasource=npm depName=brace-expansion
 ARG POSTCSS_SELECTOR_PARSER_VERSION=7.1.6 # renovate: datasource=npm depName=postcss-selector-parser
 ARG TAR_VERSION=7.5.22 # renovate: datasource=npm depName=tar
