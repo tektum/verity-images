@@ -35,9 +35,14 @@ pipeline:
       repository: https://github.com/vectordotdev/vector
       tag: v${{package.version}}
       expected-commit: 17e017e3c07bca3f2048f7cc4ec618a23d9289c5
+  - uses: cargo/remediate
+    with:
+      features: sources-stdin sinks-console
+      default-features: false
   - runs: |
       cargo auditable build --release --locked --no-default-features --features sources-stdin,sinks-console
       install -m755 -D target/release/vector "${{targets.destdir}}/usr/bin/vector"
+      rm -rf .cargo
   - uses: strip
 
 test:
