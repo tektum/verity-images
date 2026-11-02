@@ -35,7 +35,7 @@ pipeline:
       cargo update -p hickory-resolver \
         --precise 0.26.3 # renovate: datasource=crate depName=hickory-resolver versioning=semver
       cargo update -p rustls@0.23.43 \
-        --precise 0.23.45 # renovate: datasource=crate depName=rustls versioning=semver
+        --precise 0.23.46 # renovate: datasource=crate depName=rustls versioning=semver
   - uses: cargo/remediate
   - runs: |
       cargo auditable build --release --locked
