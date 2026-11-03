@@ -4,7 +4,8 @@ package:
   # r2 rebuilds the latest immutable release with its fixed Prometheus v0.311.3
   # dependency for CVE-2026-42151 and CVE-2026-42154. r3 rebuilds with the
   # Wolfi go-1.26 1.26.9 toolchain, which carries the fixed Go standard library.
-  epoch: 3
+  # r4 adds go/remediate for GO-2026-5932 in golang.org/x/crypto.
+  epoch: 4
   description: Push acceptor for ephemeral and batch jobs
   copyright:
     - license: Apache-2.0
@@ -30,6 +31,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - go-1.26
+      - python3
   environment:
     CGO_ENABLED: "0"
     GOTOOLCHAIN: local
@@ -40,6 +42,11 @@ pipeline:
       repository: https://github.com/prometheus/pushgateway
       tag: v${{package.version}}
       expected-commit: e803ebd81be5867ff17a21205030611fa033af13
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
 
   - uses: go/build
     with:
