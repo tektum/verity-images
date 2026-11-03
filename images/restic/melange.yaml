@@ -1,7 +1,7 @@
 package:
   name: verity-restic-0.18
   version: "0.18.1"
-  epoch: 6  # Go remediation
+  epoch: 7  # Replace golang.org/x/crypto/openpgp for GO-2026-5932
   description: Fast, secure, and efficient backup program
   copyright:
     - license: BSD-2-Clause
@@ -32,6 +32,20 @@ pipeline:
       repository: https://github.com/restic/restic
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  # Backport restic commit ab17711e313a: self-update verification uses the
+  # maintained ProtonMail fork instead of golang.org/x/crypto/openpgp, which
+  # GO-2026-5932 carves out of golang.org/x/crypto. The edit is inline because
+  # packages/verity-restic-0.18 builds this recipe through a symlink.
+  - runs: |
+      verify=internal/selfupdate/verify.go
+      sed -i \
+        -e 's|"golang.org/x/crypto/openpgp"|"github.com/ProtonMail/go-crypto/openpgp"|' \
+        -e 's|bytes.NewReader(data), bytes.NewReader(sig))|bytes.NewReader(data), bytes.NewReader(sig), nil)|' \
+        "$verify"
+      if grep -F 'golang.org/x/crypto/openpgp' "$verify"; then exit 1; fi
+      grep -Fq '"github.com/ProtonMail/go-crypto/openpgp"' "$verify"
+      grep -Fq 'bytes.NewReader(sig), nil)' "$verify"
+      GOTOOLCHAIN=local go get github.com/ProtonMail/go-crypto/openpgp@${{vars.protonmail-go-crypto}}
   - uses: go/remediate
     with:
       modroot: .
@@ -58,6 +72,8 @@ pipeline:
   - runs: |
       go run build.go --output "${{targets.destdir}}/usr/bin/restic"
       modules="$(go version -m "${{targets.destdir}}/usr/bin/restic")"
+      printf '%s\n' "$modules" \
+        | awk '$1 == "dep" && $2 == "github.com/ProtonMail/go-crypto" { found = 1 } END { exit !found }'
       actual="$(printf '%s\n' "$modules" \
         | awk '$1 == "dep" && $2 == "google.golang.org/grpc" { print $3 }')"
       if [ -z "$actual" ]; then
@@ -79,6 +95,7 @@ pipeline:
 vars:
   source-commit: 7d0aa7f2e30546fba7c8f1c0bae4d6704e3d8423
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
+  protonmail-go-crypto: v1.5.2  # renovate: datasource=go depName=github.com/ProtonMail/go-crypto
 
 subpackages:
   - name: verity-restic-0.18-build-metadata
