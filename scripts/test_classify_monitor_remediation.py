@@ -548,6 +548,7 @@ def main() -> None:
     test_blocked_pure_flavor_does_not_suppress_independent_apko_flavor()
     test_fail_closed_contexts_and_epochs()
     test_unpublished_local_package_fix_does_not_suppress_go_remediation()
+    test_unpublished_local_package_same_version_epoch_fix_proposes_revision()
     test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not()
     test_lock_that_already_pins_the_fix_is_republished_not_refreshed()
     test_republish_needs_every_architecture_fixed_and_understands_newer_upstream()
