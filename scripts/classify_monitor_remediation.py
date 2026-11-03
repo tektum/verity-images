@@ -592,8 +592,13 @@ def classify(
             )
             group = build_group(candidate.config, candidate.lockfile, candidate.recipe)
             if candidate.recipe.is_file() and recipe_identity(candidate.recipe).name == name:
-                # Wolfi does not build this package; its fix is a local recipe
-                # version bump. Report it without cancelling sibling remediation.
+                # Wolfi does not publish this locally built package. A same-version
+                # higher-epoch fix is a local epoch bump; anything else needs a
+                # recipe version update. Neither cancels sibling remediation.
+                fixed = set(candidate.fixed_versions)
+                if safe_epoch(candidate.finding, recipe_identity(candidate.recipe), fixed) is not None:
+                    available_by_candidate[id(candidate)] = fixed
+                    continue
                 blocked_findings.append(
                     unavailable(
                         candidate,
