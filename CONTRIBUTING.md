@@ -296,12 +296,12 @@ Pure APKO findings are deduplicated by their selected config and committed lock 
 retaining every exact stream and flavor in the controller summary. The monitor queues
 one serialized APKO refresh controller run for its selected input list, never one
 workflow run per finding or image. A local Melange package can instead receive an
-image-local review pull request
-only when its fixed version passed the same repository-availability gate, the finding is
-for that exact local package identity, and it names the same package version at a higher
-APK epoch. That proposal changes only `package.epoch`; it never guesses an upstream
-version. One proposal supersedes an otherwise redundant exact rebuild for the same
-stream. Every other local-package shape remains blocked and loud.
+image-local review pull request only when the finding is for that exact local package
+identity and it names exactly one higher APK epoch of the same package version. Wolfi
+need not publish that APK, because the recipe is built here, but the signed index query
+must still succeed. That proposal changes only `package.epoch`; it never guesses an
+upstream version. One proposal supersedes an otherwise redundant exact rebuild for the
+same stream. Every other local-package shape remains blocked and loud.
 
 ### Pure APKO lock refresh
 

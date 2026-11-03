@@ -431,6 +431,33 @@ def test_unpublished_local_package_fix_does_not_suppress_go_remediation() -> Non
         }]
 
 
+def test_unpublished_local_package_same_version_epoch_fix_proposes_revision() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/cassandra", name="cassandra", version="5.0", recipe=("cassandra-5.0", "5.0.9", 16))
+        image(root, "images/ambiguous", name="ambiguous", recipe=("ambiguous", "1.0", 1))
+        image(root, "images/downgrade", name="downgrade", recipe=("downgrade", "1.0", 1))
+        repository = SignedRepository(root, {
+            architecture: {("cassandra-5.0", "5.0.8-r1")}
+            for architecture in classify_monitor_remediation.APK_ARCHITECTURES
+        })
+        plan = classify(root, [
+            finding("cassandra", "5.0", "cassandra-5.0", "5.0.9-r16", ["5.0.9-r17"], "CVE-cassandra"),
+            finding("ambiguous", "1", "ambiguous", "1.0-r1", ["1.0-r2", "1.0-r3"], "CVE-ambiguous"),
+            finding("downgrade", "1", "downgrade", "1.0-r1", ["1.0-r0"], "CVE-downgrade"),
+        ], repository.query)
+        assert plan["exact"] == [] and plan["apko"] == []
+        assert plan["localPackageRevisions"] == [{
+            "context": "images/cassandra", "recipe": "images/cassandra/melange.yaml",
+            "package": "cassandra-5.0", "version": "5.0.9", "fromEpoch": 16, "toEpoch": 17,
+            "streams": ["cassandra@5.0"],
+        }]
+        assert {(item["stream"], item["reason"]) for item in plan["blocked"]} == {
+            ("ambiguous@1", "local package fix requires a recipe version update; Wolfi does not publish it"),
+            ("downgrade@1", "local package fix requires a recipe version update; Wolfi does not publish it"),
+        }
+
+
 def test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
