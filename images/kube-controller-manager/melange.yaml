@@ -1,0 +1,66 @@
+package:
+  name: kube-controller-manager-1.37
+  version: "1.37.2"  # renovate: datasource=github-releases depName=kubernetes/kubernetes
+  epoch: 2  # Above the newest Wolfi kube-controller-manager-1.37 build, 1.37.2-r1.
+  description: Kubernetes controller manager
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 16Gi
+    disk: 16Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - findutils
+      - go-1.26
+      - grep
+      - python3
+      - rsync
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/kubernetes
+      tag: v${{package.version}}
+      expected-commit: c50e5395f1ae2d4a2c05f28fdcc38c0916cc1a32
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/kube-controller-manager
+  - runs: |
+      export FORCE_HOST_GO=true
+      export KUBE_GIT_TREE_STATE=clean
+      make WHAT=cmd/kube-controller-manager
+      install -m755 -D _output/bin/kube-controller-manager \
+        "${{targets.destdir}}/usr/bin/${{package.name}}"
+      ln -s ${{package.name}} "${{targets.destdir}}/usr/bin/kube-controller-manager"
+      "${{targets.destdir}}/usr/bin/${{package.name}}" --version \
+        | grep -Fx "Kubernetes v${{package.version}}"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        ${{package.name}} --version | grep -Fx "Kubernetes v${{package.version}}"
+        test "$(readlink /usr/bin/kube-controller-manager)" = ${{package.name}}
+        kube-controller-manager --version | grep -Fx "Kubernetes v${{package.version}}"
+        ${{package.name}} --help >/dev/null
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
