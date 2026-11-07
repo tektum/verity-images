@@ -1,0 +1,87 @@
+package:
+  name: opa
+  version: "1.22.2"  # renovate: datasource=github-releases depName=open-policy-agent/opa
+  # Wolfi publishes opa-1.22.2-r1 as its fixed revision; r2 stays above it while
+  # go/remediate clears GO-2026-5932 in golang.org/x/crypto.
+  epoch: 2
+  description: Open Policy Agent, a general-purpose policy engine
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/open-policy-agent/opa
+      tag: v${{package.version}}
+      expected-commit: 482d9e368c2ddfed67ced59259fa6a247bb5f1e5
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - uses: go/build
+    with:
+      packages: .
+      output: opa
+      go-package: go-1.27
+      ldflags: |
+        -X github.com/open-policy-agent/opa/v1/version.Version=${{package.version}}
+        -X github.com/open-policy-agent/opa/v1/version.Vcs=482d9e368c2ddfed67ced59259fa6a247bb5f1e5
+
+  - runs: |
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        opa version | grep -Fx "Version: ${{package.version}}"
+        printf '%s\n' 'package t' 'allow if input.ok' >/tmp/t.rego
+        test "$(printf '%s' '{"ok":true}' \
+          | opa eval --format raw --stdin-input --data /tmp/t.rego data.t.allow)" = true
+        apk info --who-owns /usr/bin/opa \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: open-policy-agent/opa
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true
