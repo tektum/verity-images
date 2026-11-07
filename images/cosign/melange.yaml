@@ -1,0 +1,91 @@
+package:
+  name: cosign
+  version: "3.1.4"  # renovate: datasource=github-releases depName=sigstore/cosign
+  # Wolfi cosign-3 3.1.4-r2 still links golang.org/x/crypto v0.58.0
+  # (GO-2026-5932) and github.com/klauspost/compress v1.20.1 (GO-2026-6865).
+  # The epoch stays above that Wolfi revision so this local build never sorts
+  # below a Wolfi-published fixed revision of the same upstream version.
+  epoch: 3
+  description: Code signing and transparency for containers and binaries
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 7Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sigstore/cosign
+      tag: v${{package.version}}
+      expected-commit: 0e48502cf5ef34e2e60bbd3617aa19945712f705
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cosign
+
+  - uses: go/build
+    with:
+      packages: ./cmd/cosign
+      output: cosign
+      go-package: go-1.27
+      ldflags: |
+        -X sigs.k8s.io/release-utils/version.gitVersion=v${{package.version}}
+        -X sigs.k8s.io/release-utils/version.gitCommit=0e48502cf5ef34e2e60bbd3617aa19945712f705
+        -X sigs.k8s.io/release-utils/version.gitTreeState=clean
+        -X sigs.k8s.io/release-utils/version.buildDate=2026-10-20T18:27:42Z
+
+  - runs: |
+      binary="${{targets.destdir}}/usr/bin/cosign"
+      "$binary" version 2>&1 | grep -F "v${{package.version}}"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        cosign version 2>&1 | grep -F "v${{package.version}}"
+        cosign --help >/dev/null
+        apk info --who-owns /usr/bin/cosign \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: sigstore/cosign
+    strip-prefix: v
+    tag-filter-prefix: v3
+    use-tag: true
