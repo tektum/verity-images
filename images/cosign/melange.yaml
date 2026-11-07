@@ -55,13 +55,14 @@ pipeline:
       go-package: go-1.27
       ldflags: |
         -X sigs.k8s.io/release-utils/version.gitVersion=v${{package.version}}
-        -X sigs.k8s.io/release-utils/version.gitCommit=0e48502cf5ef34e2e60bbd3617aa19945712f705
+        -X sigs.k8s.io/release-utils/version.gitCommit=$(git rev-parse HEAD)
         -X sigs.k8s.io/release-utils/version.gitTreeState=clean
-        -X sigs.k8s.io/release-utils/version.buildDate=2026-10-20T18:27:42Z
+        -X sigs.k8s.io/release-utils/version.buildDate=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
 
   - runs: |
       binary="${{targets.destdir}}/usr/bin/cosign"
       "$binary" version 2>&1 | grep -F "v${{package.version}}"
+      "$binary" version 2>&1 | grep -F "$(git rev-parse HEAD)"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
