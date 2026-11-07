@@ -46,6 +46,7 @@ Merge prerequisites (shared script/workflow PRs) before dependent image PRs.
   commit date vs `main` and whether the daily lock refresh already ran.
 - Superseding PRs: two PRs on one lock (apko.yaml pin bump plus lock refresh) means one supersedes the other.
 - Do not waive or ignore a fixable finding. Report blockers with the exact package and missing version.
+- Wolfi blocked for more than 4 days: if the first dashboard that listed a fixable finding for a Wolfi-built image is more than 4 days old and the newest Wolfi package still lacks the fix, move that image to a local melange source build (see how `images/loki`, `images/trivy` and `images/pushgateway` do it, with `go/remediate` for Go). Check the newest Wolfi package first; a lock refresh is enough if it already carries the fix. One image per PR.
 
 ## Acting
 
