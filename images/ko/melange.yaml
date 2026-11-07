@@ -56,6 +56,14 @@ pipeline:
 
   - uses: strip
 
+subpackages:
+  - name: ko-build-metadata
+    description: Resolved Go module metadata for the ko build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/ko-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/ko-build/go.sum"
+
 test:
   environment:
     contents:
