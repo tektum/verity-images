@@ -16,7 +16,7 @@ Job id is the number after `/job/` in `gh pr checks <n>` links. For a `main` or 
 
 | Symptom | Cause | Action |
 |---|---|---|
-| `Found N fixable findings` on a pure APKO image | Lock or Wolfi lacks fix | Check Wolfi APKINDEX (x86_64 and aarch64) for the fixed version. Absent: upstream blocker, report. Present: refresh lock or bump the `apko.yaml` pin. |
+| `Found N fixable findings` on a pure APKO image | Lock or Wolfi lacks fix | Check Wolfi APKINDEX (x86_64 and aarch64) for the fixed version. Absent: upstream blocker, report; if it is the image's own application package and has been listed for more than 4 days, apply the 4-day melange rule in `clean-images`. Present: refresh lock or bump the `apko.yaml` pin. |
 | Fixable finding on a local melange package `name X-rN -> X-rM`, same version | Epoch behind the fixed epoch | First look for the monitor's queued `local-package-revision.yaml` proposal or its PR (`classify_monitor_remediation.py` emits `localPackageRevisions`); do not open a duplicate. Bump `package.epoch` by hand to the highest M listed only when the monitor reported it blocked (`unsafe` or `ambiguous local package revision epoch`). Rebuild alone will not clear it. |
 | Fixable Go module finding in a Wolfi recipe | Needs `go/remediate` or recipe change | Do not edit lock. Check recipe invokes `go/remediate`. |
 | `fetch: Expected sha256 does not match found: <hash>` in native-arm64 | Version bumped without `expected-sha256` | Verify the hash against the real artifact independently, then update it. Renovate does not do this. |
