@@ -9,6 +9,9 @@ package:
     cpu: "4"
     memory: 8Gi
 
+vars:
+  source-commit: 0b84568fffccf151dc5e6c7955fdfb738555bf4b
+
 environment:
   contents:
     repositories:
@@ -30,7 +33,7 @@ pipeline:
     with:
       repository: https://github.com/ory/hydra
       tag: v${{package.version}}
-      expected-commit: 0b84568fffccf151dc5e6c7955fdfb738555bf4b
+      expected-commit: ${{vars.source-commit}}
 
   - uses: go/remediate
     with:
@@ -40,7 +43,7 @@ pipeline:
   - runs: |
       flags="-s -w -X github.com/ory/hydra/v2/driver/config.Version=v${{package.version}}"
       flags="$flags -X github.com/ory/hydra/v2/driver/config.Date=$(date -u -d@${SOURCE_DATE_EPOCH} +%FT%TZ)"
-      flags="$flags -X github.com/ory/hydra/v2/driver/config.Commit=0b84568fffccf151dc5e6c7955fdfb738555bf4b"
+      flags="$flags -X github.com/ory/hydra/v2/driver/config.Commit=${{vars.source-commit}}"
       go build -mod=readonly -trimpath -tags sqlite,sqlite_omit_load_extension -ldflags "$flags" -o hydra .
       install -Dm755 hydra "${{targets.destdir}}/usr/bin/hydra"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
