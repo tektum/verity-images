@@ -240,6 +240,11 @@ function fillDescription(container, image) {
 
   container.querySelector(".trace-source").textContent =
     `tektum/verity-images @ ${image.sourceCommit ? image.sourceCommit.slice(0, 12) : "source commit not recorded"}`;
+  // Digests published through the reusable workflow carry a --signer-workflow provenance command.
+  if (image.verification.provenance?.includes("--signer-workflow")) {
+    container.querySelector(".trace-builder").textContent = ".github/workflows/publish.yaml (reusable, called by build.yaml)";
+    container.querySelector(".trace-attest").textContent = "SPDX SBOM + SLSA Build L3 provenance";
+  }
   const run = githubUrl(image.runUrl);
   const runLink = container.querySelector(".trace-run");
   if (run) {

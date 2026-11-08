@@ -93,7 +93,7 @@
             <li>
               <span class="stage"><span class="ix">1.2</span>BUILD</span>
               <span class="what">GitHub Actions workflow, apko/melange for Wolfi, Copacetic for patched upstreams</span>
-              <code>.github/workflows/build.yaml</code>
+              <code>.github/workflows/build.yaml calls publish.yaml (reusable)</code>
               <code><a id="rail-run" href="https://github.com/tektum/verity-images/actions">catalog run</a></code>
               <span class="memo"><b>NOTE</b>FIPS flavors on some images enable the OpenSSL 3.1.2 FIPS provider, Go FIPS mode, or both, depending on the image. Not CMVP validated.</span>
             </li>
@@ -250,9 +250,9 @@
           <caption>Custody trace</caption>
           <tbody>
             <tr><th scope="row">SOURCE</th><td><code class="trace-source"></code></td></tr>
-            <tr><th scope="row">BUILD</th><td><code>.github/workflows/build.yaml</code> <a class="trace-run" hidden></a></td></tr>
+            <tr><th scope="row">BUILD</th><td><code class="trace-builder">.github/workflows/build.yaml</code> <a class="trace-run" hidden></a></td></tr>
             <tr><th scope="row">SIGN</th><td>cosign keyless, GitHub OIDC</td></tr>
-            <tr><th scope="row">ATTEST</th><td>SPDX SBOM + SLSA Build L3 provenance</td></tr>
+            <tr><th scope="row">ATTEST</th><td class="trace-attest">SPDX SBOM + SLSA build provenance</td></tr>
             <tr><th scope="row">PUBLISH</th><td><code class="trace-publish"></code></td></tr>
           </tbody>
         </table>

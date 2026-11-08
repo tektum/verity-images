@@ -117,7 +117,7 @@
               <tbody>
                 <tr>
                   <th scope="row">CERTIFICATE IDENTITY</th>
-                  <td><code>https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main</code></td>
+                  <td><code>https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/main</code> for digests published through the reusable workflow; earlier digests carry <code>build.yaml@refs/heads/main</code>. One regexp accepts both: <code>^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$</code></td>
                 </tr>
                 <tr>
                   <th scope="row">CERTIFICATE OIDC ISSUER</th>
@@ -198,21 +198,21 @@
               </div>
               <div class="verify-row">
                 <span>SIGNATURE</span>
-                <code>cosign verify --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
+                <code>cosign verify --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
               </div>
               <div class="verify-row">
                 <span>SBOM</span>
-                <code>cosign verify-attestation --type spdxjson --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
+                <code>cosign verify-attestation --type spdxjson --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' verity.supply/caddy@sha256:DIGEST</code>
               </div>
               <div class="verify-row">
                 <span>PROVENANCE</span>
-                <code>gh attestation verify oci://verity.supply/caddy@sha256:DIGEST --repo tektum/verity-images</code>
+                <code>gh attestation verify oci://ghcr.io/tektum/caddy@sha256:DIGEST --repo tektum/verity-images --signer-workflow tektum/verity-images/.github/workflows/publish.yaml</code>
               </div>
             </div>
             <p>
-              The signature command fails closed if the certificate identity or issuer does not match
-              exactly, so a signature produced by any workflow other than
-              <code>build.yaml</code> on <code>refs/heads/main</code> is rejected rather than silently
+              The signature command fails closed if the certificate identity or issuer does not match,
+              so a signature produced by any workflow other than <code>build.yaml</code> or
+              <code>publish.yaml</code> on <code>refs/heads/main</code> is rejected rather than silently
               accepted. Pin the digest, not the tag: tags such as <code>:latest</code> or
               <code>:&lt;version&gt;</code> are mutable discovery aids and can move.
             </p>
