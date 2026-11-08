@@ -24,7 +24,7 @@ trap cleanup EXIT HUP INT TERM
   || fail 'image user is not 10001'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/tempo"]' ] \
   || fail 'unexpected image entrypoint'
-docker run --rm "$image" --version 2>&1 | grep -F 'tempo, version' >/dev/null \
+docker run --rm "$image" --version 2>&1 | grep -F 'version 3.0.' >/dev/null \
   || fail 'tempo version check failed'
 
 cat >"$tmp/config.yaml" <<'EOF'
