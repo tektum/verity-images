@@ -25,7 +25,7 @@ Verify keyless cosign signature (requires cosign 3.0.6+):
 
 ```sh
 cosign verify \
-  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   verity.supply/IMAGE@sha256:DIGEST
 ```
@@ -34,15 +34,17 @@ Verify the SPDX JSON SBOM attestation:
 
 ```sh
 cosign verify-attestation --type spdxjson \
-  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   verity.supply/IMAGE@sha256:DIGEST
 ```
 
-Verify the build provenance attestation:
+Verify the build provenance attestation (digests published through the reusable
+publish workflow):
 
 ```sh
-gh attestation verify oci://verity.supply/IMAGE@sha256:DIGEST --repo tektum/verity-images
+gh attestation verify oci://ghcr.io/tektum/IMAGE@sha256:DIGEST --repo tektum/verity-images \
+  --signer-workflow tektum/verity-images/.github/workflows/publish.yaml
 ```
 
 Every catalog record carries these three commands prefilled with its own digest,
