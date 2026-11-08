@@ -28,6 +28,7 @@ GLOBAL_PATHS: Final = {
     "scripts/evaluate_scan_gate.sh",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
+    "scripts/runner_environment.sh",
 }
 GO_REMEDIATE_PATHS: Final = {"pipelines/go/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}

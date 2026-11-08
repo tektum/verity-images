@@ -204,20 +204,25 @@ Only digests published after the reusable workflow landed satisfy
 `--signer-workflow`; earlier digests carry provenance from `build.yaml` and
 verify with `--repo` alone.
 
-SLSA Build L3 limits that this repository does not yet close:
+SLSA Build L3 limits, and what each now covers (see [BUILDER.md](BUILDER.md) for the
+builder assessment and consumer verification policy):
 
-- Provenance lists the Git commit as its only resolved dependency. The apko lock,
-  Wolfi repository state, patched upstream digests, and tool archive digests are
-  retained as run artifacts but are not enumerated in the provenance.
-- Builds run on self-hosted runners, so the attestation reports
-  `runnerEnvironment: self-hosted`. Per-job isolation of those runners is an
-  operator property that GitHub does not attest.
+- Provenance lists the Git commit as its only resolved dependency. Partly closed:
+  the signed runner-environment attestation enumerates the apko lock or resolved
+  upstream digest, the tool archive digests, and downloaded native arm64 package
+  digests. They are not in the provenance `resolvedDependencies`, and Wolfi
+  repository state is covered only through the lock's package pins.
+- Builds run on self-hosted RunsOn runners, so the provenance reports
+  `runnerEnvironment: self-hosted`. Partly closed: each digest carries a signed
+  runner-environment attestation (fresh, IMDSv2-only instance bound to the job's
+  runner). One instance per job is a documented RunsOn property and the stack
+  settings are owner-asserted; neither is verified by this repository.
 - Signing and the image build share one job. The reusable workflow keeps the
   signer identity out of the caller's control, but build steps in that job can
-  reach the OIDC token. A separate builder job would be needed to remove that
-  exposure.
-- There is no published builder assessment or consumer verification policy
-  beyond the commands above.
+  reach the OIDC token, so they could also forge the runner attestation. A
+  separate builder job would be needed to remove that exposure. Open.
+- A builder assessment and consumer verification policy are published in
+  [BUILDER.md](BUILDER.md). Closed.
 
 Wolfi builds use and upload the reviewed, checked-in apko lock. Melange-backed
 builds are the exception: their ephemeral package signature produces a
