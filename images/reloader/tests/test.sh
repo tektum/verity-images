@@ -28,9 +28,9 @@ printf '%s\n' "$output" | grep -F 'KUBERNETES_SERVICE_HOST' >/dev/null \
 
 if output=$(docker run --rm --network none \
   -e KUBERNETES_SERVICE_HOST=127.0.0.1 -e KUBERNETES_SERVICE_PORT=1 "$image" 2>&1); then
-  fail 'controller unexpectedly started with an unreachable API server'
+  fail 'controller unexpectedly started without a service account token'
 fi
-printf '%s\n' "$output" | grep -E 'level=(fatal|error)' >/dev/null \
-  || fail 'unreachable API server did not fail with a logged error'
+printf '%s\n' "$output" | grep -F 'serviceaccount/token' >/dev/null \
+  || fail 'in-cluster environment without a token did not report the missing token'
 
 printf 'SMOKE PASS image=%s\n' "$image"
