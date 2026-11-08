@@ -1,0 +1,56 @@
+package:
+  name: verity-reloader
+  version: "1.4.23"  # renovate: datasource=github-releases depName=stakater/Reloader versioning=semver
+  epoch: 0
+  description: Kubernetes controller that rolls workloads when ConfigMaps or Secrets change
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/stakater/Reloader
+      tag: v${{package.version}}
+      expected-commit: 1f2c9a7d4608c4cef382eb000deef3a656776d16
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: manager
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        test -x /usr/bin/manager
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: stakater/Reloader
+    strip-prefix: v
+    tag-filter: v1.4.
+    use-tag: true
