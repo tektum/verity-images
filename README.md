@@ -1,40 +1,81 @@
 # Verity Images
 
 [![build](https://github.com/tektum/verity-images/actions/workflows/build.yaml/badge.svg)](https://github.com/tektum/verity-images/actions/workflows/build.yaml)
-[Catalog data](https://tektum.github.io/verity-images/catalog.json)
+[Catalog](https://verity.supply/)
+[Catalog data](https://verity.supply/catalog.json)
+[Trust and verification](https://verity.supply/trust.html)
 [Image Dashboard](https://github.com/tektum/verity-images/issues/1091)
 
-Verity Images is an open registry of small container images rebuilt from public
-inputs. The repository contains the complete build, scan, test, signing, SBOM,
-and provenance pipeline. Published vulnerability reports are tied to image
-digests so every claim can be checked. Every published digest's attested
-per-platform SPDX SBOMs are re-evaluated daily against the current vulnerability
-database. Findings with a published fix appear as code scanning alerts in this
-repository. The pinned Image Dashboard is a generated image-level view of
-complete monitor scans; Code Scanning remains finding-level evidence.
+Free, minimal container images that publish the evidence behind every digest.
+No account, no paid tier, no pull token: `docker pull verity.supply/<image>`.
 
-Container image publication is keyless: a fork can run it with only its GitHub
-workflow token. APK releases use a protected RSA signing secret; see [APK
-signing](docs/APK_REPOSITORY_SIGNING.md).
+Verity Images is an open registry of about a hundred small container images
+rebuilt from public inputs: minimal images assembled from Wolfi packages, plus a
+patched track that keeps selected upstream images (for example `postgres` and
+`node` slim variants) compatible while removing fixable vulnerabilities. This
+repository is the whole pipeline: build, scan, smoke test, signing, SBOM,
+provenance, and the catalog.
+
+## What you can check
+
+- **The gate is 0 fixable vulnerabilities at publish time, not 0 CVE.** Grype
+  scans every candidate. A finding with an available fix fails the build and
+  publishes nothing. The only suppressions are reviewed false positives listed
+  in `.grype.yaml`. Each catalog record still counts the unfixed findings by
+  severity.
+- **Catalog digests are re-checked daily.** The attested SPDX SBOM of every
+  digest currently in the catalog is re-evaluated against the current
+  vulnerability database. A finding that becomes fixable appears as a code
+  scanning alert in this repository. A digest replaced by a newer build drops out
+  of monitoring, so re-pin when the catalog moves.
+- **Keyless signatures, SBOMs, and provenance.** Images are signed with cosign
+  through GitHub OIDC, carry one SPDX SBOM per platform on the index digest, and
+  SLSA build provenance. Digests published through the reusable `publish.yaml`
+  workflow follow the SLSA Build L3 pattern and also carry a signed
+  runner-environment attestation from a single-use runner. See
+  [docs/BUILDER.md](docs/BUILDER.md).
+- **Every claim ships with its command.** Each record in
+  [`catalog.json`](https://verity.supply/catalog.json) carries the exact verify
+  commands for its own digest.
+- **Keyless publication.** Images are signed with the workflow's own GitHub OIDC
+  identity; no long-lived signing key exists. The signing identity is pinned to
+  this repository, so a fork that wants to publish under its own namespace must
+  change the image owner and the verified identity. APK releases use a protected
+  RSA signing secret; see [APK signing](docs/APK_REPOSITORY_SIGNING.md).
+
+## What it is not
+
+- No SLA and no old-version maintenance; see `docs/POLICY.md`.
+- FIPS flavors enable the OpenSSL 3.1.2 FIPS provider, Go FIPS mode, or both.
+  They are not CMVP validated.
+- Digests published before the reusable workflow carry `build.yaml` provenance
+  until they are rebuilt, and signing still shares a job with the build. The
+  open gaps are tracked in `docs/COMPLIANCE_AUDIT.md`.
+- A small catalog. If an image is missing, open an issue or a pull request.
 
 ## Quickstart
 
-Pull by digest in production:
+Pick a digest from the [catalog](https://verity.supply/) and pull by digest:
 
 ```sh
-docker pull ghcr.io/tektum/nginx@sha256:DIGEST
+docker pull verity.supply/nginx@sha256:DIGEST
 ```
 
-Verify the keyless signature:
+Verify the keyless signature (Cosign 3.0.6 or newer):
 
 ```sh
 cosign verify \
   --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
-  ghcr.io/tektum/nginx@sha256:DIGEST
+  verity.supply/nginx@sha256:DIGEST
 ```
 
-Verify SLSA build provenance (digests published by `publish.yaml`):
+Verify the SPDX SBOM attestation the same way with
+`cosign verify-attestation --type spdxjson`, or download it with
+`cosign download attestation verity.supply/nginx@sha256:DIGEST`.
+
+Verify SLSA build provenance. `gh attestation verify` uses GitHub's attestation
+API, so it takes the canonical `ghcr.io` reference:
 
 ```sh
 gh attestation verify oci://ghcr.io/tektum/nginx@sha256:DIGEST \
@@ -42,21 +83,14 @@ gh attestation verify oci://ghcr.io/tektum/nginx@sha256:DIGEST \
   --signer-workflow tektum/verity-images/.github/workflows/publish.yaml
 ```
 
-The builder assessment, runner-environment attestation, and the full consumer
-verification policy are in [docs/BUILDER.md](docs/BUILDER.md).
+`--signer-workflow` applies to digests published through `publish.yaml`. Drop it
+for older digests, whose provenance was signed by `build.yaml`. Each catalog
+record carries the exact command for its own digest.
 
-Verification requires Cosign 3.0.6 or newer because signatures and attestations
-use its OCI storage format.
-
-Fetch the SPDX JSON SBOM attestation:
-
-```sh
-cosign download attestation ghcr.io/tektum/nginx@sha256:DIGEST > attestation.json
-```
-
-The published [catalog](https://tektum.github.io/verity-images/) and its
-[`catalog.json`](https://tektum.github.io/verity-images/catalog.json) expose every
-digest, scan result, and verification command.
+`verity.supply/<image>` is a read-only alias for `ghcr.io/tektum/<image>`; both
+serve the same digests. The builder assessment, the runner-environment
+attestation, and the full consumer verification policy are in
+[docs/BUILDER.md](docs/BUILDER.md).
 
 ## Tracks
 
