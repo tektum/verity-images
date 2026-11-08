@@ -123,7 +123,11 @@ function tagBuildDate(tag) {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
+// validatedAt is stamped when the publish job records the digest. Images that
+// declare a major version get no dated tag, so the tag date is only a fallback.
 function buildDate(image) {
+  const validated = new Date(image.validatedAt);
+  if (!Number.isNaN(validated.getTime())) return validated;
   let latest = null;
   for (const tag of image.tags) {
     const date = tagBuildDate(tag);
@@ -159,7 +163,7 @@ function fillFreshness(element, date) {
     element.title = date.toISOString().slice(0, 10);
   } else {
     element.removeAttribute("datetime");
-    element.title = "No date-stamped tag was published for this image";
+    element.title = "No publish time was recorded for this image";
   }
 }
 
