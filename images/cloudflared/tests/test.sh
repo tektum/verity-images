@@ -20,7 +20,7 @@ fail() {
   || fail 'unexpected image command'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'unexpected image user'
 
-docker run --rm --network none "$image" version | grep -Fq 'cloudflared version 2026.5.' \
+docker run --rm --network none "$image" version | grep -Fq 'cloudflared version 2026.10.' \
   || fail 'unexpected cloudflared version'
 
 cat >"$work/good.yml" <<'YAML'

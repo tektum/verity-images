@@ -1,0 +1,67 @@
+package:
+  name: verity-cloudflared-2026.10
+  version: "2026.10.7"  # renovate: datasource=github-releases depName=cloudflare/cloudflared
+  epoch: 0
+  description: Cloudflare Tunnel client
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cloudflare/cloudflared
+      tag: ${{package.version}}
+      expected-commit: 872b241f94871665c1c157adefcf90c11f0ead96
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cloudflared
+  - runs: |
+      flags="-s -w -X main.Version=${{package.version}}"
+      flags="$flags -X github.com/cloudflare/cloudflared/cmd/cloudflared/updater.BuiltForPackageManager=verity"
+      go build -trimpath -ldflags "$flags" -o cloudflared.bin ./cmd/cloudflared
+      install -m755 -D cloudflared.bin "${{targets.destdir}}/usr/bin/cloudflared"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-cloudflared-2026.10-build-metadata
+    description: Resolved Go module metadata for the cloudflared build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/cloudflared-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/cloudflared-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/cloudflared --version | grep -F '${{package.version}}'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: cloudflare/cloudflared
+    tag-filter: "2026.10."
+    use-tag: true
