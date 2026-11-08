@@ -1,0 +1,76 @@
+package:
+  name: mailpit
+  version: "1.33.1"
+  epoch: 0
+  description: SMTP test server and web UI for developers
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - nodejs-22
+      - npm
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+    npm_config_cache: /var/cache/melange/npm
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/axllent/mailpit
+      tag: v${{package.version}}
+      expected-commit: 3bc38efc5c4687659b9099eb2c8d8f6e76113f11
+
+  - runs: |
+      npm ci
+      npm run package
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - uses: go/build
+    with:
+      packages: .
+      output: mailpit
+      go-package: go-1.26
+      ldflags: -X github.com/axllent/mailpit/config.Version=v${{package.version}}
+
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        mailpit version | grep -F "${{package.version}}"
+        apk info --who-owns /usr/bin/mailpit | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F "MIT License" "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: axllent/mailpit
+    strip-prefix: v
+    tag-filter: v
