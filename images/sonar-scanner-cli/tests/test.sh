@@ -2,8 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*- sonar-scanner-cli=\([0-9]*\.[0-9]*\)\..*$/\1/p' \
-  "$(dirname "$0")/../apko.yaml")
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([0-9]*\.[0-9]*\)\..*"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 tmp=$(mktemp -d)
 chmod 777 "$tmp"
@@ -20,7 +20,7 @@ fail() {
 
 [ "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ] ||
   fail 'unexpected image config: User'
-[ "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/sonar-scanner-cli"]' ] ||
+[ "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/sonar-scanner"]' ] ||
   fail 'unexpected image config: Entrypoint'
 [ "$(docker image inspect "$image" --format '{{.Config.WorkingDir}}')" = /usr/src ] ||
   fail 'unexpected image config: WorkingDir'
