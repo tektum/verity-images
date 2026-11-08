@@ -8,154 +8,213 @@
       name="description"
       content="Browse Verity container images with immutable pull references, vulnerability policy, signatures, SBOMs, and provenance verification."
     />
-    <meta name="theme-color" content="#060d12" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e1114" media="(prefers-color-scheme: dark)" />
     <meta property="og:title" content="Verity Images catalog" />
     <meta
       property="og:description"
       content="Container images with zero fixable findings, signed artifacts, SBOMs, and provenance."
     />
     <meta property="og:type" content="website" />
-    <meta property="og:url" content="https://tektum.github.io/verity-images/" />
-    <link rel="canonical" href="https://tektum.github.io/verity-images/" />
+    <meta property="og:url" content="https://verity.supply/" />
+    <link rel="canonical" href="https://verity.supply/" />
     <link rel="icon" href="logo.svg" type="image/svg+xml" />
+    <script>
+      try {
+        const theme = localStorage.getItem("verity-theme");
+        if (theme === "light" || theme === "dark") document.documentElement.dataset.theme = theme;
+      } catch {}
+    </script>
     <link rel="stylesheet" href="styles.css" />
+    <script src="theme.js" defer></script>
     <script src="app.js" defer></script>
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
         "@type": "CollectionPage",
         "name": "Verity Images catalog",
-        "url": "https://tektum.github.io/verity-images/",
+        "url": "https://verity.supply/",
         "description": "Signed container images with published vulnerability and provenance evidence."
       }
     </script>
   </head>
   <body>
     <a class="skip-link" href="#catalog">Skip to catalog</a>
-    <header class="site-nav">
-      <nav class="shell nav-inner" aria-label="Primary navigation">
-        <a class="brand" href="./" aria-label="Verity Images home">
-          <span class="brand-mark" aria-hidden="true"></span>
-          <span>VERITY</span><span class="brand-slash">/</span><span>IMAGES</span>
-        </a>
-        <div class="nav-links">
-          <a href="trust.html">TRUST</a>
-          <a href="catalog.json">RAW JSON</a>
-          <a href="catalog.schema.json">SCHEMA</a>
-          <a href="https://github.com/tektum/verity-images">GITHUB</a>
-        </div>
-      </nav>
-    </header>
+    <div class="sheet">
+      <header class="box bar">
+        <a class="brand" href="./" aria-label="Verity Images home">VERITY<span>/</span>IMAGES</a>
+        <nav class="nav" aria-label="Primary navigation">
+          <ul>
+            <li><a href="trust.html">Trust</a></li>
+            <li><a href="catalog.json">Raw JSON</a></li>
+            <li><a href="catalog.schema.json">Schema</a></li>
+            <li><a href="https://github.com/tektum/verity-images">GitHub</a></li>
+          </ul>
+          <button id="theme-toggle" class="theme-toggle" type="button" aria-live="polite">Theme: Auto</button>
+        </nav>
+      </header>
 
-    <main>
-      <section class="shell hero" aria-labelledby="hero-title">
-        <div class="hero-copy">
-          <p class="overline">PUBLIC CATALOG · CONTINUOUSLY VERIFIED</p>
-          <h1 id="hero-title">CONTAINER IMAGES.<br /><span>EVIDENCE INCLUDED.</span></h1>
-          <p class="hero-lead">
-            Minimal Wolfi images and compatible patched upstreams, served from
-            <code>verity.supply</code> with immutable digests, signatures, SPDX SBOMs, and build
-            provenance.
-          </p>
-          <a class="primary-action" href="#catalog">BROWSE CATALOG <span aria-hidden="true">→</span></a>
-        </div>
-
-        <aside class="evidence-panel" aria-labelledby="evidence-title">
-          <div class="evidence-heading">
-            <span class="status-light" aria-hidden="true"></span>
-            <h2 id="evidence-title">PUBLICATION EVIDENCE</h2>
+      <main id="main">
+        <section class="box titlebar" aria-labelledby="hero-title">
+          <div class="ident">
+            <p class="partline">DATASHEET / verity.supply / hardened container images</p>
+            <h1 id="hero-title" class="thesis">Container images. Evidence included.</h1>
+            <p class="lead">
+              Minimal Wolfi images and compatible patched upstreams with immutable digests,
+              signatures, SPDX SBOMs, and build provenance.
+            </p>
+            <p class="free">Free. No account, no paid tier. Every claim ships with the commands to check it.</p>
+            <a class="primary-action" href="#catalog" data-focus-search>Copy a pull command -&gt;</a>
           </div>
-          <dl class="evidence-list">
-            <div><dt>REGISTRY</dt><dd><code>verity.supply</code></dd></div>
-            <div><dt>POLICY</dt><dd>0 FIXABLE VULNERABILITIES</dd></div>
-            <div><dt>SBOM</dt><dd id="policy-sbom">SPDX-JSON</dd></div>
-            <div><dt>PUBLISHED</dt><dd><time id="published-at">LOADING</time></dd></div>
-            <div><dt>SOURCE</dt><dd><a id="source-link" href="https://github.com/tektum/verity-images">MAIN</a></dd></div>
-          </dl>
-        </aside>
-      </section>
+          <table class="rev">
+            <caption>REVISION</caption>
+            <tbody>
+              <tr><th scope="row">REV</th><td><time id="published-at">LOADING</time><small>publish time, UTC</small></td></tr>
+              <tr><th scope="row">SRC</th><td>main<small><a id="source-link" href="https://github.com/tektum/verity-images">commit</a></small></td></tr>
+              <tr>
+                <th scope="row">CATALOG</th>
+                <td><span id="metric-images">--</span> records<small><span id="metric-wolfi">--</span> wolfi / <span id="metric-patched">--</span> patched</small></td>
+              </tr>
+              <tr><th scope="row">COSIGN</th><td>&gt;= <span id="rev-cosign">--</span><small>required to verify</small></td></tr>
+            </tbody>
+          </table>
+        </section>
 
-      <section class="metrics-band" aria-label="Catalog summary">
-        <div class="shell metrics">
-          <div><strong id="metric-images">--</strong><span>IMAGE RECORDS</span></div>
-          <div><strong id="metric-wolfi">--</strong><span>WOLFI</span></div>
-          <div><strong id="metric-patched">--</strong><span>PATCHED</span></div>
-          <div><strong>0</strong><span>FIXABLE VULNERABILITIES</span></div>
-        </div>
-      </section>
+        <section class="box" aria-labelledby="custody-title">
+          <h2 id="custody-title" class="sec-h"><span class="num">1.0</span> Chain of custody <span class="aside">every digest, same five stages</span></h2>
+          <ol class="chain">
+            <li>
+              <span class="stage"><span class="ix">1.1</span>SOURCE</span>
+              <span class="what">Main branch of the public repository</span>
+              <code>tektum/verity-images</code>
+              <code>refs/heads/main</code>
+            </li>
+            <li>
+              <span class="stage"><span class="ix">1.2</span>BUILD</span>
+              <span class="what">GitHub Actions workflow, apko/melange for Wolfi, Copacetic for patched upstreams</span>
+              <code>.github/workflows/build.yaml</code>
+              <code><a id="rail-run" href="https://github.com/tektum/verity-images/actions">catalog run</a></code>
+              <span class="memo"><b>NOTE</b>FIPS flavors on some images enable the OpenSSL 3.1.2 FIPS provider. Not CMVP validated.</span>
+            </li>
+            <li>
+              <span class="stage"><span class="ix">1.3</span>SIGN</span>
+              <span class="what">cosign keyless via GitHub OIDC</span>
+              <code><span class="key">identity </span><span id="rail-identity">--</span></code>
+              <code><span class="key">issuer </span><span id="rail-issuer">--</span></code>
+            </li>
+            <li>
+              <span class="stage"><span class="ix">1.4</span>ATTEST</span>
+              <span class="what">SPDX SBOM per platform digest + SLSA build provenance</span>
+              <code><span id="policy-sbom">SPDX-JSON</span> signed attestation</code>
+              <code>actions/attest-build-provenance</code>
+              <span class="gate"><b>GATE</b>0 fixable at publish time, not 0 CVE. Unfixed findings stay visible on every row.</span>
+            </li>
+            <li>
+              <span class="stage"><span class="ix">1.5</span>PUBLISH</span>
+              <span class="what">Pushed by digest to the registry</span>
+              <code>verity.supply</code>
+              <code>published <time id="rail-published">--</time></code>
+              <span class="gate"><b>GATE</b>No exceptions. A failed gate publishes nothing.</span>
+            </li>
+          </ol>
+        </section>
 
-      <section id="catalog" class="shell catalog-section" aria-labelledby="catalog-title">
-        <div class="section-heading">
-          <div>
-            <p class="overline">SELECT · INSPECT · VERIFY</p>
-            <h2 id="catalog-title">IMAGE CATALOG</h2>
+        <section class="box" aria-labelledby="policy-title">
+          <h2 id="policy-title" class="sec-h"><span class="num">2.0</span> Publication policy <span class="aside">absolute ratings, every digest</span></h2>
+          <div class="policy-cols">
+            <ul class="policy">
+              <li class="leader"><span class="k"><span class="ix">2.1</span>Fixable vulnerabilities</span><span class="v ok">0<span class="note">at publish time (not 0 CVE)</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.2</span>Signature</span><span class="v">cosign keyless<span class="note">GitHub OIDC</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">per platform digest</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA provenance<span class="note">for every digest</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.5</span>Known unfixable findings</span><span class="v">listed<span class="note">per image</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing.</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every published digest's SBOM</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.8</span>FIPS flavors</span><span class="v">some images<span class="note">OpenSSL 3.1.2 FIPS provider. Not CMVP validated.</span></span></li>
+            </ul>
+            <div class="policy-notes">
+              <h3>Notes</h3>
+              <p>Unfixable findings stay visible per record, so a row can read HIGH 6 and still pass.</p>
+              <p>Daily re-evaluation raises code scanning alerts. Counts are publish-time statements.</p>
+            </div>
           </div>
-          <p>Every image has zero vulnerabilities with an available fix. Known findings awaiting an upstream fix remain visible in each image's details.</p>
-        </div>
+        </section>
 
-        <div class="catalog-controls">
-          <label class="search-field" for="catalog-search">
-            <span>SEARCH</span>
-            <input id="catalog-search" type="search" inputmode="search" autocomplete="off" placeholder="name, version, tag..." />
-            <kbd>/</kbd>
-          </label>
-          <div class="track-filters" role="group" aria-label="Filter by image track">
-            <button type="button" data-track="all" aria-pressed="true">ALL <span id="count-all">0</span></button>
-            <button type="button" data-track="wolfi" aria-pressed="false">WOLFI <span id="count-wolfi">0</span></button>
-            <button type="button" data-track="patched" aria-pressed="false">PATCHED <span id="count-patched">0</span></button>
+        <section id="catalog" class="box" aria-labelledby="catalog-title" tabindex="-1">
+          <h2 id="catalog-title" class="sec-h"><span class="num">3.0</span> Catalog <span class="aside">select, inspect, verify</span></h2>
+          <div class="controls">
+            <div class="ctl">
+              <label class="lbl" for="catalog-search">SEARCH</label>
+              <div class="search-field">
+                <input id="catalog-search" type="search" inputmode="search" autocomplete="off" spellcheck="false" placeholder="name, version, tag" />
+                <kbd aria-hidden="true">/</kbd>
+              </div>
+            </div>
+            <div class="ctl">
+              <span class="lbl" id="track-label">TRACK</span>
+              <div class="track-filters" role="group" aria-labelledby="track-label">
+                <button type="button" data-track="all" aria-pressed="true">All <span id="count-all">0</span></button>
+                <button type="button" data-track="wolfi" aria-pressed="false">Wolfi <span id="count-wolfi">0</span></button>
+                <button type="button" data-track="patched" aria-pressed="false">Patched <span id="count-patched">0</span></button>
+              </div>
+            </div>
+            <div class="ctl">
+              <label class="lbl" for="catalog-sort">SORT</label>
+              <select id="catalog-sort">
+                <option value="name">Name</option>
+                <option value="newest">Newest</option>
+                <option value="recent">Recently rebuilt</option>
+              </select>
+            </div>
           </div>
-          <label class="sort-field" for="catalog-sort">
-            <span>SORT</span>
-            <select id="catalog-sort">
-              <option value="name">NAME</option>
-              <option value="newest">NEWEST</option>
-              <option value="recent">RECENTLY REBUILT</option>
-            </select>
-          </label>
-        </div>
 
-        <p id="result-status" class="result-status" role="status" aria-live="polite">Loading catalog...</p>
-        <div class="list-legend" aria-hidden="true">
-          <span>IMAGE</span><span>TRACK</span><span>VERSION</span><span class="row-digest">DIGEST</span><span class="row-freshness">REBUILT</span><span>POLICY</span><span></span>
-        </div>
-        <div id="catalog-list" class="catalog-list" aria-busy="true"></div>
-        <div id="empty-state" class="state-panel" hidden>
-          <p>NO MATCHING IMAGES</p>
-          <button id="clear-filters" type="button">CLEAR FILTERS</button>
-        </div>
-        <div id="error-state" class="state-panel error-panel" role="alert" hidden>
-          <p>THE CATALOG COULD NOT BE LOADED.</p>
-          <a href="catalog.json">OPEN RAW JSON</a>
-        </div>
-        <noscript>
-          <p class="state-panel">JavaScript is required for search and filtering. The raw catalog remains available.</p>
-        </noscript>
-      </section>
-    </main>
+          <p id="result-status" class="result-status" role="status" aria-live="polite">Loading catalog...</p>
+          <div class="list-legend" aria-hidden="true">
+            <span>NO.</span><span>IMAGE</span><span>TRACK</span><span>VERSION</span><span>DIGEST</span><span>REBUILT</span><span>POLICY</span><span>PULL</span>
+          </div>
+          <div id="catalog-list" class="catalog-list" aria-busy="true"></div>
+          <div id="empty-state" class="state-panel" hidden>
+            <p>No records match the current search and track filter.</p>
+            <button id="clear-filters" type="button">CLEAR FILTERS</button>
+          </div>
+          <div id="error-state" class="state-panel" role="alert" hidden>
+            <p>The catalog could not be loaded.</p>
+            <a href="catalog.json">Open raw JSON</a>
+          </div>
+          <noscript>
+            <p class="state-panel">JavaScript is required for search and filtering. The raw catalog remains available.</p>
+          </noscript>
+          <p class="foot">Digests are immutable. Tags move; pin by sha256.</p>
+        </section>
+      </main>
 
-    <footer class="site-footer">
-      <div class="shell footer-inner">
-        <span>VERITY IMAGES</span>
-        <span>DATA, SCHEMA, AND VERIFICATION COMMANDS ARE PUBLIC.</span>
-      </div>
-    </footer>
+      <footer class="box docfoot">
+        <span class="fno">DOC</span>
+        <div>
+          <p>The Verity Images pipeline and image definitions are Apache-2.0. Image contents keep their upstream licenses.</p>
+          <p class="quiet">Verity is part of Tektum.</p>
+        </div>
+      </footer>
+    </div>
 
     <template id="image-row-template">
       <details class="image-row">
         <summary>
+          <span class="row-no"></span>
           <span class="row-name">
             <span class="name-text"></span>
             <span class="row-variants" hidden></span>
           </span>
-          <span class="row-track"></span>
-          <span class="row-version">
+          <span class="row-track" data-label="TRACK"></span>
+          <span class="row-version" data-label="VERSION">
             <span class="version-text"></span>
-            <span class="fips-marker" hidden>FIPS</span>
+            <span class="fips-marker" title="FIPS flavor. Not CMVP validated." hidden>FIPS<span class="visually-hidden"> flavor. Not CMVP validated.</span></span>
           </span>
-          <code class="row-digest"></code>
-          <time class="row-freshness"></time>
-          <span class="row-findings"></span>
-          <button type="button" class="copy-button">COPY</button>
+          <code class="row-digest" data-label="DIGEST"></code>
+          <time class="row-freshness" data-label="REBUILT"></time>
+          <span class="row-findings" data-label="POLICY"></span>
+          <span class="row-action"><button type="button" class="copy-button">COPY</button></span>
         </summary>
         <div class="row-detail"></div>
       </details>
@@ -165,25 +224,38 @@
       <div class="variant-block">
         <div class="variant-heading">
           <span class="variant-version"></span>
-          <span class="fips-marker" hidden>FIPS</span>
+          <span class="fips-marker" title="FIPS flavor. Not CMVP validated." hidden>FIPS<span class="visually-hidden"> flavor. Not CMVP validated.</span></span>
           <code class="variant-digest"></code>
           <time class="variant-built"></time>
           <span class="variant-findings"></span>
         </div>
         <p class="description"></p>
-        <div class="verify-row">
-          <span>KNOWN UNFIXABLE FINDINGS</span>
+        <div class="verify-row unfixable">
+          <span>KNOWN UNFIXABLE</span>
           <div class="severity-breakdown" aria-label="Known findings without an available fix, by severity"></div>
         </div>
         <div class="verify-row">
           <span>TAGS</span>
           <div class="tags" aria-label="Published tags. Copies the tagged pull command."></div>
         </div>
-        <div class="command-row"><code class="pull-command"></code></div>
+        <div class="verify-row">
+          <span>PULL</span>
+          <code class="pull-command"></code>
+        </div>
         <details class="verification-disclosure">
           <summary>VERIFY IMAGE <span>3 COMMANDS</span></summary>
           <div class="verification-commands"></div>
         </details>
+        <table class="trace">
+          <caption>Custody trace</caption>
+          <tbody>
+            <tr><th scope="row">SOURCE</th><td><code class="trace-source"></code></td></tr>
+            <tr><th scope="row">BUILD</th><td><code>.github/workflows/build.yaml</code> <a class="trace-run" hidden></a></td></tr>
+            <tr><th scope="row">SIGN</th><td>cosign keyless, GitHub OIDC</td></tr>
+            <tr><th scope="row">ATTEST</th><td>SPDX SBOM + SLSA build provenance</td></tr>
+            <tr><th scope="row">PUBLISH</th><td><code class="trace-publish"></code></td></tr>
+          </tbody>
+        </table>
       </div>
     </template>
   </body>

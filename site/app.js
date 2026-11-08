@@ -31,7 +31,13 @@ function published(value) {
 }
 
 function shortDigest(digest) {
-  return `${digest.slice(0, 14)}…`;
+  return `${digest.slice(0, 14)}...`;
+}
+
+// Catalog links are schema-constrained to GitHub; refuse anything else so a
+// malformed catalog cannot inject a javascript: or off-site href.
+function githubUrl(value) {
+  return typeof value === "string" && value.startsWith("https://github.com/tektum/verity-images/") ? value : null;
 }
 
 function setText(selector, value) {
@@ -64,12 +70,9 @@ function severityBadge(severity, count, label) {
   const badge = document.createElement("span");
   badge.className = "sev-badge";
   badge.dataset.severity = severity;
-  const dot = document.createElement("span");
-  dot.className = "sev-dot";
-  dot.setAttribute("aria-hidden", "true");
   const text = document.createElement("span");
   text.textContent = label ?? severity.toUpperCase();
-  badge.append(dot, text);
+  badge.append(text);
   if (count !== undefined) {
     const value = document.createElement("span");
     value.className = "sev-count";
@@ -234,6 +237,17 @@ function fillDescription(container, image) {
   for (const [label, command] of Object.entries(image.verification)) {
     commands.append(verificationRow(label.toUpperCase(), published(command)));
   }
+
+  container.querySelector(".trace-source").textContent =
+    `tektum/verity-images @ ${image.sourceCommit ? image.sourceCommit.slice(0, 12) : "refs/heads/main"}`;
+  const run = githubUrl(image.runUrl);
+  const runLink = container.querySelector(".trace-run");
+  if (run) {
+    runLink.href = run;
+    runLink.textContent = `run ${image.runId ?? run.split("/").pop()}`;
+    runLink.hidden = false;
+  }
+  container.querySelector(".trace-publish").textContent = published(image.reference);
 }
 
 function fillVariantHeading(container, image) {
@@ -256,7 +270,7 @@ function buildDetailBlock(image, { heading }) {
   return block;
 }
 
-function buildRow(group) {
+function buildRow(group, index) {
   const headline = group.headline;
   const isGroup = group.variants.length > 1;
   const row = template.content.firstElementChild.cloneNode(true);
@@ -264,11 +278,12 @@ function buildRow(group) {
   row.dataset.slug = imageSlug(headline);
   row.dataset.variantSlugs = group.variants.map(imageSlug).join(" ");
 
+  row.querySelector(".row-no").textContent = `3.${index + 1}`;
   row.querySelector(".name-text").textContent = group.name;
   const variantBadge = row.querySelector(".row-variants");
   variantBadge.hidden = !isGroup;
   if (isGroup) {
-    variantBadge.textContent = `×${group.variants.length}`;
+    variantBadge.textContent = `x${group.variants.length}`;
     variantBadge.title = `${group.variants.length} variants published under ${group.name}`;
   }
 
@@ -391,7 +406,7 @@ function applyInitialUrlState() {
 function render() {
   const visible = visibleGroups();
   const fragment = document.createDocumentFragment();
-  visible.forEach((group) => fragment.append(buildRow(group)));
+  visible.forEach((group, index) => fragment.append(buildRow(group, index)));
   grid.replaceChildren(fragment);
   grid.setAttribute("aria-busy", "false");
   emptyState.hidden = visible.length !== 0;
@@ -411,14 +426,25 @@ function updateSummary(catalog) {
   setText("#count-wolfi", wolfi);
   setText("#count-patched", patched);
   setText("#policy-sbom", catalog.policy.sbomFormat);
+  setText("#rev-cosign", catalog.policy.cosignMinimumVersion);
+  setText("#rail-identity", catalog.policy.certificateIdentity);
+  setText("#rail-issuer", catalog.policy.certificateIssuer);
 
-  const published = new Date(catalog.publishedAt);
-  const publishedElement = document.querySelector("#published-at");
-  publishedElement.dateTime = catalog.publishedAt;
-  publishedElement.textContent = published.toISOString().slice(0, 10);
+  const stamp = `${catalog.publishedAt.slice(0, 10)} ${catalog.publishedAt.slice(11, 16)}Z`;
+  for (const selector of ["#published-at", "#rail-published"]) {
+    const element = document.querySelector(selector);
+    element.dateTime = catalog.publishedAt;
+    element.textContent = stamp;
+  }
+  const run = githubUrl(catalog.source.runUrl);
   const source = document.querySelector("#source-link");
-  source.href = catalog.source.runUrl;
-  source.textContent = catalog.source.commit.slice(0, 8).toUpperCase();
+  source.textContent = `commit ${catalog.source.commit.slice(0, 8)}`;
+  if (run) {
+    source.href = run;
+    const railRun = document.querySelector("#rail-run");
+    railRun.href = run;
+    railRun.textContent = `run ${catalog.source.runId ?? run.split("/").pop()}`;
+  }
 }
 
 function catalogShape(value) {
@@ -521,6 +547,12 @@ grid.addEventListener("click", (event) => {
   // The button sits inside the row summary, which would otherwise toggle.
   event.preventDefault();
   copyCommand(button);
+});
+document.querySelector("[data-focus-search]").addEventListener("click", (event) => {
+  event.preventDefault();
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.querySelector("#catalog").scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
+  search.focus({ preventScroll: true });
 });
 document.addEventListener("keydown", (event) => {
   if (event.key === "/" && document.activeElement !== search) {

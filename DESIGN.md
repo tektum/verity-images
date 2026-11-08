@@ -1,148 +1,149 @@
 # Verity Images Catalog Design System
 
-## 1. Atmosphere & Identity
+## 1. Identity
 
-The catalog is a quiet security console: exact, transparent, and operational. It inherits the
-dark mono visual language from `verity.supply`, measured from the live site at 375px and 1280px.
-The signature is an evidence rail that makes policy, provenance, and freshness visible before a
-visitor chooses an image.
+The catalog reads as a component datasheet: the image name is the part number, the publication
+policy is the absolute-maximum-ratings table, and the revision block states when and from what the
+catalog was published. It is a public record, evidence first. Verity is a free public good with no
+account, no paid tier, and no sign-up or demo path; the primary action is copying a pull command.
+Tektum appears only as a quiet footer line.
 
 The primary visitor is a platform engineer choosing a trusted image. Their path is: understand the
-publication policy, find an image, inspect its evidence, copy an immutable pull reference. A
-keyboard-only visitor and a visitor using reduced motion must complete the same path without loss.
+chain of custody and publication policy, find an image, inspect its evidence, copy an immutable pull
+reference and the verification commands. A keyboard-only visitor and a visitor using reduced motion
+must complete the same path without loss.
+
+Personality comes from boxed tables, section numbering, and monospace data, not from tracking,
+glow, or accent color. Wording rules: say `0 fixable at publish time`, never `0 CVE`; say
+`SLSA build provenance` with no level; FIPS flavors are `not CMVP validated`; no competitor mentions.
 
 ## 2. Color
 
-| Role | Token | Value | Usage |
-|---|---|---|---|
-| Void | `--void` | `#060d12` | Page background |
-| Void raised | `--void-raised` | `#0b1419` | Sticky navigation |
-| Surface | `--surface` | `#0a1720` | Controls and cards |
-| Surface raised | `--surface-raised` | `#111b22` | Evidence panels |
-| Border | `--border` | `#152230` | Default separation |
-| Border strong | `--border-strong` | `#1f2b35` | Hover and emphasis |
-| Text | `--text` | `#e8edf2` | Titles and high emphasis |
-| Text primary | `--text-primary` | `#c5d5dd` | Body copy |
-| Text secondary | `--text-secondary` | `#95a8b8` | Labels and metadata |
-| Text muted | `--text-muted` | `#7a8e9c` | Quiet metadata |
-| Nucleus | `--nucleus` | `#00f0cc` | Focus, success, primary action |
-| Nucleus dim | `--nucleus-dim` | `#00d4b8` | Hover state |
-| Orbit | `--orbit` | `#0099a8` | Patched track and links |
-| Warning | `--warning` | `#fbbf24` | Advisory status |
-| Error | `--error` | `#f87171` | Load and validation failures |
-| Ink on accent | `--accent-ink` | `#002820` | Text on nucleus |
+Tokens live on `:root` in `site/styles.css`. Light is the default; dark applies through
+`prefers-color-scheme: dark` unless `<html data-theme="light">` is set, and `data-theme="dark"`
+forces dark. Changing the token set themes every surface; no component uses a literal color.
 
-Atmosphere tokens: `--grid-dot` is `rgba(0, 240, 204, 0.035)`, `--glow` is
-`rgba(0, 240, 204, 0.16)`, and `--overlay` is `rgba(6, 13, 18, 0.88)`. Accent is reserved for
-interactive state, verified status, and the evidence rail.
+| Role | Token | Light | Dark | Usage |
+|---|---|---|---|---|
+| Background | `--bg` | `#ffffff` | `#0e1114` | Page and controls |
+| Tint | `--tint` | `#eef2f7` | `#161a1e` | Section headings, open rows, pressed filters |
+| Ink | `--ink` | `#111111` | `#e9edf0` | Text and structural 1px box lines |
+| Muted | `--muted` | `#595f66` | `#9ba5ae` | Labels, metadata, section numbers |
+| Pass | `--pass` | `#0a6b3d` | `#5fcf94` | Gate states and copied feedback only |
+| Rule | `--rule` | `#cfd4da` | `#2b3239` | Decorative inner separators only |
+| Box | `--box` | `#6b727a` | `#7b858e` | Form control and chip borders |
+| Error | `--err` | `#a3241a` | `#ff8a80` | Copy failure |
+| Hover | `--hover` | `#f7f9fb` | `#12161a` | Row hover background |
+| On ink | `--on-ink` | `var(--bg)` | `var(--bg)` | Text on ink-filled surfaces |
+
+Measured contrast (WCAG 2.x), against `--bg` / `--tint`:
+
+| Token | Light | Dark |
+|---|---|---|
+| `--ink` | 18.88 / 16.80 | 16.08 / 14.86 |
+| `--muted` | 6.45 / 5.74 | 7.56 / 6.99 |
+| `--pass` | 6.60 / 5.87 | 9.77 / 9.03 |
+| `--err` | 7.43 / 6.61 | 8.30 / 7.66 |
+| `--box` | 4.87 / 4.33 | 5.04 / 4.65 |
+| `--rule` | 1.49 / 1.33 | 1.46 / 1.35 |
+
+`--rule` is below 3:1 and must never carry text or bound a control. Status never relies on color
+alone: every green state also has text (`0 FIXABLE`, `GATE`, `COPIED`).
 
 ## 3. Typography
 
-The live reference renders Share Tech Mono for prose and JetBrains Mono for commands. Both are
-loaded from Google Fonts with resilient local mono fallbacks.
+System stacks only; the site makes no font requests.
 
-| Level | Token | Size | Line height | Tracking | Usage |
-|---|---|---:|---:|---:|---|
-| Display | `--type-display` | `clamp(1.75rem, 4.5vw, 2.5rem)` | 1.15 | 0.10em | Hero thesis |
-| H1 | `--type-h1` | `1.75rem` | 1.25 | 0.08em | Page title |
-| H2 | `--type-h2` | `1.25rem` | 1.35 | 0.06em | Section title |
-| H3 | `--type-h3` | `1rem` | 1.4 | 0.04em | Image title |
-| Body | `--type-body` | `0.9375rem` | 1.7 | 0 | Prose |
-| Small | `--type-small` | `0.8125rem` | 1.55 | 0.02em | Metadata |
-| Label | `--type-label` | `0.75rem` | 1.35 | 0.12em | Controls and overlines |
+- Data: `ui-monospace, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace` at 13 to 14px for
+  digests, commands, tables, controls, and labels.
+- Headings: `system-ui` weight 700 with `font-variant-caps: all-small-caps`, prefixed by a mono
+  section number (`1.0`, `2.0`, `3.0`, and `1.1`, `3.12` for items).
+- Body: `system-ui` 15px / 1.55.
+- Hero thesis 44px, 32px below 760px. No letter-spacing anywhere. Body text never falls below 13px;
+  12px is used only for short column labels.
 
-Body text never falls below 13px. Labels may use 12px because their tracked mono forms are short,
-high contrast, and supplementary. Command text uses JetBrains Mono.
+## 4. Layout
 
-## 4. Spacing & Layout
-
-The base unit is 4px. Tokens are `--space-1` 4px, `--space-2` 8px, `--space-3` 12px,
-`--space-4` 16px, `--space-5` 24px, `--space-6` 32px, `--space-7` 48px, `--space-8` 64px,
-and `--space-9` 96px.
-
-- Maximum content width: 1152px, matching the live reference.
-- Page gutters: 16px through tablet, 24px above 768px.
-- Breakpoints: 640px, 768px, 960px, and 1024px.
-- Hero: single column on narrow screens, asymmetric 7/5 split above 960px.
-- Catalog: a single-column row list. Rows hide digests below 1024px and reflow below 640px.
-- Long references wrap inside their card. The page must never gain horizontal overflow at 375px.
+- One full-width boxed sheet, maximum 1240px, 20px gutters (10px below 760px). Stacked boxes share
+  a single 1px ink border.
+- Index order: header bar, title bar (thesis left, revision block right), `1.0 Chain of custody`,
+  `2.0 Publication policy`, `3.0 Catalog`, document footer. Trust uses the same header and footer
+  with numbered prose sections.
+- Breakpoints: 1000px (revision block and policy notes stack, controls wrap), 860px (custody rail
+  turns vertical), 760px (rows become stacked cards, tables become label/value blocks).
+- Long digests, identities, and commands wrap with `overflow-wrap: anywhere`. The page must never
+  gain horizontal overflow at 375px and must reflow at 200% zoom.
 
 ## 5. Components
 
-### Navigation
+### Header and theme toggle
 
-- **Structure**: skip link, brand anchor, repository and raw-data links.
-- **States**: default, hover, focus, active.
-- **Accessibility**: landmark label, visible focus, 44px minimum touch targets.
-- **Motion**: color and glow only, 150ms.
+- **Structure**: skip link, `VERITY/IMAGES` brand, primary nav (Trust, Raw JSON, Schema, GitHub),
+  theme toggle button.
+- **Toggle**: cycles `Theme: Auto`, `Theme: Light`, `Theme: Dark`. Auto removes `data-theme`.
+  `site/theme.js` persists the choice in `localStorage` inside try/catch; a short inline head script
+  applies it before first paint.
+- **Accessibility**: nav landmark, 44px targets, the button label itself announces the mode.
 
-### Evidence rail
+### Revision block
 
-- **Structure**: policy status, publication timestamp, source revision.
-- **Variants**: loading, ready, error.
-- **Accessibility**: status text does not rely on color; timestamp uses `<time>`.
-- **Motion**: the ready indicator fades in; reduced motion removes the fade.
+- **Structure**: a real `<table>` with an ink caption: REV (publish time, `<time>`), SRC (main plus
+  commit linking to the catalog run), CATALOG (record counts by track), COSIGN (minimum version).
+- **Data**: filled from `catalog.json` by `site/app.js`.
+
+### Custody rail
+
+- **Structure**: ordered list SOURCE, BUILD, SIGN, ATTEST, PUBLISH with real identifiers. BUILD
+  links to the catalog run, SIGN shows the certificate identity and issuer from `catalog.json`,
+  ATTEST names the SBOM format and `actions/attest-build-provenance`.
+- **Visual**: 10px square ink nodes and a 1px ink connector; gate notes in pass-green boxes, the
+  FIPS note in a box-border box. Five columns above 860px, vertical below.
+
+### Policy table
+
+- **Structure**: numbered leader rows (`2.1` to `2.8`) built with flex and a dotted `::after`
+  leader, plus a short notes column.
 
 ### Filter controls
 
-- **Structure**: labelled search input, track button group, sort select, result status.
-- **States**: default, hover, focus, pressed, disabled, empty, error.
-- **Accessibility**: `aria-pressed` expresses filter state; results announce through a polite live region.
-- **Motion**: the pressed fill changes over 180ms. No decorative movement.
+- **Structure**: labelled search, track buttons with square check cells and counts, sort select,
+  polite live result status.
+- **Accessibility**: `aria-pressed` expresses filter state; `/` focuses search, Escape clears it.
 
-### Image row
+### Record row
 
-- **Structure**: a native details row with a summary for name, track, version, digest, freshness,
-  findings, and copy action; expanded variants contain descriptions, tags, immutable pull commands,
-  and verification disclosures.
-- **Variants**: Wolfi and patched.
-- **States**: default, hover, focus-within, row open, verification commands open.
-- **Accessibility**: an article heading names each record; disclosure uses native `<details>`.
-- **Motion**: border and glow only, 180ms.
+- **Structure**: native `<details>`; the summary shows number, name, variant count, track,
+  version with FIPS marker, short digest, freshness, `0 FIXABLE`, and copy action. The expanded
+  panel is a boxed table: description, KNOWN UNFIXABLE severity breakdown, tags, pull command,
+  verification commands, and a per-digest custody trace ending at that image's digest.
+- **States**: default, hover, open, focus-visible.
+- **FIPS marker**: `title` and visually hidden text read "FIPS flavor. Not CMVP validated."
 
 ### Copy action
 
-- **Structure**: command text and adjacent text button.
-- **States**: copy, copied, failure.
-- **Accessibility**: the changed label is announced; the command remains selectable.
-- **Motion**: adapted from beui.dev `action-swap`: opacity and blur swap over 200ms, with an
-  immediate reduced-motion path.
+- **Structure**: text button; labels `COPY`, `COPIED`, `SELECT` with brackets added in CSS.
+- **States**: copied uses `--pass`, failure uses `--err`, both with a label change.
+- **Motion**: a 200ms opacity and blur swap, skipped under reduced motion.
 
-## 6. Motion & Interaction
+## 6. Motion
 
-| Token | Value | Usage |
-|---|---|---|
-| `--duration-fast` | 120ms | Press and focus feedback |
-| `--duration-standard` | 180ms | Filter and card state |
-| `--duration-swap` | 200ms | Copy label swap |
-| `--ease-out` | `cubic-bezier(0.2, 0.7, 0.2, 1)` | Enter and emphasis |
-| `--ease-standard` | `cubic-bezier(0.4, 0, 0.2, 1)` | Color and border |
+Two motions exist: the custody connector draws in once with `scaleX` (`scaleY` when vertical),
+staggered 120ms per segment, and the copy label swap. Smooth scroll is used only for the hero
+action. `prefers-reduced-motion: reduce` disables all animation and smooth scrolling.
 
-The filter mechanism is adapted from beui.dev `tabs`, but uses `aria-pressed` buttons because it
-filters one result set rather than switching tab panels. Copy feedback follows `action-swap`.
-Only opacity, transform, and filter may animate. `prefers-reduced-motion: reduce` makes every state
-change immediate. The `/` key focuses search and Escape clears it when search owns focus.
-
-## 7. Depth & Surface
-
-The strategy is mixed tonal shift and borders. Cards use `--surface` over `--void`, a one-pixel
-border, and a two-layer shadow declared as `--shadow-card`: a faint top rim plus deep ambient
-separation. Interactive focus uses `--shadow-focus`; the hero evidence rail uses a radial accent
-glow. Radii remain tight: 2px, 4px, and 6px. Pills are reserved for status and filters.
-
-## 8. Accessibility Constraints & Accepted Debt
+## 7. Accessibility Constraints & Accepted Debt
 
 ### Constraints
 
-- WCAG 2.2 AA minimum, with 4.5:1 body contrast and 3:1 large-text contrast.
-- Full keyboard reachability, persistent visible focus, semantic landmarks, and a skip link.
+- WCAG 2.2 AA: 4.5:1 text contrast, 3:1 for control borders and focus indicators.
+- Full keyboard reachability, persistent visible `:focus-visible` outline, landmarks, skip link.
+- 44px minimum targets on buttons, nav links, and controls.
 - Search, filter, sort, copy, and disclosure flows work without a pointer.
-- Reduced motion is respected. Content reflows at 200% zoom and 375px without primary overflow.
-- Status language says `0 fixable`, never `0 CVE`, because non-fixable findings may remain.
+- No horizontal overflow at 375px; content reflows at 200% zoom.
 
 ### Accepted Debt
 
 | Item | Location | Why accepted | Owner / Exit |
 |---|---|---|---|
 | Client-rendered catalog records | `site/app.js` | Pages publishes the catalog after site assembly, so a zero-build static client keeps the image pipeline isolated. Core policy and navigation remain in HTML. | Replace with build-time rendering only if deep image SEO becomes a product requirement. |
-| External web fonts | `site/styles.css` | Matches the existing Verity identity with resilient local fallbacks. | Vendor OFL font subsets if availability or privacy requirements change. |
+| Theme preference stored client-side | `site/theme.js`, inline head scripts | Static hosting has no server preference; `localStorage` plus a pre-paint inline script avoids a theme flash. The inline script would need a hash if a Content-Security-Policy is added. | Move to a CSP hash or drop persistence if a strict CSP is introduced. |
