@@ -1,0 +1,45 @@
+package:
+  name: nginx-prometheus-exporter
+  version: "1.5.3"  # renovate: datasource=github-releases depName=nginx/nginx-prometheus-exporter
+  epoch: 0
+  description: Prometheus exporter for NGINX stub_status metrics
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/nginx/nginx-prometheus-exporter
+      tag: v${{package.version}}
+      expected-commit: 9956da7073198e272ff915c5e06c360290c50b6b
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: nginx-prometheus-exporter
+      strip: -s -w
+      ldflags: >-
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=9956da7073198e272ff915c5e06c360290c50b6b
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: nginx-prometheus-exporter --version 2>&1 | grep -F "${{package.version}}"

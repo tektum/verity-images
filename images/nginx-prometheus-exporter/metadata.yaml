@@ -1,8 +1,8 @@
 name: nginx-prometheus-exporter
 track: wolfi
-description: NGINX Prometheus Exporter for stub_status metrics, assembled from the Wolfi package.
+description: NGINX Prometheus Exporter for stub_status metrics, built from pinned source.
 category: Monitoring & Observability
 upstream: https://github.com/nginx/nginx-prometheus-exporter
-versions: [1.5]
+versions: [1.5.3]
 owner: tektum
 enabled: true
