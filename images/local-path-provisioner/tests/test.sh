@@ -30,12 +30,11 @@ fi
 printf '%s\n' "$output" | grep -F 'unable to get client config' >/dev/null \
   || fail 'missing cluster did not report the expected client config error'
 
-if output=$(docker run --rm --network none \
-  -e KUBERNETES_SERVICE_HOST=127.0.0.1 -e KUBERNETES_SERVICE_PORT=1 "$image" start 2>&1); then
-  fail 'provisioner unexpectedly started with an unreachable API server'
+if output=$(docker run --rm --network none "$image" start --kubeconfig /tmp/missing.kubeconfig 2>&1); then
+  fail 'provisioner unexpectedly started with a missing explicit kubeconfig'
 fi
-printf '%s\n' "$output" | grep -F 'level=fatal' >/dev/null \
-  || fail 'unreachable API server did not fail with a fatal error'
+printf '%s\n' "$output" | grep -F '/tmp/missing.kubeconfig' >/dev/null \
+  || fail 'provisioner ignored the explicit kubeconfig path'
 
 if docker run --rm --network none "$image" no-such-command >/dev/null 2>&1; then
   fail 'unknown command unexpectedly succeeded'
