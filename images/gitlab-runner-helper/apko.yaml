@@ -1,0 +1,23 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - dumb-init
+    - git
+    - git-lfs
+    - gitlab-runner-helper-19.3
+    - gitlab-runner-helper-oci-entrypoint-19.3
+
+entrypoint:
+  command: /usr/bin/dumb-init -- /entrypoint
+
+cmd: /bin/bash
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
