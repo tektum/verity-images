@@ -1,0 +1,67 @@
+package:
+  name: verity-rclone-1.76
+  version: "1.76.0"  # renovate: datasource=github-releases depName=rclone/rclone
+  epoch: 0
+  description: Rsync for cloud storage
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rclone/rclone
+      tag: v${{package.version}}
+      expected-commit: e982ff36668f5130d94b4f70409babb3d964df42
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      flags="-s -w -X github.com/rclone/rclone/fs.Version=v${{package.version}}"
+      go build -trimpath -tags noselfupdate -ldflags "$flags" -o rclone .
+      install -m755 -D rclone "${{targets.destdir}}/usr/bin/rclone"
+      install -m644 -D COPYING \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/COPYING"
+  - uses: strip
+
+subpackages:
+  - name: verity-rclone-1.76-build-metadata
+    description: Resolved Go module metadata for the rclone build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/rclone-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/rclone-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/rclone version | grep -F 'rclone v${{package.version}}'
+        test -s /usr/share/licenses/${{package.name}}/COPYING
+
+update:
+  enabled: true
+  github:
+    identifier: rclone/rclone
+    strip-prefix: v
+    tag-filter: v1.76
+    use-tag: true

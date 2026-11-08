@@ -27,7 +27,7 @@ fail() {
 [ "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /data ] \
   || fail 'unexpected image working directory'
 
-docker run --rm --network none "$image" version | grep -Fq 'rclone 1.74.' \
+docker run --rm --network none "$image" version | grep -Fq 'rclone v1.76.' \
   || fail 'unexpected rclone version'
 
 mkdir "$work/src"
