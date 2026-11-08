@@ -102,10 +102,11 @@
               <span class="what">cosign keyless via GitHub OIDC</span>
               <code><span class="key">identity </span><span id="rail-identity">--</span></code>
               <code><span class="key">issuer </span><span id="rail-issuer">--</span></code>
+              <code><span class="key">earlier digests </span>build.yaml@refs/heads/main</code>
             </li>
             <li>
               <span class="stage"><span class="ix">1.4</span>ATTEST</span>
-              <span class="what">One SPDX SBOM per platform, attached to the image index digest, + SLSA Build L3 provenance</span>
+              <span class="what">One SPDX SBOM per platform, attached to the image index digest, + SLSA Build L3 provenance for digests published through publish.yaml</span>
               <code><span id="policy-sbom">SPDX-JSON</span> signed attestation</code>
               <code>actions/attest-build-provenance</code>
               <span class="gate"><b>GATE</b>0 fixable at publish time, not 0 CVE. Unfixed findings stay visible on every row.</span>
@@ -127,7 +128,7 @@
               <li class="leader"><span class="k"><span class="ix">2.1</span>Fixable vulnerabilities</span><span class="v ok">0<span class="note">at publish time (not 0 CVE)</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.2</span>Signature</span><span class="v">cosign keyless<span class="note">GitHub OIDC</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">one per platform, on the index digest</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA Build L3<span class="note">provenance for every digest</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA Build L3<span class="note">digests published through publish.yaml; earlier digests carry build.yaml provenance</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.5</span>Known unfixable findings</span><span class="v">listed<span class="note">per image</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing.</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every published digest's SBOM</span></span></li>

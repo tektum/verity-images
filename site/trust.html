@@ -165,12 +165,15 @@
         </section>
 
         <section class="box" aria-labelledby="provenance-title">
-          <h2 id="provenance-title" class="sec-h"><span class="num">4.0</span> SLSA Build L3 provenance for every digest</h2>
+          <h2 id="provenance-title" class="sec-h"><span class="num">4.0</span> SLSA build provenance for every digest, Build L3 through publish.yaml</h2>
           <div class="prose">
             <p class="sub">Provenance ties a published digest back to the workflow run that built it.</p>
             <p>
-              Every pushed digest receives SLSA Build L3 provenance from
-              <code>actions/attest-build-provenance</code> plus a GitHub artifact attestation. Wolfi
+              Every pushed digest receives SLSA build provenance from
+              <code>actions/attest-build-provenance</code> plus a GitHub artifact attestation. Digests
+              published through the reusable <code>publish.yaml</code> workflow carry SLSA Build L3
+              provenance; digests published earlier carry <code>build.yaml</code> provenance until they
+              are rebuilt. Wolfi
               builds use and upload the reviewed, checked-in apko lock as a build input. Melange-backed
               builds are the exception: because their package signature is ephemeral, each run
               produces a build-specific lock, which is uploaded together with the recipe, package
@@ -187,9 +190,11 @@
           <div class="prose">
             <p class="sub">Substitute the digest from the catalog row you actually pulled.</p>
             <p>
-              Every row in the catalog exposes these same three commands, already filled in with that
-              row's registry reference. The example below uses <code>caddy</code>, one of the images in
-              the Wolfi track, pulled from <code>verity.supply</code> instead of a mutable tag:
+              Every row in the catalog exposes the exact commands for its own digest, already filled in
+              with that row's registry reference. The example below uses <code>caddy</code>, one of the
+              images in the Wolfi track, pulled from <code>verity.supply</code> instead of a mutable tag.
+              Digests published before the reusable workflow carry <code>build.yaml</code> provenance;
+              verify those without <code>--signer-workflow</code>:
             </p>
             <div class="commands">
               <div class="verify-row">
