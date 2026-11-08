@@ -1,0 +1,44 @@
+package:
+  name: redis-exporter
+  version: "1.97.0"  # renovate: datasource=github-releases depName=oliver006/redis_exporter
+  epoch: 0
+  description: Prometheus exporter for Redis and Valkey metrics
+  copyright:
+    - license: MIT
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/oliver006/redis_exporter
+      tag: v${{package.version}}
+      expected-commit: 72d2a71f1f7c91fc4564083bc4c58655df85e5d0
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: redis_exporter
+      strip: -s -w
+      ldflags: >-
+        -X main.BuildVersion=v${{package.version}}
+        -X main.BuildCommitSha=72d2a71f1f7c91fc4564083bc4c58655df85e5d0
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: redis_exporter --version 2>&1 | grep -F "${{package.version}}"
