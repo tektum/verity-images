@@ -1,0 +1,44 @@
+package:
+  name: clickhouse-operator
+  version: "0.27.4"  # renovate: datasource=github-releases depName=Altinity/clickhouse-operator
+  epoch: 0
+  description: Altinity Kubernetes operator for ClickHouse
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Altinity/clickhouse-operator
+      tag: release-${{package.version}}
+      expected-commit: 82498653e845a14ec9a114841ca322a127dc12fd
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/operator
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/operator
+      output: clickhouse-operator
+      strip: -s -w
+      ldflags: >-
+        -X github.com/altinity/clickhouse-operator/pkg/version.Version=${{package.version}}
+        -X github.com/altinity/clickhouse-operator/pkg/version.GitSHA=82498653e845a14ec9a114841ca322a127dc12fd
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: clickhouse-operator -version 2>&1 | grep -F "${{package.version}}"

@@ -15,7 +15,7 @@ test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ||
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/clickhouse-operator"]' ||
   fail 'unexpected entrypoint'
 
-docker run --rm "$image" -version 2>&1 | grep -E '^v0\.27\.[0-9]+$' >/dev/null ||
+docker run --rm "$image" -version 2>&1 | grep -E '^v?0\.27\.[0-9]+$' >/dev/null ||
   fail 'unexpected operator version'
 
 docker run --rm "$image" -help >"$tmp/help.log" 2>&1 || true
