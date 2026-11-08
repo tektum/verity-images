@@ -1,0 +1,93 @@
+package:
+  name: verity-jaeger
+  version: "2.23.0"  # renovate: datasource=github-releases depName=jaegertracing/jaeger versioning=semver
+  epoch: 0
+  description: Jaeger distributed tracing platform
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: d723f91447f29a345c288f37eb8d1ce7807bc0be
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jaegertracing/jaeger
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: mkdir ui-assets
+  # The UI is prebuilt by the jaeger-ui release that the jaeger submodule pins
+  # at the same tag; this avoids a Node toolchain in the image build.
+  - uses: fetch
+    with:
+      uri: https://github.com/jaegertracing/jaeger-ui/releases/download/v${{package.version}}/assets.tar.gz
+      expected-sha256: 67ba4100efe0c24f59a776e2e843eae39a4a5b1b8ee6f141e9a6801c8e51141c
+      directory: ui-assets
+      strip-components: 0
+  - runs: |
+      ui=cmd/jaeger/internal/extension/jaegerquery/internal/ui/actual
+      rm -rf "$ui"/*
+      cp -r ui-assets/packages/jaeger-ui/build/* "$ui"/
+      find "$ui" -type f ! -name .gitignore -exec gzip --no-name {} +
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/jaeger
+  - runs: |
+      pkg=github.com/jaegertracing/jaeger/internal/version
+      flags="-s -w"
+      flags="$flags -X $pkg.commitSHA=${{vars.source-commit}}"
+      flags="$flags -X $pkg.latestVersion=v${{package.version}}"
+      flags="$flags -X $pkg.date=2026-11-04T16:02:09Z"
+      go build -buildvcs=false -trimpath -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/jaeger" ./cmd/jaeger
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        jaeger version 2>/dev/null | grep -F '"gitVersion":"v${{package.version}}"'
+        apk info --who-owns /usr/bin/jaeger \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: jaegertracing/jaeger
+    strip-prefix: v
+    use-tag: true
