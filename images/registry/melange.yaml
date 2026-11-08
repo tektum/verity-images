@@ -1,0 +1,85 @@
+package:
+  name: verity-registry-3.1
+  version: "3.1.2"  # renovate: datasource=github-releases depName=distribution/distribution
+  epoch: 0
+  description: CNCF Distribution container registry
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/distribution/distribution
+      tag: v${{package.version}}
+      expected-commit: 3220848f15d9279c66a41aa0a257469e6aede1e9
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/registry
+  - runs: |
+      flags="-s -w"
+      flags="$flags -X github.com/distribution/distribution/v3/version.version=v${{package.version}}"
+      flags="$flags -X github.com/distribution/distribution/v3/version.revision=3220848f15d9279c66a41aa0a257469e6aede1e9"
+      go build -trimpath -ldflags "$flags" -o "$PWD/registry.bin" ./cmd/registry
+      install -m755 -D registry.bin "${{targets.destdir}}/usr/bin/registry"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -m644 -D /dev/stdin "${{targets.destdir}}/etc/distribution/config.yml" <<'EOF2'
+      version: 0.1
+      log:
+        level: info
+      storage:
+        filesystem:
+          rootdirectory: /var/lib/registry
+      http:
+        addr: :5000
+      health:
+        storagedriver:
+          enabled: true
+          interval: 10s
+          threshold: 3
+      EOF2
+  - uses: strip
+
+subpackages:
+  - name: verity-registry-3.1-build-metadata
+    description: Resolved Go module metadata for the registry build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/registry-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/registry-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/registry --version 2>&1 | grep -F 'v${{package.version}}'
+        test -s /etc/distribution/config.yml
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: distribution/distribution
+    strip-prefix: v
+    tag-filter: v3.1
+    use-tag: true
