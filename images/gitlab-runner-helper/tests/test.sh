@@ -19,7 +19,7 @@ user=$(docker image inspect --format '{{.Config.User}}' "$image")
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/dumb-init","--","/entrypoint"]' ] \
   || fail 'unexpected image entrypoint'
-[ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/bin/bash"]' ] \
+[ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/usr/bin/gitlab-runner-build"]' ] \
   || fail 'unexpected image command'
 
 docker run --rm --network none "$image" \
@@ -47,7 +47,13 @@ if docker run --rm --network none "$image" gitlab-runner-helper no-such-command 
   fail 'unknown helper command unexpectedly succeeded'
 fi
 
-# The entrypoint execs its arguments.
+# The entrypoint execs its arguments and installs a mounted custom CA.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/ca.key" -out "$work/ca.crt" \
+  -subj /CN=verity-smoke -days 1 >/dev/null 2>&1 || fail 'could not generate a synthetic CA'
+chmod 644 "$work/ca.crt"
+docker run --rm --network none -v "$work/ca.crt:/etc/gitlab-runner/certs/ca.crt:ro" "$image" true 2>&1 \
+  | grep -F 'Updating CA certificates' >/dev/null \
+  || fail 'entrypoint did not install the mounted custom CA'
 docker run --rm --network none "$image" sh -c 'printf entrypoint-ok' | grep -F entrypoint-ok >/dev/null \
   || fail 'entrypoint did not exec its arguments'
 if docker run --rm --network none "$image" /no/such/binary >/dev/null 2>&1; then

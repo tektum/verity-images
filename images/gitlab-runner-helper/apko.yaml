@@ -1,22 +1,17 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
-    - bash
-    - busybox
-    - ca-certificates-bundle
-    - dumb-init
-    - git
-    - git-lfs
-    - gitlab-runner-helper-19.3
-    - gitlab-runner-helper-oci-entrypoint-19.3
+    - verity-gitlab-runner-helper@local
 
 entrypoint:
   command: /usr/bin/dumb-init -- /entrypoint
 
-cmd: /bin/bash
+cmd: /usr/bin/gitlab-runner-build
 
 environment:
   PATH: /usr/bin:/bin
