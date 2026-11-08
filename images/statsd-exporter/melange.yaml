@@ -1,0 +1,45 @@
+package:
+  name: statsd-exporter
+  version: "0.31.0"  # renovate: datasource=github-releases depName=prometheus/statsd_exporter
+  epoch: 0
+  description: Prometheus exporter for StatsD metrics
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/statsd_exporter
+      tag: v${{package.version}}
+      expected-commit: 715f2b6565c491d017c1bf3b431e02d5515ffbf0
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: statsd_exporter
+      strip: -s -w
+      ldflags: >-
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=715f2b6565c491d017c1bf3b431e02d5515ffbf0
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: statsd_exporter --version 2>&1 | grep -F "${{package.version}}"

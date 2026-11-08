@@ -1,0 +1,20 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - statsd-exporter@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/statsd_exporter
+
+environment:
+  GODEBUG: "@GODEBUG@"
+  PATH: /usr/bin:/bin
