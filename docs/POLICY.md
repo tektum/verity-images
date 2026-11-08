@@ -143,25 +143,36 @@ produced and verified exactly as for any other image.
 
 ## Signing identity
 
-Every image index is signed by digest with keyless cosign. The expected Fulcio
-certificate values are:
+Every image index is signed by digest with keyless cosign. Publication runs in
+the reusable workflow `.github/workflows/publish.yaml`, called by `build.yaml`
+on `main`. The Fulcio certificate of every digest published from this change
+onward therefore names `publish.yaml`:
 
 ```text
-identity: https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main
+identity: https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/main
 issuer: https://token.actions.githubusercontent.com
 ```
+
+Digests published before that change were signed by `build.yaml` and keep
+that identity; they are not re-signed. The catalog `policy.certificateIdentity`
+is the current signer and `policy.certificateIdentityRegexp` accepts both. Each
+catalog entry carries the exact verification commands for its own digest.
 
 Use Cosign 3.0.6 or newer to verify these OCI-stored signatures and
 attestations.
 
-Verify a digest with:
+Verify any published digest, old or new, with:
 
 ```sh
 cosign verify \
-  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   ghcr.io/tektum/IMAGE@sha256:DIGEST
 ```
+
+Use `--certificate-identity` with the `publish.yaml` value above to require the
+current signer. Use `cosign verify-attestation --type spdxjson` with the same
+flags for the SBOM.
 
 The workflow uses only `GITHUB_TOKEN` plus GitHub's short-lived OIDC identity.
 It requires no PAT or stored signing secret.
@@ -177,7 +188,36 @@ Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.
 
 Every pushed digest receives SLSA build provenance through
-`actions/attest-build-provenance` and GitHub artifact attestations.
+`actions/attest-build-provenance` and GitHub artifact attestations. The build,
+push, and attestation all run inside `publish.yaml`, a reusable workflow, with
+`attestations: write`, `contents: read`, `id-token: write`, and
+`packages: write` on both the caller and the callee, as GitHub's guide for SLSA
+v1 Build Level 3 requires. Verify the provenance and that this workflow made it:
+
+```sh
+gh attestation verify oci://ghcr.io/tektum/IMAGE@sha256:DIGEST \
+  --repo tektum/verity-images \
+  --signer-workflow tektum/verity-images/.github/workflows/publish.yaml
+```
+
+Only digests published after the reusable workflow landed satisfy
+`--signer-workflow`; earlier digests carry provenance from `build.yaml` and
+verify with `--repo` alone.
+
+SLSA Build L3 limits that this repository does not yet close:
+
+- Provenance lists the Git commit as its only resolved dependency. The apko lock,
+  Wolfi repository state, patched upstream digests, and tool archive digests are
+  retained as run artifacts but are not enumerated in the provenance.
+- Builds run on self-hosted runners, so the attestation reports
+  `runnerEnvironment: self-hosted`. Per-job isolation of those runners is an
+  operator property that GitHub does not attest.
+- Signing and the image build share one job. The reusable workflow keeps the
+  signer identity out of the caller's control, but build steps in that job can
+  reach the OIDC token. A separate builder job would be needed to remove that
+  exposure.
+- There is no published builder assessment or consumer verification policy
+  beyond the commands above.
 
 Wolfi builds use and upload the reviewed, checked-in apko lock. Melange-backed
 builds are the exception: their ephemeral package signature produces a

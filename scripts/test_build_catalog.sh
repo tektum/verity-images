@@ -84,7 +84,18 @@ cat > "$work/report.json" <<'EOF'
 {"images":[{"name":"replaced","version":"1","track":"wolfi","description":"New image.","digest":"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","tags":"1,latest","scan":{"all":{},"fixable":0}},{"name":"added","version":"1","track":"wolfi","description":"Added image.","digest":"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd","tags":"1,latest","scan":{"all":{},"fixable":0}}]}
 EOF
 
-python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/scans" "$work/previous.json" \
+# A catalog written before the reusable publish workflow names build.yaml as the
+# signer and has no identity regexp. It must still validate, and its entries
+# must keep the commands that verify their digests.
+legacy='https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main'
+jq --arg legacy "$legacy" '
+  del(.policy.certificateIdentityRegexp) | .policy.certificateIdentity = $legacy |
+  .images |= map(.verification.signature |= sub("workflows/publish\\.yaml"; "workflows/build.yaml") |
+    .verification.sbom |= sub("workflows/publish\\.yaml"; "workflows/build.yaml") |
+    .verification.provenance = "gh attestation verify oci://" + .reference + " --repo tektum/verity-images")
+' "$work/previous.json" > "$work/legacy-previous.json"
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/legacy-previous.json"
+python3 "$root/scripts/build_catalog.py" "$work/report.json" "$work/scans" "$work/legacy-previous.json" \
   "$work/catalog.json" 2 https://github.com/tektum/verity-images/actions/runs/2 \
   bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 2026-07-31T00:00:00Z
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/catalog.json"
@@ -95,6 +106,24 @@ jq -e '
   ([.images[] | select(.name == "replaced")] | length) == 1 and
   (.images[] | select(.name == "preserved").digest) == "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" and
   (.images[] | select(.name == "replaced").digest) == "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+' "$work/catalog.json" >/dev/null
+jq -e --arg legacy "$legacy" '
+  .policy.certificateIdentityRegexp as $re |
+  .policy.certificateIdentity ==
+    "https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/main" and
+  ([$legacy, .policy.certificateIdentity] | all(test($re))) and
+  (["https://github.com/tektum/verity-images/.github/workflows/other.yaml@refs/heads/main",
+    "https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/feature",
+    "https://github.com/other/verity-images/.github/workflows/publish.yaml@refs/heads/main",
+    "https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/main2"] |
+    any(test($re)) | not) and
+  (.images[] | select(.name == "preserved").verification |
+    (.signature | contains("workflows/build.yaml@refs/heads/main")) and
+    (.provenance | contains("--signer-workflow") | not)) and
+  (.images[] | select(.name == "added").verification |
+    (.signature | contains("workflows/publish.yaml@refs/heads/main")) and
+    (.sbom | contains("workflows/publish.yaml@refs/heads/main")) and
+    (.provenance | endswith("--repo tektum/verity-images --signer-workflow tektum/verity-images/.github/workflows/publish.yaml")))
 ' "$work/catalog.json" >/dev/null
 jq -e '
   (.images[] | select(.name == "replaced") | .inputDigest) ==

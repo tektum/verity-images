@@ -19,7 +19,11 @@ import sys
 from pathlib import Path
 from typing import Final
 
-IDENTITY: Final = "https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main"
+IDENTITY: Final = "https://github.com/tektum/verity-images/.github/workflows/publish.yaml@refs/heads/main"
+# Digests published before the reusable publish workflow carry the build.yaml identity.
+IDENTITY_REGEXP: Final = (
+    r"^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$"
+)
 ISSUER: Final = "https://token.actions.githubusercontent.com"
 CATEGORIES: Final = (
     "Languages & Build Tools",
@@ -48,7 +52,8 @@ FILTER: Final = r"""
       "' --certificate-oidc-issuer '" + $issuer + "' " + .reference),
     sbom: ("cosign verify-attestation --type spdxjson --certificate-identity '" + $identity +
       "' --certificate-oidc-issuer '" + $issuer + "' " + .reference),
-    provenance: ("gh attestation verify oci://" + .reference + " --repo tektum/verity-images")
+    provenance: ("gh attestation verify oci://" + .reference + " --repo tektum/verity-images" +
+      " --signer-workflow tektum/verity-images/.github/workflows/publish.yaml")
   }
 ) |
 if $previous != "" then
@@ -91,6 +96,7 @@ end |
     sbomFormat: "SPDX-JSON",
     cosignMinimumVersion: "3.0.6",
     certificateIdentity: $identity,
+    certificateIdentityRegexp: $identityRegexp,
     certificateIssuer: $issuer
   },
   images: .report.images
@@ -199,6 +205,9 @@ def main() -> None:
             "--arg",
             "identity",
             IDENTITY,
+            "--arg",
+            "identityRegexp",
+            IDENTITY_REGEXP,
             "--arg",
             "issuer",
             ISSUER,

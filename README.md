@@ -29,9 +29,17 @@ Verify the keyless signature:
 
 ```sh
 cosign verify \
-  --certificate-identity 'https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main' \
+  --certificate-identity-regexp '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' \
   --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
   ghcr.io/tektum/nginx@sha256:DIGEST
+```
+
+Verify SLSA build provenance (digests published by `publish.yaml`):
+
+```sh
+gh attestation verify oci://ghcr.io/tektum/nginx@sha256:DIGEST \
+  --repo tektum/verity-images \
+  --signer-workflow tektum/verity-images/.github/workflows/publish.yaml
 ```
 
 Verification requires Cosign 3.0.6 or newer because signatures and attestations
@@ -84,7 +92,8 @@ promotion.
 
 - `images/nginx/apko.yaml` is a representative Wolfi image definition.
 - `scripts/gen_matrix.py` generates the workflow matrix.
-- `.github/workflows/build.yaml` builds and publishes images.
+- `.github/workflows/build.yaml` plans and validates images and calls the reusable publisher.
+- `.github/workflows/publish.yaml` builds, signs, attests, and publishes images.
 - `.github/workflows/lint.yaml` validates repository policy.
 - `devbox.json` locks local and CI lint tooling.
 - [APK signing](docs/APK_REPOSITORY_SIGNING.md) and [repository state](docs/APK_REPOSITORY_STATE.md) document APK key recovery, retention, and rollback rehearsal.

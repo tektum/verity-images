@@ -12,7 +12,9 @@ shard=${3:?usage: monitor_sboms.sh CATALOG IMAGES SHARD SHARDS OUTPUT}
 shards=${4:?usage: monitor_sboms.sh CATALOG IMAGES SHARD SHARDS OUTPUT}
 output=${5:?usage: monitor_sboms.sh CATALOG IMAGES SHARD SHARDS OUTPUT}
 
-identity='https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main'
+# Digests published before the reusable publish workflow were signed by
+# build.yaml; later digests are signed by publish.yaml. Both are main-only.
+identity_regexp='^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$'
 issuer='https://token.actions.githubusercontent.com'
 
 if ! [[ "$shards" =~ ^[1-9][0-9]*$ ]]; then
@@ -96,7 +98,7 @@ while IFS=$'\t' read -r name version track reference digest input_digest context
   # verification itself is unchanged: a signature that stays unverified after
   # the last attempt still fails the shard.
   for attempt in 1 2 3; do
-    if cosign verify-attestation --type spdxjson --certificate-identity "$identity" \
+    if cosign verify-attestation --type spdxjson --certificate-identity-regexp "$identity_regexp" \
       --certificate-oidc-issuer "$issuer" "$reference" >"$work/attestation.json"; then
       break
     fi

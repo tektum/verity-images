@@ -357,8 +357,8 @@ assert_cosign_run() {
     issuer_flag issuer reference extra; do
     [[ $command == verify-attestation && $type_flag == --type && $predicate_type == spdxjson ]] ||
       fail "cosign did not use verify-attestation --type spdxjson"
-    [[ $identity_flag == --certificate-identity &&
-      $identity == https://github.com/tektum/verity-images/.github/workflows/build.yaml@refs/heads/main ]] ||
+    [[ $identity_flag == --certificate-identity-regexp &&
+      $identity == '^https://github\.com/tektum/verity-images/\.github/workflows/(build|publish)\.yaml@refs/heads/main$' ]] ||
       fail "cosign used the wrong certificate identity"
     [[ $issuer_flag == --certificate-oidc-issuer &&
       $issuer == https://token.actions.githubusercontent.com ]] ||
