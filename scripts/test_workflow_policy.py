@@ -242,6 +242,9 @@ def check_slsa_l3_publish(
         "      packages: write\n"
     )
     assert ".github/workflows/publish.yaml" in gen_matrix.GLOBAL_PATHS
+    # Top-level env does not cross into a reusable workflow, so publish.yaml
+    # repeats the tool pins; validate and publish must scan with the same tools.
+    assert env_pins(publish_workflow) == env_pins(build)
     triggers = between(publish_workflow, "\non:\n", "\npermissions: {}\n")
     assert triggers == (
         "  workflow_call:\n"
