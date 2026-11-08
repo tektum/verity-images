@@ -1,0 +1,24 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - tempo-3.0=3.0.0-r1
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/tempo
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /var/tempo
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
