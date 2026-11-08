@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*version: "\([0-9]*\.[0-9]*\)\..*"$/\1/p' \
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([0-9]*\.[0-9]*\.[0-9]*\)\.[0-9]*".*$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 tmp=$(mktemp -d)
