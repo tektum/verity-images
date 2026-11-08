@@ -93,8 +93,19 @@ if output=$(s3 wrong-access-key 2>&1); then
 fi
 printf '%s\n' "$output" | grep -Fq InvalidAccessKeyId || fail 'unknown access key failed without the S3 error'
 
-if docker run --rm --network none "$image" --endpoint-url http://127.0.0.1:1 s3 ls >/dev/null 2>&1; then
-  fail 'listing without credentials or connectivity succeeded'
+if output=$(docker run --rm --network none -e AWS_ACCESS_KEY_ID=verity-access-key \
+  -e AWS_SECRET_ACCESS_KEY=verity-secret-key -e AWS_DEFAULT_REGION=us-east-1 \
+  "$image" --endpoint-url http://127.0.0.1:1 s3 ls 2>&1); then
+  fail 'listing without connectivity succeeded'
 fi
+printf '%s\n' "$output" | grep -Fq 'Could not connect to the endpoint URL' \
+  || fail 'offline listing failed without the connection error'
+
+mkdir "$work/aws"
+printf '[default]\naws_access_key_id = verity-home-key\n' >"$work/aws/credentials"
+chmod 755 "$work" "$work/aws"
+chmod 644 "$work/aws/credentials"
+[ "$(docker run --rm --network none -v "$work/aws:/home/nonroot/.aws:ro" "$image" \
+  configure get aws_access_key_id)" = verity-home-key ] || fail 'credentials under /home/nonroot/.aws were not used'
 
 printf 'SMOKE PASS image=%s\n' "$image"
