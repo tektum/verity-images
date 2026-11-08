@@ -38,8 +38,9 @@ pipeline:
       packages: ./cmd/registry
   - runs: |
       flags="-s -w"
-      flags="$flags -X github.com/distribution/distribution/v3/version.version=v${{package.version}}"
-      flags="$flags -X github.com/distribution/distribution/v3/version.revision=3220848f15d9279c66a41aa0a257469e6aede1e9"
+      pkg=github.com/distribution/distribution/v3/version
+      flags="$flags -X $pkg.version=v${{package.version}}"
+      flags="$flags -X $pkg.revision=3220848f15d9279c66a41aa0a257469e6aede1e9"
       go build -trimpath -ldflags "$flags" -o "$PWD/registry.bin" ./cmd/registry
       install -m755 -D registry.bin "${{targets.destdir}}/usr/bin/registry"
       install -m644 -D LICENSE \
