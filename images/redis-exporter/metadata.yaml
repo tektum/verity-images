@@ -1,0 +1,9 @@
+name: redis-exporter
+track: wolfi
+description: Redis Exporter for Redis and Valkey built from pinned source with plain and Go FIPS flavors.
+category: Monitoring & Observability
+upstream: https://github.com/oliver006/redis_exporter
+versions: [1.97.0]
+flavors: [plain, fips]
+owner: tektum
+enabled: true
