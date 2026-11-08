@@ -20,11 +20,14 @@ provenance, and the catalog.
 
 - **The gate is 0 fixable vulnerabilities at publish time, not 0 CVE.** Grype
   scans every candidate. A finding with an available fix fails the build and
-  publishes nothing; there is no exception path. Findings with no upstream fix
-  stay visible on each catalog record.
-- **Every digest is re-checked daily.** The attested SPDX SBOM of every
-  published digest is re-evaluated against the current vulnerability database.
-  A finding that becomes fixable appears as a code scanning alert in this repository.
+  publishes nothing. The only suppressions are reviewed false positives listed
+  in `.grype.yaml`. Each catalog record still counts the unfixed findings by
+  severity.
+- **Catalog digests are re-checked daily.** The attested SPDX SBOM of every
+  digest currently in the catalog is re-evaluated against the current
+  vulnerability database. A finding that becomes fixable appears as a code
+  scanning alert in this repository. A digest replaced by a newer build drops out
+  of monitoring, so re-pin when the catalog moves.
 - **Keyless signatures, SBOMs, and provenance.** Images are signed with cosign
   through GitHub OIDC, carry one SPDX SBOM per platform on the index digest, and
   SLSA build provenance. Digests published through the reusable `publish.yaml`
@@ -34,9 +37,11 @@ provenance, and the catalog.
 - **Every claim ships with its command.** Each record in
   [`catalog.json`](https://verity.supply/catalog.json) carries the exact verify
   commands for its own digest.
-- **Forkable.** Image publication is keyless: a fork can run it with only its
-  GitHub workflow token. APK releases use a protected RSA signing secret; see
-  [APK signing](docs/APK_REPOSITORY_SIGNING.md).
+- **Keyless publication.** Images are signed with the workflow's own GitHub OIDC
+  identity; no long-lived signing key exists. The signing identity is pinned to
+  this repository, so a fork that wants to publish under its own namespace must
+  change the image owner and the verified identity. APK releases use a protected
+  RSA signing secret; see [APK signing](docs/APK_REPOSITORY_SIGNING.md).
 
 ## What it is not
 

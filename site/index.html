@@ -130,8 +130,8 @@
               <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">one per platform, on the index digest</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA Build L3<span class="note">digests published through publish.yaml; earlier digests carry build.yaml provenance</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.5</span>Known unfixable findings</span><span class="v">listed<span class="note">per image</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing.</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every published digest's SBOM</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing. Only reviewed false positives are suppressed (.grype.yaml).</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every digest currently in the catalog</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.8</span>FIPS flavors</span><span class="v">some images<span class="note">OpenSSL 3.1.2 provider, Go FIPS mode, or both. Not CMVP validated.</span></span></li>
             </ul>
             <div class="policy-notes">
