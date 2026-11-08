@@ -157,8 +157,9 @@
               suffix means only that the flavor's declared cryptographic mechanism is enabled and its
               repository checks passed; it is not CMVP validated. The shared OpenSSL provider recipe
               uses the unmodified OpenSSL 3.1.2 inputs associated with certificate 4985, but that
-              certificate does not list Wolfi or Linux arm64 as tested operational environments. Go
-              FIPS flavors use Go FIPS mode (<code>GOFIPS140</code>) instead of the OpenSSL provider.
+              certificate does not list Wolfi or Linux arm64 as tested operational environments.
+              Caddy and Traefik FIPS flavors use Go FIPS mode (<code>GOFIPS140</code>) without the
+              OpenSSL provider; Go toolchain FIPS flavors enable both.
             </p>
           </div>
         </section>
