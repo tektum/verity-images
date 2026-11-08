@@ -6,7 +6,7 @@ container="verity-otel-collector-contrib-test-$$"
 tmp=$(mktemp -d)
 
 fail() {
-  docker logs "$container" >&2 2>/dev/null || true
+  docker logs "$container" >&2 2>&1 || true
   printf '%s\n' "$1" >&2
   exit 1
 }
