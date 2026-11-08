@@ -1,0 +1,61 @@
+package:
+  name: verity-local-path-provisioner
+  version: "0.0.37"  # renovate: datasource=github-releases depName=rancher/local-path-provisioner versioning=semver
+  epoch: 0
+  description: Kubernetes dynamic local storage provisioner
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rancher/local-path-provisioner
+      tag: v${{package.version}}
+      expected-commit: 49b2be8e26d6d34c9afaa21fa33108d2e82f8955
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: local-path-provisioner
+      ldflags: -X main.VERSION=${{package.version}}
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        local-path-provisioner --version | grep -F "${{package.version}}"
+        local-path-provisioner --help | grep -F start
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: rancher/local-path-provisioner
+    strip-prefix: v
+    tag-filter: v0.0.
+    use-tag: true
