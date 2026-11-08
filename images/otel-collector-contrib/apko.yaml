@@ -1,0 +1,17 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - opentelemetry-collector-contrib=0.164.1-r1
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/otelcol-contrib
+
+environment:
+  PATH: /usr/bin:/bin
