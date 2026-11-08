@@ -80,10 +80,11 @@ esac
 docker rm -f "$container" >/dev/null
 
 printf 'version: 0.1\nstorage: [\n' >"$body"
+chmod 644 "$body"
 if docker run --name "$container" -v "$body:/tmp/bad.yml:ro" "$image" serve /tmp/bad.yml >/dev/null 2>&1; then
   fail 'invalid configuration exited successfully'
 fi
-docker logs "$container" 2>&1 | grep -iq 'yaml\|config' \
+docker logs "$container" 2>&1 | grep -q 'yaml:' \
   || fail 'invalid configuration failed without a readable error'
 
 printf 'SMOKE PASS image=%s\n' "$image"
