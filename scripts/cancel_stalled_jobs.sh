@@ -7,7 +7,7 @@ stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 now=$(date -u +%s)
 
 jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
-  jq '[.[].jobs[]] | map(select(.name | test("^(native-arm64|validate|publish) \\(")))')
+  jq '[.[].jobs[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))')
 
 # The caller only starts this script once matrix has produced at least one
 # image, so an empty result here means the API hasn't caught up with the
@@ -53,7 +53,7 @@ done < <(jq -c '.[]' <<<"$jobs")
 # the only pending/done signal, and 42 is reserved so a genuine script failure
 # (any other non-zero status) still aborts the caller's loop instead of being
 # retried forever.
-rows=$(jq 'map(select(.name | test("^(validate|publish) \\("))) | length' <<<"$jobs")
+rows=$(jq 'map(select(.name | test("^(validate|publish( / publish)?) \\("))) | length' <<<"$jobs")
 if [[ "$pending" == true || "$rows" -eq 0 ]]; then
   exit 42
 fi

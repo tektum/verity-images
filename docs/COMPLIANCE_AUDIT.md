@@ -36,6 +36,10 @@ retention, and operating-effectiveness records that are not present here.
 - Repository settings now require action SHA pins and enable secret scanning, push
   protection, and Dependabot security updates. Secret validity checks remain
   unavailable/disabled at the repository setting.
+- Image build, signing, SBOM attestation, and GitHub build provenance run in the
+  reusable workflow `.github/workflows/publish.yaml`, as GitHub's guide for SLSA v1
+  Build Level 3 requires. New digests are signed and attested by that workflow;
+  digests published earlier keep the `build.yaml` identity. See `docs/POLICY.md`.
 
 The findings below are retained as evidence of the reviewed 2026-07-30
 baseline, not as a description of current repository behavior. The remediation
@@ -340,7 +344,7 @@ and revocation procedures, and machine-readable image status in the catalog.
 
 | Framework | Assessment | Principal gaps |
 |---|---|---|
-| SLSA v1.2 Build | Strong L2/L3 foundations, but do not claim a level yet | Resolved build materials are incomplete; no published builder assessment or verification policy; catalog/evidence are outside the chain |
+| SLSA v1.2 Build | Provenance now comes from a reusable workflow (the GitHub Build L3 pattern). A level claim stays open while the items in the gaps column remain | Resolved build materials are incomplete; provenance reports `runnerEnvironment: self-hosted` and runner isolation is unattested; signing and build share one job; no published builder assessment or verification policy; catalog/evidence are outside the chain; digests published before the change are L2-style (`build.yaml`) |
 | SLSA v1.2 Source | Version control and continuous rules exist; not Source L4 | One approval rather than two trusted persons; bypass actors; no source-verification summary attestation |
 | OWASP SCVS | Partial | Good SBOM/signing; incomplete vulnerability inventory, no VEX, no durable evidence binding, no component/license policy or verifier enforcement |
 | NIST SSDF 1.1 | Partial | Protect/build/release practices exist; preparation, archival, risk acceptance, response, provenance completeness, and recurrence evidence are incomplete |

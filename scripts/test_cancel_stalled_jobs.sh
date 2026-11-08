@@ -48,6 +48,16 @@ output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh")
 grep -Fq 'api -X POST repos/owner/repo/actions/jobs/1/cancel' "$GH_LOG"
 grep -Fq '::error title=Runner allocation stalled::' <<<"$output"
 
+# Publication runs in the reusable publish.yaml, so GitHub names its rows
+# "publish / publish (...)". A stalled row under that name is still cancelled.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [{id: 5, name: "publish / publish (caddy, images/caddy, desc)", status: "queued", started_at: $started, steps: []}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh")
+grep -Fq 'api -X POST repos/owner/repo/actions/jobs/5/cancel' "$GH_LOG"
+
 # A job that has started executing steps is left alone even if old: caller keeps polling.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$running_started" \

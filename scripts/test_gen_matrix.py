@@ -160,7 +160,9 @@ def check_source_bump_matrix() -> None:
     # The derived channel names the build report, the scan bundle, and the report
     # version that the build-gate summary table renders, so that bump reports 3.7
     # with report-etcd-3.7 and scan-etcd-3.7 instead of a stale 3.6.
-    build = (gen_matrix.ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+    build = (gen_matrix.ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8") + (
+        gen_matrix.ROOT / ".github/workflows/publish.yaml"
+    ).read_text(encoding="utf-8")
     action = (gen_matrix.ROOT / ".github/actions/publish-image/action.yaml").read_text(encoding="utf-8")
     entry = entries[0]
     assert build.count("name: report-${{ matrix.name }}-${{ matrix.tag_version }}") == 2
