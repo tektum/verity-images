@@ -1,0 +1,45 @@
+package:
+  name: mysqld-exporter
+  version: "0.21.0"  # renovate: datasource=github-releases depName=prometheus/mysqld_exporter
+  epoch: 0
+  description: Prometheus exporter for MySQL and MariaDB server metrics
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/mysqld_exporter
+      tag: v${{package.version}}
+      expected-commit: 8feed91b970d346a15c12f164957c8f9a0e3291e
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: mysqld_exporter
+      strip: -s -w
+      ldflags: >-
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=8feed91b970d346a15c12f164957c8f9a0e3291e
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: mysqld_exporter --version 2>&1 | grep -F "${{package.version}}"
