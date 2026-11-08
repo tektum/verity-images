@@ -1,0 +1,62 @@
+#!/bin/sh
+set -eu
+
+image=${1:?usage: test.sh IMAGE}
+work=$(mktemp -d)
+
+cleanup() {
+  rm -rf "$work"
+}
+trap cleanup EXIT HUP INT TERM
+
+fail() {
+  printf '%s\n' "$1" >&2
+  exit 1
+}
+
+user=$(docker image inspect --format '{{.Config.User}}' "$image")
+[ -z "$user" ] || [ "$user" = 0 ] || fail 'image must run as root for executor volume compatibility'
+[ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
+  '["/usr/bin/dumb-init","--","/entrypoint"]' ] \
+  || fail 'unexpected image entrypoint'
+[ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["/usr/bin/gitlab-runner-build"]' ] \
+  || fail 'unexpected image command'
+
+docker run --rm --network none "$image" \
+  test -x /usr/bin/gitlab-runner-helper -a -x /usr/bin/gitlab-runner-build -a -x /usr/bin/git \
+  || fail 'required helper files are missing'
+
+docker run --rm --network none "$image" gitlab-runner-helper --version 2>&1 \
+  | grep -E '^Version:[[:space:]]+v19\.3\.[0-9]+' >/dev/null \
+  || fail 'helper version check failed'
+docker run --rm --network none "$image" gitlab-runner-helper cache-archiver --help 2>&1 \
+  | grep -F 'cache-archiver' >/dev/null \
+  || fail 'cache-archiver help check failed'
+docker run --rm --network none "$image" git --version | grep -F 'git version' >/dev/null \
+  || fail 'git is missing'
+docker run --rm --network none "$image" git lfs version | grep -F 'git-lfs/' >/dev/null \
+  || fail 'git-lfs is missing'
+
+if output=$(docker run --rm --network none "$image" gitlab-runner-helper health-check 2>&1); then
+  fail 'health-check unexpectedly succeeded without an address'
+fi
+printf '%s\n' "$output" | grep -F 'No HOST or PORT found' >/dev/null \
+  || fail 'health-check did not report the missing address'
+
+if docker run --rm --network none "$image" gitlab-runner-helper no-such-command >/dev/null 2>&1; then
+  fail 'unknown helper command unexpectedly succeeded'
+fi
+
+# The entrypoint execs its arguments and installs a mounted custom CA.
+openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/ca.key" -out "$work/ca.crt" \
+  -subj /CN=verity-smoke -days 1 >/dev/null 2>&1 || fail 'could not generate a synthetic CA'
+chmod 644 "$work/ca.crt"
+docker run --rm --network none -v "$work/ca.crt:/etc/gitlab-runner/certs/ca.crt:ro" "$image" sh -c '
+  cmp /etc/gitlab-runner/certs/ca.crt /usr/local/share/ca-certificates/ca.crt &&
+  grep -F -x "$(sed -n 2p /etc/gitlab-runner/certs/ca.crt)" /etc/ssl/certs/ca-certificates.crt >/dev/null' \
+  || fail 'mounted custom CA was not installed into the trust bundle'
+if docker run --rm --network none "$image" /no/such/binary >/dev/null 2>&1; then
+  fail 'entrypoint unexpectedly succeeded for a missing command'
+fi
+
+printf 'SMOKE PASS image=%s\n' "$image"

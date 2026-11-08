@@ -1,0 +1,93 @@
+package:
+  name: verity-gitlab-runner-helper
+  version: "19.3.5"  # renovate: datasource=gitlab-tags depName=gitlab-org/gitlab-runner versioning=semver
+  epoch: 0
+  description: GitLab Runner helper binary, entrypoint and build shell
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates
+      - ca-certificates-bundle
+      - dumb-init
+      - git
+      - git-lfs
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: dffda179dfb82a983b83bd35d528b766b937e680
+  base-images-tag: v0.0.59  # renovate: datasource=gitlab-tags depName=gitlab-org/ci-cd/runner-tools/base-images
+  base-images-commit: 4d3cc6904c9f36b282a88f824d1ea85836fb84fe
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://gitlab.com/gitlab-org/gitlab-runner
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      pinned=$(sed -n 's/.*RUNNER_IMAGES_VERSION: "\([0-9.]*\)".*/\1/p' .gitlab/ci/_common.gitlab-ci.yml)
+      [ "v$pinned" = "${{vars.base-images-tag}}" ] || {
+        printf 'base images tag %s does not match upstream pin v%s\n' "${{vars.base-images-tag}}" "$pinned" >&2
+        exit 1
+      }
+  - uses: git-checkout
+    with:
+      destination: ./base-images
+      repository: https://gitlab.com/gitlab-org/ci-cd/runner-tools/base-images
+      tag: ${{vars.base-images-tag}}
+      expected-commit: ${{vars.base-images-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./apps/gitlab-runner-helper
+  - uses: go/build/v2
+    with:
+      packages: ./apps/gitlab-runner-helper
+      output: gitlab-runner-helper
+      ldflags: |-
+        -s -w
+        -X gitlab.com/gitlab-org/gitlab-runner/common.NAME=gitlab-runner-helper
+        -X gitlab.com/gitlab-org/gitlab-runner/common.VERSION=v${{package.version}}
+        -X gitlab.com/gitlab-org/gitlab-runner/common.REVISION=${{vars.source-commit}}
+        -X gitlab.com/gitlab-org/gitlab-runner/common.BRANCH=19-3-stable
+  - runs: |
+      install -Dm755 base-images/dockerfiles/runner-helper/helpers/entrypoint "${{targets.destdir}}/entrypoint"
+      install -Dm755 base-images/dockerfiles/runner-helper/scripts/gitlab-runner-build \
+        "${{targets.destdir}}/usr/bin/gitlab-runner-build"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf base-images
+
+test:
+  pipeline:
+    - runs: |
+        gitlab-runner-helper --version | grep -F "v${{package.version}}"
+        gitlab-runner-helper --help | grep -F cache-archiver
+        test -x /entrypoint
+        test -x /usr/bin/gitlab-runner-build
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  git:
+    tag-filter-prefix: v19.3.
+    strip-prefix: v
