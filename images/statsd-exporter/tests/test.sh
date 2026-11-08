@@ -17,20 +17,6 @@ fail() {
   exit 1
 }
 
-wait_metrics() {
-  # $1 container, $2 host port, $3 output file, $4 required line (fixed, whole line)
-  attempts=0
-  until curl --fail --silent --connect-timeout 1 --max-time 5 \
-    "http://127.0.0.1:$2/metrics" >"$3" 2>/dev/null && grep -Fx "$4" "$3" >/dev/null; do
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 30 ] || {
-      docker logs "$1" >&2
-      fail "metrics did not contain: $4"
-    }
-    sleep 1
-  done
-}
-
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ||
   fail 'image must run as UID 65532'
 test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/statsd_exporter"]' ||
