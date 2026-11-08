@@ -1,0 +1,17 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - clickhouse-operator
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/clickhouse-operator
+
+environment:
+  PATH: /usr/bin:/bin
