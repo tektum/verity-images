@@ -87,7 +87,7 @@ verifiable from this repository or from the attestation. Recorded 2026-11-08.
 | `EnableCacheIsolation` | enabled |
 | `Private` | `only` |
 | `EncryptEbs` | enabled |
-| Session Manager access (`SSMAllowed`) | per stack configuration; exact value not yet stated |
+| `SSMAllowed` | `false` (Session Manager access to runners is off) |
 | SSH, `EnableStickyDiskIsolation` | not asserted |
 
 ## Consumer verification policy

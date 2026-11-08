@@ -2,6 +2,9 @@
 set -euo pipefail
 
 root=$(cd "$(dirname "$0")/.." && pwd)
+# The suite itself may run on a RunsOn runner whose real RUNS_ON_* variables must not leak in.
+unset IMDSV1 PENDING_TIME RUNNER_ENVIRONMENT RUNNER_NAME RUNS_ON_INSTANCE_ID RUNS_ON_RUNNER_NAME \
+  RUNS_ON_VERSION RUNS_ON_STACK_NAME RUNS_ON_INSTANCE_LAUNCHED_AT RUNS_ON_POOL_NAME
 work=$(mktemp -d)
 server=
 trap '[[ -z "$server" ]] || kill "$server" 2>/dev/null; rm -rf "$work"' EXIT
@@ -70,7 +73,7 @@ now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 old=$(date -u -d '-2 hours' +%Y-%m-%dT%H:%M:%SZ)
 
 PENDING_TIME=$now start_imds
-collect
+collect || { cat "$work/err" >&2; exit 1; }
 jq -e '.instance.id == "i-0abc" and .instance.lifecycle == "on-demand"
   and .checks.imdsV1Refused and .runsOn.stack == "runs-on"' "$work/predicate.json" >/dev/null
 RUNS_ON_INSTANCE_ID=i-other expect_failure 'instance mismatch' 'is not i-0abc'
