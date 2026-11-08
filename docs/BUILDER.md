@@ -37,12 +37,15 @@ repository. The runner attestation below checks what the job can observe.
 
 For every digest, `publish.yaml` attaches a signed in-toto attestation with
 predicate type `https://verity.supply/attestations/runner-environment/v1`,
-produced with `actions/attest` and pushed to the registry next to the image.
+produced with `actions/attest` and pushed to the registry next to the image
+before release tags are promoted, so a failed attestation never leaves a tag on a
+digest that fails the policy below.
 `scripts/runner_environment.sh collect` runs first in the job and fails the job
 unless all of these hold:
 
 - IMDSv1 is refused (a request without a session token returns 401) and IMDSv2
-  answers.
+  answers. Transport failures are retried three times before the job fails.
+- The instance life cycle is `on-demand`.
 - `RUNS_ON_INSTANCE_ID` equals the instance id from the IMDS identity document.
 - The runner name GitHub assigned (`RUNNER_NAME`) equals `RUNS_ON_RUNNER_NAME`
   and names that same instance, so the runner that took this job is the one

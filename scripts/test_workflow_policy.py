@@ -283,34 +283,22 @@ def check_slsa_l3_publish(
     assert (
         "--signer-workflow tektum/verity-images/.github/workflows/publish.yaml" in policy
     )
-    check_runner_attestation(publish_job, policy)
+    check_runner_attestation(publish_job, action, policy)
 
 
-def check_runner_attestation(publish_job: str, policy: str) -> None:
+def check_runner_attestation(publish_job: str, action: str, policy: str) -> None:
     # The runner-environment attestation is what separates "self-hosted" from
     # "fresh, IMDSv2-only instance bound to this job". Removing or unpinning any
     # of its steps, or reordering them, must fail here.
     predicate_type = "https://verity.supply/attestations/runner-environment/v1"
-    predicate = "${{ runner.temp }}/runner-environment.json"
     collect = between(publish_job, "      - name: Collect runner environment\n", "\n      - name: Download native")
     assert 'scripts/runner_environment.sh collect "$RUNNER_TEMP/runner-environment.json"' in collect
     assert "        if:" not in collect and "continue-on-error" not in collect
     materials = between(publish_job, "      - name: Record resolved build materials\n", "\n      - name: Publish image")
     assert 'scripts/runner_environment.sh materials "$RUNNER_TEMP/runner-environment.json"' in materials
     assert "        if:" not in materials and "continue-on-error" not in materials
-    attest = between(publish_job, "      - name: Attest runner environment\n", "\n      - name: Write build report")
-    assert re.search(r"        uses: actions/attest@[0-9a-f]{40}  # v\d+\.\d+\.\d+\n", attest)
-    assert "attest-build-provenance" not in attest
-    assert "        if:" not in attest and "continue-on-error" not in attest
-    for line in (
-        "          subject-name: ghcr.io/${{ matrix.owner }}/${{ matrix.name }}\n",
-        "          subject-digest: ${{ steps.publish.outputs.digest }}\n",
-        f"          predicate-type: {predicate_type}\n",
-        f"          predicate-path: {predicate}\n",
-        "          push-to-registry: true\n",
-    ):
-        assert line in attest
-    # Collect before any build step can run, materials after the build, attestation after the digest exists.
+    assert "          runner-predicate: ${{ runner.temp }}/runner-environment.json\n" in publish_job
+    # Collect before any build step can run, materials after the build, both before the publish action.
     order = [
         "      - name: Check out repository\n",
         "      - name: Collect runner environment\n",
@@ -318,9 +306,27 @@ def check_runner_attestation(publish_job: str, policy: str) -> None:
         "      - name: Build candidate\n",
         "      - name: Record resolved build materials\n",
         "      - name: Publish image\n",
-        "      - name: Attest runner environment\n",
     ]
     assert [publish_job.index(step) for step in order] == sorted(publish_job.index(step) for step in order)
+    # The attestation sits with build provenance, before tags move, so a failed attestation never leaves
+    # a promoted tag on a digest that fails the consumer policy.
+    assert action.count("uses: actions/attest@") == 1
+    attest = between(action, "    - name: Attest runner environment\n", "\n    - name: Promote release tags\n")
+    assert (
+        action.index("    - name: Attach build provenance\n")
+        < action.index("    - name: Attest runner environment\n")
+        < action.index("    - name: Promote release tags\n")
+    )
+    assert re.search(r"      uses: actions/attest@[0-9a-f]{40}  # v\d+\.\d+\.\d+\n", attest)
+    assert "      if: inputs.publish == 'true'\n" in attest and "continue-on-error" not in attest
+    for line in (
+        "        subject-name: ${{ inputs.target-repository }}\n",
+        "        subject-digest: ${{ steps.push.outputs.digest }}\n",
+        f"        predicate-type: {predicate_type}\n",
+        "        predicate-path: ${{ inputs.runner-predicate }}\n",
+        "        push-to-registry: true\n",
+    ):
+        assert line in attest
     assert "scripts/runner_environment.sh" in gen_matrix.GLOBAL_PATHS
     builder = (ROOT / "docs/BUILDER.md").read_text(encoding="utf-8")
     assert f"--predicate-type {predicate_type}" in builder

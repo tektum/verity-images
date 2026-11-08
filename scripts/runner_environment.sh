@@ -22,8 +22,15 @@ fail() {
 }
 
 collect() {
-  local status token identity lifecycle instance pending age
-  status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${imds}/latest/meta-data/instance-id") || true
+  local status token identity lifecycle instance pending age attempt
+  # Retry transport failures (HTTP 000) so a boot-time blip does not block a publication;
+  # anything but a 401 once IMDS answers still fails.
+  for attempt in 1 2 3; do
+    status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${imds}/latest/meta-data/instance-id") || true
+    [[ "$status" != 000 ]] && break
+    ((attempt == 3)) || sleep "${IMDS_RETRY_DELAY:-2}"
+  done
+  [[ "$status" != 000 ]] || fail 'IMDS is unreachable'
   [[ "$status" == 401 ]] || fail "IMDSv1 is not refused (HTTP ${status})"
   token=$(curl -fsS --max-time 5 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 300' \
     "${imds}/latest/api/token") || fail 'IMDSv2 is unreachable'
@@ -31,6 +38,7 @@ collect() {
     "${imds}/latest/dynamic/instance-identity/document") || fail 'IMDSv2 identity document is unreachable'
   lifecycle=$(curl -fsS --max-time 5 -H "X-aws-ec2-metadata-token: ${token}" \
     "${imds}/latest/meta-data/instance-life-cycle") || fail 'IMDSv2 instance life cycle is unreachable'
+  [[ "$lifecycle" == on-demand ]] || fail "instance life cycle is ${lifecycle}, not on-demand"
   instance=$(jq -er .instanceId <<<"$identity")
   [[ "${RUNS_ON_INSTANCE_ID:-}" == "$instance" ]] ||
     fail "RunsOn instance ${RUNS_ON_INSTANCE_ID:-unset} is not ${instance}"
