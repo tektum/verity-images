@@ -81,7 +81,8 @@ resolve_helper "$valkey_index"
 valkey=$helper
 
 docker network create "$network" >/dev/null
-docker run --name "$backend" -d --network "$network" --network-alias valkey "$valkey" >/dev/null
+docker run --name "$backend" -d --network "$network" --network-alias valkey "$valkey" \
+  valkey-server --save "" --appendonly no --ignore-warnings ARM64-COW-BUG >/dev/null
 attempts=0
 until [ "$(docker exec "$backend" valkey-cli ping 2>/dev/null)" = PONG ]; do
   attempts=$((attempts + 1))
