@@ -42,6 +42,9 @@ gh attestation verify oci://ghcr.io/tektum/nginx@sha256:DIGEST \
   --signer-workflow tektum/verity-images/.github/workflows/publish.yaml
 ```
 
+The builder assessment, runner-environment attestation, and the full consumer
+verification policy are in [docs/BUILDER.md](docs/BUILDER.md).
+
 Verification requires Cosign 3.0.6 or newer because signatures and attestations
 use its OCI storage format.
 
@@ -100,6 +103,7 @@ promotion.
 - [Catalog recovery](docs/CATALOG_RECOVERY.md) documents stale-catalog diagnosis,
   changed-image backfill, and public verification.
 - `docs/POLICY.md` defines publication and support policy.
+- `docs/BUILDER.md` assesses the builder and defines consumer verification.
 - `docs/MIGRATION_NOTES.md` records clean-room recon decisions.
 
 To add an image, add one image directory with its build source, `metadata.yaml`,
