@@ -1,7 +1,9 @@
 package:
   name: clickhouse-operator
   version: "0.27.4"  # renovate: datasource=github-releases depName=Altinity/clickhouse-operator
-  epoch: 0
+  # A high epoch keeps this build above Wolfi advisory-fix revisions for the
+  # same package name while rebuilding it with the current Go remediation pipeline.
+  epoch: 101
   description: Altinity Kubernetes operator for ClickHouse
   copyright:
     - license: Apache-2.0
