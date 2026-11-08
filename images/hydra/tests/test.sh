@@ -26,9 +26,12 @@ hydra() {
     -e DSN='sqlite:///data/h.db?_fk=true' "$image" "$@"
 }
 
-test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
-test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/hydra"]'
-test "$(docker image inspect "$image" --format '{{json .Config.Cmd}}')" = '["serve","all"]'
+[ "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ] ||
+  fail 'unexpected image config: User'
+[ "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/hydra"]' ] ||
+  fail 'unexpected image config: Entrypoint'
+[ "$(docker image inspect "$image" --format '{{json .Config.Cmd}}')" = '["serve","all"]' ] ||
+  fail 'unexpected image config: Cmd'
 docker run --rm "$image" version | grep -F "v$expected_version" >/dev/null ||
   fail "version output does not report v$expected_version"
 
@@ -50,7 +53,8 @@ start() {
     "$image" serve all --dev --sqa-opt-out >/dev/null
   public=$(docker port "$container" 4444/tcp | awk -F: 'NR == 1 { print $2 }')
   admin=$(docker port "$container" 4445/tcp | awk -F: 'NR == 1 { print $2 }')
-  test -n "$public" && test -n "$admin"
+  [ -n "$public" ] || fail 'no published host port for 4444'
+  [ -n "$admin" ] || fail 'no published host port for 4445'
   attempts=0
   until curl --fail --silent --connect-timeout 1 --max-time 5 \
     "http://127.0.0.1:$admin/health/ready" >"$tmp/ready.json"; do
