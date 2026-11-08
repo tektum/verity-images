@@ -8,7 +8,7 @@ tmp=$(mktemp -d)
 trace_id=5b8efff798038103d269b633813fc60c
 
 fail() {
-  docker logs "$container" >&2 2>/dev/null || true
+  docker logs "$container" >&2 2>&1 || true
   printf '%s\n' "$1" >&2
   exit 1
 }
@@ -77,24 +77,28 @@ push_trace() {
 
 docker volume create "$volume" >/dev/null
 
-# Push a trace and read it back by id. Tempo does not exit on SIGTERM once the
-# query path has been used, so this container is removed instead of stopped.
-start
-push_trace
-attempt=0
-until curl --fail --silent "http://127.0.0.1:$http/api/traces/$trace_id" | grep -F 'verity-smoke' >/dev/null; do
-  attempt=$((attempt + 1))
-  [ "$attempt" -lt 30 ] || fail 'trace was not queryable by id'
-  sleep 1
-done
-
-# A fresh instance must handle SIGTERM with exit status 0 after ingesting data.
+# Ingest a trace and require a clean SIGTERM exit.
 start
 push_trace
 docker stop --time 30 "$container" >/dev/null
 code=$(docker inspect --format '{{.State.ExitCode}}' "$container")
 [ "$code" = 0 ] || fail "tempo did not stop cleanly (exit $code)"
 docker rm "$container" >/dev/null
+
+# Restart on the volume left behind by the first instance. Tempo 3.0 keeps
+# ingested traces in the live store until it flushes, so a trace pushed before
+# SIGTERM is not expected back; the restart must still become ready on the
+# existing data directory, ingest again, and answer by-id queries. Tempo does
+# not exit on SIGTERM once the query path has been used, so this container is
+# removed instead of stopped.
+start
+push_trace
+attempt=0
+until curl --fail --silent "http://127.0.0.1:$http/api/traces/$trace_id" | grep -F 'verity-smoke' >/dev/null; do
+  attempt=$((attempt + 1))
+  [ "$attempt" -lt 30 ] || fail 'trace was not queryable by id after restart'
+  sleep 1
+done
 
 printf '%s\n' 'not: [valid' >"$tmp/invalid.yaml"
 chmod 644 "$tmp/invalid.yaml"
