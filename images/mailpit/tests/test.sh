@@ -2,8 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*- mailpit=\([0-9.]*\)-r[0-9]*$/\1/p' \
-  "$(dirname "$0")/../apko.yaml")
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container="verity-mailpit-test-$$"
 tmp=$(mktemp -d)
@@ -36,7 +36,7 @@ until curl --fail --silent --connect-timeout 1 --max-time 5 \
   sleep 1
 done
 version=$(jq -r .Version "$tmp/info.json")
-[ "$version" = "$expected_version" ] || fail "unexpected version $version, want $expected_version"
+[ "$version" = "v$expected_version" ] || fail "unexpected version $version, want v$expected_version"
 
 printf 'From: a@example.test\r\nTo: b@example.test\r\nSubject: verity smoke\r\n\r\nhello\r\n' >"$tmp/mail.txt"
 curl --fail --silent --show-error "smtp://127.0.0.1:$smtp" \
