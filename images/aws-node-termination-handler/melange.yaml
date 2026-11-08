@@ -1,0 +1,58 @@
+package:
+  name: verity-aws-node-termination-handler
+  version: "1.25.6"  # renovate: datasource=github-releases depName=aws/aws-node-termination-handler versioning=semver
+  epoch: 0
+  description: Gracefully handles EC2 instance shutdown within Kubernetes
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -tags=nthlinux
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aws/aws-node-termination-handler
+      tag: v${{package.version}}
+      expected-commit: 77ca841d1329504e981542775f78403feb114048
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/node-termination-handler.go
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/node-termination-handler.go
+      tags: nthlinux
+      output: node-termination-handler
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        node-termination-handler -h 2>&1 | grep -F -- '-enable-sqs-termination-draining'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: aws/aws-node-termination-handler
+    strip-prefix: v
+    tag-filter: v1.25.
+    use-tag: true
