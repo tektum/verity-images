@@ -51,11 +51,10 @@ fi
 openssl req -x509 -newkey rsa:2048 -nodes -keyout "$work/ca.key" -out "$work/ca.crt" \
   -subj /CN=verity-smoke -days 1 >/dev/null 2>&1 || fail 'could not generate a synthetic CA'
 chmod 644 "$work/ca.crt"
-docker run --rm --network none -v "$work/ca.crt:/etc/gitlab-runner/certs/ca.crt:ro" "$image" true 2>&1 \
-  | grep -F 'Updating CA certificates' >/dev/null \
-  || fail 'entrypoint did not install the mounted custom CA'
-docker run --rm --network none "$image" sh -c 'printf entrypoint-ok' | grep -F entrypoint-ok >/dev/null \
-  || fail 'entrypoint did not exec its arguments'
+docker run --rm --network none -v "$work/ca.crt:/etc/gitlab-runner/certs/ca.crt:ro" "$image" sh -c '
+  cmp /etc/gitlab-runner/certs/ca.crt /usr/local/share/ca-certificates/ca.crt &&
+  grep -F -x "$(sed -n 2p /etc/gitlab-runner/certs/ca.crt)" /etc/ssl/certs/ca-certificates.crt >/dev/null' \
+  || fail 'mounted custom CA was not installed into the trust bundle'
 if docker run --rm --network none "$image" /no/such/binary >/dev/null 2>&1; then
   fail 'entrypoint unexpectedly succeeded for a missing command'
 fi
