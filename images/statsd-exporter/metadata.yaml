@@ -1,0 +1,9 @@
+name: statsd-exporter
+track: wolfi
+description: Prometheus StatsD Exporter built from pinned source with plain and Go FIPS flavors.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus/statsd_exporter
+versions: [0.31.0]
+flavors: [plain, fips]
+owner: tektum
+enabled: true
