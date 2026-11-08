@@ -239,7 +239,7 @@ function fillDescription(container, image) {
   }
 
   container.querySelector(".trace-source").textContent =
-    `tektum/verity-images @ ${image.sourceCommit ? image.sourceCommit.slice(0, 12) : "refs/heads/main"}`;
+    `tektum/verity-images @ ${image.sourceCommit ? image.sourceCommit.slice(0, 12) : "source commit not recorded"}`;
   const run = githubUrl(image.runUrl);
   const runLink = container.querySelector(".trace-run");
   if (run) {
@@ -430,7 +430,8 @@ function updateSummary(catalog) {
   setText("#rail-identity", catalog.policy.certificateIdentity);
   setText("#rail-issuer", catalog.policy.certificateIssuer);
 
-  const stamp = `${catalog.publishedAt.slice(0, 10)} ${catalog.publishedAt.slice(11, 16)}Z`;
+  const utc = new Date(catalog.publishedAt).toISOString();
+  const stamp = `${utc.slice(0, 10)} ${utc.slice(11, 16)}Z`;
   for (const selector of ["#published-at", "#rail-published"]) {
     const element = document.querySelector(selector);
     element.dateTime = catalog.publishedAt;

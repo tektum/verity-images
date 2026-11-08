@@ -95,7 +95,7 @@
               <span class="what">GitHub Actions workflow, apko/melange for Wolfi, Copacetic for patched upstreams</span>
               <code>.github/workflows/build.yaml</code>
               <code><a id="rail-run" href="https://github.com/tektum/verity-images/actions">catalog run</a></code>
-              <span class="memo"><b>NOTE</b>FIPS flavors on some images enable the OpenSSL 3.1.2 FIPS provider. Not CMVP validated.</span>
+              <span class="memo"><b>NOTE</b>FIPS flavors on some images enable a FIPS mechanism: the OpenSSL 3.1.2 FIPS provider or Go FIPS mode, depending on the flavor. Not CMVP validated.</span>
             </li>
             <li>
               <span class="stage"><span class="ix">1.3</span>SIGN</span>
@@ -105,7 +105,7 @@
             </li>
             <li>
               <span class="stage"><span class="ix">1.4</span>ATTEST</span>
-              <span class="what">SPDX SBOM per platform digest + SLSA build provenance</span>
+              <span class="what">One SPDX SBOM per platform, attached to the image index digest, + SLSA build provenance</span>
               <code><span id="policy-sbom">SPDX-JSON</span> signed attestation</code>
               <code>actions/attest-build-provenance</code>
               <span class="gate"><b>GATE</b>0 fixable at publish time, not 0 CVE. Unfixed findings stay visible on every row.</span>
@@ -126,12 +126,12 @@
             <ul class="policy">
               <li class="leader"><span class="k"><span class="ix">2.1</span>Fixable vulnerabilities</span><span class="v ok">0<span class="note">at publish time (not 0 CVE)</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.2</span>Signature</span><span class="v">cosign keyless<span class="note">GitHub OIDC</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">per platform digest</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">one per platform, on the index digest</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA provenance<span class="note">for every digest</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.5</span>Known unfixable findings</span><span class="v">listed<span class="note">per image</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing.</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every published digest's SBOM</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.8</span>FIPS flavors</span><span class="v">some images<span class="note">OpenSSL 3.1.2 FIPS provider. Not CMVP validated.</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.8</span>FIPS flavors</span><span class="v">some images<span class="note">OpenSSL 3.1.2 provider or Go FIPS mode, per flavor. Not CMVP validated.</span></span></li>
             </ul>
             <div class="policy-notes">
               <h3>Notes</h3>

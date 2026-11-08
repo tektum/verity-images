@@ -302,7 +302,7 @@ select { min-height: 44px; padding: 0 10px; border: 1px solid var(--box); border
 .verify-row > span { border-right: 1px solid var(--ink); font-weight: 700; }
 .verify-row.unfixable { background: var(--tint); }
 .tags { display: flex; flex-wrap: wrap; gap: 6px; }
-.tag-button { border: 1px solid var(--box); font-weight: 400; }
+.tag-button { max-width: 100%; border: 1px solid var(--box); font-weight: 400; overflow-wrap: anywhere; }
 .verification-disclosure > summary {
   display: flex;
   align-items: center;

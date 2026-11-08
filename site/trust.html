@@ -146,8 +146,8 @@
               equivalent. Wolfi images use apko's native SPDX output. Patched images use Syft, run
               against the final patched image rather than the pinned upstream. Trivy is used only to
               produce the Copacetic patch report for patched images and never generates an SBOM. One
-              complete SBOM is attached to each platform's image digest as an OCI attestation, signed
-              the same way the image itself is signed, and can be verified or downloaded directly from
+              complete SBOM per platform is attached to the image's index digest as an OCI attestation,
+              signed the same way the image itself is signed, and can be verified or downloaded directly from
               the registry. Melange-backed Wolfi images additionally retain package-level provenance
               and a metadata subpackage containing the resolved <code>go.mod</code> and
               <code>go.sum</code> used by the build.
@@ -157,7 +157,8 @@
               suffix means only that the flavor's declared cryptographic mechanism is enabled and its
               repository checks passed; it is not CMVP validated. The shared OpenSSL provider recipe
               uses the unmodified OpenSSL 3.1.2 inputs associated with certificate 4985, but that
-              certificate does not list Wolfi or Linux arm64 as tested operational environments.
+              certificate does not list Wolfi or Linux arm64 as tested operational environments. Go
+              FIPS flavors use Go FIPS mode (<code>GOFIPS140</code>) instead of the OpenSSL provider.
             </p>
           </div>
         </section>
