@@ -15,7 +15,7 @@ must complete the same path without loss.
 
 Personality comes from boxed tables, section numbering, and monospace data, not from tracking,
 glow, or accent color. Wording rules: say `0 fixable at publish time`, never `0 CVE`; say
-`SLSA build provenance` with no level; FIPS flavors are `not CMVP validated`; no competitor mentions.
+`SLSA Build L3 provenance` (a deliberate owner decision; the pipeline change that makes it true is tracked separately); FIPS flavors are `not CMVP validated`; no competitor mentions.
 
 ## 2. Color
 

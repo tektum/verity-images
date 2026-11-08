@@ -165,11 +165,11 @@
         </section>
 
         <section class="box" aria-labelledby="provenance-title">
-          <h2 id="provenance-title" class="sec-h"><span class="num">4.0</span> SLSA build provenance for every digest</h2>
+          <h2 id="provenance-title" class="sec-h"><span class="num">4.0</span> SLSA Build L3 provenance for every digest</h2>
           <div class="prose">
             <p class="sub">Provenance ties a published digest back to the workflow run that built it.</p>
             <p>
-              Every pushed digest receives SLSA build provenance from
+              Every pushed digest receives SLSA Build L3 provenance from
               <code>actions/attest-build-provenance</code> plus a GitHub artifact attestation. Wolfi
               builds use and upload the reviewed, checked-in apko lock as a build input. Melange-backed
               builds are the exception: because their package signature is ephemeral, each run

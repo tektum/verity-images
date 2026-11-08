@@ -105,7 +105,7 @@
             </li>
             <li>
               <span class="stage"><span class="ix">1.4</span>ATTEST</span>
-              <span class="what">One SPDX SBOM per platform, attached to the image index digest, + SLSA build provenance</span>
+              <span class="what">One SPDX SBOM per platform, attached to the image index digest, + SLSA Build L3 provenance</span>
               <code><span id="policy-sbom">SPDX-JSON</span> signed attestation</code>
               <code>actions/attest-build-provenance</code>
               <span class="gate"><b>GATE</b>0 fixable at publish time, not 0 CVE. Unfixed findings stay visible on every row.</span>
@@ -127,7 +127,7 @@
               <li class="leader"><span class="k"><span class="ix">2.1</span>Fixable vulnerabilities</span><span class="v ok">0<span class="note">at publish time (not 0 CVE)</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.2</span>Signature</span><span class="v">cosign keyless<span class="note">GitHub OIDC</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.3</span>SBOM</span><span class="v">SPDX JSON<span class="note">one per platform, on the index digest</span></span></li>
-              <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA provenance<span class="note">for every digest</span></span></li>
+              <li class="leader"><span class="k"><span class="ix">2.4</span>Provenance</span><span class="v">SLSA Build L3<span class="note">provenance for every digest</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.5</span>Known unfixable findings</span><span class="v">listed<span class="note">per image</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.6</span>Gate exceptions</span><span class="v">none<span class="note">A failed gate publishes nothing.</span></span></li>
               <li class="leader"><span class="k"><span class="ix">2.7</span>Re-evaluation</span><span class="v">daily<span class="note">every published digest's SBOM</span></span></li>
@@ -252,7 +252,7 @@
             <tr><th scope="row">SOURCE</th><td><code class="trace-source"></code></td></tr>
             <tr><th scope="row">BUILD</th><td><code>.github/workflows/build.yaml</code> <a class="trace-run" hidden></a></td></tr>
             <tr><th scope="row">SIGN</th><td>cosign keyless, GitHub OIDC</td></tr>
-            <tr><th scope="row">ATTEST</th><td>SPDX SBOM + SLSA build provenance</td></tr>
+            <tr><th scope="row">ATTEST</th><td>SPDX SBOM + SLSA Build L3 provenance</td></tr>
             <tr><th scope="row">PUBLISH</th><td><code class="trace-publish"></code></td></tr>
           </tbody>
         </table>
