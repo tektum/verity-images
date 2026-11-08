@@ -1,6 +1,6 @@
 package:
   name: trivy
-  version: "0.76.1"
+  version: "0.76.2"
   epoch: 1
   description: Simple and comprehensive vulnerability scanner for containers
   copyright:
@@ -27,7 +27,7 @@ pipeline:
     with:
       repository: https://github.com/aquasecurity/trivy
       tag: v${{package.version}}
-      expected-commit: e713f67f7d54decdcd9b3132c9751833dcced698
+      expected-commit: 3f6334d223b52188324af3b9923b4249cd206652
   - uses: go/remediate
     with:
       modroot: .
