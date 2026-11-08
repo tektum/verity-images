@@ -59,14 +59,21 @@ start() {
   until curl --fail --silent --connect-timeout 1 --max-time 5 \
     "http://127.0.0.1:$admin/health/ready" >"$tmp/ready.json"; do
     attempts=$((attempts + 1))
-    [ "$attempts" -lt 60 ] || fail 'hydra did not become ready'
+    [ "$attempts" -lt 120 ] || fail 'hydra did not become ready'
+    sleep 1
+  done
+  # The public listener can come up after the admin one, notably under emulation.
+  attempts=0
+  until curl --fail --silent --connect-timeout 1 --max-time 5 \
+    "http://127.0.0.1:$public/.well-known/openid-configuration" >"$tmp/oidc.json"; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 120 ] || fail 'hydra public listener did not become ready'
     sleep 1
   done
 }
 
 start
 grep -F '"status":"ok"' "$tmp/ready.json" >/dev/null || fail 'readiness body is not ok'
-curl --fail --silent "http://127.0.0.1:$public/.well-known/openid-configuration" >"$tmp/oidc.json"
 [ "$(jq -r .issuer "$tmp/oidc.json")" = 'http://127.0.0.1:4444' ] || fail 'unexpected issuer'
 jq -e '.jwks_uri and .token_endpoint' "$tmp/oidc.json" >/dev/null || fail 'discovery document incomplete'
 
@@ -84,7 +91,7 @@ docker stop -t 10 "$container" >/dev/null
 [ "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 0 ] ||
   fail 'hydra did not exit cleanly on SIGTERM'
 start
-curl --fail --silent "http://127.0.0.1:$admin/admin/clients/verity-smoke" >"$tmp/client.json" ||
+curl --fail --silent --show-error "http://127.0.0.1:$admin/admin/clients/verity-smoke" >"$tmp/client.json" ||
   fail 'client missing after restart'
 [ "$(jq -r .client_id "$tmp/client.json")" = verity-smoke ] || fail 'client not persisted'
 
