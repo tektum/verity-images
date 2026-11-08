@@ -20,13 +20,16 @@ fail() {
   exit 1
 }
 
-test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532
-test "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/mailpit"]'
+[ "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ] ||
+  fail 'unexpected image config: User'
+[ "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/mailpit"]' ] ||
+  fail 'unexpected image config: Entrypoint'
 
 docker run --name "$container" -d --read-only --tmpfs /tmp:uid=65532,gid=65532 -p 127.0.0.1::8025 -p 127.0.0.1::1025 "$image" >/dev/null
 ui=$(docker port "$container" 8025/tcp | awk -F: 'NR == 1 { print $2 }')
 smtp=$(docker port "$container" 1025/tcp | awk -F: 'NR == 1 { print $2 }')
-test -n "$ui" && test -n "$smtp"
+[ -n "$ui" ] || fail 'no published host port for ui'
+[ -n "$smtp" ] || fail 'no published host port for smtp'
 
 attempts=0
 until curl --fail --silent --connect-timeout 1 --max-time 5 \
