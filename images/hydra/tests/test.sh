@@ -2,8 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*- hydra=\([0-9.]*\)-r[0-9]*$/\1/p' \
-  "$(dirname "$0")/../apko.yaml")
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container="verity-hydra-test-$$"
 tmp=$(mktemp -d)
