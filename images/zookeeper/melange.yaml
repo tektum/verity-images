@@ -1,6 +1,6 @@
 package:
   name: verity-zookeeper-3.9
-  version: "3.9.5"
+  version: "3.9.7"  # renovate: datasource=maven depName=org.apache.zookeeper:zookeeper versioning=maven
   epoch: 0
   description: Apache ZooKeeper distributed coordination service
   copyright:
@@ -20,10 +20,12 @@ package:
       - sed
 
 vars:
-  jackson: 2.18.11  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
-  jline-version: 4.3.1  # renovate: datasource=maven depName=org.jline:jline versioning=maven
+  jackson: 2.22.4  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
+  # ZooKeeper 3.9.7 requires the jdk8 classifier jline artifact, which jline 4.x does not publish.
+  # yamllint disable-line rule:line-length
+  jline-version: 3.30.17  # renovate: datasource=maven depName=org.jline:jline versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$
   logback-version: 1.5.34  # renovate: datasource=maven depName=ch.qos.logback:logback-classic versioning=maven
-  netty-version: 4.1.137.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
+  netty-version: 4.1.140.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=maven
   snappy-version: 1.1.10.12  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
 
 environment:
@@ -46,7 +48,7 @@ pipeline:
     with:
       repository: https://github.com/apache/zookeeper
       tag: release-${{package.version}}
-      expected-commit: 293c895a8d966a3ecb92872be4a1daf87d725da2
+      expected-commit: 0cc8919035e246f6a6e3ebb4ef1df15c4243bce7
   - runs: |
       mvn -T 4 -DskipTests install \
         -Djackson.version=${{vars.jackson}} \
@@ -70,6 +72,7 @@ pipeline:
       ln -s /conf "${{targets.destdir}}/apache-zookeeper-${{package.version}}-bin/conf"
       install -m644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"
       install -m644 NOTICE.txt "${{targets.destdir}}/licenses/NOTICE.txt"
+      # The entrypoint is byte-identical in zookeeper-docker 3.9.5 and 3.9.6 (sha256 below).
       entrypoint_url=https://raw.githubusercontent.com/31z4/zookeeper-docker/
       entrypoint_url="${entrypoint_url}3f6430f695fceae0858824d716654c7e2b38bad3/3.9.5/docker-entrypoint.sh"
       curl -fsSL "$entrypoint_url" -o docker-entrypoint.sh
