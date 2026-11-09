@@ -1,0 +1,91 @@
+package:
+  name: verity-gatus
+  version: "5.38.0"  # renovate: datasource=github-releases depName=TwiN/gatus
+  epoch: 0
+  description: Developer-oriented service health dashboard and endpoint monitor
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: d255d0cd4d69ce818574cfdb3a7e82407e6559d7
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/TwiN/gatus
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/gatus" .
+      go version -m "${{targets.destdir}}/usr/bin/gatus" \
+        | awk '$1 == "mod" && $2 == "github.com/TwiN/gatus/v5" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 config.yaml "${{targets.destdir}}/config/config.yaml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Gatus build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/gatus-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/gatus-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        apk info --who-owns /usr/bin/gatus \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+        test -s /config/config.yaml
+        # No configuration file: gatus must refuse to start and say why.
+        cd /var/tmp
+        if gatus >/var/tmp/gatus-noconfig.log 2>&1; then
+          echo "gatus started without a configuration file" >&2
+          exit 1
+        fi
+        grep -F 'configuration file not found' /var/tmp/gatus-noconfig.log
+
+update:
+  enabled: true
+  github:
+    identifier: TwiN/gatus
+    strip-prefix: v
+    use-tag: true

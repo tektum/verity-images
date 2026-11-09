@@ -1,0 +1,24 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-gatus@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/gatus
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  GATUS_LOG_LEVEL: INFO
