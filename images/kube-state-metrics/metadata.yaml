@@ -6,3 +6,4 @@ upstream: https://github.com/kubernetes/kube-state-metrics
 versions: [2.20.0]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/k8s.io/kube-state-metrics/v2]
