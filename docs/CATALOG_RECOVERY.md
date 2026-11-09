@@ -15,8 +15,8 @@ run and `catalog-catch-up` only runs for `push`, so a cancelled or failed catch-
 run does not dispatch another one; recover it manually below. If the live catalog cannot be
 fetched or its source commit is not a usable ancestor of main, no build is dispatched:
 check the `catalog-catch-up` log and restore a usable catalog source first.
-Known mixed case: if one row was cancelled and another failed, `publish` aggregates to
-`failure`, so `build-gate` only warns and recovery is manual.
+Known mixed case: if one `native-arm64` or `publish` row failed and another was
+cancelled, that job aggregates to `failure`, so `build-gate` only warns and recovery is manual.
 
 ## Diagnose
 
