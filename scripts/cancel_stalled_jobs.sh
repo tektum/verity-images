@@ -47,9 +47,8 @@ done < <(jq -c '.[]' <<<"$jobs")
 
 # GitHub has no job-level cancel endpoint, so stalled jobs cancel the whole
 # run. Leaving them queued would block later main runs (cancel-in-progress is
-# false). Wait until no other watched job is still executing so healthy rows
-# are not cut off mid-publish. Exit non-zero (not 42) so this job fails loudly.
-if [[ -n "$stalled" && "$pending" == false ]]; then
+# false). Exit non-zero (not 42) so this job fails loudly.
+if [[ -n "$stalled" ]]; then
   printf '%s' "$stalled"
   gh api -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null
   exit 1

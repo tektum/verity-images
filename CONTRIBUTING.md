@@ -255,8 +255,8 @@ their rows now finish in about 9 to 16 minutes.
   patched track still patches arm64 under QEMU.
 - `scripts/cancel_stalled_jobs.sh` cancels the whole run (GitHub has no job-level
   cancel) once a `validate`, `publish`, or `native-arm64` row has had no runner for
-  20 minutes and no other watched row is still executing, then fails `stall-guard`.
-  Until then it stays pending, and it stays pending until a `validate` or `publish`
+  20 minutes, then fails `stall-guard`. Rows still executing are cancelled with the
+  run; a later main run republishes. It stays pending until a `validate` or `publish`
   row exists. Its job timeout must stay above the native job's 300 minute limit.
 
 Do not give the arm64 key the amd64 key's file name. An APKINDEX signature embeds the
