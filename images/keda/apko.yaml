@@ -24,3 +24,8 @@ paths:
     source: /usr/bin/keda
     uid: 0
     gid: 0
+  - path: /usr/bin/keda
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
