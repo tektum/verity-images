@@ -1,7 +1,7 @@
 package:
   name: haproxy-ingress
   version: "0.16.1"
-  epoch: 1  # Go remediation
+  epoch: 2  # Go remediation
   description: HAProxy Ingress Controller
   copyright:
     - license: Apache-2.0
@@ -41,7 +41,7 @@ pipeline:
       LDFLAGS="-X $PKG.RELEASE=v${{package.version}}"
       LDFLAGS="$LDFLAGS -X $PKG.COMMIT=$(git rev-parse HEAD)"
       LDFLAGS="$LDFLAGS -X $PKG.REPO=https://github.com/jcmoraisjr/haproxy-ingress"
-      go build -trimpath -tags netgo,osusergo -ldflags "-w $LDFLAGS" -o haproxy-ingress-controller ./pkg/main.go
+      go build -trimpath -tags netgo,osusergo -ldflags "-w $LDFLAGS" -o haproxy-ingress-controller ./pkg
       install -Dm755 haproxy-ingress-controller "${{targets.destdir}}/usr/bin/haproxy-ingress-controller"
       install -Dm755 rootfs/start.sh "${{targets.destdir}}/usr/bin/start.sh"
       install -Dm755 rootfs/haproxy-reload.sh "${{targets.destdir}}/usr/bin/haproxy-reload.sh"
