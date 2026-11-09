@@ -15,7 +15,12 @@ tmp=$(mktemp -d)
 cleanup() {
   docker rm -fv "$env_agent" "$args_agent" "$controller" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
-  rm -rf "$tmp"
+  # The plugin files belong to the Jenkins container user, which may not be the runner user.
+  if [ -d "$tmp/plugins" ]; then
+    docker run --rm --user 0 --label "$label" --entrypoint sh -v "$tmp/plugins:/plugins" "$image" \
+      -c 'rm -rf /plugins/* /plugins/.[!.]*' >/dev/null 2>&1 || true
+  fi
+  rm -rf "$tmp" || true
 }
 trap cleanup EXIT HUP INT TERM
 
