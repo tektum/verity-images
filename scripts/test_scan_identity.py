@@ -19,7 +19,7 @@ import scan_identity
 FROZEN_BASELINE: Final = frozenset(
     f"images/{name}"
     for name in (
-        "argo-events aws-node-termination-handler cassandra cert-manager-acmesolver cert-manager-cainjector "
+        "aws-node-termination-handler cassandra cert-manager-acmesolver cert-manager-cainjector "
         "cert-manager-controller cert-manager-startupapicheck cert-manager-webhook clickhouse cmake cmctl "
         "configmap-reload elixir/1.17 elixir/1.19 envoy external-secrets falcoctl falcosidekick "
         "fluent-bit flux-cli/2.10 flux-cli/2.8 flux-cli/2.9 flux-helm-controller "

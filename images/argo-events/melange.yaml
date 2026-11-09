@@ -70,7 +70,7 @@ pipeline:
       source_commit=$(git rev-parse HEAD)
       build_date=$(git show -s --format=%cI HEAD)
 
-      go build -mod=readonly -trimpath -buildvcs=false \
+      go build -mod=readonly -trimpath \
         -ldflags="-s -w \
           -X github.com/argoproj/argo-events.version=v${{package.version}} \
           -X github.com/argoproj/argo-events.buildDate=$build_date \
@@ -84,7 +84,7 @@ pipeline:
         argo_commit=$(git rev-parse HEAD)
         test "$argo_commit" = "${{vars.argo-cli-commit}}"
         argo_date=$(git show -s --format=%cI HEAD)
-        go build -mod=readonly -trimpath -buildvcs=false \
+        go build -mod=readonly -trimpath \
           -ldflags="-s -w \
             -X github.com/argoproj/argo-workflows/v3.version=${{vars.argo-cli-version}} \
             -X github.com/argoproj/argo-workflows/v3.buildDate=$argo_date \
@@ -109,6 +109,12 @@ pipeline:
       printf '%s\n' "$argo_version" | grep -F 'argo: ${{vars.argo-cli-version}}+'
       printf '%s\n' "$argo_version" | grep -F 'GitCommit: ${{vars.argo-cli-commit}}'
       printf '%s\n' "$argo_version" | grep -F 'GitTreeState: dirty'
+      go version -m "${{targets.destdir}}/usr/bin/argo-events" \
+        | awk '$1 == "mod" && $2 == "github.com/argoproj/argo-events" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      go version -m "${{targets.destdir}}/usr/bin/argo" \
+        | awk '$1 == "mod" && $2 == "github.com/argoproj/argo-workflows/v3" { print $3 }' \
+        | grep -Ex '${{vars.argo-cli-version}}(\+dirty)?'
 
       # Keep the resolved CLI module files for the build-metadata subpackage;
       # the nested checkout is not part of the workspace output.
