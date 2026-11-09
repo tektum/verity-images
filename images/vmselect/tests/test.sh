@@ -22,7 +22,7 @@ fail() {
 }
 
 cleanup() {
-  docker rm -f "$select" "$insert" "$storage" >/dev/null 2>&1 || true
+  docker rm -fv "$select" "$insert" "$storage" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
 }
@@ -114,11 +114,11 @@ docker stop --time 30 "$select" >/dev/null
   || fail 'vmselect did not stop cleanly'
 
 # Without a reachable vmstorage vmselect still starts and reports healthy.
-docker rm "$select" >/dev/null
+docker rm -v "$select" >/dev/null
 docker run --name "$select" -d --label "$label" --read-only -p 127.0.0.1::8481 "$image" \
   -storageNode=127.0.0.1:1 -cacheDataPath=/vmselect-cache >/dev/null
 wait_health vmselect "$(published "$select" 8481)"
-docker rm -f "$select" >/dev/null
+docker rm -fv "$select" >/dev/null
 
 if invalid=$(docker run --rm "$image" -no-such-flag 2>&1); then
   fail 'invalid flag unexpectedly succeeded'
