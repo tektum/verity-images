@@ -1,0 +1,95 @@
+package:
+  name: verity-istioctl
+  version: "1.30.8"  # renovate: datasource=github-releases depName=istio/istio
+  epoch: 0
+  description: Istio service mesh configuration command line utility.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/istio/istio
+      tag: ${{package.version}}
+      expected-commit: f6879bae446c19c398d0f844d66fe1c3801b2b25
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./istioctl/cmd/istioctl
+
+  - runs: |
+      source_commit=$(git rev-parse HEAD)
+      pkg=istio.io/istio/pkg/version
+
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w \
+          -X $pkg.buildVersion=${{package.version}} \
+          -X $pkg.buildGitRevision=$source_commit \
+          -X $pkg.buildStatus=Modified \
+          -X $pkg.buildTag=${{package.version}} \
+          -X $pkg.buildHub=registry.istio.io/release \
+          -X $pkg.buildOS=linux \
+          -X $pkg.buildArch=$(go env GOARCH)" \
+        -o istioctl.bin ./istioctl/cmd/istioctl
+
+      install -Dm755 istioctl.bin "${{targets.destdir}}/usr/bin/istioctl"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      "${{targets.destdir}}/usr/bin/istioctl" version --remote=false \
+        | grep -Fx 'client version: ${{package.version}}'
+
+  - uses: strip
+
+subpackages:
+  - name: verity-istioctl-build-metadata
+    description: Resolved Go module metadata for the istioctl build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/istioctl-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/istioctl-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        istioctl version --remote=false | grep -Fx 'client version: ${{package.version}}'
+        istioctl manifest generate | grep -F 'image: registry.istio.io/release/pilot:${{package.version}}'
+        apk info --who-owns /usr/bin/istioctl \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: istio/istio
+    tag-filter-prefix: "1.30."
+    use-tag: true
