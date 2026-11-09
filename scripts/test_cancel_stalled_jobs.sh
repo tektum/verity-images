@@ -81,6 +81,26 @@ if grep -q '/cancel' "$GH_LOG"; then
   exit 1
 fi
 
+# A stalled row next to a row that is still executing: do not cut the healthy
+# row off. Keep polling, no cancel, no annotation.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [
+    {id: 8, name: "publish (etcd, images/etcd, desc)", status: "queued", started_at: $started, steps: []},
+    {id: 9, name: "publish (caddy, images/caddy, desc)", status: "in_progress", started_at: $started,
+     steps: [{name: "Set up job", status: "completed"}, {name: "Promote release tags", status: "in_progress"}]}
+  ]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh") || status=$?
+[[ "$status" -eq 42 ]]
+[[ -z "$output" ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  echo 'run cancelled while another row was still executing' >&2
+  exit 1
+fi
+
 # A job that has not yet reached the threshold is left alone: caller keeps polling.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$fresh_started" \

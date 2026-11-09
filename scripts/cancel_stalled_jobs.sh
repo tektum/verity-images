@@ -19,7 +19,7 @@ if [[ "$(jq 'length' <<<"$jobs")" -eq 0 ]]; then
 fi
 
 pending=false
-stalled=false
+stalled=
 while IFS= read -r job; do
   [[ -n "$job" ]] || continue
   status=$(jq -r .status <<<"$job")
@@ -41,15 +41,16 @@ while IFS= read -r job; do
   fi
   id=$(jq -r .id <<<"$job")
   name=$(jq -r .name <<<"$job")
-  printf '::error title=Runner allocation stalled::Job "%s" (id %s) had no runner after %sm; cancelling the run so build-gate can fail fast.\n' \
-    "$name" "$id" "$age_minutes"
-  stalled=true
+  stalled+=$(printf '::error title=Runner allocation stalled::Job "%s" (id %s) had no runner after %sm; cancelling the run so build-gate can fail fast.\n' \
+    "$name" "$id" "$age_minutes")$'\n'
 done < <(jq -c '.[]' <<<"$jobs")
 
-# GitHub has no job-level cancel endpoint, so a stalled job cancels the whole
-# run. Leaving it queued would block later main runs (cancel-in-progress is
-# false). Exit non-zero (not 42) so this job fails loudly.
-if [[ "$stalled" == true ]]; then
+# GitHub has no job-level cancel endpoint, so stalled jobs cancel the whole
+# run. Leaving them queued would block later main runs (cancel-in-progress is
+# false). Wait until no other watched job is still executing so healthy rows
+# are not cut off mid-publish. Exit non-zero (not 42) so this job fails loudly.
+if [[ -n "$stalled" && "$pending" == false ]]; then
+  printf '%s' "$stalled"
   gh api -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null
   exit 1
 fi
