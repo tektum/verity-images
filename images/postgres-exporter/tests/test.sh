@@ -121,8 +121,10 @@ fi
 grep -F 'no-such-flag' "$tmp/invalid.log" >/dev/null ||
   fail 'unknown flag error missing'
 
+# The exporter has no signal handler, so SIGTERM ends it with 143 rather than
+# waiting for the docker stop timeout to SIGKILL it (137).
 docker stop "$exporter" >/dev/null
-[ "$(docker inspect --format '{{.State.ExitCode}}' "$exporter")" = 0 ] ||
+[ "$(docker inspect --format '{{.State.ExitCode}}' "$exporter")" = 143 ] ||
   fail 'exporter did not stop cleanly on SIGTERM'
 
 printf 'SMOKE PASS image=%s flavor=%s\n' "$image" "$flavor"
