@@ -1,7 +1,7 @@
 package:
   name: configmap-reload
   version: "0.15.0"
-  epoch: 21
+  epoch: 22
   description: ConfigMap and Secret volume watcher with webhook-triggered reloads
   copyright:
     - license: Apache-2.0
@@ -36,7 +36,10 @@ pipeline:
         -ldflags="-s -w -extldflags '-static'" \
         -a \
         -o "${{targets.destdir}}/usr/bin/configmap-reload" \
-        ./configmap-reload.go
+        .
+      go version -m "${{targets.destdir}}/usr/bin/configmap-reload" \
+        | awk '$1 == "mod" && $2 == "github.com/jimmidyson/configmap-reload" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
 
 test:
   pipeline:
