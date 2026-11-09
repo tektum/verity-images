@@ -40,7 +40,8 @@ pipeline:
       go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w \
           -X main.version=${{package.version}} \
-          -X main.commit=${{vars.source-commit}}" \
+          -X main.commit=${{vars.source-commit}} \
+          -X main.date=$(git log -1 --format=%cI)" \
         -o "${{targets.destdir}}/usr/bin/golangci-lint" ./cmd/golangci-lint
       go version -m "${{targets.destdir}}/usr/bin/golangci-lint" \
         | awk '$1 == "mod" && $2 == "github.com/golangci/golangci-lint/v2" { print $3 }' \
