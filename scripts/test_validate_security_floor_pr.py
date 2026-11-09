@@ -144,6 +144,14 @@ def main() -> None:
             patch=extract_patch.replace("extractVersion=^v(?<version>.+)$\n+", "extractVersion=^(?<version>.+)$\n+", 1)
         )
     )
+    # Regex-versioned floors (the github-tags images use versioning=regex:...)
+    # are deliberately not auto-merge eligible: is_upgrade only orders go,
+    # semver and maven versions, so such a floor fails closed to human review.
+    regex = " versioning=regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$ extractVersion=^v(?<version>.+)$\n"
+    regex_patch = PATCH.replace("depName=google.golang.org/grpc\n", "depName=google.golang.org/grpc" + regex)
+    assert "floor version is not an upgrade" in rejected(
+        lambda _pull, _commit, files: files[0].update(patch=regex_patch)
+    )
     assert "file list is incomplete" in rejected(
         lambda pull, _commit, _files: pull.update(changed_files=2)
     )
