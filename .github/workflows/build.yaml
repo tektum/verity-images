@@ -66,7 +66,8 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          GH_TOKEN: ${{ github.token }}
+          # The token reaches only the trusted main push path; PR code never sees it.
+          GH_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}
           IMAGE: ${{ inputs.image }}
           REF: ${{ github.ref }}
           REPOSITORY: ${{ github.repository }}

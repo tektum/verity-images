@@ -754,7 +754,11 @@ def main() -> None:
         in workflow
     )
     assert '            BASE_SHA=$(scripts/trusted_build_base.sh "$GITHUB_SHA")\n' in workflow
-    assert "          GH_TOKEN: ${{ github.token }}\n          IMAGE: ${{ inputs.image }}\n" in workflow
+    assert (
+        "          GH_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}\n"
+        "          IMAGE: ${{ inputs.image }}\n"
+        in workflow
+    )
     assert '          if [[ "$EVENT" == workflow_dispatch && -n "$IMAGE" ]]; then\n' in workflow
     assert '            [[ -z "$BASE_SHA" ]] || {\n' in workflow
     assert '            args=(--remediate "$IMAGE")\n' in workflow
