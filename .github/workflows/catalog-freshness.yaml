@@ -1,0 +1,37 @@
+name: Catalog freshness
+
+# Fails loudly when a published catalog record is older than the last main commit that
+# changed its build inputs. A replaced or cancelled push run can strand an image while
+# the catalog source commit still advances; see docs/CATALOG_RECOVERY.md.
+on:
+  schedule:
+    - cron: "47 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: catalog-freshness
+  cancel-in-progress: false
+
+jobs:
+  freshness:
+    if: github.repository == 'tektum/verity-images'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Compare catalog records with their input history
+        shell: bash
+        run: |
+          curl --silent --show-error --location --fail --retry 5 --retry-all-errors --retry-delay 5 \
+            --connect-timeout 10 --max-time 30 --output catalog.json \
+            https://tektum.github.io/verity-images/catalog.json
+          python3 scripts/check_catalog_freshness.py catalog.json
