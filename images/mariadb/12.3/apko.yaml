@@ -9,14 +9,12 @@ contents:
     - bash
     - busybox
     - ca-certificates-bundle
+    - coreutils
     - findutils
     - gosu
-    - mariadb-12.3
-    - mariadb-12.3-backup
-    - mariadb-12.3-client
-    - mariadb-12.3-oci-entrypoint
     - tzdata
-    - verity-mariadb-12.3-container@local
+    - verity-mariadb-12.3@local
+    - zstd
 
 accounts:
   groups:

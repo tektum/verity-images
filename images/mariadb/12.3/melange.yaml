@@ -1,18 +1,24 @@
 package:
-  name: verity-mariadb-12.3-container
-  # Version of this glue package only. Its first two components carry the
-  # stream channel (12.3); the MariaDB server version comes from the Wolfi
-  # mariadb-12.3 package resolved when the image is built.
-  version: "12.3.0"
+  name: verity-mariadb-12.3
+  # yamllint disable-line rule:line-length
+  version: "12.3.3"  # renovate: datasource=github-tags depName=MariaDB/server versioning=regex:^(?:mariadb-)?(?<major>12)\.(?<minor>3)\.(?<patch>\d+)$
   epoch: 0
-  description: Docker-library healthcheck script and server configuration for the MariaDB 12.3 image
+  description: MariaDB 12.3 server and client built from the upstream release
   copyright:
     - license: GPL-2.0-only
   dependencies:
     runtime:
       - bash
       - busybox
-      - mariadb-12.3-client
+  resources:
+    cpu: "30"
+    memory: 60Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+vars:
+  source-commit: 83e909fc2a0dbc394b4b683fb3fa2d7dcf26cc5e
 
 environment:
   contents:
@@ -21,12 +27,138 @@ environment:
     keyring:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
+      - bash
+      - bison
+      - build-base
       - busybox
       - ca-certificates-bundle
+      - cmake
+      - libaio-dev
+      - libevent-dev
+      - libxml2-dev
+      - linux-pam-dev
+      - ncurses-dev
+      - openssl-dev
+      - pcre2-dev
+      - pkgconf
+      - readline-dev
+      - wolfi-baselayout
+      - xz-dev
+      - zlib-dev
 
 pipeline:
-  # healthcheck.sh is not packaged by Wolfi's mariadb-12.3-oci-entrypoint. This
-  # is the exact docker-library script the 12.3 upstream image ships.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/MariaDB/server
+      tag: mariadb-${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Same feature set as the Wolfi MariaDB package this image used before: the
+  # community plugin set, InnoDB with LZMA, MariaBackup, PAM authentication and
+  # system OpenSSL, PCRE2 and zlib. The embedded server, test suite, benchmarks
+  # and the engines that need extra third-party stacks (DuckDB, RocksDB, Mroonga) are left out.
+  - uses: cmake/configure
+    with:
+      opts: |
+        -DBUILD_CONFIG=mysql_release \
+        -DCMAKE_BUILD_TYPE=MinSizeRel \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DSYSCONFDIR=/etc \
+        -DMYSQL_DATADIR=/var/lib/mysql \
+        -DMYSQL_UNIX_ADDR=/run/mariadb/mariadb.sock \
+        -DDEFAULT_CHARSET=utf8mb4 \
+        -DDEFAULT_COLLATION=utf8mb4_general_ci \
+        -DENABLED_LOCAL_INFILE=ON \
+        -DINSTALL_INFODIR=share/info \
+        -DINSTALL_MANDIR=share/man \
+        -DINSTALL_PLUGINDIR=lib/mysql/plugin \
+        -DINSTALL_SCRIPTDIR=bin \
+        -DINSTALL_INCLUDEDIR=include/mysql \
+        -DINSTALL_DOCREADMEDIR=share/doc/mariadb \
+        -DINSTALL_SUPPORTFILESDIR=share/mysql \
+        -DINSTALL_MYSQLSHAREDIR=share/mysql \
+        -DINSTALL_DOCDIR=share/doc/mariadb \
+        -DINSTALL_MYSQLTESTDIR= \
+        -DINSTALL_SQLBENCHDIR= \
+        -DTMPDIR=/var/tmp \
+        -DCONNECT_WITH_MYSQL=ON \
+        -DCONNECT_WITH_LIBXML2=system \
+        -DCONNECT_WITH_ODBC=NO \
+        -DCONNECT_WITH_JDBC=NO \
+        -DPLUGIN_ARCHIVE=YES \
+        -DPLUGIN_ARIA=YES \
+        -DPLUGIN_BLACKHOLE=YES \
+        -DPLUGIN_CASSANDRA=NO \
+        -DPLUGIN_DUCKDB=NO \
+        -DPLUGIN_CSV=YES \
+        -DPLUGIN_MYISAM=YES \
+        -DPLUGIN_MROONGA=NO \
+        -DPLUGIN_OQGRAPH=NO \
+        -DPLUGIN_PARTITION=YES \
+        -DPLUGIN_ROCKSDB=NO \
+        -DPLUGIN_SPHINX=NO \
+        -DPLUGIN_TOKUDB=NO \
+        -DPLUGIN_AUTH_GSSAPI=NO \
+        -DPLUGIN_AUTH_GSSAPI_CLIENT=OFF \
+        -DPLUGIN_CRACKLIB_PASSWORD_CHECK=NO \
+        -DWITH_ASAN=OFF \
+        -DWITH_EMBEDDED_SERVER=OFF \
+        -DWITH_EXTRA_CHARSETS=complex \
+        -DWITH_INNODB_BZIP2=OFF \
+        -DWITH_INNODB_LZ4=OFF \
+        -DWITH_INNODB_LZMA=ON \
+        -DWITH_INNODB_LZO=OFF \
+        -DWITH_INNODB_SNAPPY=OFF \
+        -DWITH_JEMALLOC=NO \
+        -DWITH_LIBNUMA=NO \
+        -DWITH_LIBWRAP=OFF \
+        -DWITH_MARIABACKUP=ON \
+        -DWITH_PCRE=system \
+        -DWITH_PIC=ON \
+        -DWITH_READLINE=ON \
+        -DWITH_SYSTEMD=no \
+        -DWITH_SSL=system \
+        -DWITH_VALGRIND=OFF \
+        -DWITH_ZLIB=system \
+        -DSKIP_TESTS=ON
+  # Server translation units peak near 2 GiB each, so one job per CPU can
+  # exhaust memory. Run one job per 2 GiB of memory the build may still use:
+  # host MemAvailable, capped by the cgroup v2 limit headroom when one is set.
+  # At most nproc jobs.
+  - runs: |
+      mem_kb=$(awk '/^MemAvailable:/ { print $2 }' /proc/meminfo)
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
+      if [ "$limit" != max ]; then
+        used=$(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo 0)
+        cgroup_kb=$(( (limit - used) / 1024 ))
+        [ "$cgroup_kb" -ge "$mem_kb" ] || mem_kb=$cgroup_kb
+      fi
+      mem_jobs=$(( mem_kb / 2097152 ))
+      jobs=$(nproc)
+      [ "$jobs" -le "$mem_jobs" ] || jobs=$mem_jobs
+      [ "$jobs" -ge 1 ] || jobs=1
+      echo "building with $jobs jobs (memory allows $mem_jobs)"
+      cmake --build output --parallel "$jobs"
+  - uses: cmake/install
+  - runs: |
+      cd "${{targets.destdir}}"
+      # Perl helpers are not part of the server runtime and would pull a Perl
+      # interpreter into the image.
+      grep -rlI '^#!.*perl' usr/bin | xargs -r rm -f
+      rm -rf usr/share/man usr/share/doc usr/share/info usr/share/mysql/mysql-test
+      ! grep -rlI '^#!.*perl' usr/bin
+  - uses: strip
+
+  # docker-library entrypoint for the 12.3 stream at the commit that publishes
+  # the pinned healthcheck, installed unmodified.
+  - uses: fetch
+    with:
+      uri: "https://raw.githubusercontent.com/MariaDB/mariadb-docker/\
+        d7fd0db865db98973fc4761c5d72ddde30b8c4bd/12.3/docker-entrypoint.sh"
+      expected-sha256: 268c193a57bb52b1123820fe34d63a360023f0d8d346e79b0e1fdee3f9caddb8
+      extract: false
+  # healthcheck.sh is the exact docker-library script the 12.3 upstream image
+  # ships.
   - uses: fetch
     with:
       uri: "https://raw.githubusercontent.com/MariaDB/mariadb-docker/\
@@ -43,15 +175,59 @@ pipeline:
       expected-sha256: 989ad5eb098c24128dd596394376c7f084afbbaa34ce829bcea8141ada820b48
       extract: false
   - runs: |
+      install -Dm755 docker-entrypoint.sh "${{targets.destdir}}/usr/local/bin/docker-entrypoint.sh"
       install -Dm755 healthcheck.sh "${{targets.destdir}}/usr/local/bin/healthcheck.sh"
       install -Dm644 docker.cnf "${{targets.destdir}}/etc/mysql/my.cnf"
       install -d "${{targets.destdir}}/etc/mysql/conf.d" "${{targets.destdir}}/etc/mysql/mariadb.conf.d"
+      # mariadb-install-db derives its install root from the working directory
+      # and treats /usr/bin/mariadbd as a source tree when run from / (/bin is
+      # a symlink to usr/bin), so the entrypoint's first start fails without this.
+      printf '%s\n' '[mysql_install_db]' 'basedir=/usr' \
+        > "${{targets.destdir}}/etc/mysql/mariadb.conf.d/10-install-db.cnf"
+
+subpackages:
+  - name: ${{package.name}}-dev
+    description: MariaDB client headers and static libraries
+    pipeline:
+      - uses: split/dev
+
+  - name: ${{package.name}}-build-metadata
+    description: Resolved CMake configuration and source commit of the MariaDB server build
+    pipeline:
+      - runs: |
+          install -Dm644 output/CMakeCache.txt \
+            "${{targets.subpkgdir}}/usr/share/mariadb-build/CMakeCache.txt"
+          printf '%s\n' '${{vars.source-commit}}' \
+            > "${{targets.subpkgdir}}/usr/share/mariadb-build/source-commit"
 
 test:
+  environment:
+    contents:
+      packages:
+        - busybox
   pipeline:
     - runs: |
+        mariadbd --version | grep -F 'Ver ${{package.version}}-MariaDB'
+        mariadb --version | grep -F '${{package.version}}-MariaDB'
+        mariadb-admin --version | grep -F '${{package.version}}-MariaDB'
+        test -x /usr/local/bin/docker-entrypoint.sh
         test -x /usr/local/bin/healthcheck.sh
-        status=0
-        /usr/local/bin/healthcheck.sh --no-such-test 2>/dev/null || status=$?
-        test "$status" -eq 1
         grep -qx 'socket=/run/mariadb/mariadb.sock' /etc/mysql/my.cnf
+        mkdir -p /run/mariadb /tmp/data
+        # The entrypoint runs from / with the default configuration files.
+        cd /
+        mariadb-install-db --user=root --datadir=/tmp/data --skip-name-resolve
+        mariadbd --no-defaults --user=root --datadir=/tmp/data \
+          --socket=/run/mariadb/test.sock --skip-networking &
+        pid=$!
+        mariadb-admin --no-defaults --socket=/run/mariadb/test.sock -uroot ping --wait=30
+        server_version=$(mariadb --no-defaults --socket=/run/mariadb/test.sock -uroot -Nse 'SELECT VERSION()')
+        test "$server_version" = '${{package.version}}-MariaDB'
+        test "$(mariadb --no-defaults --socket=/run/mariadb/test.sock -uroot -Nse 'SELECT 1+1')" = 2
+        mariadb-backup --version 2>&1 | grep -F '${{package.version}}-MariaDB'
+        mariadb-backup --no-defaults --backup --target-dir=/tmp/backup --datadir=/tmp/data \
+          --socket=/run/mariadb/test.sock --user=root
+        mariadb-backup --no-defaults --prepare --target-dir=/tmp/backup
+        test -s /tmp/backup/ibdata1
+        mariadb-admin --no-defaults --socket=/run/mariadb/test.sock -uroot shutdown
+        wait "$pid"

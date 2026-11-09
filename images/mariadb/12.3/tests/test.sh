@@ -147,7 +147,7 @@ app_sql() {
 expect_fail timeout 30 docker exec -e MYSQL_PWD=mysql-root "$primary" mariadb -uroot -Nse 'SELECT 1'
 expect_fail timeout 30 docker exec -e MYSQL_PWD=mysql-user "$primary" mariadb -uapp appdb -Nse 'SELECT 1'
 root_sql 'UPDATE appdb.init_sql SET value = 2'
-# BLACKHOLE is compiled into the Wolfi server, so exercise the engine directly
+# BLACKHOLE is compiled into the server, so exercise the engine directly
 # and prove that dynamically loadable plugins install from the plugin directory.
 root_sql 'CREATE TABLE appdb.blackhole_test (value INT) ENGINE=BLACKHOLE; INSERT INTO appdb.blackhole_test VALUES (1);'
 root_sql 'INSTALL SONAME "metadata_lock_info"'
