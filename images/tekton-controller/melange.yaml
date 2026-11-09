@@ -1,7 +1,7 @@
 package:
   name: tekton-controller-1.15
   version: "1.15.1"
-  epoch: 0
+  epoch: 1
   description: Tekton Pipelines Kubernetes controller
   copyright:
     - license: Apache-2.0
@@ -43,7 +43,7 @@ pipeline:
   - runs: |
       install -d "${{targets.destdir}}/ko-app"
 
-      go build -p 4 -mod=readonly -trimpath -buildvcs=false \
+      go build -p 4 -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w" \
         -o "${{targets.destdir}}/ko-app/controller" ./cmd/controller
       install -Dm644 LICENSE \
