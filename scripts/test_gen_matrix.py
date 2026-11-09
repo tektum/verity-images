@@ -8,7 +8,9 @@
 
 from pathlib import Path
 import json
+import os
 import re
+import subprocess
 from datetime import UTC, datetime, timedelta
 from shutil import copytree
 from tempfile import TemporaryDirectory
@@ -383,6 +385,83 @@ def check_authority_drift() -> None:
     }
 
 
+def check_replaced_push_run_is_recovered() -> None:
+    # Two merges land while a main run executes. GitHub replaces the first pending push
+    # run, so only the second runs, and its event.before is the first merge. The trusted
+    # base (the last successful main push run) must still select the first merge's image.
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory) / "repo"
+        for name in ("built", "first", "second"):
+            write_image(root / f"images/{name}", name=name, versions="1", package_version="1.0.0")
+
+        def git(*arguments: str) -> str:
+            return subprocess.run(
+                ["git", "-c", "user.email=test@example.com", "-c", "user.name=test", *arguments],
+                cwd=root,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+
+        git("init", "--quiet", "--initial-branch=main")
+        git("add", ".")
+        git("commit", "--quiet", "-m", "built and published")
+        built = git("rev-parse", "HEAD")
+        for name in ("first", "second"):
+            (root / f"images/{name}/apko.yaml").write_text("contents:\n  packages:\n    - curl\n", encoding="utf-8")
+            git("add", ".")
+            git("commit", "--quiet", "-m", f"merge {name}")
+        before = git("rev-parse", "HEAD~1")
+
+        def run(head_sha: str, conclusion: str, created_at: str) -> dict[str, object]:
+            return {
+                "event": "push",
+                "head_branch": "main",
+                "status": "completed",
+                "conclusion": conclusion,
+                "head_repository": {"full_name": "owner/repo"},
+                "head_sha": head_sha,
+                "created_at": created_at,
+                "html_url": f"https://github.com/owner/repo/actions/runs/{created_at}",
+            }
+
+        # The first merge's run was cancelled while pending, so it is absent or not successful.
+        # A forged run for an unrelated commit and another repository's run are never trusted.
+        orphan = git("commit-tree", "-m", "orphan", git("hash-object", "-t", "tree", "/dev/null"))
+        runs = {
+            "workflow_runs": [
+                run(orphan, "success", "2026-11-09T03:00:00Z"),
+                {**run(before, "success", "2026-11-09T02:00:00Z"), "head_repository": {"full_name": "fork/repo"}},
+                run(before, "cancelled", "2026-11-09T01:30:00Z"),
+                run(built, "success", "2026-11-09T01:00:00Z"),
+            ]
+        }
+        bin_directory = Path(temporary_directory) / "bin"
+        bin_directory.mkdir()
+        runs_file = Path(temporary_directory) / "runs.json"
+        runs_file.write_text(json.dumps(runs), encoding="utf-8")
+        gh = bin_directory / "gh"
+        gh.write_text(f"#!/bin/sh\ncat '{runs_file}'\n", encoding="utf-8")
+        gh.chmod(0o755)
+        environment = {**os.environ, "PATH": f"{bin_directory}:{os.environ['PATH']}", "REPOSITORY": "owner/repo"}
+        script = gen_matrix.ROOT / "scripts/trusted_build_base.sh"
+        base = subprocess.run(
+            [str(script), "HEAD"], cwd=root, env=environment, check=True, capture_output=True, text=True
+        ).stdout.strip()
+        assert base == built, base
+
+        with patch.object(gen_matrix, "ROOT", root):
+            stranded = gen_matrix.generate(before)["include"]
+            recovered = gen_matrix.generate(base)["include"]
+        assert [entry["name"] for entry in stranded] == ["second"]
+        assert [entry["name"] for entry in recovered] == ["first", "second"]
+
+        # With no trusted successful run the helper fails instead of guessing a base.
+        runs_file.write_text(json.dumps({"workflow_runs": runs["workflow_runs"][:3]}), encoding="utf-8")
+        failed = subprocess.run([str(script), "HEAD"], cwd=root, env=environment, capture_output=True, text=True)
+        assert failed.returncode != 0 and failed.stdout == ""
+
+
 def main() -> None:
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)
@@ -563,6 +642,7 @@ def main() -> None:
     check_authority_drift()
     check_apk_repository_consumers()
     check_scan_identity_selection()
+    check_replaced_push_run_is_recovered()
 
 
 if __name__ == "__main__":

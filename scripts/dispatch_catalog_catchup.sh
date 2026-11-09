@@ -2,22 +2,16 @@
 set -euo pipefail
 
 repository=${REPOSITORY:?REPOSITORY is required}
-catalog_url=${CATALOG_URL:-https://tektum.github.io/verity-images/catalog.json}
 
-catalog_file=$(mktemp)
-trap 'rm -f "$catalog_file"' EXIT
-curl --silent --show-error --location --fail --retry 5 --retry-all-errors --retry-delay 5 \
-  --connect-timeout 10 --max-time 30 --output "$catalog_file" "$catalog_url"
-base_sha=$(jq -r '.source.commit // empty' "$catalog_file")
+# The catalog source commit is not a safe base: it advances to the newest published
+# run even when intermediate commits were never built. Use the shared trusted base.
+base_sha=$("$(dirname "$0")/trusted_build_base.sh" HEAD) || {
+  printf '::error title=Catalog catch-up skipped::No trusted delta base is available; not dispatching a recovery build.\n'
+  exit 1
+}
 
 if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]]; then
-  printf '::error title=Catalog catch-up skipped::Published catalog source commit "%s" is not a usable SHA; not dispatching a recovery build.\n' \
-    "$base_sha"
-  exit 1
-fi
-
-if ! git merge-base --is-ancestor "$base_sha" HEAD; then
-  printf '::error title=Catalog catch-up skipped::Published catalog source commit %s is not an ancestor of HEAD; not dispatching a recovery build.\n' \
+  printf '::error title=Catalog catch-up skipped::Trusted base "%s" is not a usable SHA; not dispatching a recovery build.\n' \
     "$base_sha"
   exit 1
 fi

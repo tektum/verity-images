@@ -6,59 +6,59 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 mkdir "$work/bin" "$work/repo"
 
+git_commit() {
+  git -C "$work/repo" -c user.email=test@example.com -c user.name=test commit --quiet --allow-empty -m "$1"
+}
 git -C "$work/repo" init --quiet --initial-branch=main
-git -C "$work/repo" -c user.email=test@example.com -c user.name=test commit --quiet --allow-empty -m base
+git_commit base
 base_sha=$(git -C "$work/repo" rev-parse HEAD)
-git -C "$work/repo" -c user.email=test@example.com -c user.name=test commit --quiet --allow-empty -m head
+git_commit head
 
-cat > "$work/bin/gh" <<'EOF'
+cat > "$work/bin/gh" <<'EOF2'
 #!/bin/bash
 set -euo pipefail
 printf '%q ' "$@" >> "$GH_LOG"
 printf '\n' >> "$GH_LOG"
-EOF
+if [ "$1" = api ]; then
+  cat "$RUNS_FIXTURE"
+fi
+EOF2
 chmod +x "$work/bin/gh"
 
-cat > "$work/bin/curl" <<'EOF'
-#!/bin/bash
-set -euo pipefail
-printf '%q ' "$@" >> "$CURL_LOG"
-printf '\n' >> "$CURL_LOG"
-while [ "$#" -gt 0 ]; do
-  if [ "$1" = --output ]; then
-    cp "$CATALOG_FIXTURE" "$2"
-    exit 0
-  fi
-  shift
-done
-cat "$CATALOG_FIXTURE"
-EOF
-chmod +x "$work/bin/curl"
-
 export GH_LOG="$work/gh.log"
-export CURL_LOG="$work/curl.log"
 export REPOSITORY=owner/repo
 export GITHUB_STEP_SUMMARY="$work/summary.md"
+export RUNS_FIXTURE="$work/runs.json"
 
-# A valid, ancestor source commit dispatches a recovery build.
-jq -n -c --arg sha "$base_sha" '{source: {commit: $sha}}' > "$work/catalog.json"
-export CATALOG_FIXTURE="$work/catalog.json"
+runs() {
+  jq -n -c --arg sha "$1" '{workflow_runs: [{
+    event: "push", head_branch: "main", status: "completed", conclusion: "success",
+    head_repository: {full_name: "owner/repo"}, head_sha: $sha,
+    created_at: "2026-11-09T00:00:00Z", html_url: "https://github.com/owner/repo/actions/runs/1"}]}'
+}
+
+# The newest successful main push run that is an ancestor of HEAD is the base.
+runs "$base_sha" > "$RUNS_FIXTURE"
 : > "$GH_LOG"
-: > "$CURL_LOG"
 (cd "$work/repo" && PATH="$work/bin:$PATH" "$root/scripts/dispatch_catalog_catchup.sh")
 grep -Fq "workflow run build.yaml --repo owner/repo --ref main -f base-sha=${base_sha}" "$GH_LOG"
 grep -Fq "$base_sha" "$work/summary.md"
-grep -Fq -- '--connect-timeout 10 --max-time 30' "$CURL_LOG"
 
-# A malformed source commit is refused without dispatching anything.
-jq -n -c '{source: {commit: "not-a-sha"}}' > "$work/catalog.json"
+# The published catalog source commit is not consulted at all.
+if grep -q 'catalog.json' "$GH_LOG"; then
+  printf 'catch-up read the catalog source commit\n' >&2
+  exit 1
+fi
+
+# A malformed run head is refused without dispatching anything.
+runs "not-a-sha" > "$RUNS_FIXTURE"
 : > "$GH_LOG"
 if (cd "$work/repo" && PATH="$work/bin:$PATH" "$root/scripts/dispatch_catalog_catchup.sh"); then
-  printf 'a malformed source commit was accepted\n' >&2
+  printf 'a malformed base commit was accepted\n' >&2
   exit 1
 fi
 if grep -q 'workflow run' "$GH_LOG"; then
-  printf 'a malformed source commit still dispatched a build\n' >&2
+  printf 'a malformed base commit still dispatched a build\n' >&2
   exit 1
 fi
 
@@ -66,7 +66,7 @@ fi
 empty_tree=$(git -C "$work/repo" hash-object -t tree /dev/null)
 other_sha=$(git -C "$work/repo" -c user.email=test@example.com -c user.name=test \
   commit-tree -m orphan "$empty_tree")
-jq -n -c --arg sha "$other_sha" '{source: {commit: $sha}}' > "$work/catalog.json"
+runs "$other_sha" > "$RUNS_FIXTURE"
 : > "$GH_LOG"
 if (cd "$work/repo" && PATH="$work/bin:$PATH" "$root/scripts/dispatch_catalog_catchup.sh"); then
   printf 'a non-ancestor commit was accepted\n' >&2

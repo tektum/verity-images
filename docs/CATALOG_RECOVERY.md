@@ -5,16 +5,39 @@ Image publication and catalog publication are separate gates. A successful
 on an older source run. Treat the catalog as recovered only when the live JSON
 advances and contains every enabled image version.
 
+## Trusted delta base
+
+A main push run builds every image changed since the trusted base, never since
+`github.event.before`. The trusted base is the head commit of the newest `Build images`
+run on main with event `push` and conclusion `success` that is an ancestor of the
+commit being built (`scripts/trusted_build_base.sh`). It comes only from this
+repository's main history and its own run records, never from pull request input.
+
+GitHub keeps at most one pending run per concurrency group, so when several PRs merge
+while a main run executes, the intermediate pending push runs are replaced and never
+run. A cancelled-while-pending run never reaches `build-gate`, so catch-up never fires
+for it, yet the catalog source commit still advances to the newest run. The catalog
+source commit is therefore not a safe base: it can sit past commits whose images were
+never built. A failed, cancelled, or replaced run is never a trusted base, so the next
+push run re-includes its commits. Compute the base by hand with:
+
+```bash
+REPOSITORY=tektum/verity-images scripts/trusted_build_base.sh origin/main
+```
+
+Per-record `sourceCommit` is evidence of when an image was last built; compare it with
+the last main commit touching its inputs to find stale records.
+
 ## Automatic catch-up
 
 When `build-gate` fails on a main push, `catalog-catch-up` dispatches `build.yaml`
-with `base-sha` set to the live catalog source commit, so every image changed since
+with `base-sha` set to the trusted base above, so every image changed since
 then is rebuilt. A cancelled native-arm64 or publish job on main (for example stall-guard cancelling the
 run) fails `build-gate` for this reason. The recovery run is a `workflow_dispatch`
 run and `catalog-catch-up` only runs for `push`, so a cancelled or failed catch-up
-run does not dispatch another one; recover it manually below. If the live catalog cannot be
-fetched or its source commit is not a usable ancestor of main, no build is dispatched:
-check the `catalog-catch-up` log and restore a usable catalog source first.
+run does not dispatch another one; recover it manually below. If no successful main
+push run is an ancestor of main, no build is dispatched: check the `catalog-catch-up`
+log and recover manually with a `base-sha` you have verified.
 Known mixed case: if one `native-arm64` or `publish` row failed and another was
 cancelled, that job aggregates to `failure`, so `build-gate` only warns and recovery is manual.
 
@@ -38,7 +61,8 @@ main=$(gh api "repos/$repository/branches/main" --jq .commit.sha)
 printf 'catalog=%s\nmain=%s\n' "$catalog_source" "$main"
 ```
 
-The catalog source must be an ancestor of current main:
+The catalog source must be an ancestor of current main. Then record the trusted delta
+base, which the recovery below uses:
 
 ```bash
 if [[ "$(git rev-parse --is-shallow-repository)" == true ]]; then
@@ -47,6 +71,8 @@ else
   git fetch origin main
 fi
 git merge-base --is-ancestor "$catalog_source" origin/main
+base=$(REPOSITORY=$repository scripts/trusted_build_base.sh origin/main)
+printf 'base=%s\n' "$base"
 ```
 
 Inspect the latest main workflows before recovery. Do not rebuild or restart a
@@ -59,12 +85,13 @@ gh run list --repo "$repository" --branch main --limit 20 \
 
 ## Recover a stale image catalog
 
-Use one changed-image Build run from the live catalog source to current main.
-This creates one complete delta report and avoids rebuilding unchanged images.
+Use one changed-image Build run from the trusted base to current main. Do not use the
+catalog source as the base: it can be newer than commits that were never built. This
+creates one complete delta report and avoids rebuilding unchanged images.
 
 ```bash
 build_url=$(gh workflow run build.yaml --repo "$repository" --ref main \
-  -f base-sha="$catalog_source")
+  -f base-sha="$base")
 if [[ ! "$build_url" =~ /actions/runs/[0-9]+$ ]]; then
   printf 'Build dispatch did not return a run URL: %s\n' "$build_url" >&2
   exit 1

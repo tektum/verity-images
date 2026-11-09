@@ -746,6 +746,15 @@ def main() -> None:
         in workflow
     )
     assert "          IMAGE: ${{ inputs.image }}\n" in workflow
+    # A main push never diffs from github.event.before: replaced pending runs would strand
+    # their images. It diffs from the last successful main push run instead.
+    assert (
+        '          if [[ "$EVENT" == push && "$REF" == refs/heads/main ]]; then\n'
+        '            # github.event.before is not a delta base: GitHub keeps one pending run per\n'
+        in workflow
+    )
+    assert '            BASE_SHA=$(scripts/trusted_build_base.sh "$GITHUB_SHA")\n' in workflow
+    assert "          GH_TOKEN: ${{ github.token }}\n          IMAGE: ${{ inputs.image }}\n" in workflow
     assert '          if [[ "$EVENT" == workflow_dispatch && -n "$IMAGE" ]]; then\n' in workflow
     assert '            [[ -z "$BASE_SHA" ]] || {\n' in workflow
     assert '            args=(--remediate "$IMAGE")\n' in workflow
