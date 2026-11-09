@@ -1,0 +1,92 @@
+package:
+  name: qdrant-1.20
+  # yamllint disable-line rule:line-length
+  version: "1.20.0"  # renovate: datasource=github-releases depName=qdrant/qdrant versioning=regex:^(?<major>1)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Vector database and similarity search engine
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "16"
+    memory: 32Gi
+  test-resources:
+    cpu: "1"
+
+vars:
+  # Prebuilt dashboard served by qdrant at /dashboard. Upstream's Dockerfile
+  # downloads the unpinned latest release, so pin an exact release and digest.
+  webui-version: "0.2.20"  # renovate: datasource=github-releases depName=qdrant/qdrant-web-ui
+  webui-sha256: 331d6f83ee3c0e771a02b80ec58df3857e7ebab99b7cbdd1a15be205a9215d3d
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - clang
+      - cmake
+      - curl
+      - perl
+      - pkgconf
+      - protobuf-dev
+      - protoc
+      - rust-1.98
+      - unzip
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/qdrant/qdrant
+      tag: v${{package.version}}
+      expected-commit: 222b2e44ab1c3f17e8246396ead6558e45041df7
+  # jsonwebtoken's rust_crypto backend pulls rsa 0.9 (RUSTSEC-2023-0071) and
+  # p256/p384 on crypto-bigint 0.5 (RUSTSEC-2026-0387). Every 11.x release pins
+  # those lines, so cargo/remediate cannot move them. Qdrant only verifies HS256
+  # tokens (src/common/auth/jwt_parser.rs), so RSA and ECDSA are never used.
+  # Select the aws_lc_rs backend instead, which has no such dependencies.
+  # RUSTSEC-2023-0071: https://rustsec.org/advisories/RUSTSEC-2023-0071
+  # RUSTSEC-2026-0387: https://rustsec.org/advisories/RUSTSEC-2026-0387
+  - runs: |
+      grep -q '^jsonwebtoken = .*features = \["rust_crypto"\]' Cargo.toml
+      sed -i '/^jsonwebtoken = /s/"rust_crypto"/"aws_lc_rs"/' Cargo.toml
+      cargo update --workspace
+      if grep -q -E '^name = "(rsa|p256|p384|crypto-bigint)"' Cargo.lock; then
+        echo "vulnerable crypto crates are still locked" >&2
+        exit 1
+      fi
+  # QUARANTINED (metadata.yaml enabled: false): this step fails closed on
+  # RUSTSEC-2026-0258 / GHSA-q83h-524g-xf6h in h2 0.3.27. Only actix-http 3.x
+  # (REST server) depends on it and every release up to 3.21.0 pins h2 ^0.3.27,
+  # and h2 0.3 has no fix. Unblock when actix-http moves to h2 >= 0.4.16 or
+  # qdrant replaces that path, then set enabled: true.
+  - uses: cargo/remediate
+  - runs: |
+      cargo auditable build --release --locked --bin qdrant
+      install -m755 -D target/release/qdrant "${{targets.destdir}}/qdrant/qdrant"
+      mkdir -p "${{targets.destdir}}/qdrant/config"
+      cp config/*.yaml "${{targets.destdir}}/qdrant/config/"
+  - runs: |
+      curl -fsSL --retry 5 -o webui.zip \
+        "https://github.com/qdrant/qdrant-web-ui/releases/download/v${{vars.webui-version}}/dist-qdrant.zip"
+      echo "${{vars.webui-sha256}}  webui.zip" | sha256sum -c -
+      mkdir webui
+      unzip -q webui.zip -d webui
+      static="${{targets.destdir}}/qdrant/static"
+      mkdir -p "$static"
+      cp -r webui/dist/* "$static/"
+      cp docs/redoc/master/openapi.json "$static/openapi.json"
+      rm -rf .cargo
+  - uses: strip
+
+test:
+  pipeline:
+    - runs: |
+        /qdrant/qdrant --version | grep -F "qdrant ${{package.version}}"
+        test -f /qdrant/config/config.yaml
+        test -f /qdrant/static/index.html
