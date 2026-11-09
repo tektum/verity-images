@@ -51,6 +51,9 @@ pipeline:
       flags="$flags -X $pkg.Version=victoria-metrics-tags-v${{package.version}}-0-g$short"
       go build -buildvcs=true -trimpath -ldflags "$flags" \
         -o "${{targets.destdir}}/usr/bin/victoria-metrics" ./app/victoria-metrics
+      go version -m "${{targets.destdir}}/usr/bin/victoria-metrics" \
+        | awk '$1 == "mod" && $2 == "github.com/VictoriaMetrics/VictoriaMetrics" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
