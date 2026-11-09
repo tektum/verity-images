@@ -1,0 +1,8 @@
+name: velero-plugin-for-aws
+track: wolfi
+description: Velero AWS plugin (S3 object store, EBS snapshots) init container, built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/velero-io/velero-plugin-for-aws
+versions: [1.14]
+owner: tektum
+enabled: true
