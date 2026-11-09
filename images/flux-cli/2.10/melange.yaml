@@ -1,7 +1,7 @@
 package:
   name: verity-flux-cli-2.10
   version: "2.10.0"  # renovate: datasource=github-releases depName=fluxcd/flux2
-  epoch: 0
+  epoch: 1
   description: Flux CLI for the GitOps Toolkit.
   copyright:
     - license: Apache-2.0
@@ -48,7 +48,7 @@ pipeline:
       packages: ./cmd/flux
 
   - runs: |
-      go build -mod=readonly -trimpath -buildvcs=false \
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w -X main.VERSION=${{package.version}}" \
         -o flux ./cmd/flux
 
@@ -58,6 +58,12 @@ pipeline:
 
       "${{targets.destdir}}/usr/bin/flux" version --client \
         | grep -Fx "flux: v${{package.version}}"
+      main_module=$(go version -m "${{targets.destdir}}/usr/bin/flux" \
+        | awk '$1 == "mod" && $2 == "github.com/fluxcd/flux2/v2" { print $3 }')
+      case "$main_module" in
+        "v${{package.version}}"|"v${{package.version}}+dirty") ;;
+        *) printf 'unexpected main module version: %s\n' "$main_module" >&2; exit 1 ;;
+      esac
 
   - uses: strip
 
