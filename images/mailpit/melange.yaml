@@ -56,6 +56,14 @@ pipeline:
   - runs: |
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
+subpackages:
+  - name: mailpit-build-metadata
+    description: Resolved Go module metadata for the Mailpit build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/mailpit-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/mailpit-build/go.sum"
+
 test:
   environment:
     contents:
