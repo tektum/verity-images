@@ -44,8 +44,14 @@ JOBS_PAGE=$(jq -n -c \
    {jobs: [{id: 1, name: "publish (haproxy-ingress, images/haproxy-ingress, desc)", status: "in_progress", started_at: $started, steps: []}]}')
 export JOBS_PAGE
 : > "$GH_LOG"
-output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh")
-grep -Fq 'api -X POST repos/owner/repo/actions/jobs/1/cancel' "$GH_LOG"
+status=0
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh") || status=$?
+[[ "$status" -eq 1 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
+if grep -q '/actions/jobs/' "$GH_LOG"; then
+  echo 'job-level cancel endpoint does not exist and must not be called' >&2
+  exit 1
+fi
 grep -Fq '::error title=Runner allocation stalled::' <<<"$output"
 
 # Publication runs in the reusable publish.yaml, so GitHub names its rows
@@ -55,8 +61,10 @@ JOBS_PAGE=$(jq -n -c \
   '{jobs: [{id: 5, name: "publish / publish (caddy, images/caddy, desc)", status: "queued", started_at: $started, steps: []}]}')
 export JOBS_PAGE
 : > "$GH_LOG"
-output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh")
-grep -Fq 'api -X POST repos/owner/repo/actions/jobs/5/cancel' "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null || status=$?
+[[ "$status" -eq 1 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
 
 # A job that has started executing steps is left alone even if old: caller keeps polling.
 JOBS_PAGE=$(jq -n -c \
@@ -117,8 +125,10 @@ JOBS_PAGE=$(jq -n -c \
   '{jobs: [{id: 7, name: "native-arm64 (etcd, images/etcd, desc)", status: "queued", started_at: $started, steps: []}]}')
 export JOBS_PAGE
 : > "$GH_LOG"
-output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || true)
-grep -Fq 'api -X POST repos/owner/repo/actions/jobs/7/cancel' "$GH_LOG"
+status=0
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh") || status=$?
+[[ "$status" -eq 1 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
 grep -Fq '::error title=Runner allocation stalled::' <<<"$output"
 
 # Completed jobs and unrelated job names never trigger a cancel; nothing left to watch is done.
