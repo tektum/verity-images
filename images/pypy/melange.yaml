@@ -96,6 +96,13 @@ pipeline:
       expected-commit: ${{vars.pycparser-commit}}
       destination: bootstrap/pycparser
 
+  # git-checkout extracts a clone made in a mktemp -d directory, which leaves
+  # each destination directory mode 0700 and owned by root. After the build,
+  # melange walks the workspace as an unprivileged user to store file metadata
+  # and fails with "permission denied" on a directory it cannot open.
+  - name: Open the bootstrap checkouts
+    runs: chmod 755 bootstrap/cpython bootstrap/pycparser
+
   - name: Build the CPython 2.7 translation host
     working-directory: bootstrap/cpython
     runs: |
