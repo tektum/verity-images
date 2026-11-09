@@ -1,7 +1,11 @@
+# Disabled: Fluent Bit 4.2.x is end of life upstream since 2026-07-30 (fluent/fluent-bit SECURITY.md)
+# and receives no further fixes. CVE-2026-61674 (GHSA-jrp8-r9hx-gf73) is mitigated in 4.2.8, whose
+# out_forward PONG handler already bounds the reason copy, but the stream is unsupported.
+# Use the 5.1 stream (images/fluent-bit/5.1).
 name: fluent-bit
 track: wolfi
 description: Fluent Bit log processor and forwarder built from source.
 upstream: https://fluentbit.io/
 versions: [4.2]
 owner: tektum
-enabled: true
+enabled: false
