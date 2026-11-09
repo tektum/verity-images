@@ -12,6 +12,15 @@ contents:
     - temporal-admin-tools@local
 
 accounts:
+  groups:
+    - groupname: temporal
+      gid: 65532
+  users:
+    - username: temporal
+      uid: 65532
+      gid: 65532
+      homedir: /tmp
+      shell: /bin/sh
   run-as: 65532
 
 cmd: sleep infinity
