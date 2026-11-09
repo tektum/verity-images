@@ -6,3 +6,5 @@ upstream: https://github.com/external-secrets/external-secrets
 versions: [2.6.0]
 owner: tektum
 enabled: true
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:golang/github.com/external-secrets/external-secrets, cpe:2.3:a:external-secrets:external_secrets_operator]
