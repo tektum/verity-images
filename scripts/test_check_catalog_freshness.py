@@ -63,9 +63,15 @@ def main() -> None:
             try:
                 check_catalog_freshness.stale_records(catalog)
             except SystemExit as error:
-                assert "not an ancestor" in str(error)
+                assert "not a commit" in str(error)
             else:
-                raise AssertionError("an unreachable sourceCommit was accepted")
+                raise AssertionError("an unknown sourceCommit was accepted")
+            # A merge still being built is not stranded: only changes up to the built commit count.
+            write([("fresh", built), ("stranded", built)])
+            assert check_catalog_freshness.stale_records(catalog, built) == []
+            # A record newer than the fully built point has nothing to compare yet.
+            write([("stranded", head)])
+            assert check_catalog_freshness.stale_records(catalog, built) == []
 
 
 if __name__ == "__main__":

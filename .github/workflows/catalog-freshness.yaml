@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
+      actions: read
       contents: read
     steps:
       - name: Check out repository
@@ -30,8 +31,14 @@ jobs:
 
       - name: Compare catalog records with their input history
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
         run: |
+          # Only count input changes up to the newest fully built main commit, so a merge
+          # that is still being built is not reported as stranded.
+          built=$(scripts/trusted_build_base.sh HEAD)
           curl --silent --show-error --location --fail --retry 5 --retry-all-errors --retry-delay 5 \
             --connect-timeout 10 --max-time 30 --output catalog.json \
             https://tektum.github.io/verity-images/catalog.json
-          python3 scripts/check_catalog_freshness.py catalog.json
+          python3 scripts/check_catalog_freshness.py catalog.json "$built"
