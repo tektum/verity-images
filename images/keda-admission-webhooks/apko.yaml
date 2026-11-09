@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-keda-admission-webhooks@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /keda-admission-webhooks --zap-log-level=info --zap-encoder=console
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /keda-admission-webhooks
+    type: symlink
+    source: /usr/bin/keda-admission-webhooks
+    uid: 0
+    gid: 0
+  - path: /usr/bin/keda-admission-webhooks
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
