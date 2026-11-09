@@ -1,0 +1,36 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tini
+    - verity-flux-kustomize-controller@local
+
+accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /tmp
+  run-as: 65534
+
+entrypoint:
+  command: /usr/bin/tini -- /manager
+
+environment:
+  GNUPGHOME: /tmp
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 65534
+    gid: 65534
+    permissions: 0o1777
