@@ -11,7 +11,6 @@
 #   go-version  stamp the Go main module version (or declare scan-identity)
 #   unverified  never published; confirm coverage on its first build, else declare scan-identity
 
-images/argo-events go-version
 images/aws-node-termination-handler go-version
 images/cassandra identity
 images/cert-manager-acmesolver identity
