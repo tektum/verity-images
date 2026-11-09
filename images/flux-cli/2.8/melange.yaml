@@ -1,0 +1,102 @@
+package:
+  name: verity-flux-cli-2.8
+  version: "2.8.8"  # renovate: datasource=github-releases depName=fluxcd/flux2
+  epoch: 0
+  description: Flux CLI for the GitOps Toolkit.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - kustomize
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluxcd/flux2
+      tag: v${{package.version}}
+      expected-commit: 1fd61a06264d71cf445ed55c4f14d401d26a1c64
+
+  - runs: |
+      ./manifests/scripts/bundle.sh
+      test -s cmd/flux/manifests/source-controller.yaml
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/flux
+
+  - runs: |
+      go get github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}
+
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w -X main.VERSION=${{package.version}}" \
+        -o flux ./cmd/flux
+
+      install -Dm755 flux "${{targets.destdir}}/usr/bin/flux"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      "${{targets.destdir}}/usr/bin/flux" version --client \
+        | grep -Fx "flux: v${{package.version}}"
+      test "$(go version -m "${{targets.destdir}}/usr/bin/flux" \
+        | awk '$1 == "dep" && $2 == "github.com/Azure/go-ntlmssp" { print $3 }')" \
+        = "${{vars.ntlmssp-floor}}"
+
+  - uses: strip
+
+subpackages:
+  - name: verity-flux-cli-2.8-build-metadata
+    description: Resolved Go module metadata for the Flux CLI build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/flux-cli-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/flux-cli-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        flux version --client | grep -Fx "flux: v${{package.version}}"
+        flux install --export --components source-controller \
+          | grep -F 'ghcr.io/fluxcd/source-controller:'
+        apk info --who-owns /usr/bin/flux \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: fluxcd/flux2
+    strip-prefix: v
+    tag-filter-prefix: v2.8.
+    use-tag: true
