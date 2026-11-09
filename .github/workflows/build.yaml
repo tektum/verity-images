@@ -321,6 +321,12 @@ jobs:
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
           if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
+          elif [[ "$PUBLISH_RESULT" == cancelled ]]; then
+            # A cancelled publish (for example stall-guard cancelling the run) must fail
+            # so catalog-catch-up dispatches. It only runs for push events, so a cancelled
+            # workflow_dispatch catch-up run fails here without re-dispatching.
+            printf '::error title=Publish cancelled::Main publish cancelled; failing so catch-up runs.\n'
+            exit 1
           elif [[ "$PUBLISH_RESULT" != success ]]; then
             printf '::warning title=Partial image publication::Successful image receipts remain publishable.\n'
           fi

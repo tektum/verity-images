@@ -5,6 +5,15 @@ Image publication and catalog publication are separate gates. A successful
 on an older source run. Treat the catalog as recovered only when the live JSON
 advances and contains every enabled image version.
 
+## Automatic catch-up
+
+When `build-gate` fails on a main push, `catalog-catch-up` dispatches `build.yaml`
+with `base-sha` set to the live catalog source commit, so every image changed since
+then is rebuilt. A cancelled publish on main (for example stall-guard cancelling the
+run) fails `build-gate` for this reason. The recovery run is a `workflow_dispatch`
+run and `catalog-catch-up` only runs for `push`, so a cancelled or failed catch-up
+run does not dispatch another one; recover it manually below.
+
 ## Diagnose
 
 Record the live catalog source and current main commit:

@@ -1458,6 +1458,8 @@ def main() -> None:
         ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
         ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 0),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "cancelled", 1),
+        ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "cancelled", 1),
         ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
     ):
         result = subprocess.run(
