@@ -6,12 +6,8 @@ work=$(mktemp -d)
 recipe_dir=$(dirname "$0")/..
 recipe="$recipe_dir/melange.yaml"
 version=$(sed -n 's/^  version: "\([^"]*\)"$/\1/p' "$recipe")
-cid=
 
 cleanup() {
-  if [ -n "$cid" ]; then
-    docker rm -f "$cid" >/dev/null 2>&1 || true
-  fi
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
