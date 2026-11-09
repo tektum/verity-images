@@ -1,0 +1,53 @@
+package:
+  name: postgres-exporter
+  version: "0.20.1"  # renovate: datasource=github-releases depName=prometheus-community/postgres_exporter
+  epoch: 0
+  description: Prometheus exporter for PostgreSQL server metrics
+  copyright:
+    - license: Apache-2.0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus-community/postgres_exporter
+      tag: v${{package.version}}
+      expected-commit: 867fbcac31cd18c143e244190ea9168cca069827
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/postgres_exporter
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/postgres_exporter
+      output: postgres_exporter
+      strip: -s -w
+      ldflags: >-
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=867fbcac31cd18c143e244190ea9168cca069827
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: postgres-exporter-build-metadata
+    description: Resolved Go module metadata for the PostgreSQL exporter build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/postgres-exporter-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/postgres-exporter-build/go.sum"
+
+test:
+  pipeline:
+    - runs: postgres_exporter --version 2>&1 | grep -F "${{package.version}}"
