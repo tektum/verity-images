@@ -1,0 +1,37 @@
+package:
+  name: verity-jenkins
+  version: "2.589"  # renovate: datasource=github-tags depName=jenkinsci/docker
+  epoch: 0
+  description: Jenkins automation server web archive
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - openjdk-21-jre
+  resources:
+    cpu: "1"
+    memory: 2Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wolfi-baselayout
+
+pipeline:
+  - uses: fetch
+    with:
+      uri: https://get.jenkins.io/war/${{package.version}}/jenkins.war
+      expected-sha256: 71e541955869d19c80204d6855d5070a3f2df089c53c74caa14b6e816acf42e8
+      extract: false
+  - runs: |
+      install -Dm644 jenkins.war "${{targets.destdir}}/usr/share/jenkins/jenkins.war"
+
+test:
+  pipeline:
+    - runs: test -s /usr/share/jenkins/jenkins.war
