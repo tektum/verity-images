@@ -1,0 +1,96 @@
+package:
+  name: verity-argo-rollouts
+  version: "1.10.2"  # renovate: datasource=github-releases depName=argoproj/argo-rollouts
+  epoch: 0
+  description: Argo Rollouts progressive delivery controller for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj/argo-rollouts
+      tag: v${{package.version}}
+      expected-commit: be8a6221c6c9751cd14497f31a2cb3c33690375a
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/rollouts-controller
+
+  - runs: |
+      source_commit=$(git rev-parse HEAD)
+      build_date=$(git show -s --format=%cI HEAD)
+
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w \
+          -X github.com/argoproj/argo-rollouts/utils/version.version=${{package.version}} \
+          -X github.com/argoproj/argo-rollouts/utils/version.buildDate=$build_date \
+          -X github.com/argoproj/argo-rollouts/utils/version.gitCommit=$source_commit \
+          -X github.com/argoproj/argo-rollouts/utils/version.gitTag=v${{package.version}} \
+          -X github.com/argoproj/argo-rollouts/utils/version.gitTreeState=dirty" \
+        -o rollouts-controller ./cmd/rollouts-controller
+
+      install -Dm755 rollouts-controller \
+        "${{targets.destdir}}/usr/bin/rollouts-controller"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      version_output=$("${{targets.destdir}}/usr/bin/rollouts-controller" --version)
+      test "$version_output" = "v${{package.version}}+$(printf '%.7s' "$source_commit").dirty"
+
+  - uses: strip
+
+subpackages:
+  - name: verity-argo-rollouts-build-metadata
+    description: Resolved Go module metadata for the Argo Rollouts build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/argo-rollouts-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/argo-rollouts-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        rollouts-controller --version | grep -F 'v${{package.version}}+'
+        rollouts-controller --version | grep -F '.dirty'
+        rollouts-controller --help | grep -F -- '--namespaced'
+        apk info --who-owns /usr/bin/rollouts-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: argoproj/argo-rollouts
+    strip-prefix: v
+    tag-filter-prefix: v1.10.
+    use-tag: true
