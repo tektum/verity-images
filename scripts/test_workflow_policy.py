@@ -335,6 +335,42 @@ def check_runner_attestation(publish_job: str, action: str, policy: str) -> None
     assert "BUILDER.md" in policy
 
 
+def check_download_retries() -> None:
+    # GitHub release and Pages endpoints return transient 5xx responses. Every curl
+    # download must retry a bounded number of times and still fail closed; checksum
+    # verification stays after the download and is never skipped by a retry.
+    paths = sorted(
+        [
+            *ROOT.glob(".github/actions/*/action.yaml"),
+            *ROOT.glob(".github/workflows/*.yaml"),
+            *ROOT.glob("scripts/*.sh"),
+        ]
+    )
+    for path in paths:
+        # The EC2 metadata service is link-local and probed once by design.
+        if path.name == "runner_environment.sh" or path.name.startswith("test_"):
+            continue
+        text = re.sub(r"\\\n\s*", " ", path.read_text(encoding="utf-8"))
+        for line in text.splitlines():
+            if not re.search(r"(^|[\s$(])curl\s", line):
+                continue
+            name = f"{path.relative_to(ROOT)}: {line.strip()}"
+            assert "--retry 5 " in line and "--retry-delay 5" in line, name
+            assert not re.search(r"\s(-k|--insecure)\b", line), name
+            if "--write-out" not in line:
+                assert "--retry-all-errors" in line, name
+                assert re.search(r"\s(--fail|-\w*f\w*)\s", line), name
+    apk_repository = (ROOT / ".github/workflows/apk-repository.yaml").read_text(encoding="utf-8")
+    base_download = between(
+        apk_repository,
+        "          for attempt in 1 2 3 4 5; do\n",
+        "          base_archive=base-download/verity-apk-repository.tar.zst\n",
+    )
+    assert "gh release download" in base_download
+    assert '[[ "$attempt" -lt 5 ]] || exit 1' in base_download
+    assert "sha256sum" not in base_download
+
+
 def main() -> None:
     action = (ROOT / ".github/actions/publish-image/action.yaml").read_text(
         encoding="utf-8"
@@ -1521,6 +1557,7 @@ def main() -> None:
     assert CATALOG_INVENTORY_COMMAND in shell_commands(catalog_script)
 
     check_lock_refresh_policy(workflow)
+    check_download_retries()
 
 
 if __name__ == "__main__":

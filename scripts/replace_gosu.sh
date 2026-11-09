@@ -78,7 +78,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
 mkdir "$work/install"
 archive="$work/$asset_name"
-curl -fsSL "https://github.com/$repository/releases/download/$release_tag/$asset_name" -o "$archive"
+curl -fsSL --retry 5 --retry-all-errors --retry-all-errors --retry-delay 5 "https://github.com/$repository/releases/download/$release_tag/$asset_name" -o "$archive"
 if ! printf '%s  %s\n' "$archive_checksum" "$archive" \
   | sha256sum -c - >/dev/null 2>&1; then
   fail "release archive checksum mismatch"

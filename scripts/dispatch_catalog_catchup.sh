@@ -4,7 +4,7 @@ set -euo pipefail
 repository=${REPOSITORY:?REPOSITORY is required}
 catalog_url=${CATALOG_URL:-https://tektum.github.io/verity-images/catalog.json}
 
-catalog=$(curl --silent --show-error --location --fail \
+catalog=$(curl --silent --show-error --location --fail --retry 5 --retry-all-errors --retry-delay 5 \
   --connect-timeout 10 --max-time 30 "$catalog_url")
 base_sha=$(jq -r '.source.commit // empty' <<<"$catalog")
 

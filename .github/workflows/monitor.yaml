@@ -76,7 +76,7 @@ jobs:
         run: |
           set -euo pipefail
           export PATH="$RUNNER_TEMP/verity-tools:$PATH"
-          status=$(curl --silent --show-error --location --output published-catalog.json \
+          status=$(curl --silent --show-error --location --retry 5 --retry-delay 5 --output published-catalog.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json)
           if [[ "$status" != 200 ]]; then
             printf '::error title=Catalog unavailable::Current catalog returned HTTP %s.\n' "$status"

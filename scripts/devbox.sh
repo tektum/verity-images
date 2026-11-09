@@ -28,7 +28,7 @@ if [ ! -x "$bin" ] || [ "$("$bin" version 2>/dev/null || true)" != "$version" ];
 
   archive=$(mktemp)
   trap 'rm -f "$archive"' EXIT
-  curl --fail --location --silent --show-error \
+  curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
     "https://github.com/jetify-com/devbox/releases/download/$version/devbox_${version}_linux_${architecture}.tar.gz" \
     --output "$archive"
   printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check

@@ -19,7 +19,7 @@ if [[ "$track" == apk ]]; then
       ;;
   esac
   melange_archive="melange_${MELANGE_VERSION}_linux_${melange_arch}.tar.gz"
-  curl -fsSL "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
     -o "/tmp/${melange_archive}"
   printf '%s  %s\n' "$melange_sha256" "/tmp/${melange_archive}" | sha256sum --check
   tar -xzf "/tmp/${melange_archive}" -C /tmp
@@ -28,7 +28,7 @@ if [[ "$track" == apk ]]; then
 fi
 
 grype_url="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
-curl -fsSL "${grype_url}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o /tmp/grype.tar.gz
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${grype_url}/grype_${GRYPE_VERSION}_linux_amd64.tar.gz" -o /tmp/grype.tar.gz
 printf '%s  %s\n' "$GRYPE_SHA256" /tmp/grype.tar.gz | sha256sum --check
 tar -xzf /tmp/grype.tar.gz -C /tmp
 sudo install /tmp/grype /usr/local/bin/grype
@@ -40,19 +40,19 @@ if [[ "$track" == monitor ]]; then
 fi
 
 syft_url="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}"
-curl -fsSL "${syft_url}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${syft_url}/syft_${SYFT_VERSION}_linux_amd64.tar.gz" -o /tmp/syft.tar.gz
 printf '%s  %s\n' "$SYFT_SHA256" /tmp/syft.tar.gz | sha256sum --check
 tar -xzf /tmp/syft.tar.gz -C /tmp
 
 if [[ "$track" == wolfi ]]; then
   melange_sha256=${MELANGE_SHA256:?MELANGE_SHA256 is required for the Wolfi track}
   archive="apko_${APKO_VERSION}_linux_amd64.tar.gz"
-  curl -fsSL "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://github.com/chainguard-dev/apko/releases/download/v${APKO_VERSION}/${archive}" \
     -o "/tmp/${archive}"
   printf '%s  %s\n' "$APKO_SHA256" "/tmp/${archive}" | sha256sum --check
   tar -xzf "/tmp/${archive}" -C /tmp
   melange_archive="melange_${MELANGE_VERSION}_linux_amd64.tar.gz"
-  curl -fsSL "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
+  curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://github.com/chainguard-dev/melange/releases/download/v${MELANGE_VERSION}/${melange_archive}" \
     -o "/tmp/${melange_archive}"
   printf '%s  %s\n' "$melange_sha256" "/tmp/${melange_archive}" | sha256sum --check
   tar -xzf "/tmp/${melange_archive}" -C /tmp
@@ -68,8 +68,8 @@ fi
 
 copa_url="https://github.com/project-copacetic/copacetic/releases/download/v${COPA_VERSION}"
 trivy_url="https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}"
-curl -fsSL "${copa_url}/copa_${COPA_VERSION}_linux_amd64.tar.gz" -o /tmp/copa.tar.gz
-curl -fsSL "${trivy_url}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${copa_url}/copa_${COPA_VERSION}_linux_amd64.tar.gz" -o /tmp/copa.tar.gz
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "${trivy_url}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o /tmp/trivy.tar.gz
 printf '%s  %s\n' "$COPA_SHA256" /tmp/copa.tar.gz | sha256sum --check
 printf '%s  %s\n' "$TRIVY_SHA256" /tmp/trivy.tar.gz | sha256sum --check
 tar -xzf /tmp/copa.tar.gz -C /tmp
