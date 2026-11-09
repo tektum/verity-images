@@ -1,0 +1,80 @@
+package:
+  name: verity-vmstorage
+  version: "1.155.0"  # renovate: datasource=github-releases depName=VictoriaMetrics/VictoriaMetrics
+  epoch: 0
+  description: VictoriaMetrics cluster vmstorage time series storage node
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: cab3d5fbeeedd5d0374c1dabde93939af4c2499c
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/VictoriaMetrics/VictoriaMetrics
+      tag: v${{package.version}}-cluster
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./app/vmstorage
+  - runs: |
+      flags="-s -w"
+      pkg=github.com/VictoriaMetrics/VictoriaMetrics/lib/buildinfo
+      short=$(echo ${{vars.source-commit}} | cut -c1-8)
+      flags="$flags -X $pkg.Version=vmstorage-tags-v${{package.version}}-cluster-0-g$short"
+      go build -buildvcs=true -trimpath -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/vmstorage" ./app/vmstorage
+      go version -m "${{targets.destdir}}/usr/bin/vmstorage" \
+        | awk '$1 == "mod" && $2 == "github.com/VictoriaMetrics/VictoriaMetrics" { print $3 }' \
+        | grep -Ex 'v${{package.version}}-cluster(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        vmstorage -version 2>&1 | grep -F "v${{package.version}}-cluster"
+        apk info --who-owns /usr/bin/vmstorage \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: VictoriaMetrics/VictoriaMetrics
+    strip-prefix: v
+    use-tag: true
