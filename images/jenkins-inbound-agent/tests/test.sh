@@ -100,10 +100,13 @@ chmod 644 "$tmp/init.groovy.d/agents.groovy"
 # Without plugins the controller publishes no instance identity, which TCP inbound agents require.
 mkdir -p "$tmp/plugins"
 chmod 777 "$tmp/plugins"
-docker run --rm --label "$label" --entrypoint jenkins-plugin-cli -v "$tmp/plugins:/plugins" "$jenkins_index" \
-  --plugin-download-directory /plugins \
-  --plugins instance-identity:203.v15e81a_1b_7a_38 bouncycastle-api:2.30.1.86.2-310.v4655f6742752 >/dev/null 2>&1 ||
-  fail 'instance-identity plugin download failed'
+fetch_plugin() {
+  curl -fsSL --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 -o "$tmp/plugins/$1.jpi" \
+    "https://updates.jenkins.io/download/plugins/$1/$2/$1.hpi" || fail "$1 plugin download failed"
+  printf '%s  %s\n' "$3" "$tmp/plugins/$1.jpi" | sha256sum -c >/dev/null 2>&1 || fail "$1 plugin checksum mismatch"
+}
+fetch_plugin instance-identity 203.v15e81a_1b_7a_38 df2b3205a6177248f12b294650a60405f65ba2cd503ca9599b2dcb72c1de5018
+fetch_plugin bouncycastle-api 2.30.1.86.2-310.v4655f6742752 57cc5cf1585f9a8f29c5a1e3985f07dace5d5359545d788e72ecaa3636515a58
 
 docker run --name "$controller" -d --label "$label" --network "$network" --network-alias jenkins \
   -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
