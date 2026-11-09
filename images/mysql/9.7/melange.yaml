@@ -1,7 +1,7 @@
 package:
   name: verity-mysql-9.7
   # yamllint disable-line rule:line-length
-  version: "9.7.4"  # renovate: datasource=github-tags depName=mysql/mysql-server versioning=regex:^mysql-(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
+  version: "9.7.4"  # renovate: datasource=github-tags depName=mysql/mysql-server versioning=regex:^(?<major>9)\.(?<minor>7)\.(?<patch>\d+)$ extractVersion=^mysql-(?<version>.+)$
   epoch: 0
   description: MySQL 9.7 LTS server and client built from the upstream release
   copyright:
