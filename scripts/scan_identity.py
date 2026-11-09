@@ -151,6 +151,8 @@ def read_allowlist(directory: Path) -> dict[str, str]:
         if path.name == "README.md":
             continue
         context = path.name.replace("__", "/")
+        if any(not part or part.startswith("_") or part.endswith("_") for part in context.split("/")):
+            raise CoverageError(f"{path}: ambiguous name, an image path segment must not start or end with '_'")
         if not path.is_file():
             raise CoverageError(f"{path}: expected a file named after the image context, '/' written as '__'")
         kind, _, reason = path.read_text(encoding="utf-8").partition("\n")
