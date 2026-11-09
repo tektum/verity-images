@@ -17,9 +17,10 @@ if docker run --rm "$image" -e 'my $value = ;' >/dev/null 2>&1; then
 fi
 
 # CVE-2026-82560: a margin as wide as the output width must warn, not loop forever.
-wrapped=$(docker run --rm "$image" -e '
+wrapped=$(docker run --rm --network none --memory 256m --memory-swap 256m "$image" -e '
   use strict; use warnings;
   use Pod::Text; use Pod::Text::Color; use Pod::Text::Overstrike;
+  $SIG{ALRM} = sub { die "Pod::Text wide-margin check timed out\n" };
   alarm 20;
   my $pod = "=pod\n\n=over 72\n\nText that cannot wrap.\n\n=back\n\n=cut\n";
   for my $class (qw(Pod::Text Pod::Text::Color Pod::Text::Overstrike)) {
