@@ -3,7 +3,7 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE [FLAVOR]}
 flavor=${2:-plain}
-expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)"$/\1/p' \
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 container=verity-zookeeper-$$
