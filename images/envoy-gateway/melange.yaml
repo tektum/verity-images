@@ -1,7 +1,7 @@
 package:
   name: envoy-gateway-src
   version: "1.10.0"  # renovate: datasource=github-releases depName=envoyproxy/gateway
-  epoch: 1
+  epoch: 2
   description: Envoy Gateway controller and egctl
   copyright:
     - license: Apache-2.0
@@ -17,6 +17,7 @@ environment:
       - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     packages:
       - busybox
+      - git
       - go-1.27
       - python3
   environment:
