@@ -91,12 +91,14 @@ until docker exec "$backend" pg_isready -h 127.0.0.1 -U exporter >/dev/null 2>&1
   sleep 1
 done
 
-# The FIPS flavor must also work with the Go FIPS module enforced.
-godebug=
-[ "$flavor" != fips ] || godebug=fips140=only
+# The image bakes its own GODEBUG; run every container with it unchanged.
+want_godebug=fips140=off
+[ "$flavor" != fips ] || want_godebug=fips140=only
+docker image inspect "$image" --format '{{range .Config.Env}}{{println .}}{{end}}' |
+  grep -Fx "GODEBUG=$want_godebug" >/dev/null ||
+  fail "image must set GODEBUG=$want_godebug"
 
 docker run --name "$exporter" -d --network "$network" --read-only \
-  -e GODEBUG="$godebug" \
   -e DATA_SOURCE_NAME='postgresql://exporter:exporter-secret@postgres:5432/postgres?sslmode=disable' \
   -p 127.0.0.1::9187 "$image" >/dev/null
 port=$(docker port "$exporter" 9187/tcp | awk -F: 'NR == 1 { print $2 }')
@@ -109,7 +111,6 @@ grep -F 'pg_stat_database_numbackends{' "$tmp/metrics" >/dev/null ||
 
 # Rejected credentials must surface as pg_up 0 while the exporter keeps serving.
 docker run --name "$orphan" -d --network "$network" \
-  -e GODEBUG="$godebug" \
   -e DATA_SOURCE_NAME='postgresql://exporter:wrong-password@postgres:5432/postgres?sslmode=disable' \
   -p 127.0.0.1::9187 "$image" >/dev/null
 orphan_port=$(docker port "$orphan" 9187/tcp | awk -F: 'NR == 1 { print $2 }')
@@ -120,5 +121,13 @@ if docker run --rm "$image" --no-such-flag >"$tmp/invalid.log" 2>&1; then
 fi
 grep -F 'no-such-flag' "$tmp/invalid.log" >/dev/null ||
   fail 'unknown flag error missing'
+
+# A handler-less Go binary exits with status 2 on SIGTERM as PID 1; 137 would
+# mean the signal was ignored.
+docker stop --time 30 "$exporter" >/dev/null
+case $(docker inspect --format '{{.State.ExitCode}}' "$exporter") in
+  0|2) ;;
+  *) fail 'SIGTERM did not stop the exporter' ;;
+esac
 
 printf 'SMOKE PASS image=%s flavor=%s\n' "$image" "$flavor"
