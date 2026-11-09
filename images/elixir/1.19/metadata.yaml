@@ -1,3 +1,6 @@
+# Disabled: Elixir 1.19.7 is affected by CVE-2026-49762 (GHSA-w2h8-8x3g-278p, unbounded integer parsing in Version).
+# Upstream fixes it only in Elixir 1.20.1 and later; there is no 1.19.x backport, so no fixed 1.19 release exists.
+# Use the 1.20 stream (1.20.5).
 name: elixir
 track: wolfi
 description: Elixir toolchain on Erlang/OTP, built from pinned upstream source.
@@ -5,4 +8,4 @@ category: Languages & Build Tools
 upstream: https://elixir-lang.org/
 versions: [1.19]
 owner: tektum
-enabled: true
+enabled: false
