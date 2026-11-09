@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-vmstorage@local
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/vmstorage
+
+cmd: -storageDataPath=/vmstorage-data
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /vmstorage-data
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+
+volumes:
+  - /vmstorage-data
