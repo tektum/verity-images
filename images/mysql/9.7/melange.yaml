@@ -1,0 +1,163 @@
+package:
+  name: verity-mysql-9.7
+  # yamllint disable-line rule:line-length
+  version: "9.7.4"  # renovate: datasource=github-tags depName=mysql/mysql-server versioning=regex:^mysql-(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: MySQL 9.7 LTS server and client built from the upstream release
+  copyright:
+    - license: GPL-2.0-only
+  resources:
+    cpu: "30"
+    memory: 60Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bison
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cmake
+      - libaio-dev
+      - libtirpc-dev
+      - lz4-dev
+      - ncurses-dev
+      # MySQL 9.7 cannot parse OpenSSL 4 headers (cmake/ssl.cmake).
+      - openssl-dev~3
+      - pkgconf
+      - rpcsvc-proto
+      - wolfi-baselayout
+      - zlib-dev
+      - zstd-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/mysql/mysql-server
+      tag: mysql-${{package.version}}
+      expected-commit: 780b506e8296a61f2a7067bf2087d32c78e0bb76
+
+  # Bundled abseil 20250814.1 compares a function pointer with nullptr in a
+  # constant expression, which current GCC rejects. Patch taken from the last
+  # Wolfi mysql-9.7 recipe (wolfi-dev/os cd3fa8d24d, Apache-2.0).
+  - uses: patch
+    with:
+      patches: abseil-constexpr.patch
+
+  # The official image ships only the server and its client tools: no router,
+  # unit tests, or systemd integration. The curl-based OCI keyring and the
+  # WebAuthn client plugin (which needs libudev) are left out as well.
+  - uses: cmake/configure
+    with:
+      opts: |
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DSYSCONFDIR=/etc \
+        -DMYSQL_DATADIR=/var/lib/mysql \
+        -DMYSQL_UNIX_ADDR=/var/run/mysqld/mysqld.sock \
+        -DDEFAULT_CHARSET=utf8mb4 \
+        -DINSTALL_INFODIR=share/info \
+        -DINSTALL_MANDIR=share/man \
+        -DINSTALL_PLUGINDIR=lib/mysql/plugin \
+        -DINSTALL_INCLUDEDIR=include/mysql \
+        -DINSTALL_DOCREADMEDIR=share/doc/mysql \
+        -DINSTALL_SUPPORTFILESDIR=share/support/mysql \
+        -DINSTALL_MYSQLSHAREDIR=share/mysql \
+        -DINSTALL_DOCDIR=share/doc/mysql \
+        -DINSTALL_MYSQLTESTDIR= \
+        -DWITH_ROUTER=OFF \
+        -DWITH_UNIT_TESTS=OFF \
+        -DWITH_SYSTEMD=OFF \
+        -DWITH_ASAN=OFF \
+        -DWITH_JEMALLOC=OFF \
+        -DWITH_VALGRIND=OFF \
+        -DWITH_SSL=system \
+        -DWITH_ZLIB=system \
+        -DWITH_ZSTD=system \
+        -DWITH_LZ4=system \
+        -DWITH_CURL=none \
+        -DWITH_AUTHENTICATION_WEBAUTHN=OFF
+  # Server translation units peak near 2 GiB each, so one job per CPU can
+  # exhaust memory. Run one job per 2 GiB of available memory, at most nproc.
+  - runs: |
+      mem_jobs=$(awk '/^MemAvailable:/ { print int($2 / 2097152) }' /proc/meminfo)
+      jobs=$(nproc)
+      [ "$mem_jobs" -ge "$jobs" ] || jobs=$mem_jobs
+      [ "$jobs" -ge 1 ] || jobs=1
+      cmake --build output --parallel "$jobs"
+  - uses: cmake/install
+  - runs: |
+      cd "${{targets.destdir}}"
+      # Test drivers and Perl helpers are not part of the server runtime; the
+      # Perl scripts would also pull a Perl interpreter into the image.
+      rm -f usr/bin/mysql_client_test usr/bin/mysql_keyring_encryption_test \
+        usr/bin/mysql_test_event_tracking usr/bin/mysqltest usr/bin/mysqlxtest \
+        usr/bin/mysqldumpslow usr/bin/mysqld_multi
+      rm -rf usr/share/man usr/share/doc usr/share/info usr/mysql-test
+      ! grep -rlI '^#!.*perl' usr/bin
+  - uses: strip
+
+  # docker-library entrypoint for the 9.7 stream at the commit that publishes
+  # 9.7.4, installed unmodified.
+  - uses: fetch
+    with:
+      uri: "https://raw.githubusercontent.com/docker-library/mysql/\
+        9b6c81572125a4ff828e3037c71940f3f8311978/9.7/docker-entrypoint.sh"
+      expected-sha256: 30f0e863cd9de49752045c01b2e4a4e3e065da48889d464a65ceeb4d69be4e5a
+      extract: false
+  - runs: |
+      install -Dm755 docker-entrypoint.sh "${{targets.destdir}}/usr/local/bin/docker-entrypoint.sh"
+      # Same server and client settings as the official image's /etc/my.cnf.
+      install -d "${{targets.destdir}}/etc/mysql/conf.d"
+      cat > "${{targets.destdir}}/etc/my.cnf" <<'EOF'
+      [mysqld]
+      host-cache-size=0
+      skip-name-resolve
+      datadir=/var/lib/mysql
+      socket=/var/run/mysqld/mysqld.sock
+      secure-file-priv=/var/lib/mysql-files
+      user=mysql
+      pid-file=/var/run/mysqld/mysqld.pid
+
+      [client]
+      socket=/var/run/mysqld/mysqld.sock
+
+      !includedir /etc/mysql/conf.d/
+      EOF
+      chmod 644 "${{targets.destdir}}/etc/my.cnf"
+
+subpackages:
+  - name: ${{package.name}}-dev
+    description: MySQL client headers and static libraries
+    pipeline:
+      - uses: split/dev
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        mysqld --version | grep -F 'Ver ${{package.version}} '
+        mysql --version | grep -F '${{package.version}}'
+        mysqladmin --version | grep -F '${{package.version}}'
+        test -x /usr/local/bin/docker-entrypoint.sh
+        grep -qx 'socket=/var/run/mysqld/mysqld.sock' /etc/my.cnf
+        mkdir -p /run/mysqld /tmp/data
+        mysqld --no-defaults --user=root --datadir=/tmp/data --initialize-insecure
+        mysqld --no-defaults --user=root --datadir=/tmp/data \
+          --socket=/run/mysqld/test.sock --skip-networking &
+        pid=$!
+        mysqladmin --no-defaults --socket=/run/mysqld/test.sock -uroot ping --wait=30
+        server_version=$(mysql --no-defaults --socket=/run/mysqld/test.sock -uroot -Nse 'SELECT VERSION()')
+        test "$server_version" = '${{package.version}}'
+        mysqladmin --no-defaults --socket=/run/mysqld/test.sock -uroot shutdown
+        wait "$pid"

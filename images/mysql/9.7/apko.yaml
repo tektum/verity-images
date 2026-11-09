@@ -1,0 +1,68 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - coreutils
+    - findutils
+    - gosu
+    - openssl
+    - tzdata
+    - verity-mysql-9.7@local
+    - zstd
+
+accounts:
+  groups:
+    - groupname: mysql
+      gid: 999
+  users:
+    - username: mysql
+      uid: 999
+      gid: 999
+      homedir: /var/lib/mysql
+      shell: /sbin/nologin
+  run-as: mysql
+
+entrypoint:
+  command: docker-entrypoint.sh
+
+cmd: mysqld
+
+environment:
+  PATH: /usr/local/bin:/usr/bin:/bin
+
+paths:
+  - path: /var/lib/mysql
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /var/lib/mysql-files
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o750
+  - path: /run/mysqld
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o1777
+  - path: /etc/mysql/conf.d
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /docker-entrypoint-initdb.d
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+
+volumes:
+  - /var/lib/mysql
