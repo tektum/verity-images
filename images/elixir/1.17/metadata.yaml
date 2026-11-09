@@ -1,3 +1,7 @@
+# Disabled: Elixir 1.17.3 is affected by CVE-2026-49762 (fixed only in 1.20.1 and later),
+# CVE-2026-75758 (fixed in 1.18.5, 1.19.6, 1.20.4) and CVE-2026-109821 (fixed in 1.18.6, 1.19.7, 1.20.5).
+# Upstream has published no 1.17.x release after 1.17.3, so no fixed 1.17 release exists.
+# Use the 1.20 stream (1.20.5).
 name: elixir
 track: wolfi
 description: Elixir toolchain on Erlang/OTP, built from pinned upstream source.
@@ -5,4 +9,4 @@ category: Languages & Build Tools
 upstream: https://elixir-lang.org/
 versions: [1.17]
 owner: tektum
-enabled: true
+enabled: false
