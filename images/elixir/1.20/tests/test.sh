@@ -43,7 +43,8 @@ project=$(docker run --rm --entrypoint /bin/sh "$image" -c '
   cd smoke
   mix compile >/dev/null
   mix run -e "IO.puts(Smoke.hello())"
-  mix test 2>&1 | grep -E "^Result: [0-9]+ passed \(.*\)$"
+  mix test >test.log 2>&1 || { cat test.log; exit 1; }
+  grep -E "^Result: [0-9]+ passed \(.*\)$" test.log
 ' 2>&1) || fail "mix project failed: $project"
 printf '%s\n' "$project" | grep -qxF world || fail "mix run printed: $project"
 
