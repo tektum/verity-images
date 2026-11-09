@@ -24,6 +24,13 @@ cat > "$work/bin/curl" <<'EOF'
 set -euo pipefail
 printf '%q ' "$@" >> "$CURL_LOG"
 printf '\n' >> "$CURL_LOG"
+while [ "$#" -gt 0 ]; do
+  if [ "$1" = --output ]; then
+    cp "$CATALOG_FIXTURE" "$2"
+    exit 0
+  fi
+  shift
+done
 cat "$CATALOG_FIXTURE"
 EOF
 chmod +x "$work/bin/curl"
