@@ -1,0 +1,157 @@
+package:
+  name: verity-argo-events
+  version: "1.9.11"  # renovate: datasource=github-releases depName=argoproj/argo-events
+  epoch: 0
+  description: Event-driven workflow automation framework for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+
+vars:
+  # Upstream bundles the Argo Workflows CLI for the ArgoWorkflow sensor trigger.
+  argo-cli-version: v3.7.18  # renovate: datasource=github-releases depName=argoproj/argo-workflows
+  argo-cli-commit: 66e32e5cc367f223e2ecf4fbe852b95eaed83034
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj/argo-events
+      tag: v${{package.version}}
+      expected-commit: d13fde07d944c081c25574305911908c80faa98e
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj/argo-workflows
+      tag: ${{vars.argo-cli-version}}
+      expected-commit: ${{vars.argo-cli-commit}}
+      destination: third_party/argo-workflows
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  # The CLI embeds the UI bundle; upstream builds it with an empty index when
+  # STATIC_FILES=false, which is all the sensor trigger needs.
+  - runs: |
+      mkdir -p third_party/argo-workflows/ui/dist/app
+      touch third_party/argo-workflows/ui/dist/app/index.html
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/argo-workflows
+      packages: ./cmd/argo
+
+  - name: Build binaries
+    runs: |
+      source_commit=$(git rev-parse HEAD)
+      build_date=$(git show -s --format=%cI HEAD)
+
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w \
+          -X github.com/argoproj/argo-events.version=v${{package.version}} \
+          -X github.com/argoproj/argo-events.buildDate=$build_date \
+          -X github.com/argoproj/argo-events.gitCommit=$source_commit \
+          -X github.com/argoproj/argo-events.gitTreeState=dirty \
+          -X github.com/argoproj/argo-events.gitTag=v${{package.version}}" \
+        -o argo-events ./cmd
+
+      (
+        cd third_party/argo-workflows
+        argo_commit=$(git rev-parse HEAD)
+        test "$argo_commit" = "${{vars.argo-cli-commit}}"
+        argo_date=$(git show -s --format=%cI HEAD)
+        go build -mod=readonly -trimpath -buildvcs=false \
+          -ldflags="-s -w \
+            -X github.com/argoproj/argo-workflows/v3.version=${{vars.argo-cli-version}} \
+            -X github.com/argoproj/argo-workflows/v3.buildDate=$argo_date \
+            -X github.com/argoproj/argo-workflows/v3.gitCommit=$argo_commit \
+            -X github.com/argoproj/argo-workflows/v3.gitTreeState=dirty \
+            -X github.com/argoproj/argo-workflows/v3.gitTag=${{vars.argo-cli-version}}" \
+          -o argo ./cmd/argo
+      )
+
+  - name: Package
+    runs: |
+      install -Dm755 argo-events "${{targets.destdir}}/usr/bin/argo-events"
+      install -Dm755 third_party/argo-workflows/argo \
+        "${{targets.destdir}}/usr/bin/argo"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 third_party/argo-workflows/LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/ARGO-WORKFLOWS-LICENSE"
+
+      "${{targets.destdir}}/usr/bin/argo-events" --help | grep -F 'Argo Events CLI'
+      argo_version=$("${{targets.destdir}}/usr/bin/argo" version)
+      printf '%s\n' "$argo_version" | grep -F 'argo: ${{vars.argo-cli-version}}+'
+      printf '%s\n' "$argo_version" | grep -F 'GitCommit: ${{vars.argo-cli-commit}}'
+      printf '%s\n' "$argo_version" | grep -F 'GitTreeState: dirty'
+
+      # Keep the resolved CLI module files for the build-metadata subpackage;
+      # the nested checkout is not part of the workspace output.
+      install -Dm644 third_party/argo-workflows/go.mod .verity-argo-workflows/go.mod
+      install -Dm644 third_party/argo-workflows/go.sum .verity-argo-workflows/go.sum
+      rm -rf third_party/argo-workflows
+
+  - uses: strip
+
+subpackages:
+  - name: verity-argo-events-build-metadata
+    description: Resolved Go module metadata for the Argo Events build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/argo-events-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/argo-events-build/go.sum"
+          install -Dm644 .verity-argo-workflows/go.mod \
+            "${{targets.subpkgdir}}/usr/share/argo-events-build/argo-workflows/go.mod"
+          install -Dm644 .verity-argo-workflows/go.sum \
+            "${{targets.subpkgdir}}/usr/share/argo-events-build/argo-workflows/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        argo-events --help | grep -F 'Argo Events CLI'
+        argo-events lint --help | grep -F 'Validate EventSource and Sensor resource files'
+        argo version | grep -F 'argo: ${{vars.argo-cli-version}}+'
+        apk info --who-owns /usr/bin/argo-events \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+        test -s /usr/share/licenses/${{package.name}}/ARGO-WORKFLOWS-LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: argoproj/argo-events
+    strip-prefix: v
+    tag-filter-prefix: v1.9.
+    use-tag: true
