@@ -1,0 +1,66 @@
+package:
+  name: verity-flux-image-automation-controller-1.3
+  version: "1.3.0"
+  epoch: 0
+  description: Flux Image Automation Controller for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 075af583a5d3f9010bc52c33d137e615011cc8f3
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluxcd/image-automation-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" -o manager .
+      install -Dm755 manager "${{targets.destdir}}/manager"
+      go version -m "${{targets.destdir}}/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/fluxcd/image-automation-controller" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Flux Image Automation Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/flux-image-automation-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/flux-image-automation-controller-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /manager --help >/dev/null
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
