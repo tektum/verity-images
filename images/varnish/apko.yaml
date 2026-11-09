@@ -14,7 +14,7 @@ accounts:
   run-as: 65532
 
 entrypoint:
-  command: /usr/bin/varnishd -F -j none -n /var/lib/varnish -a :8080 -f /etc/varnish/default.vcl
+  command: /usr/bin/varnishd -F -j none -a :8080 -f /etc/varnish/default.vcl
 
 environment:
   PATH: /usr/bin:/bin

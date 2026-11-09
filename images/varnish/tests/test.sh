@@ -59,7 +59,7 @@ VCL
 chmod 644 "$fixture/origin.vcl"
 docker run -d --name "$backend" --label "$label" --network "$network" \
   --network-alias origin -v "$fixture/origin.vcl:/etc/varnish/origin.vcl:ro" \
-  --entrypoint /usr/bin/varnishd "$image" -F -j none -n /var/lib/varnish \
+  --entrypoint /usr/bin/varnishd "$image" -F -j none \
   -a :8081 -f /etc/varnish/origin.vcl >/dev/null
 sleep 3
 test "$(docker inspect --format '{{.State.Running}}' "$backend")" = true || {
@@ -118,12 +118,15 @@ grep -qi '^x-varnish: [0-9][0-9]* [0-9][0-9]*$' "$fixture/h2.txt" || {
 age=$(awk 'tolower($1) == "age:" { print $2 }' "$fixture/h2.txt")
 test -n "$age"
 
-hits=$(docker exec "$container" /usr/bin/varnishstat -n /var/lib/varnish -1 -f MAIN.cache_hit |
+hits=$(docker exec "$container" /usr/bin/varnishstat -1 -f MAIN.cache_hit |
   awk '$1 == "MAIN.cache_hit" { print $2 }')
 test "${hits:-0}" -ge 1 || {
   printf 'varnishstat reports no cache hits\n' >&2
   exit 1
 }
+
+# varnishadm attaches to the default instance without -n.
+docker exec "$container" /usr/bin/varnishadm ping | grep -q PONG
 
 # Origin gone: the cached object is still served until its TTL expires.
 docker rm -f "$backend" >/dev/null

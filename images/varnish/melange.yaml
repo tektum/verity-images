@@ -1,7 +1,7 @@
 package:
   name: varnish-9.1
   # yamllint disable-line rule:line-length
-  version: "9.1.0"  # renovate: datasource=github-tags depName=varnish/varnish versioning=regex:^(?<major>9)\.(?<minor>1)\.(?<patch>\d+)$
+  version: "9.1.0"  # renovate: datasource=github-tags depName=varnish/varnish versioning=regex:^(?<major>9)\.(?<minor>1)\.(?<patch>\d+)$ extractVersion=^varnish-(?<version>.+)$
   epoch: 0
   description: Varnish Cache web application accelerator and caching HTTP reverse proxy
   copyright:
@@ -60,7 +60,7 @@ pipeline:
   - uses: autoconf/make
     with:
       opts: |
-        VARNISH_STATE_DIR=/var/run
+        VARNISH_STATE_DIR=/var/lib/varnish
   - uses: autoconf/make-install
   - runs: |
       # Runtime state is created by the image (apko paths); the install leaves a restricted tree.
