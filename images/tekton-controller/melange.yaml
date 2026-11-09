@@ -46,6 +46,9 @@ pipeline:
       go build -p 4 -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w" \
         -o "${{targets.destdir}}/ko-app/controller" ./cmd/controller
+      go version -m "${{targets.destdir}}/ko-app/controller" \
+        | awk '$1 == "mod" && $2 == "github.com/tektoncd/pipeline" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
