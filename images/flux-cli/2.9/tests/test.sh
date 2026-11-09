@@ -20,7 +20,8 @@ run() {
   || fail 'unexpected entrypoint'
 case $(docker image inspect -f '{{json .Config.Cmd}}' "$image") in null|'[]') ;; *) fail 'unexpected image command' ;; esac
 
-version_output=$(run "$image" version --client 2>&1) || fail 'flux version --client failed'
+# stdout only: docker prints a platform mismatch warning on stderr for emulated arm64 runs.
+version_output=$(run "$image" version --client) || fail 'flux version --client failed'
 [ "$version_output" = "flux: v$expected_version" ] || fail "unexpected version output: $version_output"
 
 manifests=$(run "$image" install --export --components source-controller 2>&1) \
