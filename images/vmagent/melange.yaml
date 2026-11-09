@@ -1,7 +1,7 @@
 package:
   name: verity-vmagent
   version: "1.155.0"  # renovate: datasource=github-releases depName=VictoriaMetrics/VictoriaMetrics
-  epoch: 0
+  epoch: 1
   description: VictoriaMetrics vmagent metrics collection agent
   copyright:
     - license: Apache-2.0
@@ -49,7 +49,7 @@ pipeline:
       pkg=github.com/VictoriaMetrics/VictoriaMetrics/lib/buildinfo
       short=$(echo ${{vars.source-commit}} | cut -c1-8)
       flags="$flags -X $pkg.Version=vmagent-tags-v${{package.version}}-0-g$short"
-      go build -buildvcs=false -trimpath -ldflags "$flags" \
+      go build -buildvcs=true -trimpath -ldflags "$flags" \
         -o "${{targets.destdir}}/usr/bin/vmagent" ./app/vmagent
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
