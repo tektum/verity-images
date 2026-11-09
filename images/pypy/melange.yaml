@@ -1,0 +1,187 @@
+package:
+  name: verity-pypy-3.11
+  # yamllint disable-line rule:line-length
+  version: "8.0.1"  # renovate: datasource=github-tags depName=pypy/pypy versioning=regex:^(?<major>8)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^release-pypy3\.11-v(?<version>.+)$
+  epoch: 0
+  description: PyPy 8.0, the JIT-compiling Python 3.11 implementation, built from the upstream release
+  copyright:
+    - license: MIT
+    - license: PSF-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # ensurepip and venv install pip and setuptools from these wheels
+      # (WHEEL_PKG_DIR, see wheel-pkg-dir.patch), not from the older copies
+      # the release bundles.
+      - py3-pip-wheel
+      - py3-setuptools-wheel
+      - wolfi-baselayout
+  resources:
+    cpu: "30"
+    memory: 32Gi
+
+vars:
+  source-commit: ec82f20141cf9ea824c824ddd066b7e210aa97fb
+  # RPython, the translation toolchain, is a Python 2 dialect. CPython 2.7.18
+  # (the final 2.x release) and pycparser 2.21 (the last release that runs on
+  # Python 2) are build-time only and never shipped.
+  # yamllint disable-line rule:line-length
+  cpython2-version: "2.7.18"  # renovate: datasource=github-tags depName=python/cpython versioning=regex:^(?<major>2)\.(?<minor>7)\.(?<patch>18)$ extractVersion=^v(?<version>.+)$
+  cpython2-commit: 8d21aa21f2cbc6d50aab3f420bb23be1d081dac4
+  # yamllint disable-line rule:line-length
+  pycparser-version: "2.21"  # renovate: datasource=github-tags depName=eliben/pycparser versioning=regex:^(?<major>2)\.(?<minor>21)$ extractVersion=^release_v(?<version>.+)$
+  pycparser-commit: 3cf6bf5eb16f5eadd4a058e41596145c407a79ad
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - expat-dev
+      # CPython 2.7.18 predates C23, the GCC 15 default. GCC 14 also built the
+      # last Wolfi pypy-3.11 package.
+      - gcc-14-default
+      - gdbm-dev
+      - libffi-dev
+      - linux-headers
+      - ncurses-dev
+      # openssl-dev is also provided by the OpenSSL 4 development package. PyPy
+      # 8.0.1 builds and tests against OpenSSL 3 (it embeds 3.5 on other
+      # platforms), so stay on the 3.6 series. The runtime so:libssl.so.3
+      # dependency is generated from the linked library.
+      - openssl-3.6-dev
+      - pkgconf
+      - py3-pip-wheel
+      - py3-setuptools-wheel
+      - sqlite-dev
+      - xz-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/pypy/pypy
+      tag: release-pypy3.11-v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Build pyexpat against Wolfi's libexpat instead of the copy vendored in
+  # pypy/module/pyexpat/src/expat (2.8.5 in this release). A vendored copy is
+  # invisible to vulnerability scanners and does not follow Wolfi's expat.
+  - uses: patch
+    with:
+      patches: system-expat.patch
+
+  # Point ensurepip and venv at the Wolfi pip and setuptools wheels.
+  - uses: patch
+    with:
+      patches: wheel-pkg-dir.patch
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/python/cpython
+      tag: v${{vars.cpython2-version}}
+      expected-commit: ${{vars.cpython2-commit}}
+      destination: bootstrap/cpython
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/eliben/pycparser
+      tag: release_v${{vars.pycparser-version}}
+      expected-commit: ${{vars.pycparser-commit}}
+      destination: bootstrap/pycparser
+
+  - name: Build the CPython 2.7 translation host
+    working-directory: bootstrap/cpython
+    runs: |
+      ./configure --prefix=/home/build/bootstrap/python2 \
+        --enable-ipv6 \
+        --enable-unicode=ucs4 \
+        --with-system-expat \
+        --with-system-ffi \
+        --with-system-zlib \
+        --with-threads
+      make -j"$(nproc)"
+      make install
+      /home/build/bootstrap/python2/bin/python2.7 -c 'import sys; assert sys.version_info[:3] == (2, 7, 18)'
+
+  - name: Install pycparser into the translation host
+    working-directory: bootstrap/pycparser
+    runs: /home/build/bootstrap/python2/bin/python2.7 setup.py install
+
+  # RPython statically links the libffi.a it finds in pkg-config's library
+  # directory. The Wolfi libffi-dev archive is not position independent, which
+  # the shared interpreter library cannot link, and libffi-pic-dev would embed a
+  # private libffi that no scanner sees and apk cannot update. Without the
+  # archive RPython links the shared libffi.
+  - name: Link the shared libffi
+    runs: |
+      test -e /usr/lib64/libffi.so
+      rm -f /usr/lib64/libffi.a /usr/lib/libffi.a
+
+  # The JIT-enabled shared build that the upstream release binaries use. It
+  # writes pypy3.11-c and libpypy3.11-c.so to pypy/goal. RPython runs one
+  # compile job per CPU unless told otherwise, which is more than a shared
+  # build host should run, so the job count is capped.
+  - name: Translate PyPy
+    working-directory: pypy/goal
+    runs: |
+      jobs=$(nproc)
+      [ "$jobs" -le 16 ] || jobs=16
+      export PYPY_USESSION_DIR=/home/build/usession
+      export PYPY_USESSION_BASENAME=pypy
+      mkdir -p "$PYPY_USESSION_DIR"
+      /home/build/bootstrap/python2/bin/python2.7 ../../rpython/bin/rpython \
+        --opt=jit --shared --make-jobs="$jobs" targetpypystandalone
+      ./pypy3.11-c --version
+
+  # package.py builds the CFFI stdlib modules (_ssl, sqlite3, lzma, _gdbm,
+  # curses, ...) and lays out bin/, include/ and lib/pypy3.11.
+  # --no-embedded-dependencies links them to the Wolfi OpenSSL, xz and gdbm
+  # libraries; the default on x86_64 and aarch64 downloads and statically
+  # embeds private copies that no scanner sees. Whether it rebuilds the modules
+  # by default depends on `uname -p`, so --rebuild-extensions makes that
+  # explicit. package.py also writes a tarball that the build does not use; its
+  # tar call fails on busybox, which prints usage text and is not an error
+  # because package.py only sees the exit status of the gzip at the end of the
+  # pipe.
+  - name: Package
+    runs: |
+      /home/build/bootstrap/python2/bin/python2.7 pypy/tool/release/package.py \
+        --archive-name=pypy \
+        --builddir=/home/build/bootstrap/package \
+        --no-embedded-dependencies \
+        --rebuild-extensions \
+        --no-keep-debug \
+        --without-_tkinter
+
+  - name: Install
+    runs: |
+      root="${{targets.destdir}}/opt/pypy"
+      stdlib="$root/lib/pypy3.11"
+      mkdir -p "${{targets.destdir}}/opt" "${{targets.destdir}}/usr/bin"
+      cp -a /home/build/bootstrap/package/pypy "$root"
+
+      # The regression test suites, and the pip and setuptools wheels bundled
+      # with the release, which the Wolfi wheels replace.
+      rm -rf "$stdlib/ensurepip/_bundled"
+      find "$root" -depth -type d \( -name test -o -name tests -o -name idle_test -o -name __pycache__ \) \
+        -exec rm -rf {} +
+
+      # Install pip and setuptools from the Wolfi wheels (WHEEL_PKG_DIR).
+      "$root/bin/pypy3.11" -m ensurepip --default-pip
+      sed -i '1s|^#!.*|#!/opt/pypy/bin/pypy3.11|' "$root"/bin/pip "$root"/bin/pip3 "$root"/bin/pip3.11
+
+      # The image runs as a non-root user and cannot write __pycache__, so ship
+      # the bytecode. Hash-checked files stay valid whatever the file times.
+      "$root/bin/pypy3.11" -m compileall -q -j0 -f --invalidation-mode checked-hash \
+        -s "${{targets.destdir}}" -p / "$stdlib"
+
+      ln -s ../../opt/pypy/bin/pypy3.11 "${{targets.destdir}}/usr/bin/pypy3"
+
+  - uses: strip

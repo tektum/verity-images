@@ -1,0 +1,9 @@
+name: pypy
+track: wolfi
+description: PyPy3, the JIT-compiling Python interpreter, with pip, built from pinned upstream source.
+category: Languages & Build Tools
+upstream: https://pypy.org/
+versions: [8.0]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:pypy:pypy]
