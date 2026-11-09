@@ -1,0 +1,47 @@
+package:
+  name: verity-elixir-1.19
+  version: "1.19.7"
+  epoch: 0
+  description: Elixir language toolchain built from pinned upstream source
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 6Gi
+  dependencies:
+    runtime:
+      - erlang-28
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - erlang-28-dev
+      - make
+  environment:
+    LANG: C.UTF-8
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/elixir-lang/elixir
+      tag: v${{package.version}}
+      expected-commit: f1657a626c683a9ea416c1f63f449022c486a09c
+  - runs: |
+      make compile
+      make install PREFIX=/usr DESTDIR="${{targets.destdir}}"
+      install -m644 -D LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    environment:
+      LANG: C.UTF-8
+  pipeline:
+    - runs: |
+        elixir --version | grep -F "Elixir ${{package.version}} (compiled with Erlang/OTP 28)"
+        test "$(elixir -e 'IO.puts(System.version())')" = "${{package.version}}"
+        mix --version | grep -F "Mix ${{package.version}}"
