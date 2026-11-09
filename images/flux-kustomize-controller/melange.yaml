@@ -45,9 +45,12 @@ pipeline:
       modroot: .
       packages: .
   - runs: |
-      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" -o manager .
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" -o manager .
       install -Dm755 manager "${{targets.destdir}}/manager"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      go version -m "${{targets.destdir}}/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/fluxcd/kustomize-controller" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
   - uses: strip
 
 subpackages:
