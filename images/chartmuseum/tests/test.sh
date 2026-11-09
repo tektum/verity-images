@@ -80,12 +80,13 @@ printf '%s' "$charts" | grep -F '"smoke"' >/dev/null || fail "uploaded chart mis
 index=$(curl --fail --silent --max-time 10 "http://127.0.0.1:$port/index.yaml") || fail 'index.yaml failed'
 printf '%s' "$index" | grep -F 'smoke-0.1.0.tgz' >/dev/null || fail "uploaded chart missing from index.yaml: $index"
 
-# ChartMuseum has no graceful-shutdown handler: SIGTERM ends the process with the
-# default signal disposition (143). A hung stop would show as 137 (SIGKILL).
+# ChartMuseum has no graceful-shutdown handler and runs as PID 1, so SIGTERM ends it
+# with the default signal disposition: 143, or 2 when the Go runtime falls back to
+# exit(2) for a namespace init. A hung stop would show as 137 (SIGKILL).
 docker stop --time 20 "$container" >/dev/null
 exit_code=$(docker inspect -f '{{.State.ExitCode}}' "$container")
 case $exit_code in
-  0|143) ;;
+  0|2|143) ;;
   *) docker logs "$container" >&2 || true; fail "unexpected exit code after SIGTERM: $exit_code" ;;
 esac
 
