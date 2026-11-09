@@ -103,13 +103,21 @@ fingerprint; other metadata edits stay catalog-only. An edit to
 `scripts/scan_identity.py` builds one sample melange image, as shared pipeline
 changes do.
 
-The allowlist is a temporary exception for images that predate the rule. Each
-line names a context and its follow-up: `identity`, `go-version`, or
-`unverified`. It may only shrink. The image-local pull request that declares
+The allowlist is a temporary exception for images that predate the rule, except
+for the permanent `no-feed` kind described below. Each
+line names a context and its follow-up: `identity`, `go-version`, `unverified`,
+or `no-feed`. Except for `no-feed`, it may only shrink. The image-local pull request that declares
 `scan-identity` or stamps the Go main module version deletes the line in the
 same change; `scripts/test_scan_identity.py` rejects a new entry, an entry for an
 image that declares an identity, and an entry for a missing or disabled image.
 Native coverage of an allowlisted image logs "stale allowlist entry".
+
+`no-feed` marks an image whose main software has no CPE (NVD), GHSA or OSV
+record, so no identity can be declared without inventing one. It is not a pending
+follow-up. For these images the gate covers dependencies and OS packages only,
+not the main software. Currently `kubernetes-reflector` and `sonar-scanner-cli`.
+Adding another needs a deliberate edit of the `FROZEN_NO_FEED` set in
+`scripts/test_scan_identity.py`, with the evidence that no feed exists.
 
 ### Published version authority
 

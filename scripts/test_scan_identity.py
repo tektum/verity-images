@@ -23,11 +23,14 @@ FROZEN_BASELINE: Final = frozenset(
         "cert-manager-controller cert-manager-startupapicheck cert-manager-webhook clickhouse cmake cmctl "
         "configmap-reload elixir/1.17 elixir/1.19 envoy external-secrets falcoctl falcosidekick "
         "fluent-bit flux-cli/2.10 flux-cli/2.8 flux-cli/2.9 flux-helm-controller "
-        "gradle haproxy haproxy-ingress jenkins kube-state-metrics kubernetes-reflector mariadb/12.3 "
-        "metallb-speaker metrics-server mysql/9.7 nodejs/22 perl/5.42 postgres/17 sonar-scanner-cli "
+        "gradle haproxy haproxy-ingress jenkins kube-state-metrics mariadb/12.3 "
+        "metallb-speaker metrics-server mysql/9.7 nodejs/22 perl/5.42 postgres/17 "
         "source-controller tekton-controller trust-manager valkey victoria-metrics vmagent zookeeper"
     ).split()
 )
+# Images with no CPE, GHSA or OSV record for their main software: nothing can be declared without
+# inventing an identity. Adding an image here is a deliberate edit of this set.
+FROZEN_NO_FEED: Final = frozenset({"images/kubernetes-reflector", "images/sonar-scanner-cli"})
 LOCAL_FILES: Final = ["/usr", "/usr/bin", "/usr/bin/tool"]
 
 
@@ -191,6 +194,10 @@ def check_allowlist() -> None:
             except scan_identity.CoverageError:
                 continue
             raise AssertionError(f"malformed allowlist accepted: {text!r}")
+    with TemporaryDirectory() as directory:
+        image = Image(Path(directory), [])
+        image.allowlist.write_text(f"{image.context.as_posix()} no-feed\n", encoding="utf-8")
+        assert "follow-up: no-feed" in image.apply()
 
 
 def check_metadata_validation() -> None:
@@ -241,7 +248,10 @@ def check_metadata_validation() -> None:
 
 def check_repository_allowlist() -> None:
     listed = scan_identity.read_allowlist(scan_identity.ALLOWLIST)
-    assert set(listed) <= FROZEN_BASELINE, f"allowlist grew: {sorted(set(listed) - FROZEN_BASELINE)}"
+    frozen = {context for context, follow_up in listed.items() if follow_up != "no-feed"}
+    assert frozen <= FROZEN_BASELINE, f"allowlist grew: {sorted(frozen - FROZEN_BASELINE)}"
+    no_feed = {context for context, follow_up in listed.items() if follow_up == "no-feed"}
+    assert no_feed <= FROZEN_NO_FEED, f"no-feed grew, edit FROZEN_NO_FEED deliberately: {sorted(no_feed - FROZEN_NO_FEED)}"
     for context in listed:
         directory = gen_matrix.ROOT / context
         metadata = gen_matrix.parse_metadata(directory / "metadata.yaml")

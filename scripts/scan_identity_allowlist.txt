@@ -10,6 +10,8 @@
 #   identity    declare scan-identity in the image's metadata.yaml
 #   go-version  stamp the Go main module version (or declare scan-identity)
 #   unverified  never published; confirm coverage on its first build, else declare scan-identity
+#   no-feed     no CPE, GHSA or OSV record exists for the main software; the gate covers dependencies
+#               and OS packages only. Permanent: scripts/test_scan_identity.py freezes the set.
 
 images/aws-node-termination-handler go-version
 images/cassandra identity
@@ -38,7 +40,7 @@ images/haproxy identity
 images/haproxy-ingress go-version
 images/jenkins identity
 images/kube-state-metrics identity
-images/kubernetes-reflector identity
+images/kubernetes-reflector no-feed
 images/mariadb/12.3 identity
 images/metallb-speaker go-version
 images/metrics-server identity
@@ -46,7 +48,7 @@ images/mysql/9.7 identity
 images/nodejs/22 identity
 images/perl/5.42 identity
 images/postgres/17 identity
-images/sonar-scanner-cli identity
+images/sonar-scanner-cli no-feed
 images/source-controller identity
 images/tekton-controller go-version
 images/trust-manager go-version
