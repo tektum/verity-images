@@ -68,8 +68,9 @@ grep -F 'unable to load in-cluster configuration' "$work/noconfig.log" >/dev/nul
 rm -f "$work/noconfig.log"
 
 # Positive: against a minimal fake API server the adapter loads its
-# kubeconfig, reports its build identity, generates a self-signed serving
-# certificate, and serves its metrics and secure health endpoints.
+# kubeconfig and the gRPC client certificates from its certificate directory,
+# reports its build identity, and serves its metrics and secure health
+# endpoints.
 cat >"$work/api.py" <<'PY'
 import json
 import sys
@@ -207,11 +208,21 @@ users:
 EOF
 chmod 0644 "$work/kubeconfig"
 
+# The adapter reads ca.crt, tls.crt and tls.key from --cert-dir for its gRPC
+# client and may write its serving pair there, so the directory is writable.
+mkdir "$work/certs"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=127.0.0.1 \
+  -keyout "$work/certs/tls.key" -out "$work/certs/tls.crt" >/dev/null 2>&1 ||
+  fail 'could not create the test certificate'
+cp "$work/certs/tls.crt" "$work/certs/ca.crt"
+chmod 0777 "$work/certs"
+chmod 0644 "$work/certs/tls.key" "$work/certs/tls.crt" "$work/certs/ca.crt"
+
 container=$(docker run -d --network host --read-only \
-  --tmpfs /tmp:uid=65532,gid=65532,mode=1777 \
+  -v "$work/certs:/certs" \
   -e WATCH_NAMESPACE= -e KUBECONFIG=/kubeconfig \
   -v "$work/kubeconfig:/kubeconfig:ro" \
-  "$image" --secure-port="$secure_port" --port="$metrics_port" --cert-dir=/tmp \
+  "$image" --secure-port="$secure_port" --port="$metrics_port" --cert-dir=/certs \
   --lister-kubeconfig=/kubeconfig --authentication-kubeconfig=/kubeconfig \
   --authorization-kubeconfig=/kubeconfig --authentication-skip-lookup \
   --metrics-service-address=127.0.0.1:1)
