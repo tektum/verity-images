@@ -26,6 +26,7 @@
         "python3 scripts/gen_matrix.py --all >/dev/null",
         "python3 scripts/gen_apko_lock_targets.py --all >/dev/null",
         "python3 scripts/test_gen_matrix.py",
+        "python3 scripts/test_check_catalog_freshness.py",
         "python3 scripts/test_gen_apk_matrix.py",
         "python3 scripts/test_gen_apko_lock_targets.py",
         "bash scripts/test_refresh_apko_locks.sh",

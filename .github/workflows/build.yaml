@@ -43,6 +43,7 @@ jobs:
   matrix:
     runs-on: ubuntu-latest
     permissions:
+      actions: read
       contents: read
     outputs:
       images: ${{ steps.generate.outputs.images }}
@@ -65,12 +66,21 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
+          # The token reaches only the trusted main push path; PR code never sees it.
+          GH_TOKEN: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.token || '' }}
           IMAGE: ${{ inputs.image }}
           REF: ${{ github.ref }}
+          REPOSITORY: ${{ github.repository }}
           BASE_SHA: >-
             ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||
             github.event.merge_group.base_sha || github.event.before }}
         run: |
+          if [[ "$EVENT" == push && "$REF" == refs/heads/main ]]; then
+            # github.event.before is not a delta base: GitHub keeps one pending run per
+            # concurrency group, so a replaced pending run never builds its commits.
+            # Diff from the last main push run that fully succeeded instead.
+            BASE_SHA=$(scripts/trusted_build_base.sh "$GITHUB_SHA")
+          fi
           if [[ "$EVENT" == workflow_dispatch && -n "$IMAGE" ]]; then
             [[ -z "$BASE_SHA" ]] || {
               printf 'image and base-sha are mutually exclusive\n' >&2
