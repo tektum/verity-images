@@ -20,7 +20,7 @@ ANNOTATED_VERSION = re.compile(
     r"^(?P<prefix>.*?)(?P<version>v?[0-9][0-9A-Za-z.+_-]*)"
     r"(?P<suffix>[\"']?,?[ \t]+#[ \t]*renovate:[ \t]*"
     r"datasource=(?P<datasource>\S+)[ \t]+depName=\S+"
-    r"(?:[ \t]+versioning=(?P<versioning>\S+))?[ \t]*)$"
+    r"(?:[ \t]+versioning=(?P<versioning>\S+))?(?:[ \t]+extractVersion=\S+)?[ \t]*)$"
 )
 SEMVER = re.compile(
     r"^v?(?P<major>0|[1-9][0-9]*)\.(?P<minor>0|[1-9][0-9]*)\."

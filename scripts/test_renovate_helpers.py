@@ -157,6 +157,8 @@ def _extract(manager: dict, text: str) -> list[dict[str, str]]:
             entry = {"depName": dep_name, "currentValue": groups["currentValue"]}
             if groups.get("versioning"):
                 entry["versioning"] = groups["versioning"]
+            if groups.get("extractVersion"):
+                entry["extractVersion"] = groups["extractVersion"]
             found.append(entry)
     return found
 
@@ -295,6 +297,34 @@ def test_renovate_configuration() -> None:
             " versioning=semver-coerced\n"
             '  version: "0.39.1"\n',
             [],
+        ),
+        (
+            # Upstream tags carry a prefix (mysql-9.7.4) while the recipe
+            # pins the bare version, which Renovate must also write back
+            # bare: `extractVersion=` strips the prefix from each tag before
+            # versioning sees it. It follows `versioning=` when both are set.
+            '  version: "9.7.4"  # renovate: datasource=github-tags depName=mysql/mysql-server'
+            r" versioning=regex:^(?<major>9)\.(?<minor>7)\.(?<patch>\d+)$"
+            r" extractVersion=^mysql-(?<version>.+)$" + "\n",
+            [
+                {
+                    "depName": "mysql/mysql-server",
+                    "currentValue": "9.7.4",
+                    "versioning": r"regex:^(?<major>9)\.(?<minor>7)\.(?<patch>\d+)$",
+                    "extractVersion": "^mysql-(?<version>.+)$",
+                }
+            ],
+        ),
+        (
+            '  version: "26.5.7.64"  # renovate: datasource=github-tags depName=ClickHouse/ClickHouse'
+            r" extractVersion=^v(?<version>\d+\.\d+\.\d+\.\d+)-stable$" + "\n",
+            [
+                {
+                    "depName": "ClickHouse/ClickHouse",
+                    "currentValue": "26.5.7.64",
+                    "extractVersion": r"^v(?<version>\d+\.\d+\.\d+\.\d+)-stable$",
+                }
+            ],
         ),
     ]
     for text, expected in fixtures:

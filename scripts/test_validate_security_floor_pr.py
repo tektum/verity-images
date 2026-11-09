@@ -134,6 +134,24 @@ def main() -> None:
     assert "floor version is not an upgrade" in rejected(
         lambda _pull, _commit, files: files[0].update(patch=DOWNGRADE_PATCH)
     )
+    # An annotation may end with `extractVersion=` (renovate.json captures it);
+    # the floor still validates, and the annotation must stay byte-identical.
+    extract = " versioning=semver extractVersion=^v(?<version>.+)$\n"
+    extract_patch = PATCH.replace("depName=google.golang.org/grpc\n", "depName=google.golang.org/grpc" + extract)
+    assert validate(pull(), commit(), [dict(files()[0], patch=extract_patch)]) == (1125, SHA)
+    assert "Renovate annotation changed" in rejected(
+        lambda _pull, _commit, files: files[0].update(
+            patch=extract_patch.replace("extractVersion=^v(?<version>.+)$\n+", "extractVersion=^(?<version>.+)$\n+", 1)
+        )
+    )
+    # Regex-versioned floors (the github-tags images use versioning=regex:...)
+    # are deliberately not auto-merge eligible: is_upgrade only orders go,
+    # semver and maven versions, so such a floor fails closed to human review.
+    regex = " versioning=regex:^(?<major>\\d+)\\.(?<minor>\\d+)\\.(?<patch>\\d+)$ extractVersion=^v(?<version>.+)$\n"
+    regex_patch = PATCH.replace("depName=google.golang.org/grpc\n", "depName=google.golang.org/grpc" + regex)
+    assert "floor version is not an upgrade" in rejected(
+        lambda _pull, _commit, files: files[0].update(patch=regex_patch)
+    )
     assert "file list is incomplete" in rejected(
         lambda pull, _commit, _files: pull.update(changed_files=2)
     )
