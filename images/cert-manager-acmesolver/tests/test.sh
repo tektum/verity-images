@@ -38,8 +38,10 @@ fi
 grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid argument diagnostic is missing'
 
-grep -F -e '--domain string' -e '--token string' -e '--key string' "$work/help" >/dev/null ||
-  fail 'acmesolver challenge flags are missing'
+for flag in '--domain string' '--token string' '--key string'; do
+  grep -F -e "$flag" "$work/help" >/dev/null ||
+    fail "acmesolver help is missing $flag"
+done
 
 cid=$(docker run -d --read-only -p 127.0.0.1::8089 "$image" \
   --domain=example.test --token=smoke-token --key=smoke-token.smoke-key)
@@ -49,7 +51,7 @@ test -n "$port" || fail 'challenge port was not published'
 body=
 i=0
 while [ "$i" -lt 30 ]; do
-  if body=$(curl -fsS -H 'Host: example.test' \
+  if body=$(curl -fsS --connect-timeout 1 --max-time 5 -H 'Host: example.test' \
     "http://127.0.0.1:$port/.well-known/acme-challenge/smoke-token" 2>/dev/null); then
     break
   fi
@@ -57,12 +59,17 @@ while [ "$i" -lt 30 ]; do
   i=$((i + 1))
   sleep 1
 done
-test "$body" = 'smoke-token.smoke-key' || fail 'challenge response is wrong'
+if [ "$body" != 'smoke-token.smoke-key' ]; then
+  docker logs "$cid" >&2 || true
+  fail 'challenge response is wrong'
+fi
 
-code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: example.test' \
+code=$(curl -sS --connect-timeout 1 --max-time 5 -o /dev/null -w '%{http_code}' \
+  -H 'Host: example.test' \
   "http://127.0.0.1:$port/.well-known/acme-challenge/other-token" || true)
 test "$code" = 404 || fail "wrong token returned HTTP $code instead of 404"
-code=$(curl -sS -o /dev/null -w '%{http_code}' -H 'Host: other.test' \
+code=$(curl -sS --connect-timeout 1 --max-time 5 -o /dev/null -w '%{http_code}' \
+  -H 'Host: other.test' \
   "http://127.0.0.1:$port/.well-known/acme-challenge/smoke-token" || true)
 test "$code" = 404 || fail "wrong host returned HTTP $code instead of 404"
 
