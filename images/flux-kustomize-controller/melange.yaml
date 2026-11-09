@@ -8,8 +8,10 @@ package:
   dependencies:
     runtime:
       - ca-certificates-bundle
+      - git
       - gpg
       - gpg-agent
+      - openssh-client
   resources:
     cpu: "4"
     memory: 8Gi

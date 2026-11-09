@@ -4,6 +4,7 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 signer="flux-kustomize-controller-smoke-signer-$$"
 decryptor="flux-kustomize-controller-smoke-decryptor-$$"
+repo="flux-kustomize-controller-smoke-git-$$"
 
 fail() {
   printf '%s\n' "$1" >&2
@@ -11,12 +12,13 @@ fail() {
 }
 
 cleanup() {
-  docker volume rm -f "$signer" "$decryptor" >/dev/null 2>&1 || true
+  docker volume rm -f "$signer" "$decryptor" "$repo" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65534 ] || fail 'unexpected OCI user'
-[ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/manager"]' ] || fail 'unexpected entrypoint'
+[ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/tini","--","/manager"]' ] \
+  || fail 'unexpected entrypoint'
 case $(docker image inspect -f '{{json .Config.Cmd}}' "$image") in null|'[]') ;; *) fail 'unexpected image command' ;; esac
 docker image inspect -f '{{json .Config.Env}}' "$image" | grep -F '"GNUPGHOME=/tmp"' >/dev/null \
   || fail 'GNUPGHOME is not /tmp'
@@ -65,5 +67,23 @@ ciphertext=$(printf 'verity-sops-pgp\n' | gpg_run "$signer" --trust-model always
 plaintext=$(printf '%s\n' "$ciphertext" | gpg_run "$decryptor" --decrypt 2>/dev/null) \
   || fail 'gpg decryption with the imported key failed'
 [ "$plaintext" = verity-sops-pgp ] || fail 'gpg decrypted unexpected plaintext'
+
+# Kustomize fetches remote Git bases by running git, and ssh for ssh:// URLs.
+# Clone a local repository as the runtime user to prove the git CLI works.
+docker volume create "$repo" >/dev/null || fail 'git volume creation failed'
+git_run() {
+  docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
+    -e HOME=/tmp -v "$repo:/tmp" --entrypoint /usr/bin/git "$image" \
+    -c user.name=smoke -c user.email=smoke@example.invalid -c init.defaultBranch=main "$@"
+}
+git_run init -q /tmp/src >/dev/null 2>&1 || fail 'git init failed'
+git_run -C /tmp/src commit -q --allow-empty -m verity-remote-base >/dev/null 2>&1 \
+  || fail 'git commit failed'
+git_run clone -q --depth 1 file:///tmp/src /tmp/dst >/dev/null 2>&1 || fail 'git clone of a file:// base failed'
+[ "$(git_run -C /tmp/dst log -1 --format=%s 2>/dev/null)" = verity-remote-base ] \
+  || fail 'cloned base has unexpected history'
+ssh_output=$(docker run --rm --network none --user 65534 --entrypoint /usr/bin/ssh "$image" -V 2>&1) \
+  || fail 'ssh client is not runnable'
+printf '%s\n' "$ssh_output" | grep -F OpenSSH >/dev/null || fail 'ssh client is not OpenSSH'
 
 printf 'SMOKE PASS image=%s\n' "$image"

@@ -7,13 +7,14 @@ contents:
     - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
+    - tini
     - verity-flux-kustomize-controller@local
 
 accounts:
   run-as: 65534
 
 entrypoint:
-  command: /manager
+  command: /usr/bin/tini -- /manager
 
 environment:
   GNUPGHOME: /tmp
