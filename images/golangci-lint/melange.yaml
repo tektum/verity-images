@@ -1,0 +1,77 @@
+package:
+  name: golangci-lint-2.15
+  # yamllint disable-line rule:line-length
+  version: "2.15.0"  # renovate: datasource=github-releases depName=golangci/golangci-lint versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$
+  epoch: 0
+  description: Fast linters runner for Go
+  copyright:
+    - license: GPL-3.0-only
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 25c5369a93aacb8cccea0d46e1569ca4a194564d
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/golangci/golangci-lint
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/golangci-lint
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X main.version=${{package.version}} \
+          -X main.commit=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/golangci-lint" ./cmd/golangci-lint
+      go version -m "${{targets.destdir}}/usr/bin/golangci-lint" \
+        | awk '$1 == "mod" && $2 == "github.com/golangci/golangci-lint/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the golangci-lint build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/golangci-lint-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/golangci-lint-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        golangci-lint version | grep -F "has version ${{package.version}}"
+        golangci-lint --help | grep -F 'Usage:'
+        apk info --who-owns /usr/bin/golangci-lint \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'GNU GENERAL PUBLIC LICENSE' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: golangci/golangci-lint
+    strip-prefix: v
