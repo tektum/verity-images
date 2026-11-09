@@ -17,6 +17,9 @@ package:
     cpu: "2"
     memory: 4Gi
 
+vars:
+  source-commit: 83e909fc2a0dbc394b4b683fb3fa2d7dcf26cc5e
+
 environment:
   contents:
     repositories:
@@ -48,7 +51,7 @@ pipeline:
     with:
       repository: https://github.com/MariaDB/server
       tag: mariadb-${{package.version}}
-      expected-commit: 83e909fc2a0dbc394b4b683fb3fa2d7dcf26cc5e
+      expected-commit: ${{vars.source-commit}}
 
   # Same feature set as the Wolfi MariaDB package this image used before: the
   # community plugin set, InnoDB with LZMA, MariaBackup, PAM authentication and
@@ -184,7 +187,7 @@ subpackages:
       - runs: |
           install -Dm644 output/CMakeCache.txt \
             "${{targets.subpkgdir}}/usr/share/mariadb-build/CMakeCache.txt"
-          printf '%s\n' 83e909fc2a0dbc394b4b683fb3fa2d7dcf26cc5e \
+          printf '%s\n' '${{vars.source-commit}}' \
             > "${{targets.subpkgdir}}/usr/share/mariadb-build/source-commit"
 
 test:
