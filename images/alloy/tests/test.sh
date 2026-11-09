@@ -39,6 +39,8 @@ until response=$(curl --fail --silent --connect-timeout 1 --max-time 5 "http://1
   sleep 1
 done
 printf '%s' "$response" | grep -F 'Alloy is ready' >/dev/null || fail 'readiness response was unexpected'
+curl --fail --silent "http://127.0.0.1:$port/" | grep -Fi '<html' >/dev/null \
+  || fail 'embedded Alloy UI was not served'
 docker stop --time 30 "$container" >/dev/null
 [ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0 ] \
   || fail 'alloy did not stop cleanly'

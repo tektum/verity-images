@@ -46,9 +46,13 @@ pipeline:
       cd internal/web/ui
       npm ci --no-audit --no-fund
       npm run build
+  - runs: |
+      # Beyla binaries are embedded; the download is checksum-verified by the
+      # repository's own version file.
+      make download-beyla
   - uses: go/remediate
     with:
-      modroot: .
+      modroot: collector
       packages: .
   - runs: |
       pkg=github.com/grafana/alloy/internal/build
@@ -58,8 +62,11 @@ pipeline:
       flags="$flags -X github.com/grafana/alloy/syntax/internal/stdlib.Version=v${{package.version}}"
       flags="$flags -X $pkg.Revision=${{vars.source-commit}}"
       flags="$flags -X $pkg.BuildUser=verity"
-      go build -p 6 -buildvcs=false -trimpath -tags gore2regex -ldflags "$flags" \
+      cd collector
+      go build -p 6 -buildvcs=false -trimpath \
+        -tags "netgo embedalloyui promtail_journal_enabled gore2regex" -ldflags "$flags" \
         -o "${{targets.destdir}}/usr/bin/alloy" .
+      cd ..
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       mkdir -p "${{targets.destdir}}/etc/alloy"
