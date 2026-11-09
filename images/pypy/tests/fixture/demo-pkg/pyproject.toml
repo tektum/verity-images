@@ -1,0 +1,11 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "demo-pkg"
+version = "1.0"
+description = "Pure Python package used by the image test."
+
+[tool.setuptools]
+packages = ["demo_pkg"]

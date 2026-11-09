@@ -1,0 +1,41 @@
+Build pyexpat against the system libexpat.
+
+PyPy vendors expat in pypy/module/pyexpat/src/expat (2.8.5 in release 8.0.1).
+A vendored copy is invisible to vulnerability scanners and does not follow the
+Wolfi expat package, which already carries the 2.10.0 security fixes. The
+patch links -lexpat, includes the system header, and stops prefixing the
+symbols (the PyExpat_ namespace only exists to avoid clashes with a vendored
+copy).
+XML_DTD and XML_GE stay defined before the include, because the public header
+declares the amplification-protection prototypes PyPy calls only when they are.
+
+--- a/pypy/module/pyexpat/interp_pyexpat.py
++++ b/pypy/module/pyexpat/interp_pyexpat.py
+@@ -36,16 +36,10 @@
+     _random_files = ['random_getrandom.c', 'random_dev_urandom.c']
+ 
+ eci = ExternalCompilationInfo(
+-    includes=['__expat.h', 'pyexpatns.h'],  # avoid conflicts with system libraries
+-    include_dirs=[str(srcdir), cdir],
++    includes=['expat.h'],
++    include_dirs=[cdir],
++    libraries=['expat'],
+     pre_include_bits = pre_include_bits,
+-    separate_module_files=[
+-        srcdir.join('xmlparse.c'),
+-        srcdir.join('xmlrole.c'),
+-        srcdir.join('xmltok.c'),
+-        srcdir.join('xmltok_impl.c'),
+-        srcdir.join('xmltok_ns.c'),
+-    ] + [srcdir.join(f) for f in _random_files]
+ )
+ 
+ XML_Content_Ptr = lltype.Ptr(lltype.ForwardReference())
+@@ -147,7 +141,6 @@
+ 
+ def expat_external(*a, **kw):
+     kw['compilation_info'] = eci
+-    a = ("PyExpat_" + a[0],) + a[1:]
+     return rffi.llexternal(*a, **kw)
+ 
+ INTERNED_CCHARP = "INTERNED"
