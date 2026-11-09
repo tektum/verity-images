@@ -41,6 +41,9 @@ pipeline:
       tags: nthlinux
       output: node-termination-handler
   - runs: |
+      go version -m "${{targets.destdir}}/usr/bin/node-termination-handler" \
+        | awk '$1 == "mod" && $2 == "github.com/aws/aws-node-termination-handler" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 test:
