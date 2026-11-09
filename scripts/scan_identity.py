@@ -12,7 +12,7 @@ main software as a renamed apk that no vulnerability feed knows. A declared
 `scan-identity` in metadata.yaml adds one SPDX package per entry, versioned from
 the recipe, so Grype matches the software itself. Without a declared identity the
 image must expose a versioned main component natively, or sit on the shrink-only
-allowlist in scripts/scan_identity_allowlist.txt.
+allowlist in scripts/scan_identity_allowlist.d/, one file per image.
 """
 
 from __future__ import annotations
@@ -26,7 +26,7 @@ from typing import Final
 import gen_matrix
 
 ROOT: Final = Path(__file__).resolve().parents[1]
-ALLOWLIST: Final = ROOT / "scripts/scan_identity_allowlist.txt"
+ALLOWLIST: Final = ROOT / "scripts/scan_identity_allowlist.d"
 VERSION: Final = re.compile(r"[0-9][0-9A-Za-z._-]*")
 UNVERSIONED: Final = {"", "UNKNOWN", "(devel)"}
 FOLLOW_UPS: Final = frozenset({"identity", "go-version", "unverified", "no-feed"})
@@ -141,15 +141,22 @@ def native_components(syft: dict, origin: str, version: str) -> list[str]:
     return sorted(set(found))
 
 
-def read_allowlist(path: Path) -> dict[str, str]:
+def read_allowlist(directory: Path) -> dict[str, str]:
+    """Context -> follow-up, from one file per image named after the context with '/' as '__'.
+
+    The first line of a file is the follow-up kind; the rest is the reason and must not be empty.
+    """
     entries: dict[str, str] = {}
-    for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
-        if not line.strip() or line.startswith("#"):
+    for path in sorted(directory.iterdir()):
+        if path.name == "README.md":
             continue
-        fields = line.split()
-        if len(fields) != 2 or fields[1] not in FOLLOW_UPS or fields[0] in entries:
-            raise CoverageError(f"{path}:{number}: expected a unique 'CONTEXT {'|'.join(sorted(FOLLOW_UPS))}' entry")
-        entries[fields[0]] = fields[1]
+        context = path.name.replace("__", "/")
+        if not path.is_file():
+            raise CoverageError(f"{path}: expected a file named after the image context, '/' written as '__'")
+        kind, _, reason = path.read_text(encoding="utf-8").partition("\n")
+        if kind not in FOLLOW_UPS or not reason.strip():
+            raise CoverageError(f"{path}: expected '{'|'.join(sorted(FOLLOW_UPS))}' on the first line, then the reason")
+        entries[context] = kind
     return entries
 
 

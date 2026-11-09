@@ -51,4 +51,9 @@ jobs:
           key: devbox-virtenv-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('devbox.json', 'devbox.lock') }}
 
       - name: Run locked lint suite
+        env:
+          # check_scan_identity_allowlist.py diffs against this base, as build.yaml does.
+          BASE_SHA: >-
+            ${{ github.event.pull_request.base.sha ||
+            github.event.merge_group.base_sha || github.event.before }}
         run: devbox run lint

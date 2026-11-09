@@ -14,8 +14,12 @@ from typing import Final
 import gen_matrix
 import scan_identity
 
-# The allowlist may only shrink. Never add a context here: declare scan-identity or stamp
-# the Go main module version instead. Delete a line once its image leaves the allowlist.
+# Immutable. The allowlist may only shrink, and this set is the superset it was frozen from. Never
+# edit it again, not even to delete a name when an image leaves the allowlist: that image-local pull
+# request deletes only its scripts/scan_identity_allowlist.d/ file. Never add a context here either:
+# declare scan-identity or stamp the Go main module version instead. The test asserts the live
+# entries are a subset of this set, and scripts/check_scan_identity_allowlist.py rejects a pull
+# request that adds an entry file back.
 FROZEN_BASELINE: Final = frozenset(
     f"images/{name}"
     for name in (
@@ -29,7 +33,7 @@ FROZEN_BASELINE: Final = frozenset(
     ).split()
 )
 # Images with no CPE, GHSA or OSV record for their main software: nothing can be declared without
-# inventing an identity. Adding an image here is a deliberate edit of this set.
+# inventing an identity. Immutable like FROZEN_BASELINE; adding an image here is a deliberate edit of this set.
 FROZEN_NO_FEED: Final = frozenset({"images/kubernetes-reflector", "images/sonar-scanner-cli"})
 LOCAL_FILES: Final = ["/usr", "/usr/bin", "/usr/bin/tool"]
 
@@ -85,8 +89,12 @@ class Image:
         self.sbom.write_text(json.dumps(sbom_fixture()), encoding="utf-8")
         self.syft = root / "syft.json"
         self.syft.write_text(json.dumps({"artifacts": [apk("verity-tool", LOCAL_FILES), *artifacts]}), encoding="utf-8")
-        self.allowlist = root / "allowlist.txt"
-        self.allowlist.write_text("", encoding="utf-8")
+        self.allowlist = root / "allowlist.d"
+        self.allowlist.mkdir()
+
+    def list_entry(self, follow_up: str, *, reason: str = "reason\n") -> None:
+        name = self.context.as_posix().replace("/", "__")
+        (self.allowlist / name).write_text(f"{follow_up}\n{reason}", encoding="utf-8")
 
     def apply(self) -> str:
         return scan_identity.apply(self.context, self.recipe, self.sbom, self.syft, self.allowlist)
@@ -177,26 +185,43 @@ def check_declared_identity() -> None:
 def check_allowlist() -> None:
     with TemporaryDirectory() as directory:
         image = Image(Path(directory), [])
-        key = image.context.as_posix()
-        image.allowlist.write_text(f"# note\n\n{key} identity\n", encoding="utf-8")
+        image.list_entry("identity")
         assert "ALLOWLISTED" in image.apply()
         assert json.loads(image.sbom.read_text(encoding="utf-8")) == sbom_fixture()
     with TemporaryDirectory() as directory:
         image = Image(Path(directory), [module("example.com/tool", "v1.2.3")])
-        image.allowlist.write_text(f"{image.context.as_posix()} go-version\n", encoding="utf-8")
+        image.list_entry("go-version")
         assert "stale allowlist entry" in image.apply()
-    for text in ("images/a\n", "images/a unknown\n", "images/a identity\nimages/a go-version\n", "a b c\n"):
+    for name, text in (
+        ("images__a", "identity\n"),
+        ("images__a", "identity\n\n"),
+        ("images__a", "unknown\nreason\n"),
+        ("images__a", ""),
+        ("images__a", "reason only\n"),
+        ("images__a__b", "identity reason\n"),
+    ):
         with TemporaryDirectory() as directory:
-            path = Path(directory) / "list.txt"
-            path.write_text(text, encoding="utf-8")
+            (Path(directory) / name).write_text(text, encoding="utf-8")
             try:
-                scan_identity.read_allowlist(path)
+                scan_identity.read_allowlist(Path(directory))
             except scan_identity.CoverageError:
                 continue
-            raise AssertionError(f"malformed allowlist accepted: {text!r}")
+            raise AssertionError(f"malformed allowlist entry accepted: {name!r} {text!r}")
+    with TemporaryDirectory() as directory:
+        (Path(directory) / "images__a").mkdir()
+        try:
+            scan_identity.read_allowlist(Path(directory))
+        except scan_identity.CoverageError:
+            pass
+        else:
+            raise AssertionError("a directory was accepted as an allowlist entry")
+    with TemporaryDirectory() as directory:
+        (Path(directory) / "README.md").write_text("notes\n", encoding="utf-8")
+        (Path(directory) / "images__elixir__1.17").write_text("identity\nreason\n", encoding="utf-8")
+        assert scan_identity.read_allowlist(Path(directory)) == {"images/elixir/1.17": "identity"}
     with TemporaryDirectory() as directory:
         image = Image(Path(directory), [])
-        image.allowlist.write_text(f"{image.context.as_posix()} no-feed\n", encoding="utf-8")
+        image.list_entry("no-feed")
         assert "follow-up: no-feed" in image.apply()
 
 
