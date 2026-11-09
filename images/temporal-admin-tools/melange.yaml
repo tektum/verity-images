@@ -66,6 +66,7 @@ pipeline:
       repository: https://github.com/temporalio/cli
       tag: v${{vars.cli-version}}
       expected-commit: ${{vars.cli-commit}}
+  - runs: chmod 755 cli
   - uses: go/remediate
     working-directory: cli
     with:
