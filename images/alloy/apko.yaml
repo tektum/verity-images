@@ -1,0 +1,36 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-alloy@local
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/alloy
+
+cmd: run --server.http.listen-addr=0.0.0.0:12345 --storage.path=/var/lib/alloy/data /etc/alloy/config.alloy
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/alloy
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+  - path: /var/lib/alloy/data
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+
+volumes:
+  - /var/lib/alloy/data
