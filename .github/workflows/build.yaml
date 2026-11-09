@@ -297,7 +297,7 @@ jobs:
 
   build-gate:
     if: always()
-    needs: [matrix, validate, publish]
+    needs: [matrix, native-arm64, validate, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -308,6 +308,7 @@ jobs:
           EVENT: ${{ github.event_name }}
           IMAGES: ${{ needs.matrix.outputs.images }}
           MATRIX_RESULT: ${{ needs.matrix.result }}
+          NATIVE_RESULT: ${{ needs.native-arm64.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
           VALIDATE_RESULT: ${{ needs.validate.result }}
         run: |
@@ -321,6 +322,12 @@ jobs:
           [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
           if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
+          elif [[ "$NATIVE_RESULT" == cancelled || "$PUBLISH_RESULT" == cancelled ]]; then
+            # A cancelled publish (for example stall-guard cancelling the run) must fail
+            # so catalog-catch-up dispatches. It only runs for push events, so a cancelled
+            # workflow_dispatch catch-up run fails here without re-dispatching.
+            printf '::error title=Run cancelled::Main native or publish cancelled; failing so catch-up runs.\n'
+            exit 1
           elif [[ "$PUBLISH_RESULT" != success ]]; then
             printf '::warning title=Partial image publication::Successful image receipts remain publishable.\n'
           fi

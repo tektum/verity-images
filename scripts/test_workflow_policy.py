@@ -1443,7 +1443,7 @@ def main() -> None:
     build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
         "\n\n      - name:", maxsplit=1
     )[0].split("        run: |\n", maxsplit=1)[1]
-    for event, ref, images, validate, publish, expected in (
+    for event, ref, images, validate, publish, expected, *rest in (
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "success", "failure", 0),
         (
             "merge_group",
@@ -1458,8 +1458,12 @@ def main() -> None:
         ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "success", 0),
         ("pull_request", "refs/pull/1/merge", '{"include":[{}]}', "failure", "success", 1),
         ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 0),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "cancelled", 1),
+        ("workflow_dispatch", "refs/heads/main", '{"include":[{}]}', "skipped", "cancelled", 1),
+        ("push", "refs/heads/main", '{"include":[{}]}', "success", "failure", 1, "cancelled"),
         ("push", "refs/heads/main", '{"include":[]}', "failure", "failure", 0),
     ):
+        native = rest[0] if rest else "success"
         result = subprocess.run(
             ["bash", "-c", build_gate_script],
             check=False,
@@ -1472,6 +1476,7 @@ def main() -> None:
                 "MATRIX_RESULT": "success",
                 "VALIDATE_RESULT": validate,
                 "PUBLISH_RESULT": publish,
+                "NATIVE_RESULT": native,
             },
         )
         assert result.returncode == expected
