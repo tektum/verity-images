@@ -33,9 +33,12 @@ docker run --rm --network none --read-only --entrypoint /usr/local/bin/egctl \
   "$image" --help >"$work/egctl" 2>&1 || fail 'egctl help failed'
 grep -F 'Usage:' "$work/egctl" >/dev/null || fail 'egctl usage text is missing'
 
-docker run --rm --network none --read-only --entrypoint /bin/sh "$image" \
-  -c 'test -w /var/lib/eg' >/dev/null 2>&1 ||
-  fail '/var/lib/eg is not writable'
+cid=$(docker create "$image")
+docker export "$cid" | tar -tvf - 2>/dev/null | grep -E '^drwxrwxrwx .* var/lib/eg/?$' >/dev/null || {
+  docker rm "$cid" >/dev/null
+  fail '/var/lib/eg is not world writable'
+}
+docker rm "$cid" >/dev/null
 
 if docker run --rm --network none --read-only "$image" --definitely-invalid \
   >"$work/invalid" 2>&1; then
