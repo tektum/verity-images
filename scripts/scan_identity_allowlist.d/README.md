@@ -22,5 +22,8 @@ follow-up and the rest is the reason text:
 The list may only shrink. The image-local pull request that declares scan-identity
 or stamps the Go main module version deletes its image's file in the same change,
 and touches nothing else here or in the test. `scripts/check_scan_identity_allowlist.py`
-fails a change that adds an entry, and `scripts/test_scan_identity.py` rejects any
-entry outside its frozen baseline.
+fails a change that adds an entry, except a `no-feed` file. `scripts/test_scan_identity.py`
+rejects a `no-feed` entry outside `FROZEN_NO_FEED` and any other entry outside
+`FROZEN_BASELINE`. Adding a `no-feed` image needs a deliberate `FROZEN_NO_FEED` edit with
+the evidence that no feed exists (see CONTRIBUTING.md); an existing entry is
+reclassified by editing its file, not by adding another.

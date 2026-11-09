@@ -114,7 +114,9 @@ the same change and nothing else: it does not edit another allowlist file or
 `scripts/test_scan_identity.py`, so follow-up pull requests never conflict with
 each other. `scripts/check_scan_identity_allowlist.py` (in `lint`) fails a change
 that adds a file there, comparing against the pull request or merge group base;
-`scripts/test_scan_identity.py` rejects an entry outside its immutable
+the only exception is a file whose first line is `no-feed`, which `FROZEN_NO_FEED`
+bounds instead. `scripts/test_scan_identity.py` rejects a `no-feed` entry outside
+its immutable `FROZEN_NO_FEED`, any other entry outside its immutable
 `FROZEN_BASELINE`, an entry for an image that declares an identity, and an entry
 for a missing or disabled image. Native coverage of an allowlisted image logs
 "stale allowlist entry".
@@ -124,8 +126,16 @@ record, so no identity can be declared without inventing one. It is not a pendin
 follow-up. For these images the gate covers dependencies and OS packages only,
 not the main software. Currently `kubernetes-reflector` and `sonar-scanner-cli`.
 Adding another needs a deliberate edit of the immutable `FROZEN_NO_FEED` set in
-`scripts/test_scan_identity.py` and a new file in the allowlist directory, in a
-prerequisite pull request with the evidence that no feed exists.
+`scripts/test_scan_identity.py`, in a prerequisite pull request with the evidence
+that no feed exists; `FROZEN_BASELINE` is not touched. The allowlist file itself
+then follows:
+
+- For an image already on the allowlist (for example `unverified`), change the
+  first line of its existing file to `no-feed` in the image's pull request; do not
+  add a second file.
+- For an image that does not exist yet, add its `no-feed` allowlist file in the
+  pull request that adds the image, since the test rejects an entry for a missing
+  image.
 
 ### Published version authority
 
