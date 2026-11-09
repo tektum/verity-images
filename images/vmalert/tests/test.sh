@@ -107,7 +107,8 @@ if broken=$(docker run --rm -v "$tmp/broken.yml:/etc/vmalert/rules.yml:ro" "$ima
   -rule=/etc/vmalert/rules.yml -datasource.url=http://127.0.0.1:1 -notifier.blackhole 2>&1); then
   fail 'invalid rules file unexpectedly succeeded'
 fi
-printf '%s' "$broken" | grep -Fi 'rules.yml' >/dev/null \
+printf '%s' "$broken" | grep -F 'fatal' | grep -F 'cannot parse configuration file' \
+  | grep -F '/etc/vmalert/rules.yml' >/dev/null \
   || fail 'invalid rules file did not return a readable error'
 
 if invalid=$(docker run --rm "$image" -no-such-flag 2>&1); then
