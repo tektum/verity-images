@@ -11,7 +11,7 @@ fail() {
   exit 1
 }
 cleanup() {
-  docker rm -f "$container" "$negative" >/dev/null 2>&1 || true
+  docker rm -fv "$container" "$negative" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
