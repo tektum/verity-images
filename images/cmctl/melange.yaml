@@ -1,7 +1,7 @@
 package:
   name: cmctl-2.6
   version: "2.6.2"
-  epoch: 0
+  epoch: 1
   description: cert-manager command line tool
   copyright:
     - license: Apache-2.0
@@ -40,13 +40,16 @@ pipeline:
       modroot: .
       packages: .
   - runs: |
-      go build -mod=readonly -trimpath -buildvcs=false \
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w \
           -X github.com/cert-manager/cert-manager/pkg/util.AppVersion=v${{package.version}} \
           -X github.com/cert-manager/cert-manager/pkg/util.AppGitCommit=${{vars.source-commit}} \
           -X k8s.io/client-go/pkg/version.gitVersion=v${{package.version}} \
           -X k8s.io/client-go/pkg/version.gitCommit=${{vars.source-commit}}" \
         -o "${{targets.destdir}}/usr/bin/cmctl" .
+      go version -m "${{targets.destdir}}/usr/bin/cmctl" \
+        | awk '$1 == "mod" && $2 == "github.com/cert-manager/cmctl/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
