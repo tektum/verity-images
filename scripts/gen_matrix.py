@@ -35,6 +35,8 @@ COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/bui
 CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
 GO_REMEDIATE_SAMPLE: Final = "images/rqlite"
+SCAN_IDENTITY_PATHS: Final = {"scripts/scan_identity.py"}
+SCAN_IDENTITY_SAMPLE: Final = "images/rqlite"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 APK_REPOSITORY_URL: Final = "https://tektum.github.io/verity-images/apk"
 APK_REPOSITORY_PATHS: Final = {
@@ -301,6 +303,11 @@ def changed_paths(base_ref: str) -> set[str]:
     )
     return set(result.stdout.splitlines())
 
+
+def declares_scan_identity(path: str) -> bool:
+    """A metadata edit that declares scan-identity changes the attested SBOM, so it must build."""
+    return (ROOT / path).is_file() and bool(parse_metadata(ROOT / path).scan_identity)
+
 def is_validation_path(path: str) -> bool:
     return "/tests/" in f"/{path}"
 
@@ -366,6 +373,9 @@ def input_digest(directory: Path, flavor: str) -> str:
             ),
         }
     )
+    identity = parse_metadata(directory / "metadata.yaml").scan_identity
+    if identity:
+        digest.update(b"\0scan-identity\0" + "\0".join(identity).encode())
     for relative in paths:
         digest.update(b"\0")
         digest.update(relative.encode())
@@ -426,7 +436,7 @@ def generate(
         {
             path
             for path in changed_paths(base_ref)
-            if not path.endswith("/metadata.yaml") and not is_validation_path(path)
+            if (not path.endswith("/metadata.yaml") or declares_scan_identity(path)) and not is_validation_path(path)
         }
         if base_ref and catalog_path is None
         else set()
@@ -436,6 +446,7 @@ def generate(
     go_remediate_changed = bool(changed & GO_REMEDIATE_PATHS)
     corepack_install_changed = bool(changed & COREPACK_INSTALL_PATHS)
     cargo_remediate_changed = bool(changed & CARGO_REMEDIATE_PATHS)
+    scan_identity_changed = bool(changed & SCAN_IDENTITY_PATHS)
     cached = cached_images(catalog_path, max_age)
     published = published_identities(published_catalog)
     catalog = [(directory, parse_metadata(directory / "metadata.yaml")) for directory in image_directories()]
@@ -509,6 +520,7 @@ def generate(
                 and not (go_remediate_changed and relative == GO_REMEDIATE_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
                 and not (cargo_remediate_changed and relative == cargo_remediate_sample)
+                and not (scan_identity_changed and relative == SCAN_IDENTITY_SAMPLE)
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue

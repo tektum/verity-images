@@ -291,6 +291,40 @@ def check_apk_repository_consumers() -> None:
         ]
 
 
+def check_scan_identity_selection() -> None:
+    # A declared scan-identity changes the attested SBOM, so a metadata-only edit that
+    # declares one must build and re-fingerprint; other metadata edits stay catalog-only.
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        for name in ("tool", "rqlite"):
+            write_image(root / f"images/{name}", name=name, versions="1", package_version="1.0.0")
+        metadata = root / "images/tool/metadata.yaml"
+
+        def selected(*paths: str) -> list[str]:
+            with patch.object(gen_matrix, "changed_paths", return_value=set(paths)):
+                return sorted(entry["context"] for entry in gen_matrix.generate("base")["include"])
+
+        with patch.object(gen_matrix, "ROOT", root):
+            before = gen_matrix.input_digest(root / "images/tool", "plain")
+            metadata.write_text(metadata.read_text(encoding="utf-8") + "category: Tools\n", encoding="utf-8")
+            assert selected("images/tool/metadata.yaml") == []
+            assert gen_matrix.input_digest(root / "images/tool", "plain") == before
+
+            metadata.write_text(
+                metadata.read_text(encoding="utf-8") + "scan-identity: [cpe:2.3:a:example:tool]\n", encoding="utf-8"
+            )
+            assert selected("images/tool/metadata.yaml") == ["images/tool"]
+            declared = gen_matrix.input_digest(root / "images/tool", "plain")
+            assert declared != before
+            metadata.write_text(
+                metadata.read_text(encoding="utf-8").replace("example:tool", "example:other"), encoding="utf-8"
+            )
+            assert gen_matrix.input_digest(root / "images/tool", "plain") != declared
+
+            # A change to the rule validates one real melange build, not every image.
+            assert selected("scripts/scan_identity.py") == [gen_matrix.SCAN_IDENTITY_SAMPLE]
+
+
 def check_authority_drift() -> None:
     # Source-built metadata temporarily records channel granularity while
     # melange owns the version. A Renovate bump can therefore add drift until
@@ -528,6 +562,7 @@ def main() -> None:
     check_published_gap_selection()
     check_authority_drift()
     check_apk_repository_consumers()
+    check_scan_identity_selection()
 
 
 if __name__ == "__main__":

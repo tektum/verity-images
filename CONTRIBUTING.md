@@ -97,7 +97,11 @@ appear. Declare the main software only, not its bundled dependencies, and expect
 NVD ranges to be coarse. The field needs an image-local `melange.yaml`; patched
 and pure APKO images are scanned from their real package databases. A CPE entry
 is matched through NVD only. A Go purl is matched through GHSA only, so declare
-both when the software has CPE-only advisories.
+both when the software has CPE-only advisories. A `metadata.yaml` edit that declares
+`scan-identity` selects its image for a build and is part of the image's input
+fingerprint; other metadata edits stay catalog-only. An edit to
+`scripts/scan_identity.py` builds one sample melange image, as shared pipeline
+changes do.
 
 The allowlist is a temporary exception for images that predate the rule. Each
 line names a context and its follow-up: `identity`, `go-version`, or

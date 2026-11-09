@@ -34,7 +34,7 @@ NOT_APPLICABLE: Final = "not-applicable"
 
 
 class CoverageError(Exception):
-    ...
+    """The image's main software is invisible to the scanners, or its coverage declaration is invalid."""
 
 
 def recipe_version(recipe: Path) -> str:
@@ -170,9 +170,9 @@ def apply(context: Path, recipe: Path, sbom_path: Path, syft_path: Path, allowli
     key = relative_context(context)
     if identities:
         inject(sbom, identities, version, f"{key}/metadata.yaml")
-        if missing := declared_missing(sbom, identities, version):
-            raise CoverageError(f"{key}: declared scan-identity missing from the SBOM: {', '.join(missing)}")
         sbom_path.write_text(json.dumps(sbom, indent=2) + "\n", encoding="utf-8")
+        if missing := declared_missing(json.loads(sbom_path.read_text(encoding="utf-8")), identities, version):
+            raise CoverageError(f"{key}: declared scan-identity missing from the SBOM: {', '.join(missing)}")
         return f"{key}: scanning declared identity {', '.join(identities)} at {version}"
     syft = json.loads(syft_path.read_text(encoding="utf-8"))
     listed = read_allowlist(allowlist)
