@@ -77,6 +77,61 @@ import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 
+RESOURCES = {
+    "v1": [
+        ("configmaps", "ConfigMap", True),
+        ("namespaces", "Namespace", False),
+        ("pods", "Pod", True),
+        ("secrets", "Secret", True),
+        ("serviceaccounts", "ServiceAccount", True),
+    ],
+    "apps/v1": [
+        ("deployments", "Deployment", True),
+        ("statefulsets", "StatefulSet", True),
+    ],
+    "autoscaling/v2": [("horizontalpodautoscalers", "HorizontalPodAutoscaler", True)],
+    "keda.sh/v1alpha1": [
+        ("clustertriggerauthentications", "ClusterTriggerAuthentication", False),
+        ("scaledjobs", "ScaledJob", True),
+        ("scaledobjects", "ScaledObject", True),
+        ("triggerauthentications", "TriggerAuthentication", True),
+    ],
+    "eventing.keda.sh/v1alpha1": [
+        ("cloudeventsources", "CloudEventSource", True),
+        ("clustercloudeventsources", "ClusterCloudEventSource", False),
+    ],
+}
+
+
+def resource_list(group_version):
+    return {
+        "apiVersion": "v1",
+        "kind": "APIResourceList",
+        "groupVersion": group_version,
+        "resources": [
+            {
+                "kind": kind,
+                "name": name,
+                "namespaced": namespaced,
+                "singularName": "",
+                "verbs": ["create", "delete", "get", "list", "patch", "update", "watch"],
+            }
+            for name, kind, namespaced in RESOURCES[group_version]
+        ],
+    }
+
+
+def group_list():
+    groups = []
+    for group_version in RESOURCES:
+        if group_version == "v1":
+            continue
+        group, version = group_version.split("/")
+        entry = {"groupVersion": group_version, "version": version}
+        groups.append({"name": group, "preferredVersion": entry, "versions": [entry]})
+    return {"apiVersion": "v1", "kind": "APIGroupList", "groups": groups}
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
 
@@ -92,6 +147,15 @@ class Handler(BaseHTTPRequestHandler):
         path, _, query = self.path.partition("?")
         if path == "/version":
             return self.send_json(200, {"major": "1", "minor": "34", "gitVersion": "v1.34.0"})
+        if path == "/api":
+            return self.send_json(200, {"apiVersion": "v1", "kind": "APIVersions", "versions": ["v1"],
+                                        "serverAddressByClientCIDRs": []})
+        if path == "/api/v1":
+            return self.send_json(200, resource_list("v1"))
+        if path == "/apis":
+            return self.send_json(200, group_list())
+        if path.startswith("/apis/") and path[len("/apis/"):] in RESOURCES:
+            return self.send_json(200, resource_list(path[len("/apis/"):]))
         if "watch=true" in query:
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
@@ -145,7 +209,7 @@ chmod 0644 "$work/kubeconfig"
 
 container=$(docker run -d --network host --read-only \
   --tmpfs /tmp:uid=65532,gid=65532,mode=1777 \
-  -e KUBECONFIG=/kubeconfig \
+  -e WATCH_NAMESPACE= -e KUBECONFIG=/kubeconfig \
   -v "$work/kubeconfig:/kubeconfig:ro" \
   "$image" --secure-port="$secure_port" --port="$metrics_port" --cert-dir=/tmp \
   --lister-kubeconfig=/kubeconfig --authentication-kubeconfig=/kubeconfig \
