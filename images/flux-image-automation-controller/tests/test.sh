@@ -29,12 +29,12 @@ fi
 printf '%s\n' "$output" | grep -F 'unable to get kubeconfig' >/dev/null \
   || fail 'missing Kubernetes credentials did not report a kubeconfig error'
 
-# Git checkouts need a world-writable /tmp for the non-root user.
+# Git checkouts need a world-writable sticky /tmp for the non-root user.
 container=$(docker create --label owner=verity-smoke "$image") || fail 'could not create container'
 trap 'docker rm -f "$container" >/dev/null 2>&1 || true' EXIT
 tmp_entry=$(docker export "$container" | tar -tvf - 2>/dev/null | grep -E ' tmp/$' || true)
 case $tmp_entry in
-  drwxrwxrwt*|drwxrwxrwx*) ;;
+  drwxrwxrwt*) ;;
   *) fail "unexpected /tmp entry: $tmp_entry" ;;
 esac
 
