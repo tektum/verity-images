@@ -142,7 +142,7 @@ runs:
         TEST: ${{ inputs.context }}/tests/test.sh
       run: |
         for arch in amd64 arm64; do
-          "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
+          DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
         done
 
     - name: Log in to GHCR
