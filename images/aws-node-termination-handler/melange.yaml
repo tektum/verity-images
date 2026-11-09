@@ -1,7 +1,7 @@
 package:
   name: verity-aws-node-termination-handler
   version: "1.25.6"  # renovate: datasource=github-releases depName=aws/aws-node-termination-handler versioning=semver
-  epoch: 0
+  epoch: 1
   description: Gracefully handles EC2 instance shutdown within Kubernetes
   copyright:
     - license: Apache-2.0
@@ -37,10 +37,13 @@ pipeline:
       packages: ./cmd/node-termination-handler.go
   - uses: go/build/v2
     with:
-      packages: ./cmd/node-termination-handler.go
+      packages: ./cmd
       tags: nthlinux
       output: node-termination-handler
   - runs: |
+      go version -m "${{targets.destdir}}/usr/bin/node-termination-handler" \
+        | awk '$1 == "mod" && $2 == "github.com/aws/aws-node-termination-handler" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 test:
