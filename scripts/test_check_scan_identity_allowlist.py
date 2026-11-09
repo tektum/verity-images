@@ -77,12 +77,41 @@ def main() -> None:
     with TemporaryDirectory() as directory:
         root = Path(directory)
         git(root, "init", "-q", "-b", "main")
-        (root / "file").write_text("x\n", encoding="utf-8")
-        base = commit(root, "base without the directory")
+        (root / "scripts").mkdir()
+        (root / check.LEGACY).write_text("# header\nimages/a identity\n", encoding="utf-8")
+        base = commit(root, "base with the legacy file")
+        git(root, "rm", "-q", check.LEGACY)
         write(root, "README.md", "notes\n")
         write(root, "images__a")
         commit(root, "introduce the directory")
-        assert check.added_entries(root, base) == [], "the introducing change adds every entry once"
+        assert check.added_entries(root, base) == [], "the introducing change may add the listed entries"
+        write(root, "images__z")
+        commit(root, "add an unlisted entry")
+        assert check.added_entries(root, base) == [f"{DIRECTORY}/images__z"], "an unlisted entry must fail"
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        git(root, "init", "-q", "-b", "main")
+        (root / "file").write_text("x\n", encoding="utf-8")
+        base = commit(root, "base with no allowlist at all")
+        write(root, "README.md", "notes\n")
+        commit(root, "directory appears")
+        try:
+            check.added_entries(root, base)
+        except SystemExit:
+            pass
+        else:
+            raise AssertionError("a base with neither the marker nor the legacy file was accepted")
+    with TemporaryDirectory() as directory:
+        root = Path(directory)
+        git(root, "init", "-q", "-b", "main")
+        write(root, "README.md", "notes\n")
+        base = commit(root, "base")
+        write(root, "images__n", "no-feed\nreason\n")
+        commit(root, "deliberate no-feed addition")
+        assert check.added_entries(root, base) == [], "a no-feed addition is bounded by FROZEN_NO_FEED, not here"
+        write(root, "images__o", "identity\nreason\n")
+        commit(root, "identity addition")
+        assert check.added_entries(root, base) == [f"{DIRECTORY}/images__o"]
     print("passed scripts/test_check_scan_identity_allowlist.py")
 
 

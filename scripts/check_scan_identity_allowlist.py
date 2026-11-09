@@ -13,7 +13,10 @@ argument, else $BASE_SHA (the pull request base, the merge group base, or the pu
 "before" commit, as in build.yaml). Without a usable base the check falls back to the
 merge base with origin/main, and when that is absent too it skips with a notice: the
 frozen sets in scripts/test_scan_identity.py still bound which entries can exist. A base
-that is given but not present in the clone is an error, never a silent pass.
+that is given but not present in the clone is an error, never a silent pass. An added file
+whose first line is `no-feed` is allowed, since adding a no-feed image is a deliberate edit
+of FROZEN_NO_FEED; the test bounds it. The change that introduces the directory may add
+only the contexts the legacy .txt listed at its base.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ from typing import Final
 ROOT: Final = Path(__file__).resolve().parents[1]
 DIRECTORY: Final = "scripts/scan_identity_allowlist.d"
 MARKER: Final = f"{DIRECTORY}/README.md"
+LEGACY: Final = "scripts/scan_identity_allowlist.txt"
 NO_BASE: Final = {"", "0" * 40}
 
 
@@ -47,13 +51,28 @@ def added_entries(root: Path, base: str) -> list[str] | None:
     if merge_base.returncode != 0:
         raise SystemExit(f"no merge base between {base} and HEAD; fetch with fetch-depth: 0")
     start = merge_base.stdout.strip()
-    # The pull request that introduces the directory necessarily adds every entry once.
+    # Without the directory at the merge base, the pull request that introduces it may add exactly the
+    # entries the legacy file listed there. With neither, fail: the marker cannot be deleted to switch this off.
+    legacy: set[str] | None = None
     if git(root, "cat-file", "-e", f"{start}:{MARKER}").returncode != 0:
-        return []
+        listing = git(root, "show", f"{start}:{LEGACY}")
+        if listing.returncode != 0:
+            raise SystemExit(f"neither {MARKER} nor {LEGACY} exists at {start}; restore the allowlist directory")
+        legacy = {line.split()[0] for line in listing.stdout.splitlines() if line.strip() and not line.startswith("#")}
     diff = git(root, "diff", "--no-renames", "--diff-filter=A", "--name-only", start, "HEAD", "--", DIRECTORY)
     if diff.returncode != 0:
         raise SystemExit(f"git diff failed: {diff.stderr.strip()}")
-    return diff.stdout.splitlines()
+    added = []
+    for path in diff.stdout.splitlines():
+        name = path.removeprefix(f"{DIRECTORY}/")
+        if name == "README.md" or (legacy is not None and name.replace("__", "/") in legacy):
+            continue
+        # A deliberate no-feed addition passes here; the FROZEN_NO_FEED subset in test_scan_identity.py bounds it.
+        shown = git(root, "show", f"HEAD:{path}")
+        if shown.returncode == 0 and shown.stdout.partition("\n")[0] == "no-feed":
+            continue
+        added.append(path)
+    return added
 
 
 def main() -> None:

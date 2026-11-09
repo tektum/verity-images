@@ -277,6 +277,7 @@ def check_repository_allowlist() -> None:
     assert frozen <= FROZEN_BASELINE, f"allowlist grew: {sorted(frozen - FROZEN_BASELINE)}"
     no_feed = {context for context, follow_up in listed.items() if follow_up == "no-feed"}
     assert no_feed <= FROZEN_NO_FEED, f"no-feed grew, edit FROZEN_NO_FEED deliberately: {sorted(no_feed - FROZEN_NO_FEED)}"
+    assert (scan_identity.ALLOWLIST / "README.md").is_file(), "the allowlist directory marker was deleted"
     for context in listed:
         directory = gen_matrix.ROOT / context
         metadata = gen_matrix.parse_metadata(directory / "metadata.yaml")
