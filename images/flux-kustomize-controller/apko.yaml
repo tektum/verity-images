@@ -11,6 +11,14 @@ contents:
     - verity-flux-kustomize-controller@local
 
 accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /tmp
   run-as: 65534
 
 entrypoint:

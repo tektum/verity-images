@@ -68,20 +68,23 @@ plaintext=$(printf '%s\n' "$ciphertext" | gpg_run "$decryptor" --decrypt 2>/dev/
   || fail 'gpg decryption with the imported key failed'
 [ "$plaintext" = verity-sops-pgp ] || fail 'gpg decrypted unexpected plaintext'
 
-# Kustomize fetches remote Git bases by running git, and ssh for ssh:// URLs.
-# Clone a local repository as the runtime user to prove the git CLI works.
+# Kustomize fetches remote Git bases by running git (init, remote add, fetch
+# over https or ssh). Repeat those steps as the runtime user without a network:
+# the fetch must reach DNS resolution, which proves the https transport helper
+# runs in this shell-less image.
 docker volume create "$repo" >/dev/null || fail 'git volume creation failed'
 git_run() {
   docker run --rm --network none --user 65534 --cpus 4 --memory 1g --pids-limit 256 \
-    -e HOME=/tmp -v "$repo:/tmp" --entrypoint /usr/bin/git "$image" \
-    -c user.name=smoke -c user.email=smoke@example.invalid -c init.defaultBranch=main "$@"
+    -e HOME=/tmp -v "$repo:/tmp" --entrypoint /usr/bin/git "$image" "$@"
 }
-git_run init -q /tmp/src >/dev/null 2>&1 || fail 'git init failed'
-git_run -C /tmp/src commit -q --allow-empty -m verity-remote-base >/dev/null 2>&1 \
-  || fail 'git commit failed'
-git_run clone -q --depth 1 file:///tmp/src /tmp/dst >/dev/null 2>&1 || fail 'git clone of a file:// base failed'
-[ "$(git_run -C /tmp/dst log -1 --format=%s 2>/dev/null)" = verity-remote-base ] \
-  || fail 'cloned base has unexpected history'
+git_run init -q /tmp/base >/dev/null 2>&1 || fail 'git init failed'
+git_run -C /tmp/base remote add origin https://example.invalid/base.git >/dev/null 2>&1 \
+  || fail 'git remote add failed'
+if output=$(git_run -C /tmp/base fetch --depth=1 origin main 2>&1); then
+  fail 'git fetch without a network unexpectedly succeeded'
+fi
+printf '%s\n' "$output" | grep -F 'Could not resolve host: example.invalid' >/dev/null \
+  || fail "git https transport is not usable: $output"
 ssh_output=$(docker run --rm --network none --user 65534 --entrypoint /usr/bin/ssh "$image" -V 2>&1) \
   || fail 'ssh client is not runnable'
 printf '%s\n' "$ssh_output" | grep -F OpenSSH >/dev/null || fail 'ssh client is not OpenSSH'
