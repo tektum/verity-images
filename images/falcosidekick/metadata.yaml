@@ -4,5 +4,6 @@ description: Falcosidekick event forwarder for Falco alerts built from pinned up
 category: Security & Identity
 upstream: https://github.com/falcosecurity/falcosidekick
 versions: [2.35]
+scan-identity: [pkg:golang/github.com/falcosecurity/falcosidekick]
 owner: tektum
 enabled: true
