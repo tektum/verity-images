@@ -44,8 +44,11 @@ until docker exec "$container" temporal operator namespace list >"$tmp/ns.txt" 2
   sleep 1
 done
 grep -qw default "$tmp/ns.txt" || { cat "$tmp/ns.txt" >&2; fail 'default namespace not listed'; }
-docker exec "$container" tdbg --address 127.0.0.1:7233 cluster describe >"$tmp/cluster.txt" 2>&1 ||
-  { cat "$tmp/cluster.txt" >&2; fail 'tdbg cluster describe failed'; }
+if docker exec "$container" tdbg --address 127.0.0.1:7233 --namespace default \
+  workflow describe --workflow-id verity-missing >"$tmp/tdbg.txt" 2>&1; then
+  fail 'tdbg describe of a missing workflow unexpectedly succeeded'
+fi
+grep -qi 'not found' "$tmp/tdbg.txt" || { cat "$tmp/tdbg.txt" >&2; fail 'tdbg did not reach the server'; }
 
 if docker exec "$container" temporal operator namespace describe --namespace missing-ns \
   >"$tmp/missing.log" 2>&1; then
