@@ -1,0 +1,101 @@
+package:
+  name: opentelemetry-operator-0.162
+  version: "0.162.0"
+  epoch: 0
+  description: Kubernetes operator for OpenTelemetry collectors and auto-instrumentation
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 16Gi
+
+vars:
+  source-commit: 989089bf5c75d78fdc6004147f97d972fc436bd4
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/open-telemetry/opentelemetry-operator
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      # Mirror upstream's Makefile OPERATOR_LDFLAGS: the default collector,
+      # target allocator and auto-instrumentation image versions come from
+      # the tagged checkout's versions.txt.
+      vp=github.com/open-telemetry/opentelemetry-operator/internal/version
+      ver() { awk -F= -v key="$1" '$1 == key { print $2 }' versions.txt; }
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+      install -d "${{targets.destdir}}/usr/bin"
+      go build -p 4 -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X ${vp}.version=${{package.version}} \
+          -X ${vp}.buildDate=${build_date} \
+          -X ${vp}.otelCol=$(ver opentelemetry-collector) \
+          -X ${vp}.targetAllocator=$(ver targetallocator) \
+          -X ${vp}.operatorOpAMPBridge=$(ver operator-opamp-bridge) \
+          -X ${vp}.autoInstrumentationJava=$(ver autoinstrumentation-java) \
+          -X ${vp}.autoInstrumentationNodeJS=$(ver autoinstrumentation-nodejs) \
+          -X ${vp}.autoInstrumentationPython=$(ver autoinstrumentation-python) \
+          -X ${vp}.autoInstrumentationRuby=$(ver autoinstrumentation-ruby) \
+          -X ${vp}.autoInstrumentationDotNet=$(ver autoinstrumentation-dotnet) \
+          -X ${vp}.autoInstrumentationGo=$(ver autoinstrumentation-go) \
+          -X ${vp}.autoInstrumentationPhp=$(ver autoinstrumentation-php) \
+          -X ${vp}.autoInstrumentationApacheHttpd=$(ver autoinstrumentation-apache-httpd) \
+          -X ${vp}.autoInstrumentationNginx=$(ver autoinstrumentation-nginx)" \
+        -o "${{targets.destdir}}/usr/bin/manager" .
+      go version -m "${{targets.destdir}}/usr/bin/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/open-telemetry/opentelemetry-operator" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the OpenTelemetry operator build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/opentelemetry-operator-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/opentelemetry-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        manager --help 2>&1 | grep -F 'Usage:'
+        manager --help 2>&1 | grep -F -e '--config-file'
+        apk info --who-owns /usr/bin/manager \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: open-telemetry/opentelemetry-operator
+    strip-prefix: v
