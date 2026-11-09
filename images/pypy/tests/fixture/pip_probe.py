@@ -57,16 +57,28 @@ def main():
         print("FAIL unexpected greeting: " + repr(greeting), file=sys.stderr)
         return 1
 
-    # The non-root user cannot modify the interpreter's own site-packages. pip
-    # falls back to a user install unless told otherwise, so refuse the fallback.
+    # The interpreter's own tree must be closed to the image user. Check the
+    # ownership and permission bits directly: the probes run on a read-only root,
+    # which would refuse every write whatever those bits are.
     system_site = os.path.join(sys.prefix, "lib", "pypy3.11", "site-packages")
+    for path in (sys.prefix, os.path.join(sys.prefix, "bin"), os.path.join(sys.prefix, "lib", "pypy3.11"),
+                 system_site):
+        info = os.stat(path)
+        if info.st_uid != 0 or info.st_mode & 0o022:
+            print("FAIL %s is writable by the image user: uid=%d mode=%o" % (path, info.st_uid, info.st_mode),
+                  file=sys.stderr)
+            return 1
+    print("ok interpreter tree is root-owned and not group or world writable")
+
+    # pip falls back to a user install unless told otherwise, so refuse the
+    # fallback and expect it to leave the system site-packages untouched.
     denied = subprocess.run(PIP + ["install", "--no-index", "--find-links", wheels, "demo-pkg"],
                             env=dict(os.environ, PIP_USER="0", PYTHONNOUSERSITE="1"),
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     if denied.returncode == 0 or os.path.exists(os.path.join(system_site, "demo_pkg")):
         print("FAIL pip modified the system site-packages as a non-root user", file=sys.stderr)
         return 1
-    print("ok system site-packages is not writable")
+    print("ok pip does not install into the system site-packages")
 
     # venv runs ensurepip, which must find the Wolfi wheels.
     venv = os.path.join(work, "venv")

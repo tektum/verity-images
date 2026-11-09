@@ -71,6 +71,24 @@ case "$pip_version" in
   *) fail "unexpected pip entry point output: $pip_version" ;;
 esac
 
+# The interpreter's tree must be closed to the image user on its own merits, not
+# only because the probes above run on a read-only root. Without --read-only the
+# write must be refused for permissions (EACCES), not for a read-only mount.
+status=0
+docker run --rm --network none "$image" -c '
+import errno, sys
+try:
+    open("/opt/pypy/lib/pypy3.11/site-packages/write-probe", "w").close()
+except OSError as error:
+    sys.exit(0 if error.errno == errno.EACCES else 2)
+sys.exit(1)
+' >/dev/null 2>&1 || status=$?
+case "$status" in
+  0) ;;
+  1) fail 'the image user can write to the interpreter site-packages' ;;
+  *) fail "writing to the interpreter site-packages failed for the wrong reason (status $status)" ;;
+esac
+
 # Failures must be reported, not swallowed.
 status=0
 run "$image" -c 'import sys; sys.exit(7)' >/dev/null 2>&1 || status=$?
