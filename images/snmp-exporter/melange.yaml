@@ -1,0 +1,84 @@
+package:
+  name: verity-snmp-exporter
+  version: "0.31.0"  # renovate: datasource=github-releases depName=prometheus/snmp_exporter
+  epoch: 0
+  description: Prometheus exporter for SNMP-managed devices
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/snmp_exporter
+      tag: v${{package.version}}
+      expected-commit: 181b59e7748732516e761b27c308794f2470d4bc
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      revision=$(git rev-parse HEAD)
+      flags="-s -w"
+      flags="$flags -X github.com/prometheus/common/version.Version=${{package.version}}"
+      flags="$flags -X github.com/prometheus/common/version.Revision=$revision"
+      flags="$flags -X github.com/prometheus/common/version.Branch=HEAD"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/snmp_exporter" .
+      go version -m "${{targets.destdir}}/usr/bin/snmp_exporter" \
+        | awk '$1 == "mod" && $2 == "github.com/prometheus/snmp_exporter" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 snmp.yml "${{targets.destdir}}/etc/snmp_exporter/snmp.yml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the snmp-exporter build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/snmp-exporter-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/snmp-exporter-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        snmp_exporter --version 2>&1 | grep -F "${{package.version}}"
+        snmp_exporter --config.file=/etc/snmp_exporter/snmp.yml --dry-run
+        apk info --who-owns /usr/bin/snmp_exporter \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: prometheus/snmp_exporter
+    strip-prefix: v
+    use-tag: true
