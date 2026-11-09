@@ -4,5 +4,6 @@ description: Extensible DNS server with a plugin-based configuration model.
 category: Service Mesh & Networking
 upstream: https://coredns.io/
 versions: [1.14]
+scan-identity: [pkg:golang/github.com/coredns/coredns, cpe:2.3:a:coredns.io:coredns]
 owner: tektum
 enabled: true
