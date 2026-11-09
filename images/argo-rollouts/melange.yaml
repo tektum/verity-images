@@ -45,7 +45,11 @@ pipeline:
       source_commit=$(git rev-parse HEAD)
       build_date=$(git show -s --format=%cI HEAD)
 
-      go build -mod=readonly -trimpath -buildvcs=false \
+      # Go stamps the main module version only from a semver vX.Y.Z tag on HEAD;
+      # make sure the pinned commit carries it so scanners see the real version.
+      git tag -f v${{package.version}} "$source_commit"
+
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w \
           -X github.com/argoproj/argo-rollouts/utils/version.version=${{package.version}} \
           -X github.com/argoproj/argo-rollouts/utils/version.buildDate=$build_date \
@@ -61,6 +65,9 @@ pipeline:
 
       version_output=$("${{targets.destdir}}/usr/bin/rollouts-controller" --version)
       test "$version_output" = "v${{package.version}}+$(printf '%.7s' "$source_commit").dirty"
+      go version -m "${{targets.destdir}}/usr/bin/rollouts-controller" \
+        | awk '$1 == "mod" && $2 == "github.com/argoproj/argo-rollouts" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
 
   - uses: strip
 
