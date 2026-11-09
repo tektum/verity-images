@@ -39,7 +39,14 @@ pipeline:
       expected-commit: 3fa784edd773d56630bb9f62645e08f70c2cff0a
 
   - runs: |
-      ./manifests/scripts/bundle.sh
+      # bundle.sh fetches the pinned controller release manifests from GitHub, which
+      # intermittently answers 504; retry the whole bundle a bounded number of times.
+      attempt=1
+      until ./manifests/scripts/bundle.sh; do
+        [ "$attempt" -lt 5 ] || exit 1
+        sleep $((attempt * 20))
+        attempt=$((attempt + 1))
+      done
       test -s cmd/flux/manifests/source-controller.yaml
 
   - uses: go/remediate
