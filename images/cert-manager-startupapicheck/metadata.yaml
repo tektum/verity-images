@@ -1,0 +1,7 @@
+name: cert-manager-startupapicheck
+track: wolfi
+description: Startup job that verifies a cert-manager install works. Built from pinned upstream source.
+upstream: https://cert-manager.io/
+versions: [1.19]
+owner: tektum
+enabled: true
