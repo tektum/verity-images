@@ -1,0 +1,27 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-flux-kustomize-controller@local
+
+accounts:
+  run-as: 65534
+
+entrypoint:
+  command: /manager
+
+environment:
+  GNUPGHOME: /tmp
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 65534
+    gid: 65534
+    permissions: 0o1777

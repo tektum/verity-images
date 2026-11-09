@@ -1,0 +1,66 @@
+package:
+  name: verity-flux-kustomize-controller
+  version: "1.10.1"
+  epoch: 0
+  description: Flux Kustomize Controller for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - gpg
+      - gpg-agent
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 746d9d2d360bbc7a5ee75ab79dadcf05e48ab927
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluxcd/kustomize-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" -o manager .
+      install -Dm755 manager "${{targets.destdir}}/manager"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Flux Kustomize Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/flux-kustomize-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/flux-kustomize-controller-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        help_output=$(/manager --help 2>&1)
+        printf '%s\n' "$help_output" | grep -F -- '--sops-age-secret string'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
