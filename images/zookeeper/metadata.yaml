@@ -3,5 +3,6 @@ track: wolfi
 description: Apache ZooKeeper coordination service built from pinned source.
 upstream: https://zookeeper.apache.org/
 versions: [3.9]
+scan-identity: [cpe:2.3:a:apache:zookeeper]
 owner: tektum
 enabled: true

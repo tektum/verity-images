@@ -25,7 +25,7 @@ FROZEN_BASELINE: Final = frozenset(
         "fluent-bit flux-cli/2.10 flux-cli/2.8 flux-cli/2.9 flux-helm-controller "
         "gradle haproxy haproxy-ingress jenkins kube-state-metrics mariadb/12.3 "
         "metallb-speaker metrics-server mysql/9.7 nodejs/22 postgres/17 "
-        "source-controller tekton-controller trust-manager valkey victoria-metrics vmagent zookeeper"
+        "source-controller tekton-controller trust-manager valkey victoria-metrics vmagent "
     ).split()
 )
 # Images with no CPE, GHSA or OSV record for their main software: nothing can be declared without
