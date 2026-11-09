@@ -68,8 +68,16 @@ pipeline:
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
 test:
+  environment:
+    contents:
+      repositories:
+        - https://packages.wolfi.dev/os
+      keyring:
+        - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+      packages:
+        - busybox
   pipeline:
     - runs: |
-        version=$(java -jar /usr/share/jenkins/agent.jar -version)
+        version=$(/usr/lib/jvm/java-21-openjdk/bin/java -jar /usr/share/jenkins/agent.jar -version)
         [ "$version" = "${{vars.upstream-version}}" ] || { echo "unexpected remoting version: $version" >&2; exit 1; }
         test -x /usr/local/bin/jenkins-agent
