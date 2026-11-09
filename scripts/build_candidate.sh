@@ -96,7 +96,10 @@ if [[ "$track" == wolfi ]]; then
     --arch amd64,arm64 "${keyring[@]}" --lockfile "${output}/apko.lock.json" --sbom-path "${output}/apko-sbom"
   docker load < "${output}/image.tar"
   for arch in amd64 arm64; do
-    syft "docker:${candidate}-${arch}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json"
+    syft "docker:${candidate}-${arch}" -o "spdx-json=${output}/sbom/sbom-${arch}.spdx.json" \
+      -o "json=${output}/syft-${arch}.json"
+    [[ ! -f "$recipe" ]] || python3 "$root/scripts/scan_identity.py" "$context" "$recipe" \
+      "${output}/sbom/sbom-${arch}.spdx.json" "${output}/syft-${arch}.json"
   done
   printf '%s\n' "${output}/apko.lock.json" > "${output}/evidence-path"
   exit

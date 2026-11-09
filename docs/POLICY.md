@@ -84,6 +84,21 @@ consumed by the catalog.
 No image is admitted on the basis of improvement alone. A residual CVE delta is
 evidence for diagnosis, not an exception to the publication gate.
 
+A zero-fixable result only counts for software the scanner can see. Melange stamps
+its binaries with a package note that makes Syft report the main software of a
+source-built image under the local package name, so the Grype feeds match nothing.
+`scripts/scan_identity.py` runs after Syft for every image built from an
+image-local `melange.yaml` and fails the build unless `metadata.yaml` declares a
+`scan-identity` (a CPE vendor and product or a purl type and name, versioned from
+the recipe and appended to the platform SBOM), Syft natively reports a versioned
+main component in a file the local package owns, or the image is on the shrink-only
+allowlist `scripts/scan_identity_allowlist.txt`. The injected package lives in the
+attested SBOM, so the daily monitor scans exactly what the gate scanned. A declared
+identity is asserted, not discovered: a wrong CPE or module path blinds the gate
+for that image, so it needs the same review as a recipe change. Allowlisted images
+predate the rule and are not covered for their main software until their
+image-local follow-up lands; see [CONTRIBUTING.md](../CONTRIBUTING.md#scan-identity).
+
 Patched images enable Copa's experimental patch-level library remediation.
 When vulnerabilities affect npm's own bundled dependency tree, the source may
 pin a complete npm distribution upgrade instead of replacing internals

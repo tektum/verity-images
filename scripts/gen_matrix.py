@@ -48,6 +48,8 @@ COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
 WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
 DESCRIPTION_VERSION: Final = re.compile(r"(?<![A-Za-z0-9])v?\d+(?:\.\d+)*(?![A-Za-z0-9])")
 NUMERIC_VERSION: Final = re.compile(r"\d+(?:\.\d+)*")
+SCAN_IDENTITY_CPE: Final = re.compile(r"cpe:2\.3:a:([a-z0-9][a-z0-9_.-]*):([a-z0-9][a-z0-9_.-]*)")
+SCAN_IDENTITY_PURL: Final = re.compile(r"pkg:[a-z][a-z0-9.+-]*/[^@?#\s]+")
 INLINE_COMMENT: Final = re.compile(r"\s+#.*$")
 IMAGE_ROOTS: Final = frozenset({"images", "patched"})
 
@@ -94,6 +96,7 @@ class Metadata:
     owner: str
     enabled: bool
     category: str
+    scan_identity: tuple[str, ...]
 
 
 class MetadataError(ValueError):
@@ -136,7 +139,7 @@ def parse_metadata(path: Path) -> Metadata:
             required = COMMON_REQUIRED_FIELDS
         case _:
             raise MetadataError(f"{path}: track must be wolfi or patched")
-    optional = {"flavors", "major", "owner", "category"}
+    optional = {"flavors", "major", "owner", "category", "scan-identity"}
     allowed = required | optional | (WOLFI_REQUIRED_FIELDS if track == "patched" else set())
     missing = required - values.keys()
     unknown = values.keys() - allowed
@@ -180,6 +183,20 @@ def parse_metadata(path: Path) -> Metadata:
         raise MetadataError(
             f"{path}: major {major} must be the major component of the published version {version}"
         )
+    scan_identity = values.get("scan-identity", ())
+    if "scan-identity" in values:
+        if (
+            not isinstance(scan_identity, tuple)
+            or not scan_identity
+            or len(set(scan_identity)) != len(scan_identity)
+            or not all(SCAN_IDENTITY_CPE.fullmatch(i) or SCAN_IDENTITY_PURL.fullmatch(i) for i in scan_identity)
+        ):
+            raise MetadataError(
+                f"{path}: scan-identity must be a unique list of cpe:2.3:a:VENDOR:PRODUCT or pkg:TYPE/NAME "
+                "entries without a version"
+            )
+        if not (path.parent / "melange.yaml").is_file():
+            raise MetadataError(f"{path}: scan-identity requires an image-local melange.yaml")
 
     return Metadata(
         name=str(values["name"]),
@@ -192,6 +209,7 @@ def parse_metadata(path: Path) -> Metadata:
         owner=str(values.get("owner", "tektum")),
         enabled=enabled,
         category=str(values.get("category", "")),
+        scan_identity=scan_identity,
     )
 
 
