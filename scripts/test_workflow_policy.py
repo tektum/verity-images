@@ -342,11 +342,9 @@ def main() -> None:
     assert action.count(
         "          ${{ inputs.build-directory }}/apko-sbom/*.spdx.json\n"
     ) == 1
-    smoke_line = (
-        '          DOCKER_DEFAULT_PLATFORM="linux/$arch" '
-        '"$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"\n'
-    )
-    assert action.count(smoke_line) == 2
+    assert action.count(
+        'DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"\n'
+    ) == 2
     catalog = (ROOT / ".github/workflows/catalog.yaml").read_text(encoding="utf-8")
     monitor = (ROOT / ".github/workflows/monitor.yaml").read_text(encoding="utf-8")
     security_automerge = (

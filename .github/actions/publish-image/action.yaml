@@ -140,9 +140,16 @@ runs:
         CANDIDATE: ${{ inputs.candidate-image }}
         FLAVOR: ${{ inputs.flavor }}
         TEST: ${{ inputs.context }}/tests/test.sh
+        TRACK: ${{ inputs.track }}
       run: |
+        # Patched candidates are Copa-built and not resolvable under a pinned
+        # platform; wolfi candidates must match the pre-scan smoke step.
         for arch in amd64 arm64; do
-          DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
+          if [[ "$TRACK" == patched ]]; then
+            "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
+          else
+            DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
+          fi
         done
 
     - name: Log in to GHCR
