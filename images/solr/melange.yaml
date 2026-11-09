@@ -1,0 +1,127 @@
+package:
+  name: verity-solr-10
+  # yamllint disable-line rule:line-length
+  version: "10.1.0"  # renovate: datasource=maven depName=org.apache.solr:solr-core versioning=regex:^(?<major>10)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Solr search platform
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - glibc-locale-en
+      - grep
+      - lsof
+      - openjdk-21-default-jvm
+      - procps
+      - sed
+
+# Security floors for bundled dependencies Solr 10.1.0 pins below their fixed releases.
+vars:
+  # yamllint disable rule:line-length
+  httpclient5: 5.6.5  # renovate: datasource=maven depName=org.apache.httpcomponents.client5:httpclient5 versioning=regex:^(?<major>5)\.(?<minor>6)\.(?<patch>\d+)$
+  httpcore5: 5.4.4  # renovate: datasource=maven depName=org.apache.httpcomponents.core5:httpcore5 versioning=regex:^(?<major>5)\.(?<minor>4)\.(?<patch>\d+)$
+  jetty: 12.0.40  # renovate: datasource=maven depName=org.eclipse.jetty:jetty-server versioning=regex:^(?<major>12)\.(?<minor>0)\.(?<patch>\d+)$
+  lz4: 1.11.4  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>11)\.(?<patch>\d+)$
+  snappy: 1.1.10.12  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - git
+      # The Gradle node plugin runs its downloaded npm through `env node`.
+      - nodejs-22
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+    # Keep Gradle state out of the workspace, which melange must read back after the build.
+    GRADLE_USER_HOME: /var/cache/gradle
+    # Gradle resolves several thousand artifacts; retry slow or dropped downloads.
+    JAVA_TOOL_OPTIONS: >-
+      -Djava.net.preferIPv4Stack=true
+      -Dorg.gradle.internal.http.connectionTimeout=120000
+      -Dorg.gradle.internal.http.socketTimeout=120000
+      -Dorg.gradle.internal.repository.max.retries=10
+      -Dorg.gradle.internal.repository.initial.backoff=2000
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/solr
+      tag: releases/solr/${{package.version}}
+      expected-commit: 749712b71940c9f96d824c533f32f5c56dcd3924
+  - runs: |
+      # Resolve Maven Central through Google's mirror, which the build hosts reach reliably
+      # (the same mirror images/cassandra uses).
+      mirror=https://maven-central.storage-download.googleapis.com/maven2/
+      install -d "$GRADLE_USER_HOME/init.d"
+      cat >"$GRADLE_USER_HOME/init.d/mirror.gradle" <<EOF
+      def mirror = '$mirror'
+      def redirect = { repos ->
+        repos.withType(MavenArtifactRepository).configureEach { repo ->
+          if (repo.url.toString().startsWith('https://repo.maven.apache.org/maven2')) {
+            repo.url = mirror
+          }
+        }
+      }
+      beforeSettings { settings -> redirect(settings.pluginManagement.repositories) }
+      allprojects { project -> redirect(project.repositories) }
+      EOF
+      cat >"$GRADLE_USER_HOME/init.d/floors.gradle" <<'EOF'
+      def floors = [
+        'org.apache.httpcomponents.client5': '${{vars.httpclient5}}',
+        'org.apache.httpcomponents.core5': '${{vars.httpcore5}}',
+        'at.yawk.lz4': '${{vars.lz4}}',
+        'org.xerial.snappy': '${{vars.snappy}}',
+      ]
+      allprojects {
+        configurations.configureEach {
+          resolutionStrategy.eachDependency { details ->
+            def group = details.requested.group
+            if (floors.containsKey(group)) {
+              details.useVersion(floors[group])
+            } else if (group.startsWith('org.eclipse.jetty') &&
+                details.requested.version?.startsWith('12.0.')) {
+              details.useVersion('${{vars.jetty}}')
+            }
+          }
+        }
+      }
+      EOF
+      # The floors change resolved versions, so rewrite Solr's per-module lockfiles to match.
+      ./gradlew --no-daemon --write-locks -Dversion.release=${{package.version}} :solr:packaging:installFullDist
+      root=solr/packaging/build/solr-${{package.version}}
+      install -d "${{targets.destdir}}/opt" "${{targets.destdir}}/licenses"
+      mv "$root" "${{targets.destdir}}/opt/solr"
+      install -m644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"
+      install -m644 NOTICE.txt "${{targets.destdir}}/licenses/NOTICE.txt"
+      find . -name .gradle -type d -prune -exec rm -rf {} +
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: /opt/solr/bin/solr version
+
+update:
+  enabled: true
+  github:
+    identifier: apache/solr
+    use-tag: true
+    tag-filter-prefix: releases/solr/10
+    strip-prefix: releases/solr/

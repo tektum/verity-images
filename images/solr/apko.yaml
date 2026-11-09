@@ -1,0 +1,55 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-solr-10@local
+
+accounts:
+  groups:
+    - groupname: solr
+      gid: 8983
+  users:
+    - username: solr
+      uid: 8983
+      gid: 8983
+  run-as: 8983
+
+entrypoint:
+  command: /opt/solr/bin/solr
+
+cmd: start -f
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  LANG: en_US.UTF-8
+  PATH: /opt/solr/bin:/usr/lib/jvm/java-21-openjdk/bin:/usr/local/bin:/usr/bin:/bin
+  SOLR_HOME: /var/solr/data
+  SOLR_LOGS_DIR: /var/solr/logs
+  SOLR_PID_DIR: /var/solr
+  SOLR_HOST_BIND: 0.0.0.0
+
+paths:
+  - path: /var/solr
+    type: directory
+    uid: 8983
+    gid: 8983
+    permissions: 0o755
+  - path: /var/solr/data
+    type: directory
+    uid: 8983
+    gid: 8983
+    permissions: 0o755
+  - path: /var/solr/logs
+    type: directory
+    uid: 8983
+    gid: 8983
+    permissions: 0o755
+
+volumes:
+  - /var/solr
+
+work-dir: /opt/solr

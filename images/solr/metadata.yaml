@@ -1,0 +1,8 @@
+name: solr
+track: wolfi
+description: Apache Solr search platform built from pinned upstream source.
+upstream: https://solr.apache.org/
+versions: [10]
+scan-identity: [cpe:2.3:a:apache:solr, pkg:maven/org.apache.solr/solr-core]
+owner: tektum
+enabled: true
