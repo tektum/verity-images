@@ -257,7 +257,7 @@ their rows now finish in about 9 to 16 minutes.
   cancel) once a `validate`, `publish`, or `native-arm64` row has had no runner for
   20 minutes and no other watched row is still executing, then fails `stall-guard`.
   Until then it stays pending, and it stays pending until a `validate` or `publish`
-  row exists. Its job timeout must stay above the native job's 300 minute limit.
+  row exists. Its job timeout (660 minutes) must stay above native (300) plus publish (300) plus the stall window.
 
 Do not give the arm64 key the amd64 key's file name. An APKINDEX signature embeds the
 signing key's file name and apk resolves the key by that name, so the native job
