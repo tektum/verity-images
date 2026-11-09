@@ -44,6 +44,12 @@ pipeline:
       # the tagged checkout's versions.txt.
       vp=github.com/open-telemetry/opentelemetry-operator/internal/version
       ver() { awk -F= -v key="$1" '$1 == key { print $2 }' versions.txt; }
+      for key in opentelemetry-collector targetallocator operator-opamp-bridge \
+        autoinstrumentation-java autoinstrumentation-nodejs autoinstrumentation-python \
+        autoinstrumentation-ruby autoinstrumentation-dotnet autoinstrumentation-go \
+        autoinstrumentation-php autoinstrumentation-apache-httpd autoinstrumentation-nginx; do
+        test -n "$(ver "$key")" || { echo "versions.txt lacks $key" >&2; exit 1; }
+      done
       build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
       install -d "${{targets.destdir}}/usr/bin"
       go build -p 4 -mod=readonly -trimpath -buildvcs=true \

@@ -40,6 +40,18 @@ fi
 grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid argument diagnostic is missing'
 
+# Every default component image must carry the version stamped from the
+# upstream versions.txt; an empty stamp would leave an untagged image.
+for flag in --collector-image --target-allocator-image --operator-opamp-bridge-image \
+  --auto-instrumentation-java-image --auto-instrumentation-nodejs-image \
+  --auto-instrumentation-python-image --auto-instrumentation-dotnet-image \
+  --auto-instrumentation-go-image --auto-instrumentation-php-image \
+  --auto-instrumentation-ruby-image --auto-instrumentation-apache-httpd-image \
+  --auto-instrumentation-nginx-image; do
+  grep -E -e "^ +$flag string .*\(default \"[^\":]+/[^\":]+:[^\":]+\"\)" "$work/help" >/dev/null ||
+    fail "$flag has no stamped default image tag"
+done
+
 # Outside a cluster the operator must start, report its stamped version and
 # default component images, then exit non-zero on the missing cluster config.
 if docker run --rm --network none --read-only "$image" >"$work/startup" 2>&1; then
