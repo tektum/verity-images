@@ -1,0 +1,9 @@
+name: postgres-exporter
+track: wolfi
+description: Prometheus PostgreSQL Exporter built from pinned source with plain and Go FIPS flavors.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus-community/postgres_exporter
+versions: [0.20.1]
+flavors: [plain, fips]
+owner: tektum
+enabled: true
