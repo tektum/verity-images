@@ -1,7 +1,7 @@
 package:
   name: envoy-gateway-src
   version: "1.10.0"  # renovate: datasource=github-releases depName=envoyproxy/gateway
-  epoch: 0
+  epoch: 1
   description: Envoy Gateway controller and egctl
   copyright:
     - license: Apache-2.0
@@ -36,7 +36,7 @@ pipeline:
   - runs: |
       vp=github.com/envoyproxy/gateway/internal/cmd/version
       for cmd in envoy-gateway egctl; do
-        go build -mod=readonly -trimpath -buildvcs=false \
+        go build -mod=readonly -trimpath \
           -ldflags="-s -w \
             -X ${vp}.envoyGatewayVersion=v${{package.version}} \
             -X ${vp}.gitCommitID=02e9f89d1c1dc16b723de48fa3289dfa413a6e01" \
