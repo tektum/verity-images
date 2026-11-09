@@ -48,6 +48,14 @@ pipeline:
       install -Dm755 hydra "${{targets.destdir}}/usr/bin/hydra"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
+subpackages:
+  - name: hydra-build-metadata
+    description: Resolved Go module metadata for the Ory Hydra build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/hydra-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/hydra-build/go.sum"
+
 test:
   environment:
     contents:
