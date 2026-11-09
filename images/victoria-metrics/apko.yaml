@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-victoria-metrics@local
+
+accounts:
+  run-as: 10001
+
+entrypoint:
+  command: /usr/bin/victoria-metrics
+
+cmd: -storageDataPath=/victoria-metrics-data
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /victoria-metrics-data
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+
+volumes:
+  - /victoria-metrics-data
