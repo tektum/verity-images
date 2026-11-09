@@ -75,7 +75,7 @@ these holds:
   pseudo-version counts; `UNKNOWN` and `(devel)` do not), a Rust crate whose
   version equals the recipe version, or, for a Go toolchain image, the matching
   `stdlib`.
-- The image is on `scripts/scan_identity_allowlist.txt`.
+- The image has a file in `scripts/scan_identity_allowlist.d/`.
 
 Declare each entry without a version, as a CPE vendor and product or a purl type
 and name:
@@ -104,20 +104,38 @@ fingerprint; other metadata edits stay catalog-only. An edit to
 changes do.
 
 The allowlist is a temporary exception for images that predate the rule, except
-for the permanent `no-feed` kind described below. Each
-line names a context and its follow-up: `identity`, `go-version`, `unverified`,
-or `no-feed`. Except for `no-feed`, it may only shrink. The image-local pull request that declares
-`scan-identity` or stamps the Go main module version deletes the line in the
-same change; `scripts/test_scan_identity.py` rejects a new entry, an entry for an
-image that declares an identity, and an entry for a missing or disabled image.
-Native coverage of an allowlisted image logs "stale allowlist entry".
+for the permanent `no-feed` kind described below. It is one file per image in
+`scripts/scan_identity_allowlist.d/`, named after the context with `/` written as
+`__` (`images__elixir__1.17`). The first line is the follow-up: `identity`,
+`go-version`, `unverified`, or `no-feed`; the rest is the reason. Except for
+`no-feed`, it may only shrink. The image-local pull request that declares
+`scan-identity` or stamps the Go main module version deletes its image's file in
+the same change and nothing else: it does not edit another allowlist file or
+`scripts/test_scan_identity.py`, so follow-up pull requests never conflict with
+each other. `scripts/check_scan_identity_allowlist.py` (in `lint`) fails a change
+that adds a file there, comparing against the pull request or merge group base;
+the only exception is a file whose first line is `no-feed`, which `FROZEN_NO_FEED`
+bounds instead. `scripts/test_scan_identity.py` rejects a `no-feed` entry outside
+its immutable `FROZEN_NO_FEED`, any other entry outside its immutable
+`FROZEN_BASELINE`, an entry for an image that declares an identity, and an entry
+for a missing or disabled image. Native coverage of an allowlisted image logs
+"stale allowlist entry".
 
 `no-feed` marks an image whose main software has no CPE (NVD), GHSA or OSV
 record, so no identity can be declared without inventing one. It is not a pending
 follow-up. For these images the gate covers dependencies and OS packages only,
 not the main software. Currently `kubernetes-reflector` and `sonar-scanner-cli`.
-Adding another needs a deliberate edit of the `FROZEN_NO_FEED` set in
-`scripts/test_scan_identity.py`, with the evidence that no feed exists.
+Adding another needs a deliberate edit of the immutable `FROZEN_NO_FEED` set in
+`scripts/test_scan_identity.py`, in a prerequisite pull request with the evidence
+that no feed exists; `FROZEN_BASELINE` is not touched. The allowlist file itself
+then follows:
+
+- For an image already on the allowlist (for example `unverified`), change the
+  first line of its existing file to `no-feed` in the image's pull request; do not
+  add a second file.
+- For an image that does not exist yet, add its `no-feed` allowlist file in the
+  pull request that adds the image, since the test rejects an entry for a missing
+  image.
 
 ### Published version authority
 

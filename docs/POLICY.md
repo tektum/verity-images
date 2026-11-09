@@ -92,7 +92,8 @@ image-local `melange.yaml` and fails the build unless `metadata.yaml` declares a
 `scan-identity` (a CPE vendor and product or a purl type and name, versioned from
 the recipe and appended to the platform SBOM), Syft natively reports a versioned
 main component in a file the local package owns, or the image is on the shrink-only
-allowlist `scripts/scan_identity_allowlist.txt`. The injected package lives in the
+allowlist `scripts/scan_identity_allowlist.d/` (one file per image; a follow-up pull
+request deletes only its image's file). The injected package lives in the
 attested SBOM, so the daily monitor scans exactly what the gate scanned. A declared
 identity is asserted, not discovered: a wrong CPE or module path blinds the gate
 for that image, so it needs the same review as a recipe change. Allowlisted images
