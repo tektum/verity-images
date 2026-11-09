@@ -43,6 +43,9 @@ pipeline:
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" -o manager .
       install -Dm755 manager "${{targets.destdir}}/manager"
+      go version -m "${{targets.destdir}}/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/fluxcd/helm-controller" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
 
