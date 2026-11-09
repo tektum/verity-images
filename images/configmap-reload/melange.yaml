@@ -37,6 +37,9 @@ pipeline:
         -a \
         -o "${{targets.destdir}}/usr/bin/configmap-reload" \
         .
+      go version -m "${{targets.destdir}}/usr/bin/configmap-reload" \
+        | awk '$1 == "mod" && $2 == "github.com/jimmidyson/configmap-reload" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
 
 test:
   pipeline:
