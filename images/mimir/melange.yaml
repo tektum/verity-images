@@ -1,0 +1,98 @@
+package:
+  name: verity-mimir
+  # yamllint disable-line rule:line-length
+  version: "3.2.4"  # renovate: datasource=github-tags depName=grafana/mimir versioning=regex:^(?<major>3)\.(?<minor>2)\.(?<patch>\d+)$ extractVersion=^mimir-(?<version>.+)$
+  epoch: 0
+  description: Grafana Mimir horizontally scalable long-term storage for Prometheus metrics
+  copyright:
+    - license: AGPL-3.0-only
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 24Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 4380c3492730d7fca3bc90e292aefe7fb6e8c42e
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/grafana/mimir
+      tag: mimir-${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      # The checkout ships a .gitconfig (ssh rewrite for mimir-prometheus) and
+      # .config/go/env (GOPRIVATE and GONOPROXY for github.com/grafana/*) for
+      # its own developers. HOME is the build directory, so they would send
+      # module fetches over ssh and break go/remediate. Drop the ssh rewrite
+      # (keeping safe.directory) and the Go env file.
+      git config --global --remove-section 'url.ssh://git@github.com/grafana/mimir-prometheus'
+      rm -rf .config/go
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/mimir
+  - runs: |
+      # The upstream tag has no v prefix and the module has no major suffix,
+      # so Go cannot stamp a module version from VCS data. The scan identity
+      # is declared in metadata.yaml instead.
+      pkg=github.com/grafana/mimir/pkg/util/version
+      flags="-s -w -X $pkg.Branch=release"
+      flags="$flags -X $pkg.Revision=$(printf '%.9s' '${{vars.source-commit}}')"
+      flags="$flags -X $pkg.Version=${{package.version}}"
+      go build -trimpath -buildvcs=false -tags netgo,stringlabels \
+        -ldflags "$flags" -o "${{targets.destdir}}/usr/bin/mimir" ./cmd/mimir
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Mimir build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/mimir-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/mimir-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        mimir -version 2>&1 | grep -F "version ${{package.version}} "
+        apk info --who-owns /usr/bin/mimir \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx AGPL-3.0-only
+        grep -F 'GNU AFFERO GENERAL PUBLIC LICENSE' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: grafana/mimir
+    strip-prefix: mimir-
+    use-tag: true

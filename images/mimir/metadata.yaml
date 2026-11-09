@@ -1,0 +1,9 @@
+name: mimir
+track: wolfi
+description: Grafana Mimir long-term storage for Prometheus metrics built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/grafana/mimir
+versions: [3.2]
+scan-identity: [pkg:golang/github.com/grafana/mimir]
+owner: tektum
+enabled: true
