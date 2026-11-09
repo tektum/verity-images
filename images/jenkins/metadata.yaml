@@ -1,0 +1,8 @@
+name: jenkins
+track: wolfi
+description: Jenkins automation server built from the pinned upstream jenkins.war release (SHA-256 verified) on Wolfi, with the Wolfi OpenJDK 21 JRE, tini, git and the Jenkins plugin manager.
+category: CI/CD & GitOps
+upstream: https://www.jenkins.io/
+versions: [2.589]
+owner: tektum
+enabled: true
