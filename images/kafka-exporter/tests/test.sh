@@ -50,9 +50,9 @@ grep -F 'Error Init Kafka Client' "$tmp/nobroker.log" >/dev/null ||
 
 # Minimal Kafka broker: answers ApiVersions and Metadata with one broker and no topics.
 cat >"$tmp/broker.py" <<'PY'
-import socket, struct, sys, threading
+import os, socket, struct, sys, threading
 
-host, port = sys.argv[1], int(sys.argv[2])
+host, portfile = sys.argv[1], sys.argv[2]
 
 def s16(v): return struct.pack(">h", v)
 def s32(v): return struct.pack(">i", v)
@@ -102,15 +102,25 @@ def handle(conn):
 
 srv = socket.socket()
 srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-srv.bind(("0.0.0.0", port))
+srv.bind(("0.0.0.0", 0))
 srv.listen(16)
+port = srv.getsockname()[1]
+with open(portfile + ".tmp", "w") as f:
+    f.write(str(port))
+os.rename(portfile + ".tmp", portfile)
 while True:
     c, _ = srv.accept()
     threading.Thread(target=handle, args=(c,), daemon=True).start()
 PY
-broker_port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("", 0)); print(s.getsockname()[1])')
-python3 "$tmp/broker.py" host.docker.internal "$broker_port" &
+python3 "$tmp/broker.py" host.docker.internal "$tmp/broker.port" &
 broker_pid=$!
+attempts=0
+until [ -s "$tmp/broker.port" ]; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 30 ] || fail 'fake broker did not start'
+  sleep 1
+done
+broker_port=$(cat "$tmp/broker.port")
 
 docker run --name "$exporter" -d --read-only \
   --add-host host.docker.internal:host-gateway \
