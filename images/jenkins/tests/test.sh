@@ -40,7 +40,7 @@ body=$(mktemp)
 trap 'rm -f "$headers" "$body"; cleanup' EXIT INT TERM
 ready=false
 for _ in $(seq 1 120); do
-  status=$(curl -s -o "$body" -D "$headers" -w '%{http_code}' "http://127.0.0.1:$port/login" || true)
+  status=$(curl -s --connect-timeout 1 --max-time 5 -o "$body" -D "$headers" -w '%{http_code}' "http://127.0.0.1:$port/login" || true)
   if [ "$status" = 200 ]; then
     ready=true
     break
@@ -50,7 +50,7 @@ done
 [ "$ready" = true ] || fail 'Jenkins did not become ready'
 grep -qi 'Sign in to Jenkins\|j_username' "$body" || fail 'login form is missing'
 tr -d '\r' <"$headers" | grep -qi "^X-Jenkins: ${recipe_version}\$" || fail 'unexpected X-Jenkins version header'
-curl -fsS "http://127.0.0.1:$port/api/json" | grep -q '"mode"' || fail 'API did not return Jenkins JSON'
+curl -fsS --connect-timeout 1 --max-time 5 "http://127.0.0.1:$port/api/json" | grep -q '"mode"' || fail 'API did not return Jenkins JSON'
 
 docker stop -t 60 "$container" >/dev/null
 code=$(docker inspect -f '{{.State.ExitCode}}' "$container")
