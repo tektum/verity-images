@@ -1,0 +1,9 @@
+name: jenkins-inbound-agent
+track: wolfi
+description: Jenkins inbound agent built from pinned upstream remoting (checksum verified) with a Wolfi OpenJDK JRE.
+category: CI/CD & GitOps
+upstream: https://github.com/jenkinsci/docker-agent
+versions: [3386.v353e57a_1b_ea_0]
+owner: tektum
+enabled: true
+scan-identity: [pkg:maven/org.jenkins-ci.main/remoting]

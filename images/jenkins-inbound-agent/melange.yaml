@@ -1,0 +1,75 @@
+package:
+  name: verity-jenkins-inbound-agent
+  # APK version of the remoting build number; the full remoting version is vars.upstream-version.
+  version: "3386"
+  epoch: 0
+  description: Jenkins inbound agent (remoting agent.jar and the jenkins-agent launcher)
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - bash
+      - openjdk-21-jre
+
+vars:
+  # Remoting embedded in the Jenkins 2.580.2 LTS war served by images/jenkins
+  # (WEB-INF/lib/remoting-3386.v353e57a_1b_ea_0.jar, Remoting-Embedded-Version).
+  # yamllint disable-line rule:line-length
+  upstream-version: 3386.v353e57a_1b_ea_0  # renovate: datasource=github-tags depName=jenkinsci/remoting versioning=regex:^(?<major>3386)\.v[0-9a-f_]+$
+  # jenkinsci/docker-agent release that packages this remoting version; its tag is <remoting>-<revision>.
+  # yamllint disable-line rule:line-length
+  docker-agent-tag: 3386.v353e57a_1b_ea_0-3  # renovate: datasource=github-tags depName=jenkinsci/docker-agent versioning=regex:^(?<major>3386)\.v[0-9a-f_]+-(?<patch>\d+)$
+  docker-agent-commit: 3f94c25a25bc9cbdb6a5c89087cd6f5da9ac02f3
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wolfi-baselayout
+
+pipeline:
+  - uses: fetch
+    with:
+      # yamllint disable-line rule:line-length
+      uri: https://repo.jenkins-ci.org/public/org/jenkins-ci/main/remoting/${{vars.upstream-version}}/remoting-${{vars.upstream-version}}.jar
+      expected-sha256: 162b2a236a91730d9e2979a2a6b14e184b91de6da019b6bf0be59ead24b47fd7
+      extract: false
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jenkinsci/docker-agent
+      tag: ${{vars.docker-agent-tag}}
+      expected-commit: ${{vars.docker-agent-commit}}
+  - runs: |
+      # The launcher release must package the same remoting version as agent.jar.
+      case "${{vars.docker-agent-tag}}" in
+        "${{vars.upstream-version}}"-[0-9]*) ;;
+        *)
+          echo "docker-agent tag ${{vars.docker-agent-tag}} does not package remoting ${{vars.upstream-version}}" >&2
+          exit 1
+          ;;
+      esac
+      # The remoting build number is the APK package version.
+      case "${{vars.upstream-version}}" in
+        "${{package.version}}".v*) ;;
+        *)
+          echo "package.version ${{package.version}} does not match remoting ${{vars.upstream-version}}" >&2
+          exit 1
+          ;;
+      esac
+      install -Dm644 "remoting-${{vars.upstream-version}}.jar" "${{targets.destdir}}/usr/share/jenkins/agent.jar"
+      ln -s agent.jar "${{targets.destdir}}/usr/share/jenkins/slave.jar"
+      install -Dm755 jenkins-agent "${{targets.destdir}}/usr/local/bin/jenkins-agent"
+      ln -s jenkins-agent "${{targets.destdir}}/usr/local/bin/jenkins-slave"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        version=$(java -jar /usr/share/jenkins/agent.jar -version)
+        [ "$version" = "${{vars.upstream-version}}" ] || { echo "unexpected remoting version: $version" >&2; exit 1; }
+        test -x /usr/local/bin/jenkins-agent

@@ -1,0 +1,69 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - curl
+    - fontconfig
+    - git
+    - git-lfs
+    - glibc-locale-en
+    - less
+    - openjdk-21-jre
+    - openssh-client
+    - patch
+    - tzdata
+    - verity-jenkins-inbound-agent@local
+
+accounts:
+  groups:
+    - groupname: jenkins
+      gid: 1000
+  users:
+    - username: jenkins
+      uid: 1000
+      gid: 1000
+      homedir: /home/jenkins
+      shell: /bin/bash
+  run-as: 1000
+
+entrypoint:
+  command: /usr/local/bin/jenkins-agent
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  PATH: /usr/lib/jvm/java-21-openjdk/bin:/usr/local/bin:/usr/bin:/bin
+  AGENT_WORKDIR: /home/jenkins/agent
+  USER: jenkins
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
+  TZ: UTC
+
+paths:
+  - path: /home/jenkins
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /home/jenkins/.jenkins
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /home/jenkins/agent
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+
+work-dir: /home/jenkins
+
+volumes:
+  - /home/jenkins/.jenkins
+  - /home/jenkins/agent
