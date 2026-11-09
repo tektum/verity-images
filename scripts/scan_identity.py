@@ -29,7 +29,7 @@ ROOT: Final = Path(__file__).resolve().parents[1]
 ALLOWLIST: Final = ROOT / "scripts/scan_identity_allowlist.txt"
 VERSION: Final = re.compile(r"[0-9][0-9A-Za-z._-]*")
 UNVERSIONED: Final = {"", "UNKNOWN", "(devel)"}
-FOLLOW_UPS: Final = frozenset({"identity", "go-version", "unverified"})
+FOLLOW_UPS: Final = frozenset({"identity", "go-version", "unverified", "no-feed"})
 NOT_APPLICABLE: Final = "not-applicable"
 
 
