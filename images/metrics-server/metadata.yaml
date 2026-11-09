@@ -6,3 +6,4 @@ upstream: https://github.com/kubernetes-sigs/metrics-server
 versions: [0.9.0]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/sigs.k8s.io/metrics-server]
