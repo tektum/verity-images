@@ -1,7 +1,7 @@
 package:
   name: qdrant-1.20
   # yamllint disable-line rule:line-length
-  version: "1.20.0"  # renovate: datasource=github-releases depName=qdrant/qdrant versioning=regex:^(?<major>1)\.(?<minor>20)\.(?<patch>\d+)$
+  version: "1.20.0"  # renovate: datasource=github-releases depName=qdrant/qdrant versioning=regex:^(?<major>1)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Vector database and similarity search engine
   copyright:
