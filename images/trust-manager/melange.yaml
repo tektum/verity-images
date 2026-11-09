@@ -42,6 +42,9 @@ pipeline:
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
         -o "${{targets.destdir}}/usr/bin/trust-manager" ./cmd/trust-manager
+      go version -m "${{targets.destdir}}/usr/bin/trust-manager" \
+        | awk '$1 == "mod" && $2 == "github.com/cert-manager/trust-manager" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
