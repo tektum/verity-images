@@ -339,8 +339,9 @@ jobs:
           mkdir base-download base-stage
           for attempt in 1 2 3 4 5; do
             gh release download "$base_tag" --repo "$GITHUB_REPOSITORY" \
-              --pattern verity-apk-repository.tar.zst --dir base-download --clobber && break
+              --pattern verity-apk-repository.tar.zst --dir base-download && break
             [[ "$attempt" -lt 5 ]] || exit 1
+            rm -rf base-download/*
             sleep 5
           done
           base_archive=base-download/verity-apk-repository.tar.zst
