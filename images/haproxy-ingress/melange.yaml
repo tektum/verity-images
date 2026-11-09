@@ -43,6 +43,9 @@ pipeline:
       LDFLAGS="$LDFLAGS -X $PKG.REPO=https://github.com/jcmoraisjr/haproxy-ingress"
       go build -trimpath -tags netgo,osusergo -ldflags "-w $LDFLAGS" -o haproxy-ingress-controller ./pkg
       install -Dm755 haproxy-ingress-controller "${{targets.destdir}}/usr/bin/haproxy-ingress-controller"
+      go version -m "${{targets.destdir}}/usr/bin/haproxy-ingress-controller" \
+        | awk '$1 == "mod" && $2 == "github.com/jcmoraisjr/haproxy-ingress" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm755 rootfs/start.sh "${{targets.destdir}}/usr/bin/start.sh"
       install -Dm755 rootfs/haproxy-reload.sh "${{targets.destdir}}/usr/bin/haproxy-reload.sh"
       install -Dm755 rootfs/haproxy-shutdown.sh "${{targets.destdir}}/usr/bin/haproxy-shutdown.sh"
