@@ -79,21 +79,33 @@ pipeline:
       allprojects { project -> redirect(project.repositories) }
       EOF
       cat >"$GRADLE_USER_HOME/init.d/floors.gradle" <<'EOF'
+      // Raise a requested version to its floor, never lower it.
       def floors = [
         'org.apache.httpcomponents.client5': '${{vars.httpclient5}}',
         'org.apache.httpcomponents.core5': '${{vars.httpcore5}}',
         'at.yawk.lz4': '${{vars.lz4}}',
+        'org.eclipse.jetty': '${{vars.jetty}}',
         'org.xerial.snappy': '${{vars.snappy}}',
       ]
+      def parts = { String v -> v.tokenize('.-').collect { it.isInteger() ? it.toInteger() : 0 } }
+      def lower = { String a, String b ->
+        def x = parts(a), y = parts(b)
+        for (i in 0..<Math.max(x.size(), y.size())) {
+          def l = i < x.size() ? x[i] : 0, r = i < y.size() ? y[i] : 0
+          if (l != r) return l < r
+        }
+        false
+      }
       allprojects {
         configurations.configureEach {
           resolutionStrategy.eachDependency { details ->
             def group = details.requested.group
-            if (floors.containsKey(group)) {
-              details.useVersion(floors[group])
-            } else if (group.startsWith('org.eclipse.jetty') &&
-                details.requested.version?.startsWith('12.0.')) {
-              details.useVersion('${{vars.jetty}}')
+            def key = floors.keySet().find { group == it || group.startsWith(it + '.') }
+            def requested = details.requested.version
+            // Jetty floors stay on the 12.0 line Solr 10 is built against.
+            if (key && requested && lower(requested, floors[key]) &&
+                (key != 'org.eclipse.jetty' || requested.startsWith('12.0.'))) {
+              details.useVersion(floors[key])
             }
           }
         }
@@ -102,6 +114,17 @@ pipeline:
       # The floors change resolved versions, so rewrite Solr's per-module lockfiles to match.
       ./gradlew --no-daemon --write-locks -Dversion.release=${{package.version}} :solr:packaging:installFullDist
       root=solr/packaging/build/solr-${{package.version}}
+      # Fail if a floor matched nothing or a shipped jar is still below its floor.
+      for floor in httpclient5:${{vars.httpclient5}} httpcore5:${{vars.httpcore5}} \
+          lz4-java:${{vars.lz4}} jetty-server:${{vars.jetty}} snappy-java:${{vars.snappy}}; do
+        name=${floor%%:*} minimum=${floor#*:}
+        found=$(find "$root" -name "$name-[0-9]*.jar" | sed "s|.*/$name-||; s|\.jar$||" | sort -u)
+        [ -n "$found" ] || { echo "dependency set changed: no $name jar" >&2; exit 1; }
+        for version in $found; do
+          [ "$(printf '%s\n%s\n' "$minimum" "$version" | sort -V | head -n1)" = "$minimum" ] ||
+            { echo "$name $version is below floor $minimum" >&2; exit 1; }
+        done
+      done
       install -d "${{targets.destdir}}/opt" "${{targets.destdir}}/licenses"
       mv "$root" "${{targets.destdir}}/opt/solr"
       install -m644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"

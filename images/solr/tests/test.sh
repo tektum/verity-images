@@ -47,13 +47,16 @@ docker run --rm --entrypoint java "$image" -version 2>&1 | grep -q 'version "21'
 docker run --rm "$image" version 2>/dev/null | grep -qx "Client version: $expected_version" || fail 'unexpected Solr version'
 
 docker volume create "$volume" >/dev/null
-docker run --name "$container" -d -v "$volume:/var/solr" -e SOLR_HEAP=512m "$image" start -f -c >/dev/null
+# Run the image's default command.
+docker run --name "$container" -d -v "$volume:/var/solr" -e SOLR_HEAP=512m "$image" >/dev/null
+address=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$container")
+[ -n "$address" ] || fail 'server container has no bridge address'
 
 i=0
-# The image ships no HTTP client, so a curl sidecar shares the server's network namespace.
-http() { docker run --rm --network "container:$container" "$fixture" -fsS "$@"; }
+# Probe from a separate container on the default bridge, so the server must bind beyond loopback.
+http() { docker run --rm "$fixture" -fsS "$@"; }
 
-until http 'http://localhost:8983/solr/admin/info/system?wt=json' >/dev/null 2>&1; do
+until http "http://$address:8983/solr/admin/info/system?wt=json" >/dev/null 2>&1; do
   [ "$(docker inspect -f '{{.State.Running}}' "$container")" = true ] || {
     docker logs "$container" >&2
     fail 'Solr exited before becoming ready'
@@ -66,16 +69,16 @@ until http 'http://localhost:8983/solr/admin/info/system?wt=json' >/dev/null 2>&
   sleep 1
 done
 
-http 'http://localhost:8983/solr/admin/info/system?wt=json' | grep -q "\"solr-spec-version\":\"$expected_version\"" ||
+http "http://$address:8983/solr/admin/info/system?wt=json" | grep -q "\"solr-spec-version\":\"$expected_version\"" ||
   fail 'system info does not report the shipped version'
-http 'http://localhost:8983/solr/admin/collections?action=CREATE&name=verity&numShards=1&replicationFactor=1&wt=json' |
+http "http://$address:8983/solr/admin/collections?action=CREATE&name=verity&numShards=1&replicationFactor=1&wt=json" |
   grep -q '"status":0' || fail 'collection creation failed'
 http -H 'Content-Type: application/json' --data '[{"id":"1","title_s":"persisted"}]' \
-  'http://localhost:8983/solr/verity/update?commit=true' >/dev/null ||
+  "http://$address:8983/solr/verity/update?commit=true" >/dev/null ||
   fail 'indexing failed'
-[ "$(http 'http://localhost:8983/solr/verity/select?q=title_s:persisted&wt=json' | grep -c '"numFound":1')" = 1 ] ||
+[ "$(http "http://$address:8983/solr/verity/select?q=title_s:persisted&wt=json" | grep -c '"numFound":1')" = 1 ] ||
   fail 'indexed document was not found'
-if http 'http://localhost:8983/solr/nosuch/select?q=*:*' >/dev/null 2>&1; then
+if http "http://$address:8983/solr/nosuch/select?q=*:*" >/dev/null 2>&1; then
   fail 'query against a missing collection unexpectedly succeeded'
 fi
 
