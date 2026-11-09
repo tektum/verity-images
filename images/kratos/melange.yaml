@@ -1,5 +1,5 @@
 package:
-  name: kratos
+  name: ory-kratos
   version: "26.2.0"
   epoch: 0
   description: Identity and user management server
@@ -45,9 +45,17 @@ pipeline:
       flags="-s -w -X github.com/ory/kratos/driver/config.Version=v${{package.version}}"
       flags="$flags -X github.com/ory/kratos/driver/config.Date=$(date -u -d@${SOURCE_DATE_EPOCH} +%FT%TZ)"
       flags="$flags -X github.com/ory/kratos/driver/config.Commit=${{vars.source-commit}}"
-      go build -mod=readonly -trimpath -tags sqlite -ldflags "$flags" -o kratos .
+      go build -mod=readonly -buildvcs=false -trimpath -tags sqlite -ldflags "$flags" -o kratos .
       install -Dm755 kratos "${{targets.destdir}}/usr/bin/kratos"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ory-kratos-build-metadata
+    description: Resolved Go module metadata for the Ory Kratos build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/ory-kratos-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/ory-kratos-build/go.sum"
 
 test:
   environment:
