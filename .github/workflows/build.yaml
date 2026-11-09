@@ -57,7 +57,7 @@ jobs:
       - name: Download receipt cache
         if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'
         run: |
-          status=$(curl --silent --show-error --location --output catalog.json \
+          status=$(curl --silent --show-error --location --retry 5 --retry-delay 5 --output catalog.json \
             --write-out '%{http_code}' https://tektum.github.io/verity-images/catalog.json) || status=000
           [[ "$status" == 200 ]] || rm -f catalog.json
       - name: Generate matrix

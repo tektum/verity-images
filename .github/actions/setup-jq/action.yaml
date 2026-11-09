@@ -9,7 +9,7 @@ runs:
       run: |
         tools="$RUNNER_TEMP/verity-tools"
         mkdir -p "$tools"
-        curl --fail --location --silent --show-error \
+        curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
           https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-amd64 \
           --output "$tools/jq"
         printf '%s  %s\n' \

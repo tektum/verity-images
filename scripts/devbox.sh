@@ -28,7 +28,9 @@ if [ ! -x "$bin" ] || [ "$("$bin" version 2>/dev/null || true)" != "$version" ];
 
   archive=$(mktemp)
   trap 'rm -f "$archive"' EXIT
-  curl --fail --location --silent --show-error \
+  # No --retry-all-errors: developer hosts with a pre-7.71 client lack it, and
+  # --retry already covers HTTP 408, 429 and 5xx.
+  curl --fail --location --silent --show-error --retry 5 --retry-delay 5 \
     "https://github.com/jetify-com/devbox/releases/download/$version/devbox_${version}_linux_${architecture}.tar.gz" \
     --output "$archive"
   printf '%s  %s\n' "$checksum" "$archive" | sha256sum --check

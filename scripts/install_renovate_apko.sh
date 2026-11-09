@@ -9,7 +9,7 @@ if [[ $(uname -m) != x86_64 ]]; then
 fi
 
 archive="apko_${version}_linux_amd64.tar.gz"
-curl -fsSL "https://github.com/chainguard-dev/apko/releases/download/v${version}/${archive}" \
+curl -fsSL --retry 5 --retry-all-errors --retry-delay 5 "https://github.com/chainguard-dev/apko/releases/download/v${version}/${archive}" \
   -o "/tmp/${archive}"
 printf '%s  %s\n' "$checksum" "/tmp/${archive}" | sha256sum --check
 tar -xzf "/tmp/${archive}" -C /tmp

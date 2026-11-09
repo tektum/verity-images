@@ -7,7 +7,7 @@ runs:
     - name: Install verified Nix 3.21.8
       shell: bash
       run: |
-        curl --fail --location --silent --show-error \
+        curl --fail --location --silent --show-error --retry 5 --retry-all-errors --retry-delay 5 \
           https://github.com/DeterminateSystems/nix-installer/releases/download/v3.21.8/nix-installer-x86_64-linux \
           --output /tmp/nix-installer
         printf '%s  %s\n' \
