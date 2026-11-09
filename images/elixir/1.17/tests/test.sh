@@ -23,10 +23,10 @@ banner=$(docker run --rm "$image" --version 2>&1)
 printf '%s\n' "$banner" | grep -qxF "Elixir $version (compiled with Erlang/OTP $otp)" ||
   fail "unexpected version banner: $banner"
 
-sum=$(docker run --rm "$image" -e 'IO.puts(1 + 1)' 2>&1)
+sum=$(docker run --rm "$image" -e 'IO.puts(1 + 1)')
 [ "$sum" = 2 ] || fail "elixir -e printed: $sum"
 
-encoding=$(docker run --rm "$image" -e 'IO.puts(:file.native_name_encoding())' 2>&1)
+encoding=$(docker run --rm "$image" -e 'IO.puts(:file.native_name_encoding())')
 [ "$encoding" = utf8 ] || fail "unexpected native name encoding: $encoding"
 
 iex=$(docker run --rm --entrypoint /usr/bin/iex "$image" -e 'IO.puts("iex " <> System.version()); System.halt(0)' 2>&1)
