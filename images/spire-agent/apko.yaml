@@ -1,0 +1,65 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-spire-agent@local
+
+# Upstream runs the agent as root: it serves the Workload API on a host socket
+# directory and attests workloads through /proc. Charts may override the user.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /opt/spire/bin/spire-agent run
+
+work-dir: /opt/spire
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /opt/spire/bin
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /opt/spire/bin/spire-agent
+    type: symlink
+    source: /usr/bin/spire-agent
+    uid: 0
+    gid: 0
+  - path: /usr/bin/spire-agent
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /etc/spire/agent
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /run/spire/agent/public
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /tmp/spire-agent/public
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /var/lib/spire/agent
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
