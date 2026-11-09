@@ -103,7 +103,8 @@ fingerprint; other metadata edits stay catalog-only. An edit to
 `scripts/scan_identity.py` builds one sample melange image, as shared pipeline
 changes do.
 
-The allowlist is a temporary exception for images that predate the rule. Each
+The allowlist is a temporary exception for images that predate the rule, except
+for the permanent `no-feed` kind described below. Each
 line names a context and its follow-up: `identity`, `go-version`, `unverified`,
 or `no-feed`. Except for `no-feed`, it may only shrink. The image-local pull request that declares
 `scan-identity` or stamps the Go main module version deletes the line in the
