@@ -1,0 +1,68 @@
+package:
+  name: verity-chartmuseum-0.16
+  version: "0.16.6"
+  epoch: 0
+  description: ChartMuseum Helm chart repository server.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 207c1df6a7a478e4a175030920550f3a81d020f2
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/helm/chartmuseum
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/chartmuseum
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.Version=${{package.version}} -X main.Revision=${{vars.source-commit}}" \
+        -o chartmuseum ./cmd/chartmuseum
+      install -Dm755 chartmuseum "${{targets.destdir}}/usr/bin/chartmuseum"
+      go version -m "${{targets.destdir}}/usr/bin/chartmuseum" \
+        | awk '$1 == "mod" && $2 == "helm.sh/chartmuseum" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the ChartMuseum build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/chartmuseum-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/chartmuseum-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/chartmuseum --version | grep -F 'ChartMuseum version ${{package.version}}'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
