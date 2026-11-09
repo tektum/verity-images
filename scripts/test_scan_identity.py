@@ -75,6 +75,7 @@ class Image:
     """An image-local melange recipe with the Syft and SPDX output of its build."""
 
     def __init__(self, root: Path, artifacts: list[dict], *, identity: str = "", recipe: str = "melange.yaml"):
+        self.root = root
         self.context = root / "images/tool"
         self.context.mkdir(parents=True)
         (self.context / "metadata.yaml").write_text(
@@ -93,11 +94,17 @@ class Image:
         self.allowlist.mkdir()
 
     def list_entry(self, follow_up: str, *, reason: str = "reason\n") -> None:
-        name = self.context.as_posix().replace("/", "__")
+        name = "images/tool".replace("/", "__")
         (self.allowlist / name).write_text(f"{follow_up}\n{reason}", encoding="utf-8")
 
     def apply(self) -> str:
-        return scan_identity.apply(self.context, self.recipe, self.sbom, self.syft, self.allowlist)
+        # Contexts are repo-relative in production, so the temp dir's name must not leak into the entry name.
+        original = scan_identity.ROOT
+        scan_identity.ROOT = self.root.resolve()
+        try:
+            return scan_identity.apply(self.context, self.recipe, self.sbom, self.syft, self.allowlist)
+        finally:
+            scan_identity.ROOT = original
 
     def rejected(self) -> str:
         try:
@@ -271,6 +278,26 @@ def check_metadata_validation() -> None:
         raise AssertionError("scan-identity without a recipe was accepted")
 
 
+def check_underscore_heavy_paths() -> None:
+    for prefix, suffix in (("_", "_"), ("tmp_x__y", "__"), ("__", "")):
+        with TemporaryDirectory(prefix=prefix, suffix=suffix) as directory:
+            image = Image(Path(directory), [])
+            image.list_entry("no-feed")
+            assert "ALLOWLISTED" in image.apply(), (prefix, suffix)
+    for name in ("images__a_", "images___a", "images__a___b", "__images"):
+        with TemporaryDirectory() as directory:
+            (Path(directory) / name).write_text("identity\nreason\n", encoding="utf-8")
+            try:
+                scan_identity.read_allowlist(Path(directory))
+            except scan_identity.CoverageError as error:
+                assert "ambiguous" in str(error), name
+            else:
+                raise AssertionError(f"ambiguous allowlist name accepted: {name}")
+    with TemporaryDirectory() as directory:
+        (Path(directory) / "images__a_b__c").write_text("identity\nreason\n", encoding="utf-8")
+        assert scan_identity.read_allowlist(Path(directory)) == {"images/a_b/c": "identity"}
+
+
 def check_repository_allowlist() -> None:
     listed = scan_identity.read_allowlist(scan_identity.ALLOWLIST)
     frozen = {context for context, follow_up in listed.items() if follow_up != "no-feed"}
@@ -292,6 +319,7 @@ def main() -> None:
     check_declared_identity()
     check_allowlist()
     check_metadata_validation()
+    check_underscore_heavy_paths()
     check_repository_allowlist()
     print("passed scripts/test_scan_identity.py")
 
