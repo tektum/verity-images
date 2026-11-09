@@ -104,8 +104,8 @@ test -n "$port"
 
 wait_metrics "$exporter" "$port" "$tmp/metrics" 'pg_up 1'
 grep -F 'pg_static{' "$tmp/metrics" >/dev/null || fail 'pg_static missing'
-grep -F 'pg_postmaster_start_time_seconds' "$tmp/metrics" >/dev/null ||
-  fail 'pg_postmaster_start_time_seconds missing'
+grep -F 'pg_stat_database_numbackends{' "$tmp/metrics" >/dev/null ||
+  fail 'pg_stat_database_numbackends missing'
 
 # Rejected credentials must surface as pg_up 0 while the exporter keeps serving.
 docker run --name "$orphan" -d --network "$network" \
