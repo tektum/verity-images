@@ -28,9 +28,12 @@ case $version in
   "NGINX Ingress Controller Version=5."*) ;;
   *) fail "unexpected version output: $version" ;;
 esac
-case $version in *[Pp]lus*) fail "image must be the open source edition" ;; esac
-
-docker run --rm --entrypoint sh "$image" -c 'nginx -v' >/dev/null 2>&1 || fail "nginx binary is unavailable"
+nginx_version=$(docker run --rm --entrypoint nginx "$image" -v 2>&1) || fail "nginx binary is unavailable"
+case $nginx_version in
+  "nginx version: nginx/"*) ;;
+  *) fail "unexpected nginx output: $nginx_version" ;;
+esac
+case $nginx_version in *[Pp]lus*) fail "image must be the open source edition" ;; esac
 
 out=$(docker run --rm "$image" 2>&1) && fail "controller started outside a cluster"
 case $out in
