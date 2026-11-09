@@ -21,7 +21,7 @@ FROZEN_BASELINE: Final = frozenset(
     for name in (
         "argo-events aws-node-termination-handler cassandra cert-manager-acmesolver cert-manager-cainjector "
         "cert-manager-controller cert-manager-startupapicheck cert-manager-webhook clickhouse cmake cmctl "
-        "configmap-reload coredns elixir/1.17 elixir/1.19 envoy external-secrets falcoctl falcosidekick "
+        "configmap-reload elixir/1.17 elixir/1.19 envoy external-secrets falcoctl falcosidekick "
         "fluent-bit flux-cli/2.10 flux-cli/2.8 flux-cli/2.9 flux-helm-controller "
         "gradle haproxy haproxy-ingress jenkins kube-state-metrics kubernetes-reflector mariadb/12.3 "
         "metallb-speaker metrics-server mysql/9.7 nodejs/22 perl/5.42 postgres/17 sonar-scanner-cli "
