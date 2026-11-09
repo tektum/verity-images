@@ -58,8 +58,6 @@ pipeline:
       mkdir -p "${{targets.destdir}}/etc/temporal"
       cp -r schema "${{targets.destdir}}/etc/temporal/schema"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
-      install -m644 -D go.mod "${{targets.destdir}}/usr/share/temporal-admin-tools-build/server/go.mod"
-      install -m644 -D go.sum "${{targets.destdir}}/usr/share/temporal-admin-tools-build/server/go.sum"
   - uses: git-checkout
     with:
       destination: cli
@@ -80,8 +78,19 @@ pipeline:
       go-package: go-1.26
       ldflags: -X github.com/temporalio/cli/internal/temporalcli.Version=${{vars.cli-version}}
   - runs: |
-      install -m644 -D cli/go.mod "${{targets.destdir}}/usr/share/temporal-admin-tools-build/cli/go.mod"
-      install -m644 -D cli/go.sum "${{targets.destdir}}/usr/share/temporal-admin-tools-build/cli/go.sum"
+      install -Dm644 cli/LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/CLI-LICENSE"
+
+subpackages:
+  - name: temporal-admin-tools-build-metadata
+    description: Resolved Go module metadata for the temporal-admin-tools build
+    pipeline:
+      - runs: |
+          dest="${{targets.subpkgdir}}/usr/share/temporal-admin-tools-build"
+          for m in server:. cli:cli; do
+            for f in go.mod go.sum; do
+              install -m644 -D "${m#*:}/$f" "$dest/${m%%:*}/$f"
+            done
+          done
 
 test:
   environment:
