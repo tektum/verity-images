@@ -1,0 +1,76 @@
+package:
+  name: hydra
+  version: "26.2.0"
+  epoch: 34  # Go remediation
+  description: OAuth and OpenID Connect server
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 0b84568fffccf151dc5e6c7955fdfb738555bf4b
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "1"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ory/hydra
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      flags="-s -w -X github.com/ory/hydra/v2/driver/config.Version=v${{package.version}}"
+      flags="$flags -X github.com/ory/hydra/v2/driver/config.Date=$(date -u -d@${SOURCE_DATE_EPOCH} +%FT%TZ)"
+      flags="$flags -X github.com/ory/hydra/v2/driver/config.Commit=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -tags sqlite,sqlite_omit_load_extension -ldflags "$flags" -o hydra .
+      install -Dm755 hydra "${{targets.destdir}}/usr/bin/hydra"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: hydra-build-metadata
+    description: Resolved Go module metadata for the Ory Hydra build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/hydra-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/hydra-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        hydra version | grep -F "v${{package.version}}"
+        apk info --who-owns /usr/bin/hydra | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F "Apache License" "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: ory/hydra
+    strip-prefix: v
+    tag-filter: v
