@@ -45,7 +45,11 @@ pipeline:
       source_commit=$(git rev-parse HEAD)
       pkg=istio.io/istio/pkg/version
 
-      go build -mod=readonly -trimpath -buildvcs=false \
+      # Istio tags omit the v prefix; Go stamps the main module version only from a
+      # semver vX.Y.Z tag on HEAD, so add one locally for the pinned commit.
+      git tag -f v${{package.version}} "$source_commit"
+
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w \
           -X $pkg.buildVersion=${{package.version}} \
           -X $pkg.buildGitRevision=$source_commit \
@@ -62,6 +66,9 @@ pipeline:
 
       "${{targets.destdir}}/usr/bin/istioctl" version --remote=false \
         | grep -Fx 'client version: ${{package.version}}'
+      go version -m "${{targets.destdir}}/usr/bin/istioctl" \
+        | awk '$1 == "mod" && $2 == "istio.io/istio" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
 
   - uses: strip
 
