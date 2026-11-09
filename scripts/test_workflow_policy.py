@@ -1227,8 +1227,8 @@ def main() -> None:
         "      contents: read\n"
         in stall_guard_job
     )
-    # Deferred cancel fires after the slowest native-arm64 (300), the slowest healthy publish (300) and the stall window.
-    assert "\n    timeout-minutes: 660\n" in stall_guard_job
+    # validate/publish rows exist only after the slowest native-arm64 compile (up to 300 minutes).
+    assert "\n    timeout-minutes: 360\n" in stall_guard_job
     assert "github.event_name != 'merge_group' &&" in stall_guard_job
     assert "fromJSON(needs.matrix.outputs.images).include[0] != null" in stall_guard_job
     guard_script = stall_guard_job.split("        run: |\n", maxsplit=1)[1]
