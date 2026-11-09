@@ -1,0 +1,108 @@
+package:
+  name: temporal-admin-tools
+  version: "1.32.2"
+  epoch: 0
+  description: Temporal operator tools tdbg, temporal CLI, SQL and Cassandra schema tools
+  copyright:
+    - license: MIT
+  resources:
+    cpu: "4"
+    memory: 12Gi
+    disk: 8Gi
+
+vars:
+  cli-version: "1.10.0"  # renovate: datasource=github-tags depName=temporalio/cli
+  cli-commit: eace324a13f6a9161af1e201e1ca45b67b50b620
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/temporalio/temporal
+      tag: v${{package.version}}
+      expected-commit: 6d085822273f4336796e6959c73ab1d14a23eb77
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/tools/tdbg ./cmd/tools/sql ./cmd/tools/cassandra
+  - uses: go/build
+    with:
+      packages: ./cmd/tools/tdbg
+      output: tdbg
+      go-package: go-1.26
+  - uses: go/build
+    with:
+      packages: ./cmd/tools/sql
+      output: temporal-sql-tool
+      go-package: go-1.26
+  - uses: go/build
+    with:
+      packages: ./cmd/tools/cassandra
+      output: temporal-cassandra-tool
+      go-package: go-1.26
+  - runs: |
+      mkdir -p "${{targets.destdir}}/etc/temporal"
+      cp -r schema "${{targets.destdir}}/etc/temporal/schema"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -m644 -D go.mod "${{targets.destdir}}/usr/share/temporal-admin-tools-build/server/go.mod"
+      install -m644 -D go.sum "${{targets.destdir}}/usr/share/temporal-admin-tools-build/server/go.sum"
+  - uses: git-checkout
+    with:
+      destination: cli
+      repository: https://github.com/temporalio/cli
+      tag: v${{vars.cli-version}}
+      expected-commit: ${{vars.cli-commit}}
+  - uses: go/remediate
+    working-directory: cli
+    with:
+      modroot: cliext
+      packages: ./...
+  - uses: go/remediate
+    working-directory: cli
+    with:
+      modroot: .
+      packages: ./cmd/temporal
+  - uses: go/build
+    working-directory: cli
+    with:
+      packages: ./cmd/temporal
+      output: temporal
+      go-package: go-1.26
+      ldflags: -X github.com/temporalio/cli/internal/temporalcli.Version=${{vars.cli-version}}
+  - runs: |
+      install -m644 -D cli/go.mod "${{targets.destdir}}/usr/share/temporal-admin-tools-build/cli/go.mod"
+      install -m644 -D cli/go.sum "${{targets.destdir}}/usr/share/temporal-admin-tools-build/cli/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        temporal --version | grep -F "${{vars.cli-version}}"
+        tdbg --version
+        temporal-sql-tool --help >/dev/null
+        temporal-cassandra-tool --help >/dev/null
+        test -d /etc/temporal/schema/mysql
+        grep -F "MIT License" "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: temporalio/temporal
+    strip-prefix: v
