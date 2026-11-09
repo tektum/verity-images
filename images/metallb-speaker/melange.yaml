@@ -1,7 +1,7 @@
 package:
   name: verity-metallb-speaker
   version: "0.15.3"
-  epoch: 1
+  epoch: 2
   description: MetalLB speaker for announcing load-balanced service addresses
   copyright:
     - license: Apache-2.0
@@ -43,7 +43,7 @@ pipeline:
   - runs: |
       flags="-s -w -X go.universe.tf/metallb/internal/version.gitCommit=${{vars.source-commit}}"
       flags="$flags -X go.universe.tf/metallb/internal/version.gitBranch=v${{package.version}}"
-      go build -mod=readonly -trimpath -buildvcs=false \
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="$flags" \
         -o "${{targets.destdir}}/speaker" ./speaker
       install -Dm644 LICENSE \
