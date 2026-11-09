@@ -1,0 +1,50 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-opensearch-2@local
+
+accounts:
+  groups:
+    - groupname: opensearch
+      gid: 1000
+  users:
+    - username: opensearch
+      uid: 1000
+      gid: 1000
+  run-as: 1000
+
+entrypoint:
+  command: /usr/share/opensearch/bin/opensearch
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  OPENSEARCH_JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  LANG: en_US.UTF-8
+  PATH: /usr/share/opensearch/bin:/usr/lib/jvm/java-21-openjdk/bin:/usr/bin:/bin
+
+paths:
+  - path: /usr/share/opensearch/config
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /usr/share/opensearch/data
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /usr/share/opensearch/logs
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+
+volumes:
+  - /usr/share/opensearch/data
+
+work-dir: /usr/share/opensearch
