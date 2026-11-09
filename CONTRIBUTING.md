@@ -56,6 +56,61 @@ Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
+### Scan identity
+
+Melange stamps every binary it builds with a package note, so Syft reports the
+main software of a source-built image as an apk under the local package name,
+which no vulnerability feed knows. The gate and the daily monitor would then
+report "0 fixable" for software they cannot see. `scripts/build_candidate.sh`
+therefore runs `scripts/scan_identity.py` on each platform right after Syft, for
+every image whose recipe is `melange.yaml`, and fails the build unless one of
+these holds:
+
+- `metadata.yaml` declares `scan-identity`. The script appends one SPDX package
+  per entry to the platform SBOM, versioned from `package.version` (or
+  `vars.upstream-version` when declared). Grype, the attested SBOM, and the
+  daily monitor all see it.
+- Syft natively reports a versioned main component in a file the local package
+  owns: a Go main module with a real version (a `+dirty` suffix or a
+  pseudo-version counts; `UNKNOWN` and `(devel)` do not), a Rust crate whose
+  version equals the recipe version, or, for a Go toolchain image, the matching
+  `stdlib`.
+- The image is on `scripts/scan_identity_allowlist.txt`.
+
+Declare each entry without a version, as a CPE vendor and product or a purl type
+and name:
+
+```yaml
+scan-identity: [cpe:2.3:a:oracle:mysql, pkg:golang/github.com/coredns/coredns]
+```
+
+Use the flow list form shown: the metadata parser reads no block lists or inline
+comments. A CPE entry is matched through NVD by the stock matcher; a Go purl is
+matched through GHSA, and its version gets a `v` prefix.
+
+An asserted identity must be correct. A wrong vendor, product, or module path
+scans nothing and silently blinds the gate again, because nothing checks the
+declaration against the software. Take the CPE from the NVD CPE dictionary and
+the module path from the `module` line of the upstream `go.mod`, then confirm
+with a scan of the built SBOM at an older, known-vulnerable version that findings
+appear. Declare the main software only, not its bundled dependencies, and expect
+NVD ranges to be coarse. The field needs an image-local `melange.yaml`; patched
+and pure APKO images are scanned from their real package databases. A CPE entry
+is matched through NVD only. A Go purl is matched through GHSA only, so declare
+both when the software has CPE-only advisories. A `metadata.yaml` edit that declares
+`scan-identity` selects its image for a build and is part of the image's input
+fingerprint; other metadata edits stay catalog-only. An edit to
+`scripts/scan_identity.py` builds one sample melange image, as shared pipeline
+changes do.
+
+The allowlist is a temporary exception for images that predate the rule. Each
+line names a context and its follow-up: `identity`, `go-version`, or
+`unverified`. It may only shrink. The image-local pull request that declares
+`scan-identity` or stamps the Go main module version deletes the line in the
+same change; `scripts/test_scan_identity.py` rejects a new entry, an entry for an
+image that declares an identity, and an entry for a missing or disabled image.
+Native coverage of an allowlisted image logs "stale allowlist entry".
+
 ### Published version authority
 
 A build artifact owns the version it publishes; metadata never carries a second

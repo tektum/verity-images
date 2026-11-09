@@ -1,0 +1,60 @@
+# Images whose main software the scanners cannot see yet, each with the follow-up that removes it.
+#
+# scripts/scan_identity.py fails the build of any image-local melange recipe that neither declares
+# scan-identity in metadata.yaml nor exposes a versioned main component natively. These entries are
+# the images that predate the rule. The list may only shrink: the image-local pull request that
+# declares scan-identity or stamps the Go main module version deletes its line in the same change.
+# scripts/test_scan_identity.py rejects any entry outside its frozen baseline.
+#
+# CONTEXT FOLLOW-UP
+#   identity    declare scan-identity in the image's metadata.yaml
+#   go-version  stamp the Go main module version (or declare scan-identity)
+#   unverified  never published; confirm coverage on its first build, else declare scan-identity
+
+images/argo-events go-version
+images/aws-node-termination-handler go-version
+images/cassandra identity
+images/cert-manager-acmesolver identity
+images/cert-manager-cainjector identity
+images/cert-manager-controller identity
+images/cert-manager-startupapicheck identity
+images/cert-manager-webhook identity
+images/clickhouse identity
+images/cmake identity
+images/cmctl go-version
+images/configmap-reload go-version
+images/coredns go-version
+images/elixir/1.17 identity
+images/elixir/1.19 identity
+images/envoy identity
+images/external-secrets identity
+images/falcoctl unverified
+images/falcosidekick identity
+images/fluent-bit identity
+images/flux-cli/2.10 go-version
+images/flux-cli/2.8 go-version
+images/flux-cli/2.9 go-version
+images/flux-helm-controller go-version
+images/flux-kustomize-controller go-version
+images/gradle identity
+images/haproxy identity
+images/haproxy-ingress go-version
+images/jenkins identity
+images/kube-state-metrics identity
+images/kubernetes-reflector identity
+images/mariadb/12.3 identity
+images/metallb-speaker go-version
+images/metrics-server identity
+images/mysql/9.7 identity
+images/nodejs/22 identity
+images/perl/5.42 identity
+images/pgbouncer identity
+images/postgres/17 identity
+images/sonar-scanner-cli identity
+images/source-controller identity
+images/tekton-controller go-version
+images/trust-manager go-version
+images/valkey identity
+images/victoria-metrics go-version
+images/vmagent go-version
+images/zookeeper identity

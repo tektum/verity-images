@@ -77,8 +77,9 @@ set -euo pipefail
 image=${1#docker:}
 arch=${image##*-}
 [[ "${SYFT_FAIL_ARCH:-}" != "$arch" ]]
-[[ "$2" == -o && "$3" == spdx-json=* ]]
+[[ "$2" == -o && "$3" == spdx-json=* && "$4" == -o && "$5" == json=* ]]
 output=${3#spdx-json=}
+json=${5#json=}
 jq -n --arg image "$image" --arg arch "$arch" '{
   name: $image,
   packages: [
@@ -87,6 +88,13 @@ jq -n --arg image "$image" --arg arch "$arch" '{
   ],
   creationInfo: {comment: ("syft-final-image-" + $arch)}
 }' >"$output"
+# The main component Syft sees: a melange apk owning /usr/bin/caddy and its Go main module.
+jq -n --arg version "${SYFT_MAIN_VERSION:-v2.11.9}" '{artifacts: [
+  {name: "verity-caddy", version: "2.11.9-r0", type: "apk",
+   metadata: {originPackage: "verity-caddy", files: [{path: "/usr/bin/caddy"}]}},
+  {name: "github.com/caddyserver/caddy/v2", version: $version, type: "go-module",
+   locations: [{path: "/usr/bin/caddy"}], metadata: {mainModule: "github.com/caddyserver/caddy/v2"}}
+]}' >"$json"
 printf '%s %s\n' "$image" "$output" >>"$SYFT_LOG"
 EOF
 chmod +x "$work/bin/"*
@@ -105,7 +113,9 @@ repository: @LOCAL_REPOSITORY@
 key: @LOCAL_KEY@
 godebug: @GODEBUG@
 EOF
-: >"$work/caddy/melange.yaml"
+printf 'package:\n  name: verity-caddy\n  version: 2.11.9\n  epoch: 0\n' >"$work/caddy/melange.yaml"
+printf 'name: caddy\ntrack: wolfi\ndescription: Example.\nupstream: https://example.com/\nversions: [2]\nenabled: true\n' \
+  >"$work/caddy/metadata.yaml"
 printf 'GOFIPS140=v1.0.0\n' >"$work/caddy/fips.env"
 run_candidate "$work/caddy" caddy plain
 for arch in amd64 arm64; do
@@ -124,6 +134,24 @@ if grep -R -q 'apko-' "$work/dist/caddy/sbom"; then
 fi
 grep -q '^variant: caddy$' "$APKO_LOG"
 grep -q '^godebug: fips140=off$' "$APKO_LOG"
+
+# Syft reports no main-module version: the build must fail rather than publish a blind scan.
+if SYFT_MAIN_VERSION=UNKNOWN run_candidate "$work/caddy" blind plain 2>"$work/blind.log"; then
+  printf 'build accepted an image whose main software no scanner can see\n' >&2
+  exit 1
+fi
+grep -Fq 'Scan coverage' "$work/blind.log"
+
+# A declared identity puts the main software into the platform SBOM, versioned from the recipe.
+cp "$work/caddy/metadata.yaml" "$work/caddy/metadata.yaml.orig"
+printf 'scan-identity: [pkg:golang/github.com/caddyserver/caddy/v2, cpe:2.3:a:caddyserver:caddy]\n' >>"$work/caddy/metadata.yaml"
+SYFT_MAIN_VERSION=UNKNOWN run_candidate "$work/caddy" declared plain
+for arch in amd64 arm64; do
+  jq -e '[.packages[] | .externalRefs[]?.referenceLocator] | contains([
+    "pkg:golang/github.com/caddyserver/caddy/v2@v2.11.9",
+    "cpe:2.3:a:caddyserver:caddy:2.11.9:*:*:*:*:*:*:*"])' "$work/dist/declared/sbom/sbom-${arch}.spdx.json" >/dev/null
+done
+mv "$work/caddy/metadata.yaml.orig" "$work/caddy/metadata.yaml"
 
 : >"$APKO_LOG"
 : >"$MELANGE_LOG"
