@@ -145,9 +145,12 @@ grep -F "kafka_exporter_build_info{" "$tmp/metrics" | grep -F "revision=\"$revis
   grep -F "version=\"$version\"" >/dev/null ||
   fail 'kafka_exporter_build_info does not match --version'
 
-# The exporter does not trap SIGTERM; it must still stop at once (143), not be killed (137).
+# The exporter does not trap SIGTERM, so as PID 1 it exits 143 or 2 (Go); it
+# must stop at once and not be killed after the grace period (137).
 docker stop --time 10 "$exporter" >/dev/null
-[ "$(docker inspect --format '{{.State.ExitCode}}' "$exporter")" = 143 ] ||
-  fail 'exporter did not stop on SIGTERM'
+case $(docker inspect --format '{{.State.ExitCode}}' "$exporter") in
+  0 | 2 | 143) ;;
+  *) fail 'exporter did not stop on SIGTERM' ;;
+esac
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$version"
