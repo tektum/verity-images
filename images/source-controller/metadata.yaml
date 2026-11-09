@@ -5,3 +5,4 @@ upstream: https://github.com/fluxcd/source-controller
 versions: [1.9]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/github.com/fluxcd/source-controller]
