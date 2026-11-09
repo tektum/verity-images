@@ -43,6 +43,23 @@ esac
 jenkins_version=$(sed -n 's/^  version: "\([^"]*\)".*$/\1/p' "$here/../../jenkins/melange.yaml")
 [ -n "$jenkins_version" ] || fail 'Jenkins package version is missing'
 
+# Resolve the pinned controller index to its per-platform child digest, verifying the index bytes against the pin
+# first so the pin stays authoritative; pulling one index digest for two platforms fails on some Docker stores.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+index_raw=$(docker buildx imagetools inspect --raw "$jenkins_index") || fail 'cannot inspect the Jenkins controller index'
+[ "sha256:$(printf '%s' "$index_raw" | sha256sum | cut -d' ' -f1)" = "${jenkins_index#*@}" ] ||
+  fail 'Jenkins controller index digest mismatch'
+controller_digest=$(printf '%s' "$index_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail 'cannot resolve the Jenkins controller digest'
+case $controller_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch Jenkins controller in $jenkins_index" ;;
+esac
+controller_image=${jenkins_index%%@*}@$controller_digest
+docker pull --quiet --platform "linux/$image_arch" "$controller_image" >/dev/null || fail 'cannot pull the Jenkins controller'
+
 # OCI configuration.
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 1000 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /home/jenkins ] || fail 'unexpected OCI working directory'
@@ -110,7 +127,7 @@ fetch_plugin bouncycastle-api 2.30.1.86.2-310.v4655f6742752 57cc5cf1585f9a8f29c5
 
 docker run --name "$controller" -d --label "$label" --network "$network" --network-alias jenkins \
   -e JAVA_OPTS=-Djenkins.install.runSetupWizard=false \
-  -v "$tmp/init.groovy.d:/var/jenkins_home/init.groovy.d:ro" -v "$tmp/plugins:/var/jenkins_home/plugins" -p 127.0.0.1::8080 "$jenkins_index" >/dev/null
+  -v "$tmp/init.groovy.d:/var/jenkins_home/init.groovy.d:ro" -v "$tmp/plugins:/var/jenkins_home/plugins" -p 127.0.0.1::8080 "$controller_image" >/dev/null
 port=$(docker port "$controller" 8080/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || fail 'controller port is missing'
 base="http://127.0.0.1:$port"
