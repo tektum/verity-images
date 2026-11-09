@@ -225,7 +225,7 @@ def check_allowlist() -> None:
     with TemporaryDirectory() as directory:
         (Path(directory) / "README.md").write_text("notes\n", encoding="utf-8")
         (Path(directory) / "images__elixir__1.17").write_text("identity\nreason\n", encoding="utf-8")
-        assert scan_identity.read_allowlist(Path(directory)) == {"images/elixir/1.17": "identity"}
+        assert scan_identity.read_allowlist(Path(directory)) == {"images__elixir__1.17": "identity"}
     with TemporaryDirectory() as directory:
         image = Image(Path(directory), [])
         image.list_entry("no-feed")
@@ -284,22 +284,20 @@ def check_underscore_heavy_paths() -> None:
             image = Image(Path(directory), [])
             image.list_entry("no-feed")
             assert "ALLOWLISTED" in image.apply(), (prefix, suffix)
-    for name in ("images__a_", "images___a", "images__a___b", "__images"):
+    for context in ("images/a_", "images/_a", "images/a__b", "images/_/_x/1.2"):
         with TemporaryDirectory() as directory:
-            (Path(directory) / name).write_text("identity\nreason\n", encoding="utf-8")
-            try:
-                scan_identity.read_allowlist(Path(directory))
-            except scan_identity.CoverageError as error:
-                assert "ambiguous" in str(error), name
-            else:
-                raise AssertionError(f"ambiguous allowlist name accepted: {name}")
-    with TemporaryDirectory() as directory:
-        (Path(directory) / "images__a_b__c").write_text("identity\nreason\n", encoding="utf-8")
-        assert scan_identity.read_allowlist(Path(directory)) == {"images/a_b/c": "identity"}
+            (Path(directory) / scan_identity.entry_name(context)).write_text("identity\nreason\n", encoding="utf-8")
+            assert scan_identity.read_allowlist(Path(directory)) == {scan_identity.entry_name(context): "identity"}
 
 
 def check_repository_allowlist() -> None:
-    listed = scan_identity.read_allowlist(scan_identity.ALLOWLIST)
+    names = scan_identity.read_allowlist(scan_identity.ALLOWLIST)
+    real = [p.parent.relative_to(gen_matrix.ROOT).as_posix() for p in gen_matrix.ROOT.glob("images/**/metadata.yaml")]
+    by_name = {scan_identity.entry_name(context): context for context in real}
+    assert len(by_name) == len(real), "two image contexts share one allowlist entry name"
+    unknown = sorted(set(names) - set(by_name))
+    assert not unknown, f"allowlist entries naming no image context: {unknown}"
+    listed = {by_name[name]: kind for name, kind in names.items()}
     frozen = {context for context, follow_up in listed.items() if follow_up != "no-feed"}
     assert frozen <= FROZEN_BASELINE, f"allowlist grew: {sorted(frozen - FROZEN_BASELINE)}"
     no_feed = {context for context, follow_up in listed.items() if follow_up == "no-feed"}

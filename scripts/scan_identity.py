@@ -141,24 +141,28 @@ def native_components(syft: dict, origin: str, version: str) -> list[str]:
     return sorted(set(found))
 
 
-def read_allowlist(directory: Path) -> dict[str, str]:
-    """Context -> follow-up, from one file per image named after the context with '/' as '__'.
+def entry_name(context: str) -> str:
+    """The allowlist file name of an image context: '/' written as '__'. Never decoded, see read_allowlist."""
+    return context.replace("/", "__")
 
-    The first line of a file is the follow-up kind; the rest is the reason and must not be empty.
+
+def read_allowlist(directory: Path) -> dict[str, str]:
+    """Entry file name -> follow-up, one file per image named by entry_name(context).
+
+    Names are looked up by encoding the queried context, never decoded: '__' is not reversible
+    when a path segment starts or ends with '_'. The first line of a file is the follow-up kind;
+    the rest is the reason and must not be empty.
     """
     entries: dict[str, str] = {}
     for path in sorted(directory.iterdir()):
         if path.name == "README.md":
             continue
-        context = path.name.replace("__", "/")
-        if any(not part or part.startswith("_") or part.endswith("_") for part in context.split("/")):
-            raise CoverageError(f"{path}: ambiguous name, an image path segment must not start or end with '_'")
         if not path.is_file():
             raise CoverageError(f"{path}: expected a file named after the image context, '/' written as '__'")
         kind, _, reason = path.read_text(encoding="utf-8").partition("\n")
         if kind not in FOLLOW_UPS or not reason.strip():
             raise CoverageError(f"{path}: expected '{'|'.join(sorted(FOLLOW_UPS))}' on the first line, then the reason")
-        entries[context] = kind
+        entries[path.name] = kind
     return entries
 
 
@@ -186,10 +190,10 @@ def apply(context: Path, recipe: Path, sbom_path: Path, syft_path: Path, allowli
     syft = json.loads(syft_path.read_text(encoding="utf-8"))
     listed = read_allowlist(allowlist)
     if components := native_components(syft, recipe_package(recipe), version):
-        stale = "; stale allowlist entry, delete it" if key in listed else ""
+        stale = "; stale allowlist entry, delete it" if entry_name(key) in listed else ""
         return f"{key}: scanner sees its main software natively: {', '.join(components)}{stale}"
-    if key in listed:
-        return f"{key}: ALLOWLISTED, main software not scanned (follow-up: {listed[key]})"
+    if entry_name(key) in listed:
+        return f"{key}: ALLOWLISTED, main software not scanned (follow-up: {listed[entry_name(key)]})"
     raise CoverageError(
         f"{key}: the scanner cannot see this image's main software. Syft reports the melange package under a "
         "renamed apk and finds no versioned Go main module or Rust crate in files that package owns, so "
