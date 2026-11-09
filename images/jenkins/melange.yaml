@@ -1,6 +1,8 @@
 package:
   name: verity-jenkins
-  version: "2.589"  # renovate: datasource=github-tags depName=jenkinsci/docker
+  # Tracks the LTS line: only three-component jenkinsci/docker tags are LTS releases.
+  # yamllint disable-line rule:line-length
+  version: "2.580.2"  # renovate: datasource=github-tags depName=jenkinsci/docker versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
   epoch: 0
   description: Jenkins automation server web archive
   copyright:
@@ -26,8 +28,8 @@ environment:
 pipeline:
   - uses: fetch
     with:
-      uri: https://get.jenkins.io/war/${{package.version}}/jenkins.war
-      expected-sha256: 71e541955869d19c80204d6855d5070a3f2df089c53c74caa14b6e816acf42e8
+      uri: https://get.jenkins.io/war-stable/${{package.version}}/jenkins.war
+      expected-sha256: d98032d2401c540a35613a82ed358921fcf3166d5e6eaaaf60a7941845be3251
       extract: false
   - runs: |
       install -Dm644 jenkins.war "${{targets.destdir}}/usr/share/jenkins/jenkins.war"
