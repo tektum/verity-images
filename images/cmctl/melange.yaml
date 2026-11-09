@@ -47,6 +47,9 @@ pipeline:
           -X k8s.io/client-go/pkg/version.gitVersion=v${{package.version}} \
           -X k8s.io/client-go/pkg/version.gitCommit=${{vars.source-commit}}" \
         -o "${{targets.destdir}}/usr/bin/cmctl" .
+      go version -m "${{targets.destdir}}/usr/bin/cmctl" \
+        | awk '$1 == "mod" && $2 == "github.com/cert-manager/cmctl/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
