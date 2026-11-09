@@ -1,0 +1,9 @@
+name: varnish
+track: wolfi
+description: Varnish Cache HTTP accelerator and caching reverse proxy built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/varnish/varnish
+versions: [9.1]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:vinyl-cache:vinyl_cache, cpe:2.3:a:varnish_cache_project:varnish_cache]

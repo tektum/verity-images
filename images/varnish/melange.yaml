@@ -1,0 +1,81 @@
+package:
+  name: varnish-9.1
+  # yamllint disable-line rule:line-length
+  version: "9.1.0"  # renovate: datasource=github-tags depName=varnish/varnish versioning=regex:^(?<major>9)\.(?<minor>1)\.(?<patch>\d+)$ extractVersion=^varnish-(?<version>.+)$
+  epoch: 0
+  description: Varnish Cache web application accelerator and caching HTTP reverse proxy
+  copyright:
+    - license: BSD-2-Clause
+  dependencies:
+    provides:
+      - varnish=${{package.full-version}}
+    runtime:
+      - gcc
+      - glibc-dev
+      - binutils
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - libedit-dev
+      - libtool
+      - libunwind-dev
+      - m4
+      - ncurses-dev
+      - openssl-3.6-dev
+      - pcre2-dev
+      - pkgconf
+      - pkgconf-dev
+      - py3.13-docutils
+      - py3.13-docutils-bin
+      - py3.13-sphinx
+      - py3.13-sphinx-bin
+      - python-3.13
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/varnish/varnish
+      tag: varnish-${{package.version}}
+      expected-commit: ffd36e9db9a1ec2bf6637deda180a87d40a13d0f
+      recurse-submodules: true
+  - runs: autoreconf -vif
+  - uses: autoconf/configure
+    with:
+      opts: --sbindir=/usr/bin
+  - uses: autoconf/make
+    with:
+      opts: |
+        VARNISH_STATE_DIR=/var/lib/varnish
+  - uses: autoconf/make-install
+  - runs: |
+      # Runtime state is created by the image (apko paths); the install leaves a restricted tree.
+      rm -rf "${{targets.destdir}}/var"
+      mkdir -p "${{targets.destdir}}/etc/varnish"
+      printf 'vcl 4.1;\n\nbackend default none;\n' > "${{targets.destdir}}/etc/varnish/default.vcl"
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        varnishd -V 2>&1 | grep -F "varnish-${{package.version}}"
+        apk info --who-owns /usr/bin/varnishd | grep -F "${{package.name}}-${{package.full-version}}"
