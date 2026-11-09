@@ -69,11 +69,6 @@ pipeline:
   - uses: go/remediate
     working-directory: cli
     with:
-      modroot: cliext
-      packages: ./...
-  - uses: go/remediate
-    working-directory: cli
-    with:
       modroot: .
       packages: ./cmd/temporal
   - uses: go/build
