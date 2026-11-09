@@ -1,7 +1,7 @@
 package:
   name: verity-mariadb-12.3
   # yamllint disable-line rule:line-length
-  version: "12.3.3"  # renovate: datasource=github-tags depName=MariaDB/server versioning=regex:^(?:mariadb-)?(?<major>12)\.(?<minor>3)\.(?<patch>\d+)$
+  version: "12.3.3"  # renovate: datasource=github-tags depName=MariaDB/server versioning=regex:^(?<major>12)\.(?<minor>3)\.(?<patch>\d+)$ extractVersion=^mariadb-(?<version>.+)$
   epoch: 0
   description: MariaDB 12.3 server and client built from the upstream release
   copyright:
