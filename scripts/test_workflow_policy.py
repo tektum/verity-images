@@ -355,10 +355,13 @@ def check_download_retries() -> None:
             if not re.search(r"(^|[\s$(])curl\s", line):
                 continue
             name = f"{path.relative_to(ROOT)}: {line.strip()}"
-            assert "--retry 5 " in line and "--retry-delay 5" in line, name
+            assert re.search(r"--retry 5(\s|$)", line) and "--retry-delay 5" in line, name
             assert not re.search(r"\s(-k|--insecure)\b", line), name
             if "--write-out" not in line:
-                assert "--retry-all-errors" in line, name
+                # scripts/devbox.sh runs on developer hosts whose curl may predate
+                # --retry-all-errors (7.71); plain --retry already covers 5xx.
+                if path.name != "devbox.sh":
+                    assert "--retry-all-errors" in line, name
                 assert re.search(r"\s(--fail|-\w*f\w*)\s", line), name
     apk_repository = (ROOT / ".github/workflows/apk-repository.yaml").read_text(encoding="utf-8")
     base_download = between(
