@@ -6,3 +6,4 @@ upstream: https://cassandra.apache.org/
 versions: [5.0]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:apache:cassandra, pkg:maven/org.apache.cassandra/cassandra-all]
