@@ -10,6 +10,7 @@ contents:
     - ca-certificates-bundle
     - chromium
     - fontconfig
+    - glibc-locale-en
     - font-freefont
     - font-ipafont-gothic
     - font-kacst
@@ -43,8 +44,8 @@ cmd: server
 environment:
   CHROME_BIN: /usr/bin/chromium
   HOME: /home/nonroot
-  LANG: C.UTF-8
-  LC_ALL: C.UTF-8
+  LANG: en_US.UTF-8
+  LC_ALL: en_US.UTF-8
   PATH: /usr/bin:/bin
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
 
