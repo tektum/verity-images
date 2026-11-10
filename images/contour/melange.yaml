@@ -1,7 +1,7 @@
 package:
   name: verity-contour-1.33
   version: "1.33.5"
-  epoch: 1  # Go remediation
+  epoch: 2  # Go remediation: drop test-only cert-manager
   description: Contour Kubernetes ingress controller
   copyright:
     - license: Apache-2.0
@@ -36,6 +36,12 @@ pipeline:
       repository: https://github.com/projectcontour/contour
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+
+  # cert-manager is required only by test/e2e and is not linked into
+  # ./cmd/contour. Remediating it pulls sigs.k8s.io/gateway-api past the v1.3
+  # API that contour 1.33 compiles against. The -mod=readonly build below fails
+  # if ./cmd/contour ever imports it.
+  - runs: go mod edit -droprequire=github.com/cert-manager/cert-manager
 
   - uses: go/remediate
     with:
