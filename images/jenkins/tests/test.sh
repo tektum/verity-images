@@ -19,6 +19,18 @@ trap cleanup EXIT INT TERM
 recipe_version=$(sed -n 's/^  version: "\([^"]*\)".*$/\1/p' "$(dirname "$0")/../melange.yaml")
 [ -n "$recipe_version" ] || fail 'Jenkins package version is missing'
 
+# images/jenkins-inbound-agent must ship the remoting embedded in this war; a Jenkins bump that changes it fails
+# here until the agent image is updated to the same remoting version.
+agent_remoting=$(sed -n 's/^  upstream-version: \([^ ]*\).*$/\1/p' "$(dirname "$0")/../../jenkins-inbound-agent/melange.yaml")
+[ -n "$agent_remoting" ] || fail 'jenkins-inbound-agent remoting version is missing'
+war_remoting=$(docker run --rm --network none --entrypoint /bin/cat "$image" /usr/share/jenkins/jenkins.war | python3 -c '
+import io, sys, zipfile
+manifest = zipfile.ZipFile(io.BytesIO(sys.stdin.buffer.read())).read("META-INF/MANIFEST.MF").decode()
+print(next(line.split(":", 1)[1].strip() for line in manifest.splitlines() if line.startswith("Remoting-Embedded-Version:")))
+') || fail 'could not read Remoting-Embedded-Version from jenkins.war'
+[ "$war_remoting" = "$agent_remoting" ] ||
+  fail "jenkins.war embeds remoting $war_remoting but images/jenkins-inbound-agent ships $agent_remoting; bump the agent"
+
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 1000 ] || fail 'unexpected OCI user'
 [ "$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")" = /var/jenkins_home ] || fail 'unexpected OCI working directory'
 [ "$(docker image inspect -f '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/tini","--","/usr/local/bin/jenkins.sh"]' ] || fail 'unexpected OCI entrypoint'
