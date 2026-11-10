@@ -1,0 +1,9 @@
+name: squid
+track: wolfi
+description: Squid caching and forwarding HTTP proxy built from the pinned upstream release tarball.
+category: Web Servers & Proxies
+upstream: https://www.squid-cache.org/
+versions: [7]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:squid-cache:squid]
