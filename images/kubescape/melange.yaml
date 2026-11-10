@@ -17,6 +17,7 @@ package:
 
 vars:
   source-commit: ec65d3184f6bab7d1ad6e5db9d970d452316d253
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
 
 environment:
   contents:
@@ -38,6 +39,20 @@ pipeline:
       repository: https://github.com/kubescape/kubescape
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  # CVE-2026-19585 and CVE-2026-88922 are only in the NVD feed, which
+  # go/remediate does not read, and upstream still requires go-getter v1.8.6.
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/hashicorp/go-getter)"
+      if awk -v have="$current" -v want=${{vars.go-getter-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get github.com/hashicorp/go-getter@${{vars.go-getter-floor}}
+      fi
   - uses: go/remediate
     with:
       modroot: .
