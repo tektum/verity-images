@@ -6,7 +6,7 @@ container="verity-fluentd-test-$$"
 fixture=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$container" "$container-bad" >/dev/null 2>&1 || true
   rm -rf "$fixture"
 }
 trap cleanup EXIT INT TERM
@@ -109,9 +109,10 @@ if docker run --rm -v "$fixture/invalid.conf:/fluentd/etc/invalid.conf:ro" \
   "$image" fluentd -c /fluentd/etc/invalid.conf --dry-run >/dev/null 2>&1; then
   fail "invalid config unexpectedly passed --dry-run"
 fi
-if docker run --rm -v "$fixture/invalid.conf:/fluentd/etc/invalid.conf:ro" \
-  -e FLUENTD_CONF=invalid.conf "$image" >/dev/null 2>&1; then
-  fail "invalid config unexpectedly started"
-fi
+status=0
+timeout 120 docker run --name "$container-bad" -v "$fixture/invalid.conf:/fluentd/etc/invalid.conf:ro" \
+  -e FLUENTD_CONF=invalid.conf "$image" >/dev/null 2>&1 || status=$?
+docker rm -f "$container-bad" >/dev/null 2>&1 || true
+[ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "invalid config unexpectedly started (status $status)"
 
 printf 'SMOKE PASS image=%s\n' "$image"
