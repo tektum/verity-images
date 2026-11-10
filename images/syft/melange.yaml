@@ -64,6 +64,7 @@ test:
     contents:
       packages:
         - apk-tools
+        - busybox
   pipeline:
     - runs: |
         syft version | grep -F "${{package.version}}"
