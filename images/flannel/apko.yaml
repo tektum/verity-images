@@ -1,0 +1,24 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - iproute2
+    - iptables
+    - nftables
+    - wireguard-tools
+    - verity-flannel-0.28@local
+
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /opt/bin/flanneld
+
+environment:
+  PATH: /opt/bin:/usr/sbin:/usr/bin:/sbin:/bin
