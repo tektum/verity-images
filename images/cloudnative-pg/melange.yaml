@@ -1,0 +1,94 @@
+package:
+  name: verity-cloudnative-pg
+  version: "1.30.1"  # renovate: datasource=github-releases depName=cloudnative-pg/cloudnative-pg
+  epoch: 0
+  description: CloudNativePG PostgreSQL operator and instance manager
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 2a35abb4628f209d149825ef3c38011e0701ff2f
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cloudnative-pg/cloudnative-pg
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/manager
+  - runs: |
+      short=$(echo ${{vars.source-commit}} | cut -c1-8)
+      date=$(git log -1 --pretty=format:'%ad' --date short)
+      pkg=github.com/cloudnative-pg/cloudnative-pg/pkg/versions
+      flags="-s -w -X $pkg.buildVersion=${{package.version}} -X $pkg.buildCommit=$short -X $pkg.buildDate=$date"
+      go build -buildvcs=true -trimpath -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/manager" ./cmd/manager
+      go version -m "${{targets.destdir}}/usr/bin/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/cloudnative-pg/cloudnative-pg" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # The operator injects its binary into every PostgreSQL pod through an
+      # init container that runs /manager, so that path is part of the contract.
+      ln -s usr/bin/manager "${{targets.destdir}}/manager"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the cloudnative-pg build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/cloudnative-pg-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/cloudnative-pg-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        manager version 2>&1 | grep -F "${{package.version}}"
+        apk info --who-owns /usr/bin/manager \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: cloudnative-pg/cloudnative-pg
+    strip-prefix: v
+    tag-filter-prefix: v1.30.
+    use-tag: true
