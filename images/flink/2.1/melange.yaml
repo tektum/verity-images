@@ -1,0 +1,135 @@
+package:
+  name: verity-flink-2.1
+  # yamllint disable-line rule:line-length
+  version: "2.1.3"  # renovate: datasource=maven depName=org.apache.flink:flink-core versioning=regex:^(?<major>2)\.(?<minor>1)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Flink stream and batch processing framework
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - gettext-envsubst
+      - glibc-locale-en
+      - gosu
+      - grep
+      - libjemalloc2
+      - openjdk-17-default-jvm
+      - procps
+      - sed
+
+vars:
+  # SHA-512 Apache publishes for flink-2.1.3-bin-scala_2.12.tgz.
+  # yamllint disable-line rule:line-length
+  flink-sha512: 8f882586d0c396d0e05a71b10322e501487dccd6bedea6b91d824d3935ee0e959512787413a05ae865e2579a715d462b7139a9740568abaddd2d8da4b9770697
+  # Flink 2.1.3 bundles Log4j 2.24.3, below the fixed releases of several Log4j advisories.
+  # 2.26.1 is the Log4j release the Flink main branch uses.
+  # yamllint disable-line rule:line-length
+  log4j: 2.26.1  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-core versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  log4j-url: https://repo1.maven.org/maven2/org/apache/logging/log4j
+  # The official image definition (apache/flink-docker), pinned by commit.
+  flink-docker: https://raw.githubusercontent.com/apache/flink-docker/bfe5663ec356ea91deeac4e05da78e3313268fc5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - openjdk-17-default-jvm
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+
+pipeline:
+  - runs: |
+      # closer.lua redirects to the Apache CDN while the release is current and to
+      # archive.apache.org once it is superseded.
+      release=flink-${{package.version}}
+      curl -fsSL --retry 5 --retry-all-errors -o flink.tgz \
+        "https://www.apache.org/dyn/closer.lua/flink/$release/$release-bin-scala_2.12.tgz?action=download"
+      printf '%s  %s\n' "${{vars.flink-sha512}}" flink.tgz | sha512sum -c
+  - uses: fetch
+    with:
+      uri: ${{vars.log4j-url}}/log4j-1.2-api/${{vars.log4j}}/log4j-1.2-api-${{vars.log4j}}.jar
+      expected-sha256: 6f063c9c533788cb548d88ddb4bc7c59fbdb830182fc23d19e8d16ed0d8e2986
+      extract: false
+  - uses: fetch
+    with:
+      uri: ${{vars.log4j-url}}/log4j-api/${{vars.log4j}}/log4j-api-${{vars.log4j}}.jar
+      expected-sha256: f1810a4704ccce019d02bba029dc02a4f2ac0c997f647b465e7d409c1927f822
+      extract: false
+  - uses: fetch
+    with:
+      uri: ${{vars.log4j-url}}/log4j-core/${{vars.log4j}}/log4j-core-${{vars.log4j}}.jar
+      expected-sha256: 2ec8c3bf5a6d7c89be8620116a2fc973f7dda1ad0261ad393c4d4726edfd3dcb
+      extract: false
+  - uses: fetch
+    with:
+      uri: ${{vars.log4j-url}}/log4j-layout-template-json/${{vars.log4j}}/log4j-layout-template-json-${{vars.log4j}}.jar
+      expected-sha256: 91783f86db7f17700e4c4b4c2a1ea14132485d4faee91a11ff62fb6320eb26f7
+      extract: false
+  - uses: fetch
+    with:
+      uri: ${{vars.log4j-url}}/log4j-slf4j-impl/${{vars.log4j}}/log4j-slf4j-impl-${{vars.log4j}}.jar
+      expected-sha256: 1afc7b00db35d6bdc309b35cee01dd114b292c2d903975f2987da870b24cea6e
+      extract: false
+  - uses: fetch
+    with:
+      uri: ${{vars.flink-docker}}/2.1/scala_2.12-java17-ubuntu/docker-entrypoint.sh
+      expected-sha256: 3fa9e14f328682bb062a9a5a58c583950dc9cd28c45be10225516a46d4de0bf9
+      extract: false
+  - runs: |
+      root="${{targets.destdir}}/opt/flink"
+      install -d "$root"
+      tar -xzf flink.tgz -C "$root" --strip-components=1
+      rm flink.tgz
+      # Replace the bundled Log4j with the floor release; fail if the bundled set changed.
+      for jar in log4j-1.2-api log4j-api log4j-core log4j-layout-template-json log4j-slf4j-impl; do
+        found=$(find "$root/lib" -name "$jar-[0-9]*.jar")
+        [ "$(printf '%s\n' "$found" | grep -c .)" = 1 ] ||
+          { echo "dependency set changed: expected one $jar jar, found: $found" >&2; exit 1; }
+        rm "$found"
+        install -m644 "$jar-${{vars.log4j}}.jar" "$root/lib/$jar-${{vars.log4j}}.jar"
+      done
+      leftover=$(find "$root" -name 'log4j-*.jar' ! -name "*-${{vars.log4j}}.jar")
+      [ -z "$leftover" ] || { echo "Log4j jar below the floor: $leftover" >&2; exit 1; }
+      # Bind REST and RPC to the container network interface, as the official image does.
+      bash "$root/bin/config-parser-utils.sh" "$root/conf" "$root/bin" "$root/lib" \
+        -repKV rest.address,localhost,0.0.0.0 \
+        -repKV rest.bind-address,localhost,0.0.0.0 \
+        -repKV jobmanager.bind-host,localhost,0.0.0.0 \
+        -repKV taskmanager.bind-host,localhost,0.0.0.0 \
+        -rmKV taskmanager.host=localhost
+      rm -f "$root"/log/*
+      install -Dm755 docker-entrypoint.sh "${{targets.destdir}}/docker-entrypoint.sh"
+      # The entrypoint preloads jemalloc from the Debian multiarch path.
+      multiarch="${{targets.destdir}}/usr/lib/${{build.arch}}-linux-gnu"
+      install -d "$multiarch"
+      ln -s /usr/lib/libjemalloc.so.2 "$multiarch/libjemalloc.so"
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-17-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+  pipeline:
+    - runs: |
+        /opt/flink/bin/flink --version | grep -q "^Version: ${{package.version}},"
+
+update:
+  enabled: true
+  github:
+    identifier: apache/flink
+    use-tag: true
+    tag-filter-prefix: release-2.1.
+    strip-prefix: release-

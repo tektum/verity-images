@@ -1,0 +1,56 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-flink-2.2@local
+
+accounts:
+  groups:
+    - groupname: flink
+      gid: 9999
+  users:
+    - username: flink
+      uid: 9999
+      gid: 9999
+      homedir: /opt/flink
+  run-as: 9999
+
+entrypoint:
+  command: /docker-entrypoint.sh
+
+cmd: help
+
+environment:
+  FLINK_HOME: /opt/flink
+  JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+  LANG: en_US.UTF-8
+  PATH: /opt/flink/bin:/usr/lib/jvm/java-17-openjdk/bin:/usr/bin:/bin
+
+# The entrypoint rewrites conf/config.yaml, links plugins from opt/ and Flink writes log/.
+paths:
+  - path: /opt/flink/conf
+    type: directory
+    uid: 9999
+    gid: 9999
+    permissions: 0o755
+  - path: /opt/flink/conf/config.yaml
+    type: permissions
+    uid: 9999
+    gid: 9999
+    permissions: 0o644
+  - path: /opt/flink/log
+    type: directory
+    uid: 9999
+    gid: 9999
+    permissions: 0o755
+  - path: /opt/flink/plugins
+    type: directory
+    uid: 9999
+    gid: 9999
+    permissions: 0o755
+
+work-dir: /opt/flink
