@@ -48,13 +48,14 @@ pipeline:
         -o "${{targets.destdir}}/usr/bin/" \
         ./go/cmd/vtgate ./go/cmd/vtctld ./go/cmd/vttablet ./go/cmd/vtctldclient \
         ./go/cmd/vtctlclient ./go/cmd/vtorc ./go/cmd/mysqlctl ./go/cmd/vtbackup
-      git describe --tags --always --dirty || true
-      git status --short | head -5 || true
-      go version -m "${{targets.destdir}}/usr/bin/vtgate" | grep -E '^\s+(mod|build)\s' || true
+      # Upstream also tags every release as v0.<major>.<patch> (the Go module
+      # mapping GHSA advisories use), and VCS stamping reports that tag.
+      pv=${{package.version}}
+      modver="v0.${pv%%.*}.${pv##*.}"
       for b in vtgate vtctld vttablet vtctldclient vtctlclient vtorc mysqlctl vtbackup; do
         go version -m "${{targets.destdir}}/usr/bin/$b" \
           | awk '$1 == "mod" && $2 == "vitess.io/vitess" { print $3 }' \
-          | grep -Ex 'v${{package.version}}(\+dirty)?'
+          | grep -Fx -e "$modver" -e "$modver+dirty"
       done
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
