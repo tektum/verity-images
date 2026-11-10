@@ -1,0 +1,72 @@
+package:
+  name: verity-rook-1.21
+  version: "1.21.2"
+  epoch: 0
+  description: Rook Ceph storage operator for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: f9e73d7aaca402c9d8fe512ec4e3033dd6480954
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rook/rook
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/rook
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/rook/rook/pkg/version.Version=v${{package.version}}" \
+        -tags netgo,osusergo,static_build -o rook ./cmd/rook
+      install -Dm755 rook "${{targets.destdir}}/usr/local/bin/rook"
+      go version -m "${{targets.destdir}}/usr/local/bin/rook" \
+        | awk '$1 == "mod" && $2 == "github.com/rook/rook" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      mkdir -p "${{targets.destdir}}/etc/ceph-monitoring"
+      cp -r deploy/examples/monitoring/. "${{targets.destdir}}/etc/ceph-monitoring/"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Rook build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/rook-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/rook-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        rook version 2>&1 | grep -Fx 'rook: v${{package.version}}'
+        rook ceph --help 2>&1 | grep -F operator
+        test -f /etc/ceph-monitoring/prometheus-service.yaml
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
