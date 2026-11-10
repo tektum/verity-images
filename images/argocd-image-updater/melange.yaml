@@ -1,0 +1,112 @@
+package:
+  name: verity-argocd-image-updater
+  version: "1.4.0"  # renovate: datasource=github-releases depName=argoproj-labs/argocd-image-updater
+  epoch: 0
+  description: Argo CD Image Updater controller built from pinned upstream source.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/argoproj-labs/argocd-image-updater
+      tag: v${{package.version}}
+      expected-commit: ed3b8b6a19909cace74172645e02e1ebd4959ad5
+
+  # argo-cd declares k8s.io/cri-streaming v0.0.0 and resolves it through a
+  # replace in its own go.mod, which does not apply to dependents, so
+  # `go list -m all` (used by go/remediate) fails. Resolve it to the k8s
+  # release this module already pins for every other k8s.io module.
+  - runs: |
+      k8s_version=$(awk '$1 == "k8s.io/client-go" && $2 == "=>" { print $4 }' go.mod)
+      echo "$k8s_version" | grep -Ex 'v0\.[0-9]+\.[0-9]+'
+      go mod edit -replace "k8s.io/cri-streaming=k8s.io/cri-streaming@${k8s_version}"
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  - runs: |
+      source_commit=$(git rev-parse HEAD)
+      build_date=$(git show -s --format=%cI HEAD)
+
+      # Go stamps the main module version only from a semver vX.Y.Z tag on HEAD;
+      # make sure the pinned commit carries it so scanners see the real version.
+      git tag -f v${{package.version}} "$source_commit"
+
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X github.com/argoproj-labs/argocd-image-updater/pkg/version.version=${{package.version}} \
+          -X github.com/argoproj-labs/argocd-image-updater/pkg/version.gitCommit=$source_commit \
+          -X github.com/argoproj-labs/argocd-image-updater/pkg/version.buildDate=$build_date" \
+        -o argocd-image-updater ./cmd
+
+      install -Dm755 argocd-image-updater \
+        "${{targets.destdir}}/usr/bin/argocd-image-updater"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      "${{targets.destdir}}/usr/bin/argocd-image-updater" version --short \
+        | grep -Fx "v${{package.version}}+$(printf '%.7s' "$source_commit")"
+      go version -m "${{targets.destdir}}/usr/bin/argocd-image-updater" \
+        | awk '$1 == "mod" && $2 == "github.com/argoproj-labs/argocd-image-updater" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+
+  - uses: strip
+
+subpackages:
+  - name: verity-argocd-image-updater-build-metadata
+    description: Resolved Go module metadata for the Argo CD Image Updater build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/argocd-image-updater-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/argocd-image-updater-build/go.sum"
+          install -m644 -D registry-scanner/go.mod \
+            "${{targets.subpkgdir}}/usr/share/argocd-image-updater-build/registry-scanner/go.mod"
+          install -m644 -D registry-scanner/go.sum \
+            "${{targets.subpkgdir}}/usr/share/argocd-image-updater-build/registry-scanner/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        argocd-image-updater version --short | grep -F 'v${{package.version}}+'
+        argocd-image-updater --help | grep -F 'run'
+        apk info --who-owns /usr/bin/argocd-image-updater \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: argoproj-labs/argocd-image-updater
+    strip-prefix: v
+    use-tag: true
