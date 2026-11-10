@@ -1,3 +1,13 @@
+# Security review of the unfixable findings (govulncheck binary and source modes on 0.16.6, reviewed 2026-11-10):
+# - GO-2026-5064, GO-2026-5338, GO-2026-6791, GO-2026-5622 (containerd v1.7.36 CRI checkpoint restore): not reachable.
+#   The binary links only containerd archive/compression, content, errdefs, filters, images, labels, pkg/randutil and
+#   remotes (Helm OCI registry client). No CRI package is linked, and v1.7.36 has no CRI checkpoint code. The v1 module
+#   record lists no symbols, so govulncheck source mode only reports package init functions. Fixes exist only in
+#   containerd/v2, which Helm has not adopted.
+# - GO-2026-5932 (golang.org/x/crypto/openpgp, deprecated, no CVE, no severity): linked through helm provenance and
+#   imported by chartmuseum pkg/repo/provenance.go. Only package init functions are reached, no openpgp function is
+#   called. No fixed release exists.
+# Re-check when Helm or chartmuseum moves to containerd/v2 or drops x/crypto/openpgp. No scanner ignore is used.
 name: chartmuseum
 track: wolfi
 description: ChartMuseum Helm chart repository server built from a pinned upstream source commit.
