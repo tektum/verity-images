@@ -1,0 +1,81 @@
+package:
+  name: actionlint-1.7
+  # yamllint disable-line rule:line-length
+  version: "1.7.12"  # renovate: datasource=github-releases depName=rhysd/actionlint versioning=regex:^(?<major>1)\.(?<minor>7)\.(?<patch>\d+)$
+  epoch: 0
+  description: Static checker for GitHub Actions workflow files
+  copyright:
+    - license: MIT
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 914e7df21a07ef503a81201c76d2b11c789d3fca
+  x-sys-floor: v0.49.0  # renovate: datasource=go depName=golang.org/x/sys
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rhysd/actionlint
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # x/net's fixed releases require a newer x/sys than the one go/remediate
+  # selects on its own, which leaves go.sum without the entries the build needs.
+  - runs: GOTOOLCHAIN=local go get golang.org/x/sys@${{vars.x-sys-floor}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/actionlint
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X github.com/rhysd/actionlint.version=${{package.version}} \
+          -X 'github.com/rhysd/actionlint.installedFrom=built from pinned upstream source'" \
+        -o "${{targets.destdir}}/usr/bin/actionlint" ./cmd/actionlint
+      go version -m "${{targets.destdir}}/usr/bin/actionlint" \
+        | awk '$1 == "mod" && $2 == "github.com/rhysd/actionlint" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE.txt \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the actionlint build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/actionlint-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/actionlint-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        actionlint -version | head -n 1 | grep -Fx "${{package.version}}"
+        apk info --who-owns /usr/bin/actionlint \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'MIT License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: rhysd/actionlint
+    strip-prefix: v
