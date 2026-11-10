@@ -2,20 +2,16 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-name=dapr-injector
-container="verity-$name-test-$$"
 cli=/injector
 work=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
-  docker logs "$container" >&2 2>/dev/null || true
   exit 1
 }
 
@@ -46,33 +42,6 @@ fi
 grep -F -e 'unknown flag: --definitely-invalid' \
   -e 'flag provided but not defined: -definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'unknown flag diagnostic is missing'
-
-wait_http() {
-  url=$1
-  want=$2
-  i=0
-  until code=$(curl --silent --output "$work/body" --write-out '%{http_code}' \
-    --connect-timeout 1 --max-time 5 "$url") && [ "$code" = "$want" ]; do
-    i=$((i + 1))
-    [ "$i" -lt 30 ] || fail "$url did not return $want (last: ${code:-none})"
-    sleep 1
-  done
-}
-
-host_port() {
-  port=$(docker port "$container" "$1/tcp" | awk -F: 'NR == 1 { print $NF }')
-  [ -n "$port" ] || fail "port $1 is not published"
-  printf '%s' "$port"
-}
-
-stop_clean() {
-  docker stop "$container" >/dev/null
-  test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0 ||
-    fail 'did not exit 0 on SIGTERM'
-  docker logs "$container" 2>&1 | grep -F "version $expected_version" >/dev/null ||
-    fail "startup log does not report version $expected_version"
-  docker rm -f "$container" >/dev/null
-}
 
 # The injector is configured by environment; a missing sidecar image must be reported.
 if docker run --rm --network none --read-only "$image" >"$work/no-env" 2>&1; then
