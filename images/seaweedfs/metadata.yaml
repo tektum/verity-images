@@ -1,0 +1,9 @@
+name: seaweedfs
+track: wolfi
+description: SeaweedFS distributed object store (master, volume, filer, S3) built from pinned upstream source.
+category: Data & ML
+upstream: https://github.com/seaweedfs/seaweedfs
+versions: [4.53]
+scan-identity: [cpe:2.3:a:seaweedfs:seaweedfs, pkg:golang/github.com/seaweedfs/seaweedfs]
+owner: tektum
+enabled: true
