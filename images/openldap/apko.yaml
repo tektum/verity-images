@@ -1,0 +1,53 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - openldap-2.7=2.7.2-r0
+    - openldap-2.7-back-mdb=2.7.2-r0
+    - openldap-2.7-clients=2.7.2-r0
+
+accounts:
+  groups:
+    - groupname: ldap
+      gid: 389
+  users:
+    - username: ldap
+      uid: 389
+      gid: 389
+  run-as: 389
+
+entrypoint:
+  command: /usr/bin/slapd
+
+cmd: -d stats -h ldap://0.0.0.0:1389/ -F /etc/openldap/slapd.d
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/openldap/slapd.d
+    type: directory
+    uid: 389
+    gid: 389
+    permissions: 0o750
+  - path: /run/openldap
+    type: directory
+    uid: 389
+    gid: 389
+    permissions: 0o755
+  - path: /var/lib/openldap
+    type: directory
+    uid: 389
+    gid: 389
+    permissions: 0o750
+  - path: /var/lib/openldap/openldap-data
+    type: directory
+    uid: 389
+    gid: 389
+    permissions: 0o750
+
+volumes:
+  - /etc/openldap/slapd.d
+  - /var/lib/openldap/openldap-data
