@@ -1,0 +1,53 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - aws-cli-2
+    - ca-certificates-bundle
+    - git
+    - gpg
+    - gpg-agent
+    - openssh-client
+    - tini
+    - verity-argocd-image-updater@local
+
+accounts:
+  groups:
+    - groupname: argocd
+      gid: 1000
+  users:
+    - username: argocd
+      uid: 1000
+      gid: 1000
+  run-as: 1000
+
+entrypoint:
+  command: /usr/bin/tini -- /usr/bin/argocd-image-updater
+
+work-dir: /app
+
+environment:
+  HOME: /app
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /app
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /app/config
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o1777
