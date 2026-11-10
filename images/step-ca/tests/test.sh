@@ -30,9 +30,8 @@ docker run --rm --network none --read-only --entrypoint /usr/bin/step "$image" v
   grep -F 'Smallstep CLI/' >/dev/null || fail 'step version output is missing'
 
 # Initialize a CA non-interactively, then start it with the same image.
-chmod 777 "$work"
 printf 'smoke-password\n' >"$work/password"
-chmod 644 "$work/password"
+chmod 600 "$work/password"
 docker run --rm --network none --user "$run_as" -v "$work:/home/step" \
   --entrypoint /usr/bin/step "$image" ca init \
   --deployment-type standalone --name Smoke --dns localhost \
