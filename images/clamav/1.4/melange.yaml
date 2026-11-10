@@ -99,7 +99,7 @@ pipeline:
         mv usr/sbin/* usr/bin/
         rmdir usr/sbin
       fi
-      rm -rf usr/share/doc usr/share/man usr/lib/pkgconfig
+      rm -rf usr/share/doc usr/share/man
       # Container defaults, derived from the upstream samples like the
       # upstream clamav/clamav image: clamd listens on a local socket and on
       # TCP 3310 in the foreground and logs to stderr; the image runs as the
