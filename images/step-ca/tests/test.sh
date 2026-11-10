@@ -4,11 +4,12 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
 name="step-ca-smoke-$$"
+# Run as the host user so the CA files created in the bind mount stay removable.
+run_as=$(id -u):$(id -g)
 
 cleanup() {
   docker rm -f "$name" >/dev/null 2>&1 || true
-  docker run --rm -v "$work:/x" --entrypoint /bin/sh "$image" -c 'rm -rf /x/* /x/.[!.]*' >/dev/null 2>&1 || true
-  rm -rf "$work" 2>/dev/null || true
+  rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
 
@@ -32,14 +33,14 @@ docker run --rm --network none --read-only --entrypoint /usr/bin/step "$image" v
 chmod 777 "$work"
 printf 'smoke-password\n' >"$work/password"
 chmod 644 "$work/password"
-docker run --rm --network none --user 1000:1000 -v "$work:/home/step" \
+docker run --rm --network none --user "$run_as" -v "$work:/home/step" \
   --entrypoint /usr/bin/step "$image" ca init \
   --deployment-type standalone --name Smoke --dns localhost \
   --address :9000 --provisioner smoke@example.com \
   --password-file /home/step/password >"$work/init.log" 2>&1 ||
   { cat "$work/init.log" >&2; fail 'step ca init failed'; }
 
-docker run -d --name "$name" --label verity.smoke=step-ca --user 1000:1000 \
+docker run -d --name "$name" --label verity.smoke=step-ca --user "$run_as" \
   -v "$work:/home/step" "$image" \
   /home/step/config/ca.json --password-file /home/step/password >/dev/null
 
