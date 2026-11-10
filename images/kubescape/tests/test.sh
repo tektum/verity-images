@@ -64,8 +64,11 @@ fi
 docker run --rm -v "$work:/work" "$image" download artifacts --output /work/artifacts >/dev/null
 [ -s "$work/artifacts/nsa.json" ] || { printf 'nsa framework artifact missing\n' >&2; exit 1; }
 
+# kubescape writes results with mode 0600, so the scans run as the invoking
+# (non-root) host user to keep the reports readable here.
 scan() {
-  docker run --rm --network none -v "$work:/work" "$image" \
+  docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/work \
+    -v "$work:/work" "$image" \
     scan framework nsa "/work/$1.yaml" --use-artifacts-from /work/artifacts \
     --keep-local --format json --output "/work/out/$1.json" >/dev/null
 }
