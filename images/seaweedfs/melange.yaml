@@ -70,7 +70,15 @@ pipeline:
       # plain flavor, so drop that default; operators can still export GODEBUG themselves.
       sed -e '/^# Enable FIPS 140-3 mode by default/,/^export GODEBUG=/d' \
         docker/entrypoint.sh > entrypoint.sh
-      ! grep -F fips140 entrypoint.sh
+      if grep -F fips140 entrypoint.sh; then
+        echo 'entrypoint.sh still enables fips140' >&2
+        exit 1
+      fi
+      # The sed range must stop at the export line: fail if it ran through the rest of the script.
+      if ! grep -Fq 'isArgPassed()' entrypoint.sh || ! grep -Fq "'mini')" entrypoint.sh; then
+        echo 'entrypoint.sh lost its subcommand handling' >&2
+        exit 1
+      fi
       install -Dm755 entrypoint.sh "${{targets.destdir}}/entrypoint.sh"
       install -Dm644 docker/filer.toml "${{targets.destdir}}/etc/seaweedfs/filer.toml"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
