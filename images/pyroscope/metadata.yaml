@@ -1,0 +1,9 @@
+name: pyroscope
+track: wolfi
+description: Grafana Pyroscope continuous profiling database built from pinned upstream source with the embedded web UI.
+category: Monitoring & Observability
+upstream: https://github.com/grafana/pyroscope
+versions: [2.4]
+scan-identity: [cpe:2.3:a:grafana:pyroscope]
+owner: tektum
+enabled: true
