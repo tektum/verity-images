@@ -13,7 +13,7 @@ fail() {
 }
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$container" "$container-noadmin" "$container-badconf" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
   rm -rf "$workdir"
 }
@@ -31,7 +31,7 @@ docker run --rm --entrypoint sh "$image" -c 'test -f /opt/couchdb/share/server/m
   fail 'JavaScript query server or Fauxton assets are missing'
 
 # Negative: CouchDB 3 refuses to start without an admin account and must say why.
-if output=$(docker run --rm --name "$container-noadmin" "$image" 2>&1); then
+if output=$(timeout 120 docker run --rm --name "$container-noadmin" "$image" 2>&1); then
   fail 'CouchDB started without an admin account'
 fi
 printf '%s\n' "$output" | grep -q 'will no longer run in "Admin Party"' ||
@@ -41,7 +41,7 @@ printf '%s\n' "$output" | grep -q 'will no longer run in "Admin Party"' ||
 printf '[chttpd]\nport = not-a-port\n' >"$workdir/10-invalid.ini"
 chmod 644 "$workdir/10-invalid.ini"
 status=0
-output=$(docker run --rm --name "$container-badconf" \
+output=$(timeout 120 docker run --rm --name "$container-badconf" \
   -e COUCHDB_USER=admin -e "COUCHDB_PASSWORD=$password" \
   -v "$workdir/10-invalid.ini:/opt/couchdb/etc/local.d/10-invalid.ini:ro" \
   "$image" 2>&1) || status=$?
