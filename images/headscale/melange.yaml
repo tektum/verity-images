@@ -40,7 +40,10 @@ pipeline:
     with:
       modroot: .
       packages: ./cmd/headscale
+  # The remediation leaves go.sum without the zip hashes of the genproto modules it raised; resolve them
+  # before the -mod=readonly build.
   - runs: |
+      go list -deps -mod=mod ./cmd/headscale >/dev/null
       go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
         -o headscale ./cmd/headscale
       install -Dm755 headscale "${{targets.destdir}}/usr/bin/headscale"
