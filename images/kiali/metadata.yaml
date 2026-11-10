@@ -1,0 +1,9 @@
+name: kiali
+track: wolfi
+description: Kiali Istio service mesh console built from pinned upstream source with the embedded web UI.
+category: Service Mesh & Networking
+upstream: https://github.com/kiali/kiali
+versions: [2.34]
+scan-identity: [cpe:2.3:a:kiali:kiali, pkg:golang/github.com/kiali/kiali]
+owner: tektum
+enabled: true
