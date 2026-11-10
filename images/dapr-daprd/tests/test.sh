@@ -37,7 +37,7 @@ test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = / ||
 # The charts invoke the binary from the root, and the package keeps it in /usr/bin.
 docker run --rm --network none --entrypoint /usr/bin/daprd "$image" --help >"$work/help" 2>&1 || true
 grep -F -e '--app-id' "$work/help" >/dev/null ||
-  fail 'daprd help is missing the app id flag'
+  { head -n 5 "$work/help" >&2; fail 'daprd help is missing the app id flag'; }
 
 if docker run --rm --network none --read-only "$image" --definitely-invalid \
   >"$work/invalid" 2>&1; then
