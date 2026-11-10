@@ -3,7 +3,7 @@ package:
   # yamllint disable-line rule:line-length
   # renovate: datasource=github-tags depName=pgsty/silo versioning=regex:^(?<major>\d{4})[.-](?<minor>\d{2})[.-](?<patch>\d{2})[.T]\d{2}[.-]\d{2}[.-](?<build>\d{2})$ extractVersion=^RELEASE\.(?<version>.+)Z$
   version: "2026.09.16.00.00.00"
-  epoch: 0
+  epoch: 1  # thrift floor
   description: MinIO-compatible object storage server built from PGSTY Silo
   copyright:
     - license: AGPL-3.0-or-later
@@ -13,6 +13,11 @@ package:
   resources:
     cpu: "4"
     memory: 8Gi
+
+vars:
+  # CVE-2026-82458 and the other thrift advisories fixed in v0.25.0 are not in
+  # the Go vulnerability or OSV module feeds that go/remediate reads.
+  thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
 
 environment:
   contents:
@@ -49,6 +54,18 @@ pipeline:
       repository: https://github.com/pgsty/silo
       tag: ${{vars.release-tag}}
       expected-commit: 2a4d51406b7ed87af5fe6fe0f801f3290f96eb3c
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/apache/thrift)"
+      if awk -v have="$current" -v want=${{vars.thrift-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/apache/thrift@${{vars.thrift-floor}}
+      fi
   - uses: go/remediate
     with:
       modroot: .
