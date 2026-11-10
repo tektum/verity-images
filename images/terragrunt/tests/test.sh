@@ -78,4 +78,15 @@ test "$rc" = 1 || fail "run without a terraform binary exit code $rc, expected 1
 grep -F "The executables 'terraform' and 'tofu' are missing from your \$PATH" "$work/plan.out" >/dev/null ||
   fail 'missing-binary diagnostic is missing'
 
+# Remote module sources over SSH (git@host:org/repo.git) need an SSH transport. Offline
+# the clone must fail at name resolution, not with a missing ssh executable. ssh needs a
+# passwd entry, so this runs as the image user instead of the host uid.
+rc=0
+docker run --rm --network none --read-only --tmpfs /tmp:rw,mode=1777 \
+  --entrypoint git "$image" \
+  ls-remote git@example.invalid:org/modules.git >"$work/ssh.out" 2>&1 || rc=$?
+test "$rc" != 0 || fail 'offline ssh clone unexpectedly succeeded'
+grep -F 'Could not resolve hostname' "$work/ssh.out" >/dev/null ||
+  fail 'git did not reach the ssh transport'
+
 printf 'SMOKE PASS image=%s\n' "$image"
