@@ -1,0 +1,6 @@
+rules:
+  - id: verity-no-eval
+    languages: [python]
+    severity: ERROR
+    message: eval() runs arbitrary code
+    pattern: eval(...)

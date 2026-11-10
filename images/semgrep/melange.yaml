@@ -1,0 +1,196 @@
+package:
+  name: verity-semgrep
+  # yamllint disable-line rule:line-length
+  version: "1.185.0"  # renovate: datasource=github-releases depName=semgrep/semgrep versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Semgrep static analysis engine (semgrep-core, osemgrep) and Python CLI, built from the upstream release
+  copyright:
+    - license: LGPL-2.1-or-later
+  options:
+    # The virtual environment's wheels carry their own shared objects; do not
+    # advertise them as system library providers.
+    no-provides: true
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # semgrep lists scan targets with git inside repositories and `semgrep ci`
+      # requires it.
+      - git
+      - python-3.13-base
+      - wolfi-baselayout
+  resources:
+    cpu: "16"
+    memory: 24Gi
+
+vars:
+  source-commit: 9240f708f8d7e2fbd38b67aa6cd17704b1f81e14
+  python-version: "3.13"
+  venv: /opt/semgrep
+  # Python dependency overrides on top of upstream cli/uv.lock. Each one raises
+  # a locked or upstream-pinned version to a release that fixes advisories in
+  # the locked one; everything else installs exactly as upstream locks it.
+  # yamllint disable rule:line-length
+  cryptography-version: "50.0.2"  # renovate: datasource=pypi depName=cryptography
+  idna-version: "3.20"  # renovate: datasource=pypi depName=idna
+  mcp-version: "1.30.0"  # renovate: datasource=pypi depName=mcp versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # The OpenTelemetry API, SDK and exporter release together, and the
+  # instrumentation packages pin the matching semantic conventions.
+  otel-version: "1.45.2"  # renovate: datasource=pypi depName=opentelemetry-api
+  otel-instrumentation-version: "0.66b2"  # renovate: datasource=pypi depName=opentelemetry-instrumentation-requests
+  protobuf-version: "6.33.6"  # renovate: datasource=pypi depName=protobuf versioning=regex:^(?<major>6)\.(?<minor>\d+)\.(?<patch>\d+)$
+  pydantic-settings-version: "2.16.2"  # renovate: datasource=pypi depName=pydantic-settings
+  pygments-version: "2.21.0"  # renovate: datasource=pypi depName=pygments
+  python-dotenv-version: "1.2.4"  # renovate: datasource=pypi depName=python-dotenv
+  python-multipart-version: "0.0.33"  # renovate: datasource=pypi depName=python-multipart
+  requests-version: "2.34.2"  # renovate: datasource=pypi depName=requests
+  starlette-version: "1.10.0"  # renovate: datasource=pypi depName=starlette
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      # opam resolves system dependencies (depexts) through apk, so the build
+      # environment needs apk and the Wolfi repository configuration.
+      - apk-tools
+      - bash
+      - build-base
+      - busybox
+      - bzip2
+      - bzip2-dev
+      - ca-certificates-bundle
+      # opam downloads archives with curl.
+      - curl
+      - curl-dev
+      - elfutils-dev
+      - git
+      - gmp-dev
+      - libev-dev
+      - libffi-dev
+      - libunwind-dev
+      - opam
+      - patch
+      - pcre2-dev
+      - pkgconf
+      - posix-libc-utils
+      - python-${{vars.python-version}}
+      - rsync
+      - unzip
+      - uv
+      - wolfi-base
+      - zlib-dev
+      - zstd-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/semgrep/semgrep
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Build semgrep-core
+    runs: |
+      export OPAMYES=1 OPAMCONFIRMLEVEL=unsafe-yes OPAMJOBS="$(nproc)" OPAMCOLOR=never
+      # opam-init pins ocaml/opam-repository to the commit upstream records in
+      # the Makefile; the switch is upstream's OCaml 5.4.0 flambda compiler and
+      # install-deps installs the per-architecture opam lockfile
+      # (opam-lockfiles/semgrep.opam.linux-<arch>.locked), which pins the
+      # semgrep OCaml fork and every library by version or commit.
+      make opam-init OPAM_INIT_FLAGS=--disable-sandboxing
+      make switch
+      eval "$(opam env --switch=5.4.0 --set-switch)"
+      make install-deps
+      SEMGREP_GIT_COMMIT=${{vars.source-commit}} make core
+      ./scripts/validate-compiler-sha.sh _build/install/default/bin/semgrep-core
+      _build/install/default/bin/semgrep-core -version | grep -F "${{package.version}}"
+
+      # semgrep-core links libtree-sitter.so.0.26 dynamically. The package ships
+      # no copy: the generated so: dependency is satisfied by Wolfi's tree-sitter
+      # package (same soname as the 0.26.3 the build compiles), which keeps
+      # patching of that library with Wolfi.
+      readelf -d _build/install/default/bin/semgrep-core | grep -F 'NEEDED' | grep -F 'libtree-sitter.so.0.26'
+
+  - name: Install the Python CLI
+    working-directory: cli
+    environment:
+      UV_PYTHON: python${{vars.python-version}}
+      UV_NO_CACHE: "1"
+    runs: |
+      cp ../_build/install/default/bin/semgrep-core src/semgrep/bin/semgrep-core
+
+      cat > overrides.txt <<EOF
+      cryptography==${{vars.cryptography-version}}
+      idna==${{vars.idna-version}}
+      mcp==${{vars.mcp-version}}
+      opentelemetry-api==${{vars.otel-version}}
+      opentelemetry-sdk==${{vars.otel-version}}
+      opentelemetry-exporter-otlp-proto-http==${{vars.otel-version}}
+      opentelemetry-instrumentation-requests==${{vars.otel-instrumentation-version}}
+      opentelemetry-instrumentation-threading==${{vars.otel-instrumentation-version}}
+      protobuf==${{vars.protobuf-version}}
+      pydantic-settings==${{vars.pydantic-settings-version}}
+      pygments==${{vars.pygments-version}}
+      python-dotenv==${{vars.python-dotenv-version}}
+      python-multipart==${{vars.python-multipart-version}}
+      requests==${{vars.requests-version}}
+      starlette==${{vars.starlette-version}}
+      EOF
+
+      # Start from upstream's lock. Overridden packages and the OpenTelemetry
+      # family (which moves with the API version) are left to the resolver;
+      # every other package stays at its locked version.
+      uv export --locked --no-dev --no-emit-project --no-hashes --no-header \
+        --no-annotate --format requirements-txt -o upstream.txt
+
+      # Raise the direct pins in the package metadata to the overridden
+      # versions (after the --locked export above, which needs the original
+      # pyproject.toml), so the installed distribution is consistent and
+      # `uv pip check` below proves the final set resolves together.
+      otel=${{vars.otel-version}}
+      sed -i -E \
+        -e "s/\"mcp==1\.29\.0\"/\"mcp==${{vars.mcp-version}}\"/" \
+        -e "s/\"(opentelemetry-(api|sdk|exporter-otlp-proto-http))~=1\.37\.0\"/\"\1==${otel}\"/" \
+        pyproject.toml
+      grep -q '"mcp==${{vars.mcp-version}}"' pyproject.toml
+      test "$(grep -c '"opentelemetry-[a-z-]*==${{vars.otel-version}}"' pyproject.toml)" = 3
+
+      names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
+      grep -viE "^(${names}|opentelemetry-[a-z-]+)==" upstream.txt > constraints.txt
+      uv pip compile pyproject.toml --override overrides.txt --constraint constraints.txt \
+        --no-header --no-annotate -o resolved.txt
+      echo "Python dependency changes against upstream cli/uv.lock:"
+      diff upstream.txt resolved.txt || true
+
+      uv venv "${{vars.venv}}"
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode -r resolved.txt
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode --no-deps .
+      uv pip check --python "${{vars.venv}}/bin/python"
+
+      mkdir -p "${{targets.destdir}}/opt" "${{targets.destdir}}/usr/bin"
+      cp -a "${{vars.venv}}" "${{targets.destdir}}/opt/"
+      rm -f "${{targets.destdir}}${{vars.venv}}/.lock"
+      core=${{vars.venv}}/lib/python${{vars.python-version}}/site-packages/semgrep/bin/semgrep-core
+      test -x "${{targets.destdir}}$core"
+      ln -s "${{vars.venv}}/bin/semgrep" "${{targets.destdir}}/usr/bin/semgrep"
+      ln -s "${{vars.venv}}/bin/pysemgrep" "${{targets.destdir}}/usr/bin/pysemgrep"
+      ln -s "$core" "${{targets.destdir}}/usr/bin/semgrep-core"
+      ln -s semgrep-core "${{targets.destdir}}/usr/bin/osemgrep"
+      install -Dm644 ../LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        semgrep --version | grep -x "${{package.version}}"
+        semgrep-core -version | grep -F "${{package.version}}"
+        osemgrep --version | grep -x "${{package.version}}"
+        apk info --who-owns /opt/semgrep/bin/semgrep | grep -F "${{package.name}}-${{package.full-version}}"

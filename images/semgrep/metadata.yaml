@@ -1,0 +1,9 @@
+name: semgrep
+track: wolfi
+description: Semgrep static analysis CLI with the semgrep-core engine, built from pinned upstream source.
+category: Security & Identity
+upstream: https://semgrep.dev/
+versions: [1.185]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:semgrep:semgrep]
