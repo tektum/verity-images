@@ -72,7 +72,7 @@ docker run -d --name "$name" --label verity.smoke=hugo --user "$run_as" \
   server --bind 0.0.0.0 --port 1313 --disableLiveReload >/dev/null
 port=$(docker port "$name" 1313/tcp | awk -F: 'NR == 1 { print $2 }')
 i=0
-until response=$(curl --fail --silent "http://127.0.0.1:$port/"); do
+until response=$(curl --fail --silent --connect-timeout 1 --max-time 5 "http://127.0.0.1:$port/"); do
   i=$((i + 1))
   [ "$i" -lt 30 ] || fail 'hugo server did not become ready'
   sleep 1
