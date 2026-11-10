@@ -1,0 +1,9 @@
+name: dex
+track: wolfi
+description: Dex OpenID Connect identity provider with pluggable connectors, built from pinned upstream source.
+category: Security & Identity
+upstream: https://dexidp.io/
+versions: [2.46]
+scan-identity: [cpe:2.3:a:dexidp:dex, pkg:golang/github.com/dexidp/dex]
+owner: tektum
+enabled: true
