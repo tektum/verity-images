@@ -1,0 +1,140 @@
+package:
+  name: verity-step-ca
+  version: "0.30.2"  # renovate: datasource=github-releases depName=smallstep/certificates
+  epoch: 0
+  description: Smallstep online certificate authority with the step CLI.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+
+vars:
+  source-commit: 6e8ec61405239cf3f37b2bbf260a587b7d2e4e31
+  # The image bundles the step CLI used to initialize the CA and request certificates.
+  step-cli-version: v0.31.0  # renovate: datasource=github-releases depName=smallstep/cli
+  step-cli-commit: 8301c0dfb1546ccddb808375b9f9311be03c2ba9
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/smallstep/certificates
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/smallstep/cli
+      tag: ${{vars.step-cli-version}}
+      expected-commit: ${{vars.step-cli-commit}}
+      destination: third_party/step-cli
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/step-ca
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/step-cli
+      packages: ./cmd/step
+
+  - name: Build binaries
+    runs: |
+      build_date=$(git show -s --format=%cI HEAD)
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.Version=${{package.version}} -X main.BuildTime=$build_date" \
+        -o step-ca ./cmd/step-ca
+
+      (
+        cd third_party/step-cli
+        test "$(git rev-parse HEAD)" = "${{vars.step-cli-commit}}"
+        cli_date=$(git show -s --format=%cI HEAD)
+        cli_version=$(printf '%s' "${{vars.step-cli-version}}" | sed 's/^v//')
+        go build -mod=readonly -trimpath -buildvcs=true \
+          -ldflags="-s -w -X main.Version=$cli_version -X main.BuildTime=$cli_date" \
+          -o step ./cmd/step
+      )
+
+  - name: Package
+    runs: |
+      install -Dm755 step-ca "${{targets.destdir}}/usr/bin/step-ca"
+      install -Dm755 third_party/step-cli/step "${{targets.destdir}}/usr/bin/step"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 third_party/step-cli/LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/STEP-CLI-LICENSE"
+
+      "${{targets.destdir}}/usr/bin/step-ca" version | grep -F 'Smallstep CA/${{package.version}}'
+      "${{targets.destdir}}/usr/bin/step" version \
+        | grep -F "Smallstep CLI/$(printf '%s' '${{vars.step-cli-version}}' | sed 's/^v//')"
+      go version -m "${{targets.destdir}}/usr/bin/step-ca" \
+        | awk '$1 == "mod" && $2 == "github.com/smallstep/certificates" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      go version -m "${{targets.destdir}}/usr/bin/step" \
+        | awk '$1 == "mod" && $2 == "github.com/smallstep/cli" { print $3 }' \
+        | grep -Ex '${{vars.step-cli-version}}(\+dirty)?'
+
+      # Keep the resolved CLI module files for the build-metadata subpackage;
+      # the nested checkout is not part of the workspace output.
+      install -Dm644 third_party/step-cli/go.mod .verity-step-cli/go.mod
+      install -Dm644 third_party/step-cli/go.sum .verity-step-cli/go.sum
+      rm -rf third_party/step-cli
+
+  - uses: strip
+
+subpackages:
+  - name: verity-step-ca-build-metadata
+    description: Resolved Go module metadata for the step-ca build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/step-ca-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/step-ca-build/go.sum"
+          install -Dm644 .verity-step-cli/go.mod \
+            "${{targets.subpkgdir}}/usr/share/step-ca-build/step-cli/go.mod"
+          install -Dm644 .verity-step-cli/go.sum \
+            "${{targets.subpkgdir}}/usr/share/step-ca-build/step-cli/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        step-ca version | grep -F 'Smallstep CA/${{package.version}}'
+        step version | grep -F 'Smallstep CLI/'
+        apk info --who-owns /usr/bin/step-ca \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+        test -s /usr/share/licenses/${{package.name}}/STEP-CLI-LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: smallstep/certificates
+    strip-prefix: v
+    tag-filter-prefix: v0.30.
+    use-tag: true
