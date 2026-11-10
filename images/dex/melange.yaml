@@ -55,7 +55,7 @@ pipeline:
       enablePasswordDB: true
       CFG
 
-      go build -mod=readonly -trimpath -buildvcs=true \
+      go build -mod=readonly -trimpath -buildvcs=false \
         -ldflags="-s -w -X main.version=v${{package.version}}" \
         -o dex ./cmd/dex
 
@@ -65,9 +65,9 @@ pipeline:
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
-      go version -m "${{targets.destdir}}/usr/bin/dex" \
-        | awk '$1 == "mod" && $2 == "github.com/dexidp/dex" { print $3 }' \
-        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # The upstream module path has no /v2 suffix, so Go never reports the
+      # v2.x tag as the main module version; scan-identity covers the scanner.
+      "${{targets.destdir}}/usr/bin/dex" version | grep -F 'v${{package.version}}'
 
   - uses: strip
 
