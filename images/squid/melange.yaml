@@ -1,0 +1,129 @@
+package:
+  name: squid-7
+  # yamllint disable-line rule:line-length
+  version: "7.8"  # renovate: datasource=github-tags depName=squid-cache/squid versioning=regex:^(?<major>7)[._](?<minor>\d+)$ extractVersion=^SQUID_(?<version>\d+_\d+)$
+  epoch: 0
+  description: Squid caching and forwarding HTTP proxy
+  copyright:
+    - license: GPL-2.0-or-later
+  dependencies:
+    provides:
+      - squid=${{package.full-version}}
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - libtool
+      - linux-headers
+      - openssl-3.6-dev
+      - perl
+      - pkgconf
+      - pkgconf-dev
+
+pipeline:
+  # SQUID_7_8 resolves to 16716ff240b3d1fc07dd8cf019528d2c057a1683. The release
+  # tarball is published by the Squid project on its GitHub release.
+  - uses: fetch
+    with:
+      uri: "https://github.com/squid-cache/squid/releases/download/SQUID_\
+        ${{vars.mangled-package-version}}/squid-${{package.version}}.tar.xz"
+      expected-sha256: 52cd716f568faccbd3e237d77fd3518cbfe1548dfa2ebd8871b5a112e8ab0063
+
+  - uses: autoconf/configure
+    with:
+      opts: |
+        --sbindir=/usr/bin \
+        --sysconfdir=/etc/squid \
+        --libexecdir=/usr/lib/squid \
+        --datadir=/usr/share/squid \
+        --localstatedir=/var \
+        --with-logdir=/var/log/squid \
+        --with-swapdir=/var/spool/squid \
+        --with-pidfile=/run/squid.pid \
+        --with-openssl \
+        --without-gnutls \
+        --without-libcap \
+        --without-systemd \
+        --with-large-files \
+        --with-filedescriptors=65536 \
+        --enable-ssl-crtd \
+        --enable-removal-policies=lru,heap \
+        --enable-auth-basic=NCSA \
+        --enable-auth-digest=file \
+        --enable-external-acl-helpers=file_userip \
+        --enable-storeid-rewrite-helpers=file \
+        --enable-delay-pools \
+        --enable-follow-x-forwarded-for \
+        --disable-arch-native \
+        --disable-strict-error-checking
+
+  - uses: autoconf/make
+
+  - uses: autoconf/make-install
+
+  - runs: |
+      # Runtime state is created by the image (apko paths); drop the install-time tree.
+      rm -rf "${{targets.destdir}}/var" "${{targets.destdir}}/run"
+      rm -f "${{targets.destdir}}"/etc/squid/*.default "${{targets.destdir}}"/etc/squid/*.documented
+      install -d -m755 "${{targets.destdir}}/etc/squid"
+      cat > "${{targets.destdir}}/etc/squid/squid.conf" <<'EOF'
+      # Verity default: forward proxy for private networks, runs as a non-root user.
+      http_port 3128
+
+      acl localnet src 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 fc00::/7 fe80::/10
+      acl localhost src 127.0.0.1/32 ::1
+      acl to_localhost dst 127.0.0.0/8 0.0.0.0/32 ::1/128
+      acl to_linklocal dst 169.254.0.0/16 fe80::/10
+      acl SSL_ports port 443
+      acl Safe_ports port 80 443 1025-65535
+      acl CONNECT method CONNECT
+
+      http_access deny !Safe_ports
+      http_access deny CONNECT !SSL_ports
+      http_access deny manager
+      http_access deny to_localhost
+      http_access deny to_linklocal
+      http_access allow localhost
+      http_access allow localnet
+      http_access deny all
+
+      cache_mem 64 MB
+      pid_filename none
+      visible_hostname squid
+      coredump_dir /var/spool/squid
+      access_log stdio:/dev/stdout
+      cache_log /dev/stderr
+      cache_store_log none
+      logfile_rotate 0
+      EOF
+      install -Dm644 COPYING "${{targets.destdir}}/usr/share/licenses/${{package.name}}/COPYING"
+
+  - uses: strip
+
+var-transforms:
+  - from: ${{package.version}}
+    match: '\.'
+    replace: '_'
+    to: mangled-package-version
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        squid -v | grep -F "Squid Cache: Version ${{package.version}}"
