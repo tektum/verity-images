@@ -1,0 +1,207 @@
+#!/usr/bin/env -S uv run --script
+# /// script
+# requires-python = ">=3.13"
+# dependencies = []
+# ///
+# How to run:
+#   uv run scripts/test_trim_sbom.py
+
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+import trim_sbom
+
+FILE_COUNT = 40_000
+
+
+def package(name: str, version: str, *, files: bool = False) -> dict:
+    package = {
+        "name": name,
+        "SPDXID": f"SPDXRef-Package-{name}",
+        "versionInfo": version,
+        "downloadLocation": "NOASSERTION",
+        "filesAnalyzed": files,
+        "externalRefs": [
+            {
+                "referenceCategory": "SECURITY",
+                "referenceType": "cpe23Type",
+                "referenceLocator": f"cpe:2.3:a:{name}:{name}:{version}:*:*:*:*:*:*:*",
+            },
+            {
+                "referenceCategory": "PACKAGE-MANAGER",
+                "referenceType": "purl",
+                "referenceLocator": f"pkg:apk/wolfi/{name}@{version}",
+            },
+        ],
+    }
+    if files:
+        package["packageVerificationCode"] = {"packageVerificationCodeValue": "0" * 40}
+    return package
+
+
+def relationship(source: str, kind: str, target: str) -> dict:
+    return {"spdxElementId": source, "relationshipType": kind, "relatedSpdxElement": target}
+
+
+def fixture(file_count: int) -> dict:
+    """An SPDX 2.3 document shaped like Syft's: file entries owned by packages through CONTAINS."""
+    packages = [package("gcloud", "592.0", files=True), package("python-3.13", "3.13.1", files=True)]
+    packages.append(package("scan-identity-gcloud", "592.0"))
+    files = []
+    relationships = [
+        relationship("SPDXRef-DOCUMENT", "DESCRIBES", "SPDXRef-Package-gcloud"),
+        relationship("SPDXRef-Package-gcloud", "DEPENDENCY_OF", "SPDXRef-Package-python-3.13"),
+        relationship("SPDXRef-Package-gcloud", "CONTAINS", "SPDXRef-Package-python-3.13"),
+    ]
+    for index in range(file_count):
+        spdx_id = f"SPDXRef-File-lib-surface-{index}"
+        files.append(
+            {
+                "fileName": f"usr/lib/google-cloud-sdk/lib/surface/command_{index}/__init__.py",
+                "SPDXID": spdx_id,
+                "fileTypes": ["SOURCE"],
+                "checksums": [{"algorithm": "SHA256", "checksumValue": f"{index:064x}"}],
+                "licenseConcluded": "NOASSERTION",
+                "copyrightText": "NOASSERTION",
+                "comment": "layer: sha256:" + "a" * 64,
+            }
+        )
+        owner = "gcloud" if index % 2 else "python-3.13"
+        relationships.append(relationship(f"SPDXRef-Package-{owner}", "CONTAINS", spdx_id))
+        if index % 1000 == 0:
+            relationships.append(relationship(spdx_id, "OTHER", "SPDXRef-Package-gcloud"))
+    return {
+        "spdxVersion": "SPDX-2.3",
+        "dataLicense": "CC0-1.0",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "name": "local/verity-demo",
+        "documentNamespace": "https://example.test/spdx/demo",
+        "creationInfo": {"created": "2026-11-09T19:39:56Z", "creators": ["Tool: syft-1.50.0"]},
+        "packages": packages,
+        "files": files,
+        "relationships": relationships,
+    }
+
+
+def write(path: Path, document: dict) -> bytes:
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+    return path.read_bytes()
+
+
+def check_oversized_sbom_is_trimmed() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "sbom-amd64.spdx.json"
+        document = fixture(FILE_COUNT)
+        original = write(path, document)
+        assert len(original) > trim_sbom.MAX_SBOM_BYTES, "fixture must exceed the real threshold"
+
+        assert trim_sbom.main([str(path)]) == 0
+
+        trimmed = json.loads(path.read_text(encoding="utf-8"))
+        assert path.stat().st_size < trim_sbom.MAX_SBOM_BYTES
+        assert "files" not in trimmed
+        assert trimmed["packages"] == document["packages"], "every package, CPE, and purl survives"
+        assert [ref["referenceLocator"] for ref in trimmed["packages"][2]["externalRefs"]][1] == (
+            "pkg:apk/wolfi/scan-identity-gcloud@592.0"
+        )
+        assert trimmed["relationships"] == [
+            relationship("SPDXRef-DOCUMENT", "DESCRIBES", "SPDXRef-Package-gcloud"),
+            relationship("SPDXRef-Package-gcloud", "DEPENDENCY_OF", "SPDXRef-Package-python-3.13"),
+            relationship("SPDXRef-Package-gcloud", "CONTAINS", "SPDXRef-Package-python-3.13"),
+        ], "only relationships that name a removed file are dropped"
+        for key in ("spdxVersion", "dataLicense", "SPDXID", "name", "documentNamespace", "creationInfo"):
+            assert trimmed[key] == document[key], key
+        assert f"{FILE_COUNT} file entries" in trimmed["comment"]
+        assert "removed for size" in trimmed["comment"]
+
+
+def check_references_to_removed_files_are_dropped() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "sbom.spdx.json"
+        document = fixture(3)
+        document["comment"] = "Generated by Syft."
+        document["documentDescribes"] = ["SPDXRef-Package-gcloud", "SPDXRef-File-lib-surface-1"]
+        document["packages"][0]["hasFiles"] = ["SPDXRef-File-lib-surface-0", "SPDXRef-File-lib-surface-1"]
+        document["packages"][1]["hasFiles"] = ["SPDXRef-File-lib-surface-2", "SPDXRef-Package-gcloud"]
+        original = write(path, document)
+
+        trim_sbom.trim_file(path, limit=len(original) - 1)
+
+        trimmed = json.loads(path.read_text(encoding="utf-8"))
+        assert trimmed["documentDescribes"] == ["SPDXRef-Package-gcloud"]
+        assert "hasFiles" not in trimmed["packages"][0]
+        assert trimmed["packages"][1]["hasFiles"] == ["SPDXRef-Package-gcloud"]
+        assert trimmed["comment"].startswith("Generated by Syft. Per-file entries were removed")
+        assert "3 file entries" in trimmed["comment"]
+
+
+def check_small_sbom_is_untouched() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "sbom-arm64.spdx.json"
+        original = write(path, fixture(50))
+        assert len(original) < trim_sbom.MAX_SBOM_BYTES
+
+        assert trim_sbom.main([str(path)]) == 0
+
+        assert path.read_bytes() == original, "an SBOM under the threshold is never rewritten"
+        assert sorted(item.name for item in path.parent.iterdir()) == [path.name], "no temporary file is left behind"
+
+
+def check_threshold_is_inclusive() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "sbom.spdx.json"
+        original = write(path, fixture(5))
+        size = len(original)
+
+        trim_sbom.trim_file(path, limit=size)
+        assert path.read_bytes() == original
+
+        trim_sbom.trim_file(path, limit=size - 1)
+        assert path.read_bytes() != original
+
+
+def check_untrimmable_sbom_fails_closed() -> None:
+    with TemporaryDirectory() as directory:
+        path = Path(directory) / "sbom.spdx.json"
+        document = fixture(0)
+        del document["files"]
+        original = write(path, document)
+        assert trim_sbom.main([str(path)]) == 0
+        assert path.read_bytes() == original
+
+        try:
+            trim_sbom.trim_file(path, limit=1)
+        except trim_sbom.TrimError as error:
+            assert "no file entries" in str(error)
+        else:
+            raise AssertionError("an oversized SBOM without file entries must fail")
+        assert path.read_bytes() == original
+
+        write(path, fixture(5))
+        try:
+            trim_sbom.trim_file(path, limit=1)
+        except trim_sbom.TrimError as error:
+            assert "still over" in str(error)
+        else:
+            raise AssertionError("an SBOM that stays oversized after the trim must fail")
+
+
+def check_attestation_limit_has_headroom() -> None:
+    rekor_request_limit = 24 * 1024 * 1024
+    assert trim_sbom.MAX_SBOM_BYTES * 4 // 3 <= rekor_request_limit * 3 // 4, "base64 request keeps 25 percent headroom"
+    assert trim_sbom.MAX_SBOM_BYTES > 8_600_000, "SBOMs attested today without trimming stay unchanged"
+
+
+def main() -> None:
+    check_oversized_sbom_is_trimmed()
+    check_references_to_removed_files_are_dropped()
+    check_small_sbom_is_untouched()
+    check_threshold_is_inclusive()
+    check_untrimmable_sbom_fails_closed()
+    check_attestation_limit_has_headroom()
+    print("passed scripts/test_trim_sbom.py")
+
+
+if __name__ == "__main__":
+    main()
