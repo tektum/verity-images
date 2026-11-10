@@ -64,10 +64,11 @@ test:
     contents:
       packages:
         - apk-tools
+        - busybox
   pipeline:
     - runs: |
         trufflehog --version 2>&1 | grep -F "${{package.version}}"
-        trufflehog --help 2>&1 | grep -F 'Usage'
+        trufflehog --help 2>&1 | grep -F 'usage: trufflehog'
         apk info --who-owns /usr/bin/trufflehog \
           | grep -F "${{package.name}}-${{package.full-version}}"
         apk info --license "${{package.name}}" | grep -Fx AGPL-3.0-only
