@@ -1,0 +1,84 @@
+package:
+  name: kubescape-4.0
+  # yamllint disable-line rule:line-length
+  version: "4.0.20"  # renovate: datasource=github-releases depName=kubescape/kubescape versioning=regex:^(?<major>4)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  # Wolfi kubescape-4.0.20-r2 still ships golang.org/x/crypto v0.58.0 with
+  # GO-2026-5932; go/remediate clears it in this source build.
+  epoch: 0
+  description: Kubernetes security posture and misconfiguration scanner
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+vars:
+  source-commit: ec65d3184f6bab7d1ad6e5db9d970d452316d253
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubescape/kubescape
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X main.version=${{package.version}} \
+          -X main.commit=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/kubescape" .
+      go version -m "${{targets.destdir}}/usr/bin/kubescape" \
+        | awk '$1 == "mod" && $2 == "github.com/kubescape/kubescape/v4" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the kubescape build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/kubescape-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/kubescape-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        kubescape version 2>&1 | grep -Fx "Your current version is: ${{package.version}}"
+        apk info --who-owns /usr/bin/kubescape \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubescape/kubescape
+    strip-prefix: v
