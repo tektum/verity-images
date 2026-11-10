@@ -119,5 +119,5 @@ status=$(curl -sS --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:
   fail "admin path request on the data port failed"
 [ "$status" = 404 ] || fail "Admin API path on the data port returned $status"
 
-docker stop "$gateway" >/dev/null || fail "gateway did not stop"
+docker stop --time 30 "$gateway" >/dev/null || fail "gateway did not stop"
 [ "$(docker inspect --format '{{.State.ExitCode}}' "$gateway")" = 0 ] || fail "gateway did not exit cleanly on SIGQUIT"
