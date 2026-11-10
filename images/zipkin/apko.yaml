@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-zipkin-3.6@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/local/bin/start-zipkin
+
+work-dir: /zipkin
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/default-jvm
+  # Set but empty, as in the upstream full image: start-zipkin then uses the
+  # Spring Boot PropertiesLauncher instead of the slim classpath launcher.
+  MODULE_OPTS: ""
+  PATH: /usr/local/bin:/usr/lib/jvm/default-jvm/bin:/usr/bin:/bin
+  STORAGE_TYPE: mem

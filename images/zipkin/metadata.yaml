@@ -1,0 +1,9 @@
+name: zipkin
+track: wolfi
+description: Zipkin distributed tracing server with in-memory storage, built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://zipkin.io/
+versions: [3.6]
+scan-identity: [pkg:maven/io.zipkin/zipkin-server]
+owner: tektum
+enabled: true

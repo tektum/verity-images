@@ -1,0 +1,202 @@
+package:
+  name: verity-zipkin-3.6
+  # yamllint disable-line rule:line-length
+  version: "3.6.1"  # renovate: datasource=github-tags depName=openzipkin/zipkin versioning=regex:^(?<major>3)\.(?<minor>6)\.(?<patch>\d+)$
+  epoch: 0
+  description: Zipkin distributed tracing server
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - openjdk-21-default-jvm
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# The vars below raise dependency versions that the upstream 3.6.1 release still ships with
+# published advisories. Properties are passed to Maven; the rest go through dependencyManagement.
+vars:
+  # yamllint disable-line rule:line-length
+  jackson-version: 2.21.7  # renovate: datasource=maven depName=com.fasterxml.jackson:jackson-bom versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  netty-version: 4.2.17.Final  # renovate: datasource=maven depName=io.netty:netty-bom versioning=regex:^(?<major>4)\.(?<minor>2)\.(?<patch>\d+)\.Final$
+  # yamllint disable-line rule:line-length
+  spring-boot-version: 3.5.15  # renovate: datasource=maven depName=org.springframework.boot:spring-boot versioning=regex:^(?<major>3)\.(?<minor>5)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  spring-version: 6.2.19  # renovate: datasource=maven depName=org.springframework:spring-core versioning=regex:^(?<major>6)\.(?<minor>2)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  micrometer-version: 1.16.6  # renovate: datasource=maven depName=io.micrometer:micrometer-core versioning=regex:^(?<major>1)\.(?<minor>16)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  log4j-version: 2.25.5  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-bom versioning=regex:^(?<major>2)\.(?<minor>25)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  mariadb-version: 3.5.11  # renovate: datasource=maven depName=org.mariadb.jdbc:mariadb-java-client versioning=regex:^(?<major>3)\.(?<minor>5)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  activemq-version: 5.19.8  # renovate: datasource=maven depName=org.apache.activemq:activemq-client versioning=regex:^(?<major>5)\.(?<minor>19)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  amqp-client-version: 5.37.1  # renovate: datasource=maven depName=com.rabbitmq:amqp-client versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  pulsar-version: 4.2.5  # renovate: datasource=maven depName=org.apache.pulsar:pulsar-client versioning=regex:^(?<major>4)\.(?<minor>2)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  lz4-version: 1.11.4  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  snappy-version: 1.1.10.9  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
+  # yamllint disable-line rule:line-length
+  thrift-version: 0.25.0  # renovate: datasource=maven depName=org.apache.thrift:libthrift versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # yamllint disable-line rule:line-length
+  bouncycastle-version: 1.85  # renovate: datasource=maven depName=org.bouncycastle:bcprov-jdk18on versioning=regex:^(?<major>1)\.(?<minor>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      # zipkin-lens downloads a node binary during the Maven build; it needs libstdc++.
+      - libstdc++
+      - maven
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/openzipkin/zipkin
+      tag: ${{package.version}}
+      expected-commit: b2b0c98acf20944766bb1365de04b3316da83078
+  - runs: |
+      # Transitive versions without a property: kafka-clients (lz4, snappy), armeria-thrift (libthrift),
+      # pulsar-client (Bouncy Castle). libthrift pulls in the Apache HttpComponents client for its HTTP
+      # transport only; the scribe collector speaks framed TCP, so exclude it.
+      cat > pins.xml <<'XML'
+            <dependency>
+              <groupId>at.yawk.lz4</groupId>
+              <artifactId>lz4-java</artifactId>
+              <version>${{vars.lz4-version}}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.xerial.snappy</groupId>
+              <artifactId>snappy-java</artifactId>
+              <version>${{vars.snappy-version}}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.apache.thrift</groupId>
+              <artifactId>libthrift</artifactId>
+              <version>${{vars.thrift-version}}</version>
+              <exclusions>
+                <exclusion>
+                  <groupId>org.apache.httpcomponents.client5</groupId>
+                  <artifactId>httpclient5</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.apache.httpcomponents.core5</groupId>
+                  <artifactId>httpcore5</artifactId>
+                </exclusion>
+                <exclusion>
+                  <groupId>org.apache.httpcomponents.core5</groupId>
+                  <artifactId>httpcore5-h2</artifactId>
+                </exclusion>
+              </exclusions>
+            </dependency>
+            <dependency>
+              <groupId>org.bouncycastle</groupId>
+              <artifactId>bcprov-jdk18on</artifactId>
+              <version>${{vars.bouncycastle-version}}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.bouncycastle</groupId>
+              <artifactId>bcpkix-jdk18on</artifactId>
+              <version>${{vars.bouncycastle-version}}</version>
+            </dependency>
+            <dependency>
+              <groupId>org.bouncycastle</groupId>
+              <artifactId>bcutil-jdk18on</artifactId>
+              <version>${{vars.bouncycastle-version}}</version>
+            </dependency>
+      XML
+      awk '
+        /<dependencyManagement>/ { managed = 1 }
+        { print }
+        managed && !done && /<dependencies>/ {
+          while ((getline line < "pins.xml") > 0) print line
+          done = 1
+        }
+        END { if (!done) exit 1 }
+      ' zipkin-server/pom.xml > zipkin-server/pom.xml.new
+      mv zipkin-server/pom.xml.new zipkin-server/pom.xml
+      grep -c 'at.yawk.lz4' zipkin-server/pom.xml | grep -qx 1
+  - runs: |
+      mvn -T 4 --batch-mode -DskipTests -Dlicense.skip=true \
+        -Djackson.version=${{vars.jackson-version}} \
+        -Dnetty.version=${{vars.netty-version}} \
+        -Dspring-boot.version=${{vars.spring-boot-version}} \
+        -Dspring.version=${{vars.spring-version}} \
+        -Dmicrometer.version=${{vars.micrometer-version}} \
+        -Dlog4j.version=${{vars.log4j-version}} \
+        -Dmariadb-java-client.version=${{vars.mariadb-version}} \
+        -Dactivemq.version=${{vars.activemq-version}} \
+        -Damqp-client.version=${{vars.amqp-client-version}} \
+        -Dpulsar-client.version=${{vars.pulsar-version}} \
+        package -pl :zipkin-server --am
+  - runs: |
+      install -d "${{targets.destdir}}/zipkin" "${{targets.destdir}}/usr/local/bin" "${{targets.destdir}}/licenses"
+      exec_jar="$PWD/zipkin-server/target/zipkin-server-${{package.version}}-exec.jar"
+      (cd "${{targets.destdir}}/zipkin" && jar xf "$exec_jar")
+      lib="${{targets.destdir}}/zipkin/BOOT-INF/lib"
+      # Every override must have reached the shipped jar set, or the build fails.
+      for want in \
+        jackson-databind-${{vars.jackson-version}} \
+        netty-handler-${{vars.netty-version}} \
+        spring-boot-${{vars.spring-boot-version}} \
+        spring-core-${{vars.spring-version}} \
+        micrometer-core-${{vars.micrometer-version}} \
+        log4j-api-${{vars.log4j-version}} \
+        mariadb-java-client-${{vars.mariadb-version}} \
+        activemq-client-${{vars.activemq-version}} \
+        amqp-client-${{vars.amqp-client-version}} \
+        pulsar-client-${{vars.pulsar-version}} \
+        lz4-java-${{vars.lz4-version}} \
+        snappy-java-${{vars.snappy-version}} \
+        libthrift-${{vars.thrift-version}} \
+        bcprov-jdk18on-${{vars.bouncycastle-version}} \
+        bcpkix-jdk18on-${{vars.bouncycastle-version}} \
+        bcutil-jdk18on-${{vars.bouncycastle-version}}; do
+        test -f "$lib/$want.jar" || { echo "missing $want.jar in the exec jar" >&2; exit 1; }
+      done
+      if ls "$lib" | grep -E '^(httpclient5|httpcore5)'; then
+        echo "excluded HttpComponents jars are present" >&2
+        exit 1
+      fi
+      # Same platform pruning as the upstream Dockerfile: no Windows or macOS natives, and only the
+      # natives of the build architecture.
+      rm -f "$lib"/*windows* "$lib"/*osx*
+      case "${{build.arch}}" in
+        x86_64) rm -f "$lib"/*a64* "$lib"/*aarch* ;;
+        aarch64) rm -f "$lib"/*x86* ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      install -m755 docker/start-zipkin "${{targets.destdir}}/usr/local/bin/start-zipkin"
+      install -m644 LICENSE "${{targets.destdir}}/licenses/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+  pipeline:
+    - runs: |
+        test -x /usr/local/bin/start-zipkin
+        test -f /zipkin/BOOT-INF/classes/zipkin-server.yml
+        ls /zipkin/BOOT-INF/lib | grep -q '^zipkin-lens-'
+
+update:
+  enabled: true
+  github:
+    identifier: openzipkin/zipkin
+    use-tag: true
+    tag-filter-prefix: "3."
