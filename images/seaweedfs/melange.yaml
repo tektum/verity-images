@@ -1,0 +1,112 @@
+package:
+  name: verity-seaweedfs
+  version: "4.53"
+  epoch: 0
+  description: SeaweedFS distributed object store with S3, filer and volume servers
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 12Gi
+    disk: 8Gi
+
+vars:
+  # The thrift advisories fixed in v0.25.0 are not in the Go vulnerability or OSV
+  # module feeds that go/remediate reads.
+  thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/seaweedfs/seaweedfs
+      tag: ${{package.version}}
+      expected-commit: 4ab66fb76da83700739f5839e62fcaf15fb7d02a
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/apache/thrift 2>/dev/null || true)"
+      [ -n "$current" ] || exit 0
+      if awk -v have="$current" -v want=${{vars.thrift-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/apache/thrift@${{vars.thrift-floor}}
+      fi
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./weed
+  - runs: |
+      # Upstream tags carry no v prefix and the module has no /vN suffix, so Go
+      # cannot stamp a module version; scan-identity declares the main software.
+      commit="$(git rev-parse --short HEAD)"
+      go build -p 4 -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w -X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=${commit}" \
+        -o weed.bin ./weed
+      install -Dm755 weed.bin "${{targets.destdir}}/usr/bin/weed"
+      # Upstream enables FIPS 140-3 mode unconditionally in its entrypoint. This is the
+      # plain flavor, so drop that default; operators can still export GODEBUG themselves.
+      sed -e '/^# Enable FIPS 140-3 mode by default/,/^export GODEBUG=/d' \
+        docker/entrypoint.sh > entrypoint.sh
+      if grep -F fips140 entrypoint.sh; then
+        echo 'entrypoint.sh still enables fips140' >&2
+        exit 1
+      fi
+      # The sed range must stop at the export line: fail if it ran through the rest of the script.
+      if ! grep -Fq 'isArgPassed()' entrypoint.sh || ! grep -Fq "'mini')" entrypoint.sh; then
+        echo 'entrypoint.sh lost its subcommand handling' >&2
+        exit 1
+      fi
+      install -Dm755 entrypoint.sh "${{targets.destdir}}/entrypoint.sh"
+      install -Dm644 docker/filer.toml "${{targets.destdir}}/etc/seaweedfs/filer.toml"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the SeaweedFS build
+    pipeline:
+      - runs: |
+          dest="${{targets.subpkgdir}}/usr/share/seaweedfs-build"
+          for f in go.mod go.sum; do
+            install -m644 -D "$f" "$dest/$f"
+          done
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        weed version | grep -F "${{package.version}}"
+        apk info --who-owns /usr/bin/weed \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -x /entrypoint.sh
+        grep -F "Apache License" "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: seaweedfs/seaweedfs
