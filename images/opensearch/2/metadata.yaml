@@ -4,6 +4,6 @@ description: OpenSearch distributed search and analytics engine built from pinne
 category: Databases & Caching
 upstream: https://opensearch.org/
 versions: [2]
-scan-identity: [pkg:maven/org.opensearch/opensearch]
+scan-identity: [cpe:2.3:a:amazon:opensearch, pkg:maven/org.opensearch/opensearch]
 owner: tektum
 enabled: true
