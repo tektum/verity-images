@@ -32,6 +32,7 @@ environment:
       - python3
   environment:
     CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
 
 pipeline:
   - uses: git-checkout
