@@ -1,0 +1,82 @@
+package:
+  name: syft-1.57
+  # yamllint disable-line rule:line-length
+  version: "1.57.1"  # renovate: datasource=github-releases depName=anchore/syft versioning=regex:^(?<major>1)\.(?<minor>57)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Software bill of materials generator for container images and filesystems
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: a0c0d3890a9d79421c403e8fcadec50a2e55bf21
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/anchore/syft
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/syft
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -tags containers_image_openpgp,exclude_graphdriver_btrfs \
+        -ldflags="-s -w \
+          -X main.version=${{package.version}} \
+          -X main.gitCommit=${{vars.source-commit}} \
+          -X main.buildDate=$(git log -1 --format=%cI) \
+          -X main.gitDescription=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/syft" ./cmd/syft
+      go version -m "${{targets.destdir}}/usr/bin/syft" \
+        | awk '$1 == "mod" && $2 == "github.com/anchore/syft" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the syft build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/syft-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/syft-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        syft version | grep -F "${{package.version}}"
+        syft --help | grep -F 'Usage:'
+        apk info --who-owns /usr/bin/syft \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: anchore/syft
+    strip-prefix: v
