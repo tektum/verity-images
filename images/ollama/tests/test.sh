@@ -11,7 +11,7 @@ fail() {
 }
 
 cleanup() {
-  docker rm -f "$container" >/dev/null 2>&1 || true
+  docker rm -f "$container" "$container-badhost" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT INT TERM
@@ -35,7 +35,7 @@ version=$(docker run --rm "$image" --version 2>&1 | sed -n 's/^Warning: client v
 
 # Negative: an unusable listen address must stop the server with a readable error.
 status=0
-output=$(docker run --rm -e OLLAMA_HOST=bad:::host "$image" 2>&1) || status=$?
+output=$(timeout 120 docker run --rm --name "$container-badhost" -e OLLAMA_HOST=bad:::host "$image" 2>&1) || status=$?
 [ "$status" -ne 0 ] || fail 'invalid OLLAMA_HOST unexpectedly started the server'
 printf '%s\n' "$output" | grep -q '^Error: listen' || fail "invalid OLLAMA_HOST gave no readable error: $output"
 
