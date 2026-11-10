@@ -1,0 +1,101 @@
+package:
+  name: verity-tkn
+  # yamllint disable-line rule:line-length
+  version: "0.46.2"  # renovate: datasource=github-releases depName=tektoncd/cli versioning=regex:^(?<major>0)\.(?<minor>46)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Tekton command line interface
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 16Gi
+
+vars:
+  source-commit: 9ea027bf937d50ee28cf43837522364073fdf9cd
+  # Resolvable pin for a docs-generator module that tektoncd/triggers requires at a pseudo-version
+  # the Go proxy does not serve. It is not part of the tkn binary (see the replace step below).
+  # yamllint disable-line rule:line-length
+  crd-docs-pin: v0.3.1-0.20220720053627-e327d0730470  # renovate: datasource=go depName=github.com/ahmetb/gen-crd-api-reference-docs
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/tektoncd/cli
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      # tektoncd/triggers v0.36.4 requires gen-crd-api-reference-docs at a pseudo-version that
+      # proxy.golang.org does not serve, so `go list -m all` (go/remediate) fails on a fresh
+      # module cache. Upstream avoids it by vendoring. The module only generates API docs and is
+      # not in `go list -deps ./cmd/tkn`, so replace it with the pin tektoncd/pipeline uses.
+      go list -deps -mod=vendor ./cmd/tkn > "/tmp/tkn-deps.txt"
+      if grep -q github.com/ahmetb/gen-crd-api-reference-docs "/tmp/tkn-deps.txt"; then
+        echo 'gen-crd-api-reference-docs is part of the tkn binary; the replace is not safe' >&2
+        exit 1
+      fi
+      go mod edit -replace \
+        "github.com/ahmetb/gen-crd-api-reference-docs=github.com/ahmetb/gen-crd-api-reference-docs@${{vars.crd-docs-pin}}"
+      # The vendor tree no longer matches go.mod; builds below use -mod=readonly and
+      # go/remediate regenerates its own, so drop it instead of leaving a stale copy.
+      rm -rf vendor
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/tkn
+
+  - runs: |
+      # Upstream releases stamp the client version without the v prefix.
+      go build -p 4 -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/tektoncd/cli/pkg/cmd/version.clientVersion=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/tkn" ./cmd/tkn
+      go version -m "${{targets.destdir}}/usr/bin/tkn" \
+        | awk '$1 == "mod" && $2 == "github.com/tektoncd/cli" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Tekton CLI build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/tkn-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/tkn-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        [ "$(tkn version --component client)" = "${{package.version}}" ]
+        apk info --who-owns /usr/bin/tkn \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: tektoncd/cli
+    tag-filter-prefix: v0.46.
+    strip-prefix: v
