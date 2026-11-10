@@ -1,0 +1,138 @@
+package:
+  name: verity-opensearch-2
+  # yamllint disable-line rule:line-length
+  version: "2.19.7"  # renovate: datasource=maven depName=org.opensearch:opensearch versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: OpenSearch distributed search and analytics engine
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - coreutils
+      - glibc-locale-en
+      - grep
+      - openjdk-21-default-jvm
+      - sed
+
+# Security floor for the Jackson 2.18 jars OpenSearch 2.19.7 pins below their fixed release.
+vars:
+  # yamllint disable-line rule:line-length
+  jackson2: 2.18.12  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=regex:^(?<major>2)\.(?<minor>18)\.(?<patch>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+    # Keep Gradle state out of the workspace, which melange must read back after the build.
+    GRADLE_USER_HOME: /var/cache/gradle
+    # Gradle resolves several thousand artifacts; retry slow or dropped downloads.
+    JAVA_TOOL_OPTIONS: >-
+      -Djava.net.preferIPv4Stack=true
+      -Dorg.gradle.internal.http.connectionTimeout=120000
+      -Dorg.gradle.internal.http.socketTimeout=120000
+      -Dorg.gradle.internal.repository.max.retries=10
+      -Dorg.gradle.internal.repository.initial.backoff=2000
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/opensearch-project/OpenSearch
+      tag: ${{package.version}}
+      expected-commit: 6dd9a042d889837fad5d6e2afc5d3d3ce99edad6
+  - runs: |
+      # Resolve Maven Central through Google's mirror, which the build hosts reach reliably
+      # (the same mirror images/cassandra uses).
+      mirror=https://maven-central.storage-download.googleapis.com/maven2/
+      install -d "$GRADLE_USER_HOME/init.d"
+      cat >"$GRADLE_USER_HOME/init.d/mirror.gradle" <<EOF
+      def mirror = '$mirror'
+      def redirect = { repos ->
+        repos.withType(MavenArtifactRepository).configureEach { repo ->
+          if (repo.url.toString().startsWith('https://repo.maven.apache.org/maven2')) {
+            repo.url = mirror
+          }
+        }
+      }
+      beforeSettings { settings -> redirect(settings.pluginManagement.repositories) }
+      allprojects { project -> redirect(project.repositories) }
+      EOF
+      cat >"$GRADLE_USER_HOME/init.d/floors.gradle" <<'EOF'
+      // Raise a requested Jackson 2.18 version to its floor, never lower it.
+      def parts = { String v -> v.tokenize('.-').collect { it.isInteger() ? it.toInteger() : 0 } }
+      def lower = { String a, String b ->
+        def x = parts(a), y = parts(b)
+        for (i in 0..<Math.max(x.size(), y.size())) {
+          def l = i < x.size() ? x[i] : 0, r = i < y.size() ? y[i] : 0
+          if (l != r) return l < r
+        }
+        false
+      }
+      def floor = '${{vars.jackson2}}'
+      allprojects {
+        configurations.configureEach {
+          resolutionStrategy.eachDependency { details ->
+            def requested = details.requested.version
+            if (details.requested.group.startsWith('com.fasterxml.jackson.') && requested &&
+                requested.startsWith('2.18.') && lower(requested, floor)) {
+              details.useVersion(floor)
+            }
+          }
+        }
+      }
+      EOF
+      case "$(uname -m)" in
+        x86_64) dist=no-jdk-linux-tar; classifier=no-jdk-linux-x64 ;;
+        aarch64) dist=no-jdk-linux-arm64-tar; classifier=no-jdk-linux-arm64 ;;
+        *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+      esac
+      ./gradlew --no-daemon -Dbuild.snapshot=false ":distribution:archives:$dist:assemble"
+      tar -xzf "distribution/archives/$dist/build/distributions/opensearch-min-${{package.version}}-$classifier.tar.gz"
+      install -d "${{targets.destdir}}/usr/share" "${{targets.destdir}}/licenses"
+      # Fail if the floor matched nothing or a shipped Jackson jar is still below it.
+      for name in jackson-core jackson-databind; do
+        found=$(find "opensearch-${{package.version}}" -name "$name-[0-9]*.jar" |
+          sed "s|.*/$name-||; s|\.jar$||" | sort -u)
+        [ -n "$found" ] || { echo "dependency set changed: no $name jar" >&2; exit 1; }
+        for version in $found; do
+          [ "$(printf '%s\n%s\n' "${{vars.jackson2}}" "$version" | sort -V | head -n1)" = "${{vars.jackson2}}" ] ||
+            { echo "$name $version is below floor ${{vars.jackson2}}" >&2; exit 1; }
+        done
+      done
+      mv "opensearch-${{package.version}}" "${{targets.destdir}}/usr/share/opensearch"
+      # Listen beyond loopback, as the upstream container image does.
+      printf '\nnetwork.host: 0.0.0.0\n' >>"${{targets.destdir}}/usr/share/opensearch/config/opensearch.yml"
+      install -m644 LICENSE.txt "${{targets.destdir}}/licenses/LICENSE.txt"
+      install -m644 NOTICE.txt "${{targets.destdir}}/licenses/NOTICE.txt"
+      find . -name .gradle -type d -prune -exec rm -rf {} +
+      # Gradle leaves owner-only directories that melange cannot read back from the workspace.
+      chmod -R a+rX .
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+      OPENSEARCH_JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: /usr/share/opensearch/bin/opensearch --version
+
+update:
+  enabled: true
+  github:
+    identifier: opensearch-project/OpenSearch
+    use-tag: true
+    tag-filter-prefix: "2."

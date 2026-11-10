@@ -1,0 +1,9 @@
+name: opensearch
+track: wolfi
+description: OpenSearch distributed search and analytics engine built from pinned upstream source.
+category: Databases & Caching
+upstream: https://opensearch.org/
+versions: [2]
+scan-identity: [pkg:maven/org.opensearch/opensearch]
+owner: tektum
+enabled: true
