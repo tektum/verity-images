@@ -1,0 +1,9 @@
+name: clamav
+track: wolfi
+description: ClamAV scanner, clamd daemon and freshclam built from pinned upstream source, run as an unprivileged user.
+category: Security & Identity
+upstream: https://www.clamav.net/
+versions: [1.4]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:clamav:clamav]

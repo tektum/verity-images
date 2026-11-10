@@ -1,0 +1,173 @@
+package:
+  name: verity-clamav-1.4
+  # yamllint disable-line rule:line-length
+  version: "1.4.6"  # renovate: datasource=github-tags depName=Cisco-Talos/clamav versioning=regex:^(?<major>1)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^clamav-(?<version>.+)$
+  epoch: 0
+  description: ClamAV 1.4 scanner, daemon and signature updater built from the upstream release
+  copyright:
+    - license: GPL-2.0-only
+  resources:
+    cpu: "16"
+    memory: 16Gi
+  test-resources:
+    cpu: "2"
+    memory: 2Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - cmake
+      - curl-dev
+      - git
+      - json-c-dev
+      - libmspack-dev
+      - libxml2-dev
+      - ncurses-dev
+      - openssl-dev
+      - pcre2-dev
+      - pkgconf
+      - rust
+      - samurai
+      - wolfi-baselayout
+      - zlib-dev
+  environment:
+    # The Rust libraries fetch one git dependency; use the git client, whose TLS
+    # trust store is the system one.
+    CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Cisco-Talos/clamav
+      tag: clamav-${{package.version}}
+      expected-commit: 5853e1396777bae4d909cd3dd44f58352e7cf9b3
+
+  # OpenSSL 4 (the only OpenSSL curl-dev links against in Wolfi) makes ASN1_STRING
+  # opaque, and libclamav 1.4 and 1.5 still read its fields directly in
+  # cl_ASN1_GetTimeT (upstream main dropped that function). Use the public
+  # accessors; the function's behavior is unchanged. A source bump that no
+  # longer matches fails here instead of building a different function.
+  - runs: |
+      f=libclamav/crypto.c
+      test "$(grep -c 'timeobj->data' "$f")" -eq 2
+      test "$(grep -c 'timeobj->type' "$f")" -eq 2
+      sed -i \
+        -e 's/!(timeobj->data)/!(ASN1_STRING_get0_data(timeobj))/' \
+        -e 's/(char \*)(timeobj->data)/(char *)ASN1_STRING_get0_data(timeobj)/' \
+        -e 's/timeobj->type ==/ASN1_STRING_type(timeobj) ==/' \
+        "$f"
+      ! grep -n 'timeobj->' "$f"
+      test "$(grep -c 'ASN1_STRING_get0_data(timeobj)' "$f")" -eq 2
+      test "$(grep -c 'ASN1_STRING_type(timeobj)' "$f")" -eq 2
+
+  # UnRAR is left out: libclamunrar is under the non-free UnRAR license, not
+  # GPL-2.0-only. Milter needs sendmail's libmilter and on-access scanning
+  # (clamonacc) needs fanotify privileges a container does not have.
+  # libmspack comes from Wolfi so the scanner sees it as its own package.
+  - uses: cmake/configure
+    with:
+      opts: |
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DAPP_CONFIG_DIRECTORY=/etc/clamav \
+        -DDATABASE_DIRECTORY=/var/lib/clamav \
+        -DENABLE_CLAMONACC=OFF \
+        -DENABLE_EXAMPLES=OFF \
+        -DENABLE_EXTERNAL_MSPACK=ON \
+        -DENABLE_JSON_SHARED=ON \
+        -DENABLE_MAN_PAGES=OFF \
+        -DENABLE_MILTER=OFF \
+        -DENABLE_STATIC_LIB=OFF \
+        -DENABLE_SYSTEMD=OFF \
+        -DENABLE_TESTS=OFF \
+        -DENABLE_UNRAR=OFF
+  - uses: cmake/build
+  - uses: cmake/install
+  - runs: |
+      cd "${{targets.destdir}}"
+      # Wolfi merges /usr/sbin into /usr/bin.
+      if [ -d usr/sbin ]; then
+        mv usr/sbin/* usr/bin/
+        rmdir usr/sbin
+      fi
+      rm -rf usr/share/doc usr/share/man
+      # Container defaults, derived from the upstream samples like the
+      # upstream clamav/clamav image: clamd listens on a local socket and on
+      # TCP 3310 in the foreground and logs to stderr; the image runs as the
+      # unprivileged clamav user, so clamd has no User directive.
+      sed -e 's|^\(Example\)|# \1|' \
+        -e 's|^#\(LocalSocket\) .*|\1 /tmp/clamd.sock|' \
+        -e 's|^#\(TCPSocket\) .*|\1 3310|' \
+        -e 's|^#\(Foreground\) .*|\1 yes|' \
+        etc/clamav/clamd.conf.sample > etc/clamav/clamd.conf
+      sed -e 's|^\(Example\)|# \1|' \
+        -e 's|^#\(DatabaseOwner\) .*|\1 clamav|' \
+        -e 's|^#\(NotifyClamd\) .*|\1 /etc/clamav/clamd.conf|' \
+        -e 's|^#\(Foreground\) .*|\1 yes|' \
+        etc/clamav/freshclam.conf.sample > etc/clamav/freshclam.conf
+      grep -qx 'LocalSocket /tmp/clamd.sock' etc/clamav/clamd.conf
+      grep -qx 'TCPSocket 3310' etc/clamav/clamd.conf
+      grep -qx 'Foreground yes' etc/clamav/clamd.conf
+      ! grep -q '^Example' etc/clamav/clamd.conf etc/clamav/freshclam.conf
+      grep -qx 'DatabaseOwner clamav' etc/clamav/freshclam.conf
+      grep -qx 'NotifyClamd /etc/clamav/clamd.conf' etc/clamav/freshclam.conf
+      # Entrypoint like the upstream clamav/clamav image, minus the implicit
+      # network access: a command found in PATH runs as is, options go to clamd,
+      # and with no arguments clamd starts. freshclam only runs on request.
+      cat > usr/bin/docker-entrypoint.sh <<'ENTRYPOINT'
+      #!/bin/sh
+      set -eu
+      if [ "$#" -gt 0 ] && [ "${1#-}" = "$1" ] && command -v "$1" > /dev/null 2>&1; then
+        exec "$@"
+      fi
+      if [ "$#" -gt 0 ]; then
+        exec clamd "$@"
+      fi
+      if [ "${CLAMAV_FRESHCLAM:-false}" = true ]; then
+        if [ ! -f /var/lib/clamav/main.cvd ] && [ ! -f /var/lib/clamav/main.cld ]; then
+          freshclam --foreground --stdout
+        fi
+        freshclam --daemon --foreground --stdout &
+      fi
+      exec clamd
+      ENTRYPOINT
+      chmod 755 usr/bin/docker-entrypoint.sh
+      test -x usr/bin/clamd
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-dev
+    description: libclamav headers
+    pipeline:
+      - uses: split/dev
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        clamscan --version | grep -F 'ClamAV ${{package.version}}'
+        clamd --version | grep -F 'ClamAV ${{package.version}}'
+        clamdscan --version 2>&1 | grep -F 'ClamAV ${{package.version}}'
+        freshclam --version | grep -F 'ClamAV ${{package.version}}'
+        sigtool --version | grep -F 'ClamAV ${{package.version}}'
+        test ! -e /usr/lib/libclamunrar.so
+        db=$(mktemp -d)
+        printf '%s\n' 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > "$db/eicar.txt"
+        sigtool --md5 "$db/eicar.txt" | sed 's/:[^:]*$/:Verity.Test.EICAR/' > "$db/test.hdb"
+        mkdir "$db/scan"
+        mv "$db/eicar.txt" "$db/scan/"
+        status=0
+        clamscan --no-summary -d "$db/test.hdb" "$db/scan/eicar.txt" || status=$?
+        test "$status" -eq 1
