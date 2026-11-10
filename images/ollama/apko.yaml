@@ -1,0 +1,48 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - ollama=0.40.16-r0
+    - ollama-cpu=0.40.16-r0
+
+accounts:
+  groups:
+    - groupname: ollama
+      gid: 65532
+  users:
+    - username: ollama
+      uid: 65532
+      gid: 65532
+      homedir: /home/ollama
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/ollama
+
+cmd: serve
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/ollama
+  OLLAMA_HOST: 0.0.0.0:11434
+
+paths:
+  - path: /home/ollama
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /home/ollama/.ollama
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+
+volumes:
+  - /home/ollama/.ollama
+
+work-dir: /home/ollama
