@@ -40,6 +40,10 @@ pipeline:
       repository: https://github.com/flannel-io/flannel
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  # etcd/tests/v3 is only imported by flannel's tests, and its v3.7.2 requires the unpublished module
+  # go.etcd.io/etcd/cache/v3 v3.7.2, which breaks `go list -m all` during remediation. The -mod=readonly
+  # build below fails if the shipped packages ever import it.
+  - runs: go mod edit -droprequire=go.etcd.io/etcd/tests/v3
   - uses: go/remediate
     with:
       modroot: .
