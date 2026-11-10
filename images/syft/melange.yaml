@@ -1,7 +1,7 @@
 package:
   name: syft-1.57
   # yamllint disable-line rule:line-length
-  version: "1.57.1"  # renovate: datasource=github-releases depName=anchore/syft versioning=regex:^(?<major>1)\.(?<minor>57)\.(?<patch>\d+)$
+  version: "1.57.1"  # renovate: datasource=github-releases depName=anchore/syft versioning=regex:^(?<major>1)\.(?<minor>57)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Software bill of materials generator for container images and filesystems
   copyright:
