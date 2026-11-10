@@ -1,0 +1,96 @@
+package:
+  name: verity-vitess-24
+  # yamllint disable-line rule:line-length
+  version: "24.0.5"  # renovate: datasource=github-releases depName=vitessio/vitess versioning=regex:^(?<major>24)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Vitess database clustering system for MySQL
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "8"
+    memory: 24Gi
+
+vars:
+  source-commit: 9b28c872ea20bfbe9d5ab89621473910157aa772
+  dd-trace-floor: v2.8.1  # renovate: datasource=go depName=github.com/DataDog/dd-trace-go/v2
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/vitessio/vitess
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # GHSA-74j5-xf3v-crq8 (fixed in 2.8.1) is not raised by go/remediate on its own;
+  # the module is an indirect dependency of the vendored dd-trace-go.v1 shim.
+  - runs: |
+      GOTOOLCHAIN=local go get github.com/DataDog/dd-trace-go/v2@${{vars.dd-trace-floor}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: >-
+        ./go/cmd/vtgate ./go/cmd/vtctld ./go/cmd/vttablet ./go/cmd/vtctldclient
+        ./go/cmd/vtctlclient ./go/cmd/vtorc ./go/cmd/mysqlctl ./go/cmd/vtbackup
+  - runs: |
+      mkdir -p "${{targets.destdir}}/usr/bin"
+      go build -p 2 -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/" \
+        ./go/cmd/vtgate ./go/cmd/vtctld ./go/cmd/vttablet ./go/cmd/vtctldclient \
+        ./go/cmd/vtctlclient ./go/cmd/vtorc ./go/cmd/mysqlctl ./go/cmd/vtbackup
+      # Upstream also tags every release as v0.<major>.<patch> (the Go module
+      # mapping GHSA advisories use), and VCS stamping reports that tag.
+      pv=${{package.version}}
+      modver="v0.${pv%%.*}.${pv##*.}"
+      for b in vtgate vtctld vttablet vtctldclient vtctlclient vtorc mysqlctl vtbackup; do
+        go version -m "${{targets.destdir}}/usr/bin/$b" \
+          | awk '$1 == "mod" && $2 == "vitess.io/vitess" { print $3 }' \
+          | grep -Fx -e "$modver" -e "$modver+dirty"
+      done
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the vitess build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/vitess-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/vitess-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        for b in vtgate vtctld vttablet vtctldclient; do
+          "$b" --version | grep -F '${{package.version}}'
+        done
+        apk info --who-owns /usr/bin/vtgate \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+
+update:
+  enabled: true
+  github:
+    identifier: vitessio/vitess
+    strip-prefix: v
+    tag-filter-prefix: v24.0.
+    use-tag: true
