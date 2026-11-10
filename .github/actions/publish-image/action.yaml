@@ -89,6 +89,18 @@ runs:
           DOCKER_DEFAULT_PLATFORM="linux/$arch" "$TEST" "${CANDIDATE}-${arch}" "$FLAVOR"
         done
 
+    # Rekor rejects an attestation request above 24 MiB. An oversized SBOM loses
+    # its per-file entries here, before the gate scans it, so the gate, the
+    # attestation, and the daily monitor all read the same document.
+    - name: Trim oversized SBOMs
+      shell: bash
+      env:
+        SBOM_DIRECTORY: ${{ inputs.sbom-directory }}
+      run: |
+        python3 scripts/trim_sbom.py \
+          "${SBOM_DIRECTORY}/sbom-amd64.spdx.json" \
+          "${SBOM_DIRECTORY}/sbom-arm64.spdx.json"
+
     - name: Scan amd64 candidate
       shell: bash
       env:

@@ -199,9 +199,21 @@ It requires no PAT or stored signing secret.
 ## SBOM and provenance
 
 SPDX JSON is the only SBOM format. Every published platform SBOM is generated
-with Syft against the built image for both tracks. One complete SBOM per
-platform is attached to the corresponding image digest. Trivy is never an SBOM
-generator.
+with Syft against the built image for both tracks. One SBOM per platform is
+attached to the corresponding image digest. Trivy is never an SBOM generator.
+
+The public Rekor log rejects a request body above 24 MiB, and the attestation
+base64-encodes the SBOM, so the largest SBOM that can be attested is about
+18 MiB. `scripts/trim_sbom.py` runs in the publish action before the
+vulnerability gate. An SBOM larger than 12 MiB (`MAX_SBOM_BYTES`) loses its
+per-file entries: the SPDX `files` array and every relationship, `hasFiles`
+entry, and `documentDescribes` entry that names a removed file. Every package,
+CPE, purl, package relationship, and the document metadata stay, including the
+scan-identity packages. The document `comment` records the removal and the
+original file count. An SBOM at or under 12 MiB is never rewritten. Grype
+matches packages, so the gate, the attestation, and the daily monitor all scan
+the same trimmed document and find the same vulnerabilities as the full SBOM.
+An SBOM that is still over the limit after the trim fails the publish.
 
 Melange-backed Wolfi images also retain package-level provenance and a metadata
 subpackage containing the resolved `go.mod` and `go.sum` used by the build.

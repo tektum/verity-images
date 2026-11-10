@@ -148,9 +148,11 @@
               equivalent. Wolfi images use apko's native SPDX output. Patched images use Syft, run
               against the final patched image rather than the pinned upstream. Trivy is used only to
               produce the Copacetic patch report for patched images and never generates an SBOM. One
-              complete SBOM per platform is attached to the image's index digest as an OCI attestation,
+              SBOM per platform is attached to the image's index digest as an OCI attestation,
               signed the same way the image itself is signed, and can be verified or downloaded directly from
-              the registry. Melange-backed Wolfi images additionally retain package-level provenance
+              the registry. An SBOM over 12 MiB, too large for the public Rekor log, is attested without its
+              per-file entries; every package and relationship between packages stays, and the document comment
+              records the removal. Melange-backed Wolfi images additionally retain package-level provenance
               and a metadata subpackage containing the resolved <code>go.mod</code> and
               <code>go.sum</code> used by the build.
             </p>
