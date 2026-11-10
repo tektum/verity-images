@@ -52,7 +52,7 @@ while [ "$i" -lt 60 ]; do
   hostport=$(docker port "$name" 5556/tcp 2>/dev/null | head -n 1 || true)
   if [ -n "$hostport" ]; then
     base="http://$hostport"
-    if curl -fsS "$base/healthz" >/dev/null 2>&1; then
+    if curl -fsS "$base/dex/.well-known/openid-configuration" >/dev/null 2>&1; then
       ready=1
       break
     fi
