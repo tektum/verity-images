@@ -1,0 +1,43 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-kiali@local
+
+accounts:
+  groups:
+    - groupname: kiali
+      gid: 1000
+  users:
+    - username: kiali
+      uid: 1000
+      gid: 1000
+      shell: /sbin/nologin
+  run-as: 1000
+
+work-dir: /opt/kiali
+
+entrypoint:
+  command: /opt/kiali/kiali
+
+environment:
+  KIALI_HOME: /opt/kiali
+  PATH: /opt/kiali:/usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o1777
+  - path: /keys
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
