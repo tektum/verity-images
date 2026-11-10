@@ -1,0 +1,100 @@
+package:
+  name: verity-goreleaser
+  # yamllint disable-line rule:line-length
+  version: "2.20.0"  # renovate: datasource=github-releases depName=goreleaser/goreleaser versioning=regex:^(?<major>2)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Release automation tool for Go projects
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - git
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 12Gi
+  test-resources:
+    cpu: "1"
+    memory: 2Gi
+
+vars:
+  # The release tag is annotated; this is the peeled commit it points to.
+  source-commit: b8f79e0399c46895220e8479e24d599576b563a8
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/goreleaser/goreleaser
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      commit=$(git rev-parse HEAD)
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.version=${{package.version}} -X main.commit=$commit \
+          -X main.date=$build_date -X main.builtBy=verity" \
+        -o "${{targets.destdir}}/usr/bin/goreleaser" .
+      go version -m "${{targets.destdir}}/usr/bin/goreleaser" \
+        | awk '$1 == "mod" && $2 == "github.com/goreleaser/goreleaser/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/goreleaser" --version | grep -F '${{package.version}}'
+      install -Dm644 LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.md"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the GoReleaser build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/goreleaser-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/goreleaser-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        goreleaser --version | grep -F '${{package.version}}'
+        goreleaser --help >/dev/null
+        apk info --who-owns /usr/bin/goreleaser \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'MIT License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE.md"
+
+update:
+  enabled: true
+  github:
+    identifier: goreleaser/goreleaser
+    strip-prefix: v
+    tag-filter-prefix: v2.20.
+    use-tag: true
