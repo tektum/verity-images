@@ -74,10 +74,7 @@ test:
         - apk-tools
   pipeline:
     - runs: |
-        git describe --tags --always --dirty || true
-      git status --short | head -5 || true
-      go version -m "${{targets.destdir}}/usr/bin/vtgate" | grep -E '^\s+(mod|build)\s' || true
-      for b in vtgate vtctld vttablet vtctldclient; do
+        for b in vtgate vtctld vttablet vtctldclient; do
           "$b" --version | grep -F '${{package.version}}'
         done
         apk info --who-owns /usr/bin/vtgate \
