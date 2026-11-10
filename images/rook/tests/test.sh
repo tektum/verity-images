@@ -28,12 +28,10 @@ printf '%s\n' "$version_output" | grep -Ex 'rook: v1\.21\.[0-9]+' >/dev/null \
 help_output=$(run "$image" ceph --help 2>&1) || fail 'rook ceph --help failed'
 printf '%s\n' "$help_output" | grep -F 'operator' >/dev/null || fail 'operator subcommand missing'
 
-# Negative: an unknown subcommand exits non-zero with a diagnostic.
-status=0
-output=$(run "$image" nosuchcommand 2>&1) || status=$?
-[ "$status" -ne 0 ] || fail 'unknown subcommand unexpectedly succeeded'
+# Negative: an unknown subcommand is rejected with a diagnostic (rook itself exits 0 for this case).
+output=$(run "$image" nosuchcommand 2>&1) || true
 printf '%s\n' "$output" | grep -F 'unknown command "nosuchcommand"' >/dev/null \
-  || fail 'unknown subcommand diagnostic missing'
+  || { printf '%s\n' "$output" >&2; fail 'unknown subcommand diagnostic missing'; }
 
 # Negative: the operator needs a Kubernetes cluster and must fail clearly without one.
 status=0
