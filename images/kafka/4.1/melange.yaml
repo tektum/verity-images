@@ -75,7 +75,7 @@ pipeline:
       # Jackson 2.21 deprecates setSerializationInclusion and the build uses -Werror; 4.2 made this change.
       find . -name '*.java' -exec grep -l 'setSerializationInclusion(' {} + |
         while read -r file; do sed -i -e 's|\.setSerializationInclusion(|.setDefaultPropertyInclusion(|' "$file"; done
-      ! find . -name '*.java' -exec grep -l 'setSerializationInclusion(' {} + | grep -q .
+      if find . -name '*.java' -exec grep -l 'setSerializationInclusion(' {} + | grep -q .; then exit 1; fi
       grep -qx '  lz4: "${{vars.lz4-version}}",' gradle/dependencies.gradle
       grep -qx '  snappy: "${{vars.snappy-version}}",' gradle/dependencies.gradle
       grep -qx '  jackson: "${{vars.jackson-version}}",' gradle/dependencies.gradle

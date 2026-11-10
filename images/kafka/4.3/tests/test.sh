@@ -12,7 +12,7 @@ broker=verity-kafka-broker-$$
 work=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$broker" >/dev/null 2>&1 || true
+  docker rm -f "$broker" "$broker-neg" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -40,8 +40,9 @@ docker run --rm --label "$label" --entrypoint sh "$image" -c 'ls /opt/kafka/libs
 
 # Negative case: an unformatted log directory must make the broker exit non-zero with a readable error.
 rc=0
-docker run --rm --label "$label" "$image" >"$work/neg.log" 2>&1 || rc=$?
+timeout 120 docker run --rm --name "$broker-neg" "$image" >"$work/neg.log" 2>&1 || rc=$?
 [ "$rc" -ne 0 ] || fail 'broker started without formatted storage'
+[ "$rc" -ne 124 ] || fail 'broker hung on unformatted storage instead of exiting'
 grep -qiE 'meta.properties|not formatted|kafka-storage|format' "$work/neg.log" ||
   { cat "$work/neg.log" >&2; fail 'unreadable error for unformatted storage'; }
 
