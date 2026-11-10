@@ -2,7 +2,9 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-version=24.0.5
+version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' \
+  "$(dirname "$0")/../melange.yaml" | sed -n 1p)
+[ -n "$version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
 
 trap 'rm -rf "$work"' EXIT INT TERM
@@ -30,8 +32,8 @@ grep -F 'Available Commands' "$work/help" >/dev/null || fail 'vtctldclient help 
 # vtgate with an unreachable topo must fail with an explicit error, not hang.
 rc=0
 docker run --rm --network none --read-only --label verity-test=vitess "$image" \
-  --cell=zone1 --topo_implementation=etcd2 --topo_global_server_address=127.0.0.1:2379 \
-  --topo_global_root=/vitess/global --tablet_types_to_wait=PRIMARY --port=15001 \
+  --cell=zone1 --topo-implementation=etcd2 --topo-global-server-address=127.0.0.1:2379 \
+  --topo-global-root=/vitess/global --tablet-types-to-wait=PRIMARY --port=15001 \
   >"$work/vtgate" 2>&1 &
 pid=$!
 n=0
@@ -46,6 +48,10 @@ while kill -0 "$pid" 2>/dev/null; do
 done
 wait "$pid" || rc=$?
 test "$rc" -ne 0 || fail 'vtgate unexpectedly succeeded without topo'
-grep -Ei 'error|fail|topo' "$work/vtgate" >/dev/null || fail 'vtgate gave no explicit error'
+if grep -Ei 'unknown flag|invalid argument' "$work/vtgate" >/dev/null; then
+  fail 'vtgate rejected its flags before reaching topo'
+fi
+grep -F 'Failed to open topo server (etcd2,127.0.0.1:2379,/vitess/global)' "$work/vtgate" >/dev/null ||
+  fail 'vtgate did not report the unreachable topo'
 
 printf 'SMOKE PASS image=%s\n' "$image"
