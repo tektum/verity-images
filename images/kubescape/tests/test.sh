@@ -59,13 +59,15 @@ if docker run --rm --network none "$image" --verity-no-such-flag >/dev/null 2>&1
   exit 1
 fi
 
-# Fetch the policy artifacts once, then scan with networking disabled so the
-# scan proves it runs entirely from the local artifact directory.
-docker run --rm -v "$work:/work" "$image" download artifacts --output /work/artifacts >/dev/null
-[ -s "$work/artifacts/nsa.json" ] || { printf 'nsa framework artifact missing\n' >&2; exit 1; }
+# Pinned policy artifacts: the regolibrary v2.0.39 NSA framework trimmed to
+# C-0057 (Privileged container), its default control inputs and no exceptions.
+# Non-ASCII punctuation in descriptions and rego comments is replaced with ASCII.
+# The scans run with networking disabled from this local directory only.
+cp "$(dirname "$0")/artifacts/"*.json "$work/artifacts/"
+chmod -R a+rwX "$work"
 
 # kubescape writes results with mode 0600, so the scans run as the invoking
-# (non-root) host user to keep the reports readable here.
+# host user to keep the reports readable here.
 scan() {
   docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/work \
     -v "$work:/work" "$image" \
