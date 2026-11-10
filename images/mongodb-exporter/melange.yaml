@@ -1,0 +1,87 @@
+package:
+  name: verity-mongodb-exporter
+  version: "0.54.0"  # renovate: datasource=github-releases depName=percona/mongodb_exporter
+  epoch: 0
+  description: Percona Prometheus exporter for MongoDB
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: e2dd9bba063df6bae562803bf9eb6363e8de9a70
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/percona/mongodb_exporter
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      short=$(echo ${{vars.source-commit}} | cut -c1-8)
+      flags="-s -w -X main.version=v${{package.version}} -X main.commit=$short"
+      go build -buildvcs=true -trimpath -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/mongodb_exporter" .
+      go version -m "${{targets.destdir}}/usr/bin/mongodb_exporter" \
+        | awk '$1 == "mod" && $2 == "github.com/percona/mongodb_exporter" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the mongodb_exporter build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/mongodb-exporter-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/mongodb-exporter-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        mongodb_exporter --version 2>&1 | grep -F "v${{package.version}}"
+        apk info --who-owns /usr/bin/mongodb_exporter \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: percona/mongodb_exporter
+    strip-prefix: v
+    tag-filter-prefix: v0.54.
+    use-tag: true
