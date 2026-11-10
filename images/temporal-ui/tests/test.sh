@@ -76,11 +76,15 @@ case "$status" in
 esac
 curl --fail --silent --max-time 5 "$base/healthz" >/dev/null || fail 'ui died after a backend error'
 
-# SIGTERM stops the server: exit status 0, or 143 when the Go runtime default handler ends it.
+# SIGTERM stops the server promptly. ui-server installs no handler of its own: as PID 1 the Go
+# runtime cannot re-raise the signal, so it exits 2; 0 or 143 are accepted for other runtimes.
+# 137 would mean it ignored SIGTERM and was killed after the grace period.
+started=$(date +%s)
 docker stop -t 20 "$container" >/dev/null
+[ $(($(date +%s) - started)) -lt 15 ] || fail 'ui-server took too long to stop on SIGTERM'
 code=$(docker inspect -f '{{.State.ExitCode}}' "$container")
 case "$code" in
-  0|143) ;;
+  0|2|143) ;;
   *) fail "ui-server exited with $code on SIGTERM" ;;
 esac
 
