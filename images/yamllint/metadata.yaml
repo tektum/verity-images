@@ -1,0 +1,9 @@
+name: yamllint
+track: wolfi
+description: YAML linter that checks syntax, key repetition, and formatting. Assembled from Wolfi packages.
+category: CI/CD & GitOps
+upstream: https://github.com/adrienverge/yamllint
+versions: [1.38]
+flavors: [plain]
+owner: tektum
+enabled: true
