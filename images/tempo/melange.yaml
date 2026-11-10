@@ -55,6 +55,8 @@ pipeline:
         exit (have ~ /-/) ? 0 : 1
       }'; then
         go get github.com/apache/thrift@${{vars.thrift-floor}}
+        # Tempo vendors its modules; go/remediate scans before it re-vendors.
+        go mod vendor
       fi
   - uses: go/remediate
     with:
