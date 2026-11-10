@@ -1,6 +1,3 @@
-# Disabled: SBOM attestation exceeds Rekor upload size; re-enabled by the shared trim fix (agent e887e81f).
-# The syft SPDX SBOM is about 26 MB (32,822 file entries), and `cosign attest` in scripts/attest_sboms.sh
-# fails on the Rekor POST (runs 42684459583, 42714898580, 42739121712), failing every main push publish.
 name: google-cloud-sdk
 track: wolfi
 description: Google Cloud CLI (gcloud, gsutil, bq) assembled from Wolfi packages.
@@ -9,4 +6,4 @@ upstream: https://cloud.google.com/sdk
 versions: [592.0]
 flavors: [plain]
 owner: tektum
-enabled: false
+enabled: true
