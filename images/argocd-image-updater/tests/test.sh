@@ -2,6 +2,11 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+recipe="$(dirname "$0")/../melange.yaml"
+expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' "$recipe" | sed -n '1p')
+expected_commit=$(sed -n 's/^[[:space:]]*expected-commit:[[:space:]]*\([0-9a-f]\{40\}\)$/\1/p' "$recipe" | sed -n '1p')
+[ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
+[ -n "$expected_commit" ] || { printf 'expected commit not found\n' >&2; exit 1; }
 workdir=$(mktemp -d)
 
 fail() {
@@ -20,14 +25,15 @@ trap cleanup EXIT INT TERM
   || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /app ] || fail 'unexpected working directory'
 
-# The reported version is the pinned upstream release stream and carries the source commit.
+# The reported version is the pinned upstream release and carries the pinned source commit.
 docker run --rm --cpus 4 --cap-drop=ALL --read-only "$image" version --short > "$workdir/version.txt" \
   || fail 'version command failed'
-grep -Ex 'v1\.4\.[0-9]+\+[0-9a-f]{7}' "$workdir/version.txt" >/dev/null || fail "unexpected version: $(cat "$workdir/version.txt")"
+[ "$(cat "$workdir/version.txt")" = "v${expected_version}+$(printf '%.7s' "$expected_commit")" ] \
+  || fail "unexpected version: $(cat "$workdir/version.txt")"
 docker run --rm --cpus 4 --cap-drop=ALL --read-only "$image" version > "$workdir/version-full.txt" \
   || fail 'full version command failed'
 grep -F 'GoCompiler: gc' "$workdir/version-full.txt" >/dev/null || fail 'full version output is missing the Go compiler'
-grep -E 'GitCommit: [0-9a-f]{40}' "$workdir/version-full.txt" >/dev/null || fail 'full version output is missing the source commit'
+grep -Fx "  GitCommit: $expected_commit" "$workdir/version-full.txt" >/dev/null || fail 'full version output has the wrong source commit'
 
 # The controller command tree is reachable through tini.
 docker run --rm --cpus 4 --cap-drop=ALL --read-only "$image" run --help > "$workdir/run-help.txt" 2>&1 \
