@@ -1,0 +1,70 @@
+package:
+  name: verity-flux-notification-controller-1.10
+  version: "1.10.0"
+  epoch: 0
+  description: Kubernetes controller for Flux notifications, alerts and webhook receivers.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 08d8de010a16def89c1195b9360ceb1bd0042f70
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluxcd/notification-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -tags netgo,osusergo,static_build -o manager .
+      install -Dm755 manager "${{targets.destdir}}/manager"
+      go version -m "${{targets.destdir}}/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/fluxcd/notification-controller" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Flux notification-controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/flux-notification-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/flux-notification-controller-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        help_output=$(/manager --help 2>&1)
+        printf '%s\n' "$help_output" | grep -F 'Usage of /manager:'
+        printf '%s\n' "$help_output" | grep -F -- '--events-addr string'
+        printf '%s\n' "$help_output" | grep -F -- '--receiverAddr string'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
