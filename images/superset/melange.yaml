@@ -1,0 +1,197 @@
+package:
+  name: verity-superset
+  # yamllint disable-line rule:line-length
+  version: "6.1.0"  # renovate: datasource=github-tags depName=apache/superset versioning=regex:^(?<major>6)\.(?<minor>1)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Superset data exploration and visualization platform, built from the upstream release
+  copyright:
+    - license: Apache-2.0
+  options:
+    # The virtual environment's wheels carry their own shared objects; do not
+    # advertise them as system library providers.
+    no-provides: true
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - python-3.11-base
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: c83fb2bb1dcfac41ac51bcebd82471f4a7180d18
+  # Upstream's release wheel is the tagged Python source plus the compiled
+  # frontend bundle and translation catalogs. The build checks that every
+  # Python file in it is byte-identical to the pinned source commit.
+  wheel-sha256: 4b5886b2d6389a32df790aeae2532ad72529bce1af93b6edf2d1b2a8bf658748
+  python-version: "3.11"
+  venv: /opt/superset
+  # Python dependency overrides on top of upstream requirements/base.txt. Each
+  # one raises a locked or upstream-capped version to a release that fixes
+  # advisories in the locked one; flask-babel and flask-sqlalchemy move to the
+  # releases that support the fixed Flask. Everything else installs exactly as
+  # upstream locks it.
+  # yamllint disable rule:line-length
+  brotli-version: "1.2.1"  # renovate: datasource=pypi depName=brotli
+  certifi-version: "2026.10.23"  # renovate: datasource=pypi depName=certifi
+  cryptography-version: "50.0.2"  # renovate: datasource=pypi depName=cryptography
+  dnspython-version: "2.9.2"  # renovate: datasource=pypi depName=dnspython
+  filelock-version: "4.2.10"  # renovate: datasource=pypi depName=filelock
+  flask-version: "3.1.3"  # renovate: datasource=pypi depName=flask versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$
+  flask-babel-version: "4.0.0"  # renovate: datasource=pypi depName=flask-babel versioning=regex:^(?<major>4)\.(?<minor>\d+)\.(?<patch>\d+)$
+  flask-sqlalchemy-version: "3.0.5"  # renovate: datasource=pypi depName=flask-sqlalchemy versioning=regex:^(?<major>3)\.(?<minor>0)\.(?<patch>\d+)$
+  geopy-version: "2.5.0"  # renovate: datasource=pypi depName=geopy
+  idna-version: "3.20"  # renovate: datasource=pypi depName=idna
+  mako-version: "1.4.3"  # renovate: datasource=pypi depName=mako
+  markdown-version: "3.8.1"  # renovate: datasource=pypi depName=markdown
+  msgpack-version: "1.2.4"  # renovate: datasource=pypi depName=msgpack versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  paramiko-version: "5.0.0"  # renovate: datasource=pypi depName=paramiko versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$
+  pillow-version: "13.0.0"  # renovate: datasource=pypi depName=pillow versioning=regex:^(?<major>13)\.(?<minor>\d+)\.(?<patch>\d+)$
+  pyarrow-version: "23.0.1"  # renovate: datasource=pypi depName=pyarrow versioning=regex:^(?<major>23)\.(?<minor>\d+)\.(?<patch>\d+)$
+  pyasn1-version: "0.6.5"  # renovate: datasource=pypi depName=pyasn1
+  pygments-version: "2.21.0"  # renovate: datasource=pypi depName=pygments
+  pyjwt-version: "2.15.1"  # renovate: datasource=pypi depName=pyjwt
+  pyopenssl-version: "26.4.0"  # renovate: datasource=pypi depName=pyopenssl
+  python-dotenv-version: "1.2.4"  # renovate: datasource=pypi depName=python-dotenv
+  requests-version: "2.34.2"  # renovate: datasource=pypi depName=requests
+  setuptools-version: "84.2.1"  # renovate: datasource=pypi depName=setuptools
+  urllib3-version: "2.8.0"  # renovate: datasource=pypi depName=urllib3
+  werkzeug-version: "3.1.9"  # renovate: datasource=pypi depName=werkzeug
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - diffutils
+      - python-${{vars.python-version}}
+      - uv
+      - wolfi-baselayout
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/superset
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: fetch
+    with:
+      uri: >-
+        https://files.pythonhosted.org/packages/py3/a/apache-superset/apache_superset-${{package.version}}-py3-none-any.whl
+      expected-sha256: ${{vars.wheel-sha256}}
+      extract: false
+
+  - name: Verify the release wheel against the source commit
+    runs: |
+      wheel=apache_superset-${{package.version}}-py3-none-any.whl
+      python${{vars.python-version}} -m zipfile -e "$wheel" wheel-tree
+      test -d "wheel-tree/apache_superset-${{package.version}}.dist-info"
+      # Nothing else may sit at the top level: uv would install it too (a .pth
+      # file runs at every interpreter start, *.data adds packages).
+      test "$(ls -A wheel-tree | sort | paste -sd' ')" = "apache_superset-${{package.version}}.dist-info superset"
+      # Every file present in both trees must be identical.
+      diff -rq superset wheel-tree/superset | grep -v '^Only in ' > differing.txt || true
+      if [ -s differing.txt ]; then cat differing.txt; exit 1; fi
+      # Files only in the wheel must be build output: the frontend bundle and
+      # compiled translation catalogs.
+      allowed='^superset/static: (assets|service-worker\.js|version_info\.json)$'
+      allowed="$allowed|^superset/translations/[a-zA-Z_]+/LC_MESSAGES: messages\.(mo|json)\$"
+      diff -rq superset wheel-tree/superset | sed -n 's/^Only in wheel-tree\///p' |
+        grep -vE "$allowed" > unexpected.txt || true
+      if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
+      test -s wheel-tree/superset/static/assets/manifest.json
+      # The wheel-only frontend bundle must not carry anything Python can run.
+      test -z "$(find wheel-tree/superset/static -name '*.py' -o -name '*.pth' -o -name '*.pyc')"
+      rm -rf wheel-tree
+
+  - name: Install Superset
+    environment:
+      UV_PYTHON: python${{vars.python-version}}
+      UV_NO_CACHE: "1"
+    runs: |
+      cat > overrides.txt <<EOF
+      brotli==${{vars.brotli-version}}
+      certifi==${{vars.certifi-version}}
+      cryptography==${{vars.cryptography-version}}
+      dnspython==${{vars.dnspython-version}}
+      filelock==${{vars.filelock-version}}
+      flask==${{vars.flask-version}}
+      flask-babel==${{vars.flask-babel-version}}
+      flask-sqlalchemy==${{vars.flask-sqlalchemy-version}}
+      geopy==${{vars.geopy-version}}
+      idna==${{vars.idna-version}}
+      mako==${{vars.mako-version}}
+      markdown==${{vars.markdown-version}}
+      msgpack==${{vars.msgpack-version}}
+      paramiko==${{vars.paramiko-version}}
+      pillow==${{vars.pillow-version}}
+      pyarrow==${{vars.pyarrow-version}}
+      pyasn1==${{vars.pyasn1-version}}
+      pygments==${{vars.pygments-version}}
+      pyjwt==${{vars.pyjwt-version}}
+      pyopenssl==${{vars.pyopenssl-version}}
+      python-dotenv==${{vars.python-dotenv-version}}
+      requests==${{vars.requests-version}}
+      setuptools==${{vars.setuptools-version}}
+      urllib3==${{vars.urllib3-version}}
+      werkzeug==${{vars.werkzeug-version}}
+      EOF
+
+      # Start from upstream's lock. Overridden packages are left to the
+      # resolver; every other package stays at its locked version. The
+      # in-tree superset-core replaces upstream's editable install.
+      grep -vE '^[[:space:]]*(#|-e )' requirements/base.txt | sed '/^[[:space:]]*$/d' > upstream.txt
+      names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
+      grep -viE "^(${names})==" upstream.txt > constraints.txt
+      printf '%s\n' \
+        "apache-superset @ file://$(pwd)/apache_superset-${{package.version}}-py3-none-any.whl" \
+        "apache-superset-core @ file://$(pwd)/superset-core" > requirements.in
+      uv pip compile requirements.in --override overrides.txt --constraint constraints.txt \
+        --no-header --no-annotate -o resolved.txt
+      echo "Python dependency changes against upstream requirements/base.txt:"
+      diff upstream.txt resolved.txt || true
+
+      uv venv "${{vars.venv}}"
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode --no-deps -r resolved.txt
+
+      # Upstream caps four direct requirements below the fixed releases. Drop
+      # exactly those caps from the installed metadata so it matches what is
+      # installed and `uv pip check` proves the rest resolves together.
+      metadata=${{vars.venv}}/lib/python${{vars.python-version}}/site-packages/apache_superset-${{package.version}}.dist-info/METADATA
+      sed -i -E 's/^(Requires-Dist: (cryptography|msgpack|Pillow|pyarrow))<[0-9.]+,(>=[0-9.]+)$/\1\3/' "$metadata"
+      test "$(grep -cE '^Requires-Dist: (cryptography|msgpack|Pillow|pyarrow)>=[0-9.]+$' "$metadata")" = 4
+      uv pip check --python "${{vars.venv}}/bin/python"
+
+      mkdir -p "${{targets.destdir}}/opt" "${{targets.destdir}}/usr/bin"
+      cp -a "${{vars.venv}}" "${{targets.destdir}}/opt/"
+      rm -f "${{targets.destdir}}${{vars.venv}}/.lock"
+      for command in superset gunicorn celery; do
+        test -x "${{targets.destdir}}${{vars.venv}}/bin/$command"
+        ln -s "${{vars.venv}}/bin/$command" "${{targets.destdir}}/usr/bin/$command"
+      done
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.txt"
+      install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        export SUPERSET_HOME=/tmp/superset-test SUPERSET_SECRET_KEY=melange-test-only
+        mkdir -p "$SUPERSET_HOME"
+        superset version | grep -F "${{package.version}}"
+        gunicorn --version | grep -F gunicorn
+        /opt/superset/bin/python -c 'import pyarrow, pandas, superset.app; print(pyarrow.__version__)' |
+          grep -x "${{vars.pyarrow-version}}"
+        test -s /opt/superset/lib/python${{vars.python-version}}/site-packages/superset/static/assets/manifest.json
+        apk info --who-owns /opt/superset/bin/superset | grep -F "${{package.name}}-${{package.full-version}}"
