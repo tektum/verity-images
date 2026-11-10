@@ -1,0 +1,9 @@
+name: cadvisor
+track: wolfi
+description: Container resource usage and performance metrics daemon, built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/google/cadvisor
+versions: [0.60]
+scan-identity: [pkg:golang/github.com/google/cadvisor]
+owner: tektum
+enabled: true
