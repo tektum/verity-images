@@ -1,11 +1,11 @@
 """Lift thrift 0.17 to a fixed release in the InfluxDB 3 dependency graph.
 
 parquet 55 and the influxdb3_core git crates pin thrift 0.17, which carries
-CVE-2026-43868 (fixed in 0.23.0). Cargo cannot raise a dependent's own
-requirement, so patch copies of those crates: the registry parquet crate and
-every crate of the influxdb3_core revision recorded in Cargo.lock. Run from the
-checkout root after the Cargo.lock pins; the caller re-locks the workspace
-afterwards.
+CVE-2026-43868 (fixed in 0.23.0) and CVE-2026-82458 (fixed in 0.25.0). Cargo
+cannot raise a dependent's own requirement, so patch copies of those crates:
+the registry parquet crate and every crate of the influxdb3_core revision
+recorded in Cargo.lock. Run from the checkout root after the Cargo.lock pins;
+the caller re-locks the workspace afterwards.
 
 The requirement is written as an exact `=THRIFT_VERSION` so the relocked
 workspace cannot float to a newer release.
