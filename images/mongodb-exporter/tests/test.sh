@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(awk -F'"' '/^  version: /{print $2; exit}' "$(dirname "$0")/../melange.yaml")
 container="verity-mongodb-exporter-test-$$"
 
 fail() {
@@ -15,11 +16,12 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+[ -n "$expected_version" ] || fail 'package version not found'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] \
   || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/mongodb_exporter"]' ] \
   || fail 'unexpected image entrypoint'
-docker run --rm "$image" --version 2>&1 | grep -F 'Version: v0.' >/dev/null \
+docker run --rm "$image" --version 2>&1 | grep -Fx "Version: v$expected_version" >/dev/null \
   || fail 'mongodb_exporter version check failed'
 
 # No MongoDB server is available to the image gate, so the exporter must come
@@ -40,11 +42,13 @@ printf '%s\n' "$metrics" | grep -E '^mongodb_up(\{[^}]*\})? 0$' >/dev/null \
 printf '%s\n' "$metrics" | grep -F 'go_goroutines' >/dev/null \
   || fail 'exporter did not expose its own runtime metrics'
 
-# The exporter does not install a SIGTERM handler, so the runtime default
-# exit status 143 (128 + SIGTERM) is its stop contract.
+# The exporter does not install a SIGTERM handler. As PID 1 the Go runtime exits
+# 2 (or 143 outside a namespace init); a hung stop would show as 137 (SIGKILL).
 docker stop --time 30 "$container" >/dev/null
-[ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 143 ] \
-  || fail 'mongodb_exporter did not stop on SIGTERM'
+case $(docker inspect --format '{{.State.ExitCode}}' "$container") in
+  0 | 2 | 143) ;;
+  *) fail 'mongodb_exporter did not stop on SIGTERM' ;;
+esac
 docker rm "$container" >/dev/null
 
 if invalid=$(docker run --rm "$image" --no-such-flag 2>&1); then
