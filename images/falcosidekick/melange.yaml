@@ -1,7 +1,7 @@
 package:
   name: falcosecurity-falcosidekick
   version: "2.35.1"  # renovate: datasource=github-releases depName=falcosecurity/falcosidekick
-  epoch: 1
+  epoch: 2  # thrift floor
   description: Event forwarder for Falco alerts
   copyright:
     - license: Apache-2.0
@@ -11,6 +11,9 @@ package:
 
 vars:
   source-commit: a31e86077a4a64d99596f39bb092a650d09e3b00
+  # CVE-2026-82458 and the other thrift advisories fixed in v0.25.0 are not in
+  # the Go vulnerability or OSV module feeds that go/remediate reads.
+  thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
 
 environment:
   contents:
@@ -34,6 +37,18 @@ pipeline:
       repository: https://github.com/falcosecurity/falcosidekick
       tag: ${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/apache/thrift)"
+      if awk -v have="$current" -v want=${{vars.thrift-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/apache/thrift@${{vars.thrift-floor}}
+      fi
 
   - uses: go/remediate
     with:
