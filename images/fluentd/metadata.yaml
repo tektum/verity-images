@@ -1,0 +1,9 @@
+name: fluentd
+track: wolfi
+description: Fluentd built from pinned upstream source; no Elasticsearch or S3 plugins, matching the upstream image.
+category: Logging
+upstream: https://www.fluentd.org/
+versions: [1.20]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:fluentd:fluentd]
