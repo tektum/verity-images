@@ -1,0 +1,9 @@
+name: grafana-image-renderer
+track: wolfi
+description: Grafana image renderer built from pinned upstream source and assembled with Wolfi Chromium and fonts.
+category: Monitoring & Observability
+upstream: https://github.com/grafana/grafana-image-renderer
+versions: [5.12]
+scan-identity: [cpe:2.3:a:grafana:grafana-image-renderer, pkg:golang/github.com/grafana/grafana-image-renderer]
+owner: tektum
+enabled: false
