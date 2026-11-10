@@ -1,0 +1,98 @@
+package:
+  name: verity-hugo
+  # yamllint disable-line rule:line-length
+  version: "0.169.0"  # renovate: datasource=github-releases depName=gohugoio/hugo versioning=regex:^(?<major>0)\.(?<minor>169)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Static site generator, extended edition with Sass and WebP support
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - git
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 12Gi
+  test-resources:
+    cpu: "1"
+    memory: 2Gi
+
+vars:
+  source-commit: 1da10fc44701c566b1669cdb2d12638f155138bd
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/gohugoio/hugo
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # The extended edition (Sass, WebP, image processing) needs cgo.
+      go build -mod=readonly -trimpath -buildvcs=true -tags extended \
+        -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/hugo" .
+      go version -m "${{targets.destdir}}/usr/bin/hugo" \
+        | awk '$1 == "mod" && $2 == "github.com/gohugoio/hugo" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/hugo" version | grep -F 'v${{package.version}}' | grep -F '+extended'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Hugo build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/hugo-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/hugo-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        hugo version | grep -F 'v${{package.version}}' | grep -F '+extended'
+        hugo --help >/dev/null
+        apk info --who-owns /usr/bin/hugo \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: gohugoio/hugo
+    strip-prefix: v
+    tag-filter-prefix: v0.169.
+    use-tag: true
