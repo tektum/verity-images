@@ -5,3 +5,12 @@ ignore:
       version: 1.3.2-r3
       type: apk
     reason: Advisory applies to RubyGems zlib, not Wolfi APK zlib.
+  - vulnerability: CVE-2025-9624
+    package:
+      name: opensearch
+      version: 2.19.7
+      type: UnknownPackage
+    reason: >-
+      NVD records all OpenSearch before 3.3.0, but the fix was backported to 2.19.4
+      (CVE text and GHSA-mw3v-mmfw-3x2g). Scoped to the scan-identity package
+      declared by images/opensearch/2 (cpe amazon:opensearch) at 2.19.7.
