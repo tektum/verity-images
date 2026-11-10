@@ -1,7 +1,7 @@
 package:
   name: verity-opentofu-1.12
   version: "1.12.6"
-  epoch: 4  # Go dependency floors
+  epoch: 5  # go-getter floor
   description: OpenTofu, a Terraform-compatible infrastructure as code CLI.
   copyright:
     - license: MPL-2.0
@@ -12,6 +12,9 @@ package:
 vars:
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
   ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+  # CVE-2026-19585 and CVE-2026-88922 are not in the Go vulnerability or OSV
+  # module feeds that go/remediate reads, so it cannot raise go-getter itself.
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
 
 environment:
   contents:
@@ -54,6 +57,7 @@ pipeline:
       }
       ensure_floor google.golang.org/grpc ${{vars.grpc-floor}}
       ensure_floor github.com/Azure/go-ntlmssp ${{vars.ntlmssp-floor}}
+      ensure_floor github.com/hashicorp/go-getter ${{vars.go-getter-floor}}
   - uses: go/build
     with:
       go-package: go-1.26
@@ -87,6 +91,7 @@ pipeline:
       }
       require_floor google.golang.org/grpc ${{vars.grpc-floor}}
       require_floor github.com/Azure/go-ntlmssp ${{vars.ntlmssp-floor}}
+      require_floor github.com/hashicorp/go-getter ${{vars.go-getter-floor}}
       "$binary" version | grep -F "${{package.version}}"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
