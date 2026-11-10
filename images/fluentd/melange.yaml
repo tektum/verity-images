@@ -1,0 +1,189 @@
+package:
+  name: verity-fluentd
+  version: "1.20.1"  # renovate: datasource=github-releases depName=fluent/fluentd versioning=semver
+  epoch: 0
+  description: Fluentd unified logging layer with the gem set of the upstream container image.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - ruby-4.0
+  resources:
+    cpu: "2"
+    memory: 4Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - ruby-4.0
+      - ruby-4.0-dev
+
+pipeline:
+  # fluentd's gemspec calls `git ls-files`, so the gem is built from the tagged
+  # checkout. The tag is annotated; expected-commit is the peeled commit.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/fluent/fluentd.git
+      tag: v${{package.version}}
+      expected-commit: 086fa170eb55f494289b10759cfca2a68f3ae87c
+
+  - uses: ruby/build
+    with:
+      gem: fluentd
+
+  - uses: ruby/install
+    with:
+      gem: fluentd
+      version: ${{package.version}}
+
+  # Every dependency of fluentd and of the gems the upstream image installs
+  # (oj, rexml, async, async-http, yajl-ruby) is pinned: the build never
+  # resolves a version on its own. Each line is "gem version".
+  - runs: |
+      gem_dir="${{targets.contextdir}}$(ruby -e 'puts Gem.default_dir')"
+      mkdir -p "$gem_dir" "${{targets.contextdir}}/usr/bin"
+      while read -r name version _; do
+        [ -n "$name" ] || continue
+        gem install "$name" \
+          --version "$version" \
+          --install-dir "$gem_dir" \
+          --bindir "${{targets.contextdir}}/usr/bin" \
+          --ignore-dependencies \
+          --no-document
+      done <<'EOF'
+        async 2.46.0  # renovate: datasource=rubygems depName=async
+        async-http 0.105.0  # renovate: datasource=rubygems depName=async-http
+        async-pool 0.12.0  # renovate: datasource=rubygems depName=async-pool
+        bundler 4.0.24  # renovate: datasource=rubygems depName=bundler
+        concurrent-ruby 1.3.8  # renovate: datasource=rubygems depName=concurrent-ruby
+        console 1.38.0  # renovate: datasource=rubygems depName=console
+        cool.io 1.11.0  # renovate: datasource=rubygems depName=cool.io
+        fiber-annotation 0.2.0  # renovate: datasource=rubygems depName=fiber-annotation
+        fiber-local 1.1.0  # renovate: datasource=rubygems depName=fiber-local
+        fiber-storage 1.0.1  # renovate: datasource=rubygems depName=fiber-storage
+        http_parser.rb 0.8.1  # renovate: datasource=rubygems depName=http_parser.rb
+        io-endpoint 0.19.0  # renovate: datasource=rubygems depName=io-endpoint
+        io-event 1.22.3  # renovate: datasource=rubygems depName=io-event
+        io-stream 0.14.0  # renovate: datasource=rubygems depName=io-stream
+        metrics 0.15.0  # renovate: datasource=rubygems depName=metrics
+        msgpack 1.8.7  # renovate: datasource=rubygems depName=msgpack
+        oj 3.17.3  # renovate: datasource=rubygems depName=oj
+        protocol-hpack 1.5.1  # renovate: datasource=rubygems depName=protocol-hpack
+        protocol-http 0.72.1  # renovate: datasource=rubygems depName=protocol-http
+        protocol-http1 0.41.1  # renovate: datasource=rubygems depName=protocol-http1
+        protocol-http2 0.29.2  # renovate: datasource=rubygems depName=protocol-http2
+        protocol-url 0.19.0  # renovate: datasource=rubygems depName=protocol-url
+        rexml 3.4.4  # renovate: datasource=rubygems depName=rexml
+        serverengine 2.4.0  # renovate: datasource=rubygems depName=serverengine
+        sigdump 0.2.5  # renovate: datasource=rubygems depName=sigdump
+        strptime 0.2.5  # renovate: datasource=rubygems depName=strptime
+        traces 0.18.2  # renovate: datasource=rubygems depName=traces
+        tzinfo 2.0.6  # renovate: datasource=rubygems depName=tzinfo
+        tzinfo-data 1.2026.6  # renovate: datasource=rubygems depName=tzinfo-data
+        webrick 1.9.2  # renovate: datasource=rubygems depName=webrick
+        yajl-ruby 1.4.3  # renovate: datasource=rubygems depName=yajl-ruby
+        zstd-ruby 1.5.7.1  # renovate: datasource=rubygems depName=zstd-ruby
+      EOF
+
+  - uses: ruby/clean
+
+  - runs: |
+      gem_dir="${{targets.contextdir}}$(ruby -e 'puts Gem.default_dir')"
+      rm -rf "$gem_dir"/cache/*.gem
+      rm -rf "$gem_dir/gems/fluentd-${{package.version}}"/test \
+             "$gem_dir/gems/fluentd-${{package.version}}"/docs \
+             "$gem_dir/gems/fluentd-${{package.version}}"/.github
+
+  - runs: |
+      root="${{targets.contextdir}}"
+      install -d -m755 "$root/usr/bin" "$root/fluentd/etc" "$root/fluentd/plugins"
+      cat > "$root/usr/bin/entrypoint.sh" <<'EOF'
+      #!/bin/sh
+
+      # Source variables from the optional defaults file.
+      DEFAULT=/etc/default/fluentd
+
+      if [ -r $DEFAULT ]; then
+          set -o allexport
+          . $DEFAULT
+          set +o allexport
+      fi
+
+      # If only arguments were supplied, run them as arguments to `fluentd`.
+      if [ "${1#-}" != "$1" ]; then
+          set -- fluentd "$@"
+      fi
+
+      # Default the configuration file and plugin directory when not supplied.
+      if [ "$1" = "fluentd" ]; then
+          if ! echo "$@" | grep -e ' \-c' -e ' \-\-config' >/dev/null; then
+             set -- "$@" --config /fluentd/etc/${FLUENTD_CONF}
+          fi
+
+          if ! echo "$@" | grep -e ' \-p' -e ' \-\-plugin' >/dev/null; then
+             set -- "$@" --plugin /fluentd/plugins
+          fi
+      fi
+
+      exec "$@"
+      EOF
+      chmod 755 "$root/usr/bin/entrypoint.sh"
+      cat > "$root/fluentd/etc/fluent.conf" <<'EOF'
+      <source>
+        @type  forward
+        @id    input1
+        @label @mainstream
+        port  24224
+      </source>
+
+      <filter **>
+        @type stdout
+      </filter>
+
+      <label @mainstream>
+        <match docker.**>
+          @type file
+          @id   output_docker1
+          path         /fluentd/log/docker.*.log
+          symlink_path /fluentd/log/docker.log
+          append       true
+          time_slice_format %Y%m%d
+          time_slice_wait   1m
+          time_format       %Y%m%dT%H%M%S%z
+        </match>
+        <match **>
+          @type file
+          @id   output1
+          path         /fluentd/log/data.*.log
+          symlink_path /fluentd/log/data.log
+          append       true
+          time_slice_format %Y%m%d
+          time_slice_wait   10m
+          time_format       %Y%m%dT%H%M%S%z
+        </match>
+      </label>
+      EOF
+      chmod 644 "$root/fluentd/etc/fluent.conf"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        fluentd --version | grep -Fx "fluentd ${{package.version}}"
+        ruby -e 'require "oj"; require "yajl"; require "rexml/document"; require "async/http"'
+        apk info --who-owns /usr/bin/fluentd | grep -F "${{package.name}}-${{package.full-version}}"
