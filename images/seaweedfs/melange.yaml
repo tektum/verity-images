@@ -64,8 +64,8 @@ pipeline:
       commit="$(git rev-parse --short HEAD)"
       go build -p 4 -mod=readonly -trimpath -buildvcs=false \
         -ldflags="-s -w -X github.com/seaweedfs/seaweedfs/weed/util/version.COMMIT=${commit}" \
-        -o weed ./weed
-      install -Dm755 weed "${{targets.destdir}}/usr/bin/weed"
+        -o weed.bin ./weed
+      install -Dm755 weed.bin "${{targets.destdir}}/usr/bin/weed"
       # Upstream enables FIPS 140-3 mode unconditionally in its entrypoint. This is the
       # plain flavor, so drop that default; operators can still export GODEBUG themselves.
       sed -e '/^# Enable FIPS 140-3 mode by default/,/^export GODEBUG=/d' \
