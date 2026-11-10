@@ -1,0 +1,50 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - tzdata
+    - verity-clamav-1.4@local
+
+accounts:
+  groups:
+    - groupname: clamav
+      gid: 100
+  users:
+    - username: clamav
+      uid: 100
+      gid: 100
+      homedir: /var/lib/clamav
+      shell: /sbin/nologin
+  run-as: clamav
+
+entrypoint:
+  command: /usr/bin/docker-entrypoint.sh
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /var/lib/clamav
+    type: directory
+    uid: 100
+    gid: 100
+    permissions: 0o755
+  - path: /var/log/clamav
+    type: directory
+    uid: 100
+    gid: 100
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+
+volumes:
+  - /var/lib/clamav
