@@ -1,6 +1,7 @@
 package:
   name: verity-rook-1.21
-  version: "1.21.2"
+  # yamllint disable-line rule:line-length
+  version: "1.21.2"  # renovate: datasource=github-releases depName=rook/rook versioning=regex:^(?<major>1)\.(?<minor>21)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Rook Ceph storage operator for Kubernetes.
   copyright:
