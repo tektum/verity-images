@@ -1,7 +1,7 @@
 package:
   name: verity-influxdb3
   version: "3.8.3"  # renovate: datasource=github-releases depName=influxdata/influxdb
-  epoch: 0
+  epoch: 1  # thrift 0.25.0
   description: InfluxDB 3 Core time series database
   copyright:
     - license: MIT OR Apache-2.0
@@ -95,5 +95,5 @@ test:
 
 vars:
   pyo3: "0.29.3"  # renovate: datasource=crate depName=pyo3
-  thrift: "0.23.0"  # renovate: datasource=crate depName=thrift
+  thrift: "0.25.0"  # renovate: datasource=crate depName=thrift
   tokio-rustls: "0.26.4"  # renovate: datasource=crate depName=tokio-rustls
