@@ -1,7 +1,7 @@
 package:
-  name: verity-flux-helm-controller-1.6
-  version: "1.6.4"
-  epoch: 1
+  name: verity-flux-helm-controller-1.7
+  version: "1.7.1"
+  epoch: 0
   description: Flux Helm Controller for Kubernetes.
   copyright:
     - license: Apache-2.0
@@ -13,7 +13,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: 561379cd309d56a5037f2261848065eeee6a1a7a
+  source-commit: da037f220ee3e97eb91a70506b5c5f169e46bb68
 
 environment:
   contents:
@@ -24,7 +24,7 @@ environment:
     packages:
       - busybox
       - ca-certificates-bundle
-      - go-1.26
+      - go-1.27
       - python3
   environment:
     CGO_ENABLED: "0"
@@ -48,6 +48,16 @@ pipeline:
         | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
   - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Flux Helm Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/flux-helm-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/flux-helm-controller-build/go.sum"
 
 test:
   pipeline:
