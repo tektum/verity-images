@@ -1,0 +1,9 @@
+name: tailscale
+track: wolfi
+description: Tailscale mesh VPN daemon, CLI, and containerboot entrypoint. Assembled from Wolfi packages.
+category: Service Mesh & Networking
+upstream: https://tailscale.com/
+versions: [1.104]
+flavors: [plain]
+owner: tektum
+enabled: true
