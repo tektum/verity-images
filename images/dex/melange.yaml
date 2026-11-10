@@ -1,0 +1,101 @@
+package:
+  name: verity-dex
+  version: "2.46.1"  # renovate: datasource=github-releases depName=dexidp/dex
+  epoch: 0
+  description: Dex OpenID Connect identity provider with pluggable connectors.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    # CGO is required for the sqlite3 storage backend.
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/dexidp/dex
+      tag: v${{package.version}}
+      expected-commit: 75eb19238e10fc4750e7efb05a4031b254b04029
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/dex
+
+  - runs: |
+      cat > config.docker.yaml.default <<'CFG'
+      issuer: http://127.0.0.1:5556/dex
+      storage:
+        type: sqlite3
+        config:
+          file: /var/dex/dex.db
+      web:
+        http: 0.0.0.0:5556
+      enablePasswordDB: true
+      CFG
+
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.version=v${{package.version}}" \
+        -o dex ./cmd/dex
+
+      install -Dm755 dex "${{targets.destdir}}/usr/bin/dex"
+      install -Dm644 config.docker.yaml.default \
+        "${{targets.destdir}}/etc/dex/config.docker.yaml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      go version -m "${{targets.destdir}}/usr/bin/dex" \
+        | awk '$1 == "mod" && $2 == "github.com/dexidp/dex" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+
+  - uses: strip
+
+subpackages:
+  - name: verity-dex-build-metadata
+    description: Resolved Go module metadata for the Dex build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/dex-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/dex-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        dex version | grep -F 'v${{package.version}}'
+        apk info --who-owns /usr/bin/dex \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /etc/dex/config.docker.yaml
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: dexidp/dex
+    strip-prefix: v
+    use-tag: true
