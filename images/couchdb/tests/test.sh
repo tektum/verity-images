@@ -46,7 +46,9 @@ output=$(timeout 120 docker run --rm --name "$container-badconf" \
   -v "$workdir/10-invalid.ini:/opt/couchdb/etc/local.d/10-invalid.ini:ro" \
   "$image" 2>&1) || status=$?
 [ "$status" -ne 0 ] || fail 'invalid configuration unexpectedly started'
-printf '%s\n' "$output" | grep -qiE 'port|badarg|invalid|error' || fail "invalid configuration gave no readable error: $output"
+[ "$status" -ne 124 ] || fail 'invalid configuration kept the server running until the timeout'
+printf '%s\n' "$output" | grep -q 'Error starting Apache CouchDB' || fail "invalid configuration gave no startup error: $output"
+printf '%s\n' "$output" | grep -q 'not-a-port' || fail "startup error does not name the invalid value: $output"
 
 printf '[couchdb]\nsingle_node = true\n' >"$workdir/10-single.ini"
 chmod 644 "$workdir/10-single.ini"
