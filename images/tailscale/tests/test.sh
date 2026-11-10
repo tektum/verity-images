@@ -51,8 +51,16 @@ docker run -d --name "$daemon" --network none --entrypoint /usr/bin/tailscaled "
   --tun=userspace-networking --state=mem: --socket=/tmp/ts.sock >/dev/null
 wait_needs_login "$daemon" /tmp/ts.sock
 
-if docker exec "$daemon" tailscale --socket /tmp/ts.sock ip -4 >/dev/null 2>&1; then
-  fail 'logged-out node unexpectedly reported a tailnet address'
+# A logged-out node has no tailnet address; the CLI must say so for the NeedsLogin
+# reason, so a crashed daemon or missing socket cannot pass as "no address".
+if output=$(docker exec "$daemon" tailscale --socket /tmp/ts.sock ip -4 2>&1); then
+  fail "logged-out node unexpectedly reported a tailnet address: $output"
 fi
+case "$output" in
+  *[Nn]'o current Tailscale IPs; state: NeedsLogin'*) ;;
+  *) fail "unexpected logged-out address output: $output" ;;
+esac
+running=$(docker inspect -f '{{.State.Running}}' "$daemon")
+test "$running" = true || fail 'tailscaled exited after reaching NeedsLogin'
 
 printf 'SMOKE PASS image=%s\n' "$image"
