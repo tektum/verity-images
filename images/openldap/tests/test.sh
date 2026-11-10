@@ -199,7 +199,8 @@ chmod 644 "$fixture/modify.ldif"
 tool_with_fixture ldapmodify -x -H "$uri" -D "$rootdn" -w "$rootpw" -f /fixture/modify.ldif >/dev/null || fail 'ldapmodify failed'
 tool ldapsearch -x -H "$uri" -b "$suffix" -LLL '(uid=smoke)' mail | grep -Fx 'mail: changed@verity.test' >/dev/null || fail 'modified attribute not found'
 tool ldapdelete -x -H "$uri" -D "$rootdn" -w "$rootpw" "uid=smoke,ou=people,$suffix" >/dev/null || fail 'ldapdelete failed'
-if tool ldapsearch -x -H "$uri" -b "$suffix" -LLL '(uid=smoke)' dn | grep -F 'dn:' >/dev/null; then
+tool ldapsearch -x -H "$uri" -b "$suffix" -LLL '(uid=smoke)' dn > "$fixture/deleted.txt" || fail 'search after ldapdelete failed'
+if grep -F 'dn:' "$fixture/deleted.txt" >/dev/null; then
   fail 'deleted entry is still present'
 fi
 
