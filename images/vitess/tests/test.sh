@@ -31,7 +31,7 @@ grep -F 'Available Commands' "$work/help" >/dev/null || fail 'vtctldclient help 
 
 # vtgate with an unreachable topo must fail with an explicit error, not hang.
 rc=0
-docker run --rm --network none --read-only --label verity-test=vitess "$image" \
+docker run --rm --network none --read-only --cidfile "$work/cid" "$image" \
   --cell=zone1 --topo-implementation=etcd2 --topo-global-server-address=127.0.0.1:2379 \
   --topo-global-root=/vitess/global --tablet-types-to-wait=PRIMARY --port=15001 \
   >"$work/vtgate" 2>&1 &
@@ -41,7 +41,7 @@ while kill -0 "$pid" 2>/dev/null; do
   n=$((n + 1))
   if [ "$n" -gt 90 ]; then
     kill "$pid" 2>/dev/null || true
-    docker ps -q --filter label=verity-test=vitess | xargs -r docker kill >/dev/null
+    if [ -s "$work/cid" ]; then docker kill "$(cat "$work/cid")" >/dev/null 2>&1 || true; fi
     fail 'vtgate hung without a reachable topo'
   fi
   sleep 1
