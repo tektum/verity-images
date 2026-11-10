@@ -24,7 +24,7 @@ case "$help_output" in
 esac
 case "$help_output" in
   *"--default-service-account string"*) ;;
-  *) fail '/manager 1.9 options missing' ;;
+  *) fail '/manager 1.10 options missing' ;;
 esac
 
 if output=$(docker run --rm --network none --read-only --user 65534 \
