@@ -1,0 +1,9 @@
+name: flink
+track: wolfi
+description: Apache Flink built from the pinned upstream binary release (checksum verified) with Log4j upgraded.
+category: Messaging & Streaming
+upstream: https://flink.apache.org/
+versions: [2.1]
+scan-identity: [cpe:2.3:a:apache:flink, pkg:maven/org.apache.flink/flink-core]
+owner: tektum
+enabled: true
