@@ -16,6 +16,7 @@ package:
 
 vars:
   source-commit: 9b28c872ea20bfbe9d5ab89621473910157aa772
+  dd-trace-floor: v2.8.1  # renovate: datasource=go depName=github.com/DataDog/dd-trace-go/v2
 
 environment:
   contents:
@@ -36,6 +37,10 @@ pipeline:
       repository: https://github.com/vitessio/vitess
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  # GHSA-74j5-xf3v-crq8 (fixed in 2.8.1) is not raised by go/remediate on its own;
+  # the module is an indirect dependency of the vendored dd-trace-go.v1 shim.
+  - runs: |
+      GOTOOLCHAIN=local go get github.com/DataDog/dd-trace-go/v2@${{vars.dd-trace-floor}}
   - uses: go/remediate
     with:
       modroot: .
