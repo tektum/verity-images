@@ -12,7 +12,7 @@ fail() {
 
 version=$(docker run --rm "$image" --version)
 case "$version" in
-  'yamllint 1.'*) ;;
+  'yamllint 1.38.'*) ;;
   *) fail "unexpected version output: $version" ;;
 esac
 
