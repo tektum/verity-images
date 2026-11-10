@@ -76,6 +76,7 @@ test:
     contents:
       packages:
         - apk-tools
+        - busybox
   pipeline:
     - runs: |
         actionlint -version | head -n 1 | grep -Fx "${{package.version}}"
