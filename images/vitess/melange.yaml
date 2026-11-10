@@ -48,6 +48,9 @@ pipeline:
         -o "${{targets.destdir}}/usr/bin/" \
         ./go/cmd/vtgate ./go/cmd/vtctld ./go/cmd/vttablet ./go/cmd/vtctldclient \
         ./go/cmd/vtctlclient ./go/cmd/vtorc ./go/cmd/mysqlctl ./go/cmd/vtbackup
+      git describe --tags --always --dirty || true
+      git status --short | head -5 || true
+      go version -m "${{targets.destdir}}/usr/bin/vtgate" | grep -E '^\s+(mod|build)\s' || true
       for b in vtgate vtctld vttablet vtctldclient vtctlclient vtorc mysqlctl vtbackup; do
         go version -m "${{targets.destdir}}/usr/bin/$b" \
           | awk '$1 == "mod" && $2 == "vitess.io/vitess" { print $3 }' \
@@ -71,7 +74,10 @@ test:
         - apk-tools
   pipeline:
     - runs: |
-        for b in vtgate vtctld vttablet vtctldclient; do
+        git describe --tags --always --dirty || true
+      git status --short | head -5 || true
+      go version -m "${{targets.destdir}}/usr/bin/vtgate" | grep -E '^\s+(mod|build)\s' || true
+      for b in vtgate vtctld vttablet vtctldclient; do
           "$b" --version | grep -F '${{package.version}}'
         done
         apk info --who-owns /usr/bin/vtgate \
