@@ -2,6 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
+expected_version=$(awk -F'"' '/^  version: /{print $2; exit}' "$(dirname "$0")/../melange.yaml")
 container="verity-cloudnative-pg-test-$$"
 tmp=$(mktemp -d)
 
@@ -16,11 +17,12 @@ cleanup() {
 }
 trap cleanup EXIT HUP INT TERM
 
+[ -n "$expected_version" ] || fail 'package version not found'
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] \
   || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/manager"]' ] \
   || fail 'unexpected image entrypoint'
-docker run --rm "$image" version 2>&1 | grep -E '1\.[0-9]+\.[0-9]+' >/dev/null \
+docker run --rm "$image" version 2>&1 | grep -F "Version:$expected_version " >/dev/null \
   || fail 'manager version check failed'
 
 # Every PostgreSQL pod runs an init container that executes /manager bootstrap
@@ -30,7 +32,7 @@ chmod 777 "$tmp"
 docker run --rm -v "$tmp:/controller" "$image" bootstrap /controller/manager >/dev/null 2>&1 \
   || fail 'manager bootstrap could not copy the instance manager'
 docker run --rm --entrypoint /controller/manager -v "$tmp:/controller:ro" "$image" version 2>&1 \
-  | grep -E '1\.[0-9]+\.[0-9]+' >/dev/null \
+  | grep -F "Version:$expected_version " >/dev/null \
   || fail 'copied instance manager did not run'
 
 # Outside a cluster the operator must fail fast with a readable error instead
