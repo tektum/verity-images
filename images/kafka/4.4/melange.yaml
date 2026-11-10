@@ -1,0 +1,110 @@
+package:
+  name: verity-kafka-4.4
+  # yamllint disable-line rule:line-length
+  version: "4.4.0"  # renovate: datasource=maven depName=org.apache.kafka:kafka_2.13 versioning=regex:^(?<major>4)\.(?<minor>4)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Kafka event streaming platform (KRaft)
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - glibc-locale-en
+      - grep
+      - openjdk-25-default-jvm
+      - procps
+      - sed
+
+# Security floors: Kafka pins these libraries below their fixed releases.
+vars:
+  # yamllint disable rule:line-length
+  lz4-version: 1.11.4  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>11)\.(?<patch>\d+)$
+  snappy-version: 1.1.10.12  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
+  jackson-version: 2.21.8  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  jetty-version: 12.0.41  # renovate: datasource=maven depName=org.eclipse.jetty:jetty-server versioning=regex:^(?<major>12)\.(?<minor>0)\.(?<patch>\d+)$
+  jline-version: 3.30.17  # renovate: datasource=maven depName=org.jline:jline-reader versioning=regex:^(?<major>3)\.(?<minor>30)\.(?<patch>\d+)$
+  log4j-version: 2.25.5  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-core versioning=regex:^(?<major>2)\.(?<minor>25)\.(?<patch>\d+)$
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - git
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+    # Keep Gradle state out of the workspace, which melange must read back after the build.
+    GRADLE_USER_HOME: /var/cache/gradle
+    JAVA_TOOL_OPTIONS: >-
+      -Djava.net.preferIPv4Stack=true
+      -Dorg.gradle.internal.http.connectionTimeout=120000
+      -Dorg.gradle.internal.http.socketTimeout=120000
+      -Dorg.gradle.internal.repository.max.retries=10
+      -Dorg.gradle.internal.repository.initial.backoff=2000
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/kafka
+      tag: ${{package.version}}
+      expected-commit: 1156b2752aaa28eafc0b4c4d387e63356793268d
+  - runs: |
+      # Raise the pinned compression libraries to their security floors, and fail if the pin moved.
+      sed -i \
+        -e 's|^\(  lz4: \)"[0-9][^":]*",|\1"${{vars.lz4-version}}",|' \
+        -e 's|^\(  snappy: \)"[0-9][^":]*",|\1"${{vars.snappy-version}}",|' \
+        -e 's|^\(  jackson: \)"[0-9][^":]*",|\1"${{vars.jackson-version}}",|' \
+        -e 's|^\(  jetty: \)"[0-9][^":]*",|\1"${{vars.jetty-version}}",|' \
+        -e 's|^\(  jline: \)"[0-9][^":]*",|\1"${{vars.jline-version}}",|' \
+        -e 's|^\(  log4j2: \)"[0-9][^":]*",|\1"${{vars.log4j-version}}",|' gradle/dependencies.gradle
+      grep -qx '  lz4: "${{vars.lz4-version}}",' gradle/dependencies.gradle
+      grep -qx '  snappy: "${{vars.snappy-version}}",' gradle/dependencies.gradle
+      grep -qx '  jackson: "${{vars.jackson-version}}",' gradle/dependencies.gradle
+      grep -qx '  jetty: "${{vars.jetty-version}}",' gradle/dependencies.gradle
+      grep -qx '  jline: "${{vars.jline-version}}",' gradle/dependencies.gradle
+      grep -qx '  log4j2: "${{vars.log4j-version}}",' gradle/dependencies.gradle
+      # The wrapper download uses a 10s timeout; retry it before the real build.
+      for attempt in 1 2 3 4 5; do ./gradlew --version >/dev/null 2>&1 && break; sleep 10; done
+      # Same release task Wolfi's kafka recipe uses.
+      ./gradlew --no-daemon --max-workers=4 -Dorg.gradle.jvmargs=-Xmx3g releaseTarGz -x siteDocsTar
+      root=kafka_2.13-${{package.version}}
+      tar -xzf core/build/distributions/$root.tgz
+      # Combined KRaft controller and broker; data lives on the /var/lib/kafka volume.
+      sed -i 's|^log.dirs=.*|log.dirs=/var/lib/kafka/data|' "$root/config/server.properties"
+      grep -qx 'log.dirs=/var/lib/kafka/data' "$root/config/server.properties"
+      grep -qx 'process.roles=broker,controller' "$root/config/server.properties"
+      rm -rf "$root/site-docs" "$root"/bin/windows
+      install -d "${{targets.destdir}}/opt" "${{targets.destdir}}/licenses"
+      mv "$root" "${{targets.destdir}}/opt/kafka"
+      install -d "${{targets.destdir}}/opt/kafka/logs"
+      install -m644 LICENSE "${{targets.destdir}}/licenses/LICENSE"
+      install -m644 NOTICE "${{targets.destdir}}/licenses/NOTICE"
+      find . -name .gradle -type d -prune -exec rm -rf {} +
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-25-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-25-openjdk
+  pipeline:
+    - runs: /opt/kafka/bin/kafka-topics.sh --version | grep -F "${{package.version}}"
+
+update:
+  enabled: true
+  github:
+    identifier: apache/kafka
+    use-tag: true
+    tag-filter-prefix: "4.4."

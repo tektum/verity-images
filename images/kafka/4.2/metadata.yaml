@@ -1,0 +1,9 @@
+name: kafka
+track: wolfi
+description: Apache Kafka (KRaft only, no ZooKeeper) built from pinned upstream source.
+category: Messaging & Streaming
+upstream: https://kafka.apache.org/
+versions: [4.2]
+scan-identity: [cpe:2.3:a:apache:kafka, pkg:maven/org.apache.kafka/kafka_2.13]
+owner: tektum
+enabled: true
