@@ -78,7 +78,14 @@ case "$code" in
   *) fail "CONNECT to a non-TLS port returned $code, want a refusal" ;;
 esac
 
+# Negative: the proxy must not reach loopback or link-local (cloud metadata) destinations.
+code=$(curl -sS --proxy "$proxy" -o /dev/null -w '%{http_code}' http://127.0.0.1:"$origin_port"/index.html || true)
+[ "$code" = 403 ] || fail "loopback destination returned $code, want 403"
+code=$(curl -sS --proxy "$proxy" -o /dev/null -w '%{http_code}' http://169.254.169.254/latest/meta-data/ || true)
+[ "$code" = 403 ] || fail "link-local destination returned $code, want 403"
+
 # The access log reaches stdout as the non-root user.
 log=$(docker logs "$container" 2>&1)
 printf '%s\n' "$log" | grep -q 'TCP_DENIED/403 .* GET http://origin:25/' || fail 'access log does not show the denied GET'
+printf '%s\n' "$log" | grep -q 'TCP_DENIED/403 .* GET http://169.254.169.254/' || fail 'access log does not show the denied link-local request'
 printf '%s\n' "$log" | grep -q 'TCP_DENIED/403 .* CONNECT origin:' || fail 'access log does not show the denied CONNECT'
