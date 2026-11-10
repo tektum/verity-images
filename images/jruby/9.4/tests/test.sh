@@ -51,7 +51,7 @@ run "$image" -rjson -ropenssl -e 'puts JSON.generate({"ok" => OpenSSL::Digest::S
 [ "$(run "$image" -S rake --version 2>&1 | cut -d' ' -f1-2)" = 'rake, version' ] || fail 'rake is not runnable'
 
 # Non-root can write the work directory.
-run --tmpfs /app:uid=65532,gid=65532 "$image" -e 'File.write("/app/x", "ok"); puts File.read("/app/x")' |
+run "$image" -e 'File.write("/app/x", "ok"); puts File.read("/app/x")' |
   grep -qx ok || fail 'work directory is not writable by the runtime user'
 
 # Negative: a syntax error and an uncaught exception must exit non-zero with a diagnostic.
