@@ -93,17 +93,22 @@ pipeline:
       wheel=apache_superset-${{package.version}}-py3-none-any.whl
       python${{vars.python-version}} -m zipfile -e "$wheel" wheel-tree
       test -d "wheel-tree/apache_superset-${{package.version}}.dist-info"
+      # Nothing else may sit at the top level: uv would install it too (a .pth
+      # file runs at every interpreter start, *.data adds packages).
+      test "$(ls -A wheel-tree | sort | paste -sd' ')" = "apache_superset-${{package.version}}.dist-info superset"
       # Every file present in both trees must be identical.
       diff -rq superset wheel-tree/superset | grep -v '^Only in ' > differing.txt || true
       if [ -s differing.txt ]; then cat differing.txt; exit 1; fi
       # Files only in the wheel must be build output: the frontend bundle and
       # compiled translation catalogs.
-      allowed='^superset/static(: (assets|service-worker\.js|version_info\.json)|/assets)'
+      allowed='^superset/static: (assets|service-worker\.js|version_info\.json)$'
       allowed="$allowed|^superset/translations/[a-zA-Z_]+/LC_MESSAGES: messages\.(mo|json)\$"
       diff -rq superset wheel-tree/superset | sed -n 's/^Only in wheel-tree\///p' |
         grep -vE "$allowed" > unexpected.txt || true
       if [ -s unexpected.txt ]; then cat unexpected.txt; exit 1; fi
       test -s wheel-tree/superset/static/assets/manifest.json
+      # The wheel-only frontend bundle must not carry anything Python can run.
+      test -z "$(find wheel-tree/superset/static -name '*.py' -o -name '*.pth' -o -name '*.pyc')"
       rm -rf wheel-tree
 
   - name: Install Superset

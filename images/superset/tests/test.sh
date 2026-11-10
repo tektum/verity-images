@@ -94,6 +94,20 @@ assert msgpack.unpackb(msgpack.packb({"a": 1})) == {"a": 1}
 assert pyarrow.table({"a": [1, 2]}).num_rows == 2
 ' || fail 'native Python extensions failed to import or run'
 
+# A superset_config.py mounted into /app/pythonpath, the documented way to
+# configure the image, must be loaded; without it Superset keeps its defaults.
+run "$image" /opt/superset/bin/python -c '
+from superset import config
+assert config.APP_NAME == "Superset", config.APP_NAME
+' || fail 'default configuration was not in effect without a mounted superset_config.py'
+printf 'APP_NAME = "Verity Config Probe"\n' >"$work/superset_config.py"
+chmod 644 "$work/superset_config.py"
+run -v "$work/superset_config.py:/app/pythonpath/superset_config.py:ro" "$image" \
+  /opt/superset/bin/python -c '
+from superset import config
+assert config.APP_NAME == "Verity Config Probe", config.APP_NAME
+' || fail 'superset_config.py mounted in /app/pythonpath was not loaded'
+
 docker run --name "$container" --label "$label" -d --read-only --cap-drop ALL \
   --security-opt no-new-privileges \
   --tmpfs /tmp:exec,uid=65532,gid=65532,mode=1777 \
