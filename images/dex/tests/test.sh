@@ -72,7 +72,16 @@ grep -F '/dex/auth' "$work/oidc.json" >/dev/null ||
 
 docker kill --signal TERM "$name" >/dev/null
 code=$(docker wait "$name")
-[ "$code" = 0 ] || fail "dex did not exit cleanly on SIGTERM (exit $code)"
+# Upstream runs its servers in an oklog/run group; a handled SIGTERM stops
+# them gracefully and the group error ("received signal terminated") makes
+# dex exit 2. Accept 0 or 2 only when the signal handler path was taken, so a
+# crash (1, 137, 139) or an unhandled kill still fails.
+case "$code" in
+  0 | 2) ;;
+  *) fail "dex did not stop cleanly on SIGTERM (exit $code)" ;;
+esac
+docker logs "$name" 2>&1 | grep -F 'received signal terminated' >/dev/null ||
+  fail 'dex did not report handling SIGTERM'
 
 # Negative: invalid configuration must fail with a readable error.
 printf 'issuer: [unterminated\n' >"$work/bad.yaml"
