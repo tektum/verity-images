@@ -37,7 +37,7 @@ test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = / ||
 # The charts invoke the binary from the root, and the package keeps it in /usr/bin.
 docker run --rm --network none --entrypoint /usr/bin/injector "$image" --help >"$work/help" 2>&1 || true
 grep -F -e '--healthz-port' -e '-healthz-port' "$work/help" >/dev/null ||
-  fail 'injector help is missing the healthz port flag'
+  { head -n 5 "$work/help" >&2; fail 'injector help is missing the healthz port flag'; }
 
 if docker run --rm --network none --read-only "$image" --definitely-invalid \
   >"$work/invalid" 2>&1; then
