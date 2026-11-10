@@ -1,7 +1,7 @@
 package:
   name: trufflehog-3.99
   # yamllint disable-line rule:line-length
-  version: "3.99.8"  # renovate: datasource=github-releases depName=trufflesecurity/trufflehog versioning=regex:^(?<major>3)\.(?<minor>99)\.(?<patch>\d+)$
+  version: "3.99.8"  # renovate: datasource=github-releases depName=trufflesecurity/trufflehog versioning=regex:^(?<major>3)\.(?<minor>99)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Secret scanner that finds and verifies leaked credentials
   copyright:
