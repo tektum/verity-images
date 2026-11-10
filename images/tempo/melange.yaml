@@ -1,7 +1,7 @@
 package:
   name: verity-tempo
   version: "3.0.5"  # renovate: datasource=github-releases depName=grafana/tempo versioning=semver
-  epoch: 0
+  epoch: 1  # thrift floor
   description: Grafana Tempo distributed tracing backend
   copyright:
     - license: AGPL-3.0-or-later
@@ -18,6 +18,9 @@ package:
 
 vars:
   source-commit: 9e06ff12113052bd81f05c734443c96dce89102c
+  # CVE-2026-82458 and the other thrift advisories fixed in v0.25.0 are not in
+  # the Go vulnerability or OSV module feeds that go/remediate reads.
+  thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
 
 environment:
   contents:
@@ -41,6 +44,20 @@ pipeline:
       repository: https://github.com/grafana/tempo
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/apache/thrift)"
+      if awk -v have="$current" -v want=${{vars.thrift-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/apache/thrift@${{vars.thrift-floor}}
+        # Tempo vendors its modules; go/remediate scans before it re-vendors.
+        go mod vendor
+      fi
   - uses: go/remediate
     with:
       modroot: .
