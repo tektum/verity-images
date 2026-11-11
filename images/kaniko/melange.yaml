@@ -34,6 +34,11 @@ environment:
 pipeline:
   # GoogleContainerTools/kaniko was archived on 2025-06-03. Wolfi's kaniko package builds the module
   # github.com/chainguard-dev/kaniko, now hosted at chainguard-forks/kaniko, which is still maintained.
+  # Quarantined (enabled: false in metadata.yaml): v1.25.22 pins github.com/moby/go-archive to v0.1.0 with a replace
+  # directive because docker/docker v28.5.2 needs aliases that v0.2.0+ removed, and v0.1.0 carries GO-2026-6253
+  # (tar extraction path traversal, fixed in 0.3.0), so go/remediate cannot make progress. The fork's main branch
+  # already drops docker/docker (chainguard-forks/kaniko #525, #541) but has no tag yet. Enable with the next
+  # fork release (v1.25.23 or later) after revalidating the build.
   - uses: git-checkout
     with:
       repository: https://github.com/chainguard-forks/kaniko
