@@ -1,6 +1,7 @@
 package:
   name: elasticsearch-exporter-1.11
-  version: "1.11.0"
+  # yamllint disable-line rule:line-length
+  version: "1.11.0"  # renovate: datasource=github-releases depName=prometheus-community/elasticsearch_exporter versioning=regex:^(?<major>1)\.(?<minor>11)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Prometheus exporter for Elasticsearch and OpenSearch metrics
   copyright:
