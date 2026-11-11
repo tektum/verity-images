@@ -1,0 +1,9 @@
+name: checkov
+track: wolfi
+description: Checkov infrastructure as code scanner built from the pinned upstream source release.
+category: Security & Identity
+upstream: https://github.com/bridgecrewio/checkov
+versions: [3.4]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:paloaltonetworks:bridgecrew_checkov]
