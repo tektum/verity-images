@@ -39,10 +39,9 @@ vars:
   # set is curated. iceberg, lakehouse, ranger and mariadb are additionally excluded
   # because they bundle libraries with fixable advisories at this release.
   plugins: >-
-    tpch tpcds memory jmx blackhole blob-cache-memory faker hive delta-lake postgresql mysql
-    kafka mongodb
-    prometheus http-event-listener password-authenticators session-property-managers
-    resource-group-managers geospatial functions-python
+    tpch tpcds memory jmx blackhole blob-cache-memory faker hive postgresql mysql kafka
+    mongodb password-authenticators session-property-managers resource-group-managers
+    functions-python
   # SHA-256 of the pinned upstream LICENSE and health-check at the 484 tag.
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
   health-check-sha256: 537918f6a5e7cee2d37feb707d67bde83a8467b5058a13e16de4de65d27b9e1e
