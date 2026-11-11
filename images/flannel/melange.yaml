@@ -1,0 +1,120 @@
+package:
+  name: verity-flannel-0.28
+  # yamllint disable-line rule:line-length
+  version: "0.28.10"  # renovate: datasource=github-releases depName=flannel-io/flannel versioning=regex:^(?<major>0)\.(?<minor>28)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Flannel overlay network daemon and CNI plugin for Kubernetes.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 0f70536f15f281279dab39fb9d575c646c7eea34
+  # The CNI plugin ships from its own repository and is copied into /opt/cni/bin by the flannel chart.
+  # yamllint disable-line rule:line-length
+  cni-plugin-version: v1.9.1-flannel3  # renovate: datasource=github-releases depName=flannel-io/cni-plugin versioning=regex:^v(?<major>1)\.(?<minor>9)\.(?<patch>\d+)-flannel(?<build>\d+)$
+  cni-plugin-commit: b380f201008e9bed159703846cf10d3c50b4f9ce
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/flannel-io/flannel
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # etcd/tests/v3 is only imported by flannel's tests, and its v3.7.2 requires the unpublished module
+  # go.etcd.io/etcd/cache/v3 v3.7.2, which breaks `go list -m all` during remediation. The -mod=readonly
+  # build below fails if the shipped packages ever import it.
+  - runs: go mod edit -droprequire=go.etcd.io/etcd/tests/v3
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: '. ./cmd/install_conf'
+  # flanneld needs cgo on amd64 for the UDP backend, exactly like the upstream Makefile.
+  - runs: |
+      CGO_ENABLED=1 go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/flannel-io/flannel/pkg/version.Version=v${{package.version}}" \
+        -o flanneld .
+      CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o install-conf ./cmd/install_conf
+      install -Dm755 flanneld "${{targets.destdir}}/opt/bin/flanneld"
+      install -Dm755 install-conf "${{targets.destdir}}/opt/bin/install-conf"
+      install -Dm755 dist/mk-docker-opts.sh "${{targets.destdir}}/opt/bin/mk-docker-opts.sh"
+      go version -m "${{targets.destdir}}/opt/bin/flanneld" \
+        | awk '$1 == "mod" && $2 == "github.com/flannel-io/flannel" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: git-checkout
+    with:
+      repository: https://github.com/flannel-io/cni-plugin
+      tag: ${{vars.cni-plugin-version}}
+      expected-commit: ${{vars.cni-plugin-commit}}
+      destination: third_party/cni-plugin
+  - uses: go/remediate
+    with:
+      modroot: third_party/cni-plugin
+      packages: .
+  - runs: |
+      cd third_party/cni-plugin
+      CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.Version=${{vars.cni-plugin-version}} -X main.Commit=${{vars.cni-plugin-commit}}" \
+        -o flannel-cni .
+      install -Dm755 flannel-cni "${{targets.destdir}}/flannel"
+      go version -m "${{targets.destdir}}/flannel" \
+        | awk '$1 == "mod" && $2 == "github.com/flannel-io/cni-plugin" { print $3 }' \
+        | grep -Ex '${{vars.cni-plugin-version}}(\+dirty)?'
+      # The upstream flannel-cni-plugin image keeps the binary at /flannel and the chart init container
+      # runs `cp -f /flannel /opt/cni/bin/flannel` with the host's /opt/cni/bin mounted, so it must be
+      # a real file here. /opt/cni/bin/flannel is a convenience link for running the image standalone.
+      mkdir -p "${{targets.destdir}}/opt/cni/bin"
+      ln -s /flannel "${{targets.destdir}}/opt/cni/bin/flannel"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.cni-plugin"
+      # Keep the resolved module files for the build-metadata subpackage, then drop the nested checkout:
+      # melange cannot snapshot its .git directory.
+      mkdir -p ../../cni-plugin-build
+      cp go.mod go.sum ../../cni-plugin-build/
+      cd ../..
+      rm -rf third_party/cni-plugin
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the flannel and flannel CNI plugin builds
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/flannel-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/flannel-build/go.sum"
+          install -Dm644 cni-plugin-build/go.mod \
+            "${{targets.subpkgdir}}/usr/share/flannel-build/cni-plugin/go.mod"
+          install -Dm644 cni-plugin-build/go.sum \
+            "${{targets.subpkgdir}}/usr/share/flannel-build/cni-plugin/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /opt/bin/flanneld --version 2>&1 | grep -Fx 'v${{package.version}}'
+        /flannel 2>&1 | grep -F 'CNI Plugin'
+        test -L /opt/cni/bin/flannel
+        test -x /opt/bin/mk-docker-opts.sh
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
