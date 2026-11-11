@@ -136,9 +136,14 @@ now_ms = int(time.time() * 1000)
 sample = field(1, 1, struct.pack('<d', 42.0)) + field(2, 0, varint(now_ms))
 series = label('__name__', 'verity_test_metric') + label('job', 'verity') + length_delimited(2, sample)
 write_request = length_delimited(1, series)
-# Snappy block format: uncompressed length, then one literal element.
-assert len(write_request) < 60
-body = varint(len(write_request)) + bytes([(len(write_request) - 1) << 2]) + write_request
+# Snappy block format: uncompressed length, then literal elements of at most 60 bytes
+# (a one-byte tag encodes lengths 1 to 60).
+body = bytearray(varint(len(write_request)))
+for offset in range(0, len(write_request), 60):
+    chunk = write_request[offset:offset + 60]
+    body.append((len(chunk) - 1) << 2)
+    body += chunk
+body = bytes(body)
 
 req = urllib.request.Request(
     f'http://127.0.0.1:{port}/api/v1/push',
