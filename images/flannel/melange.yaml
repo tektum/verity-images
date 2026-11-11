@@ -81,7 +81,7 @@ pipeline:
       install -Dm755 flannel-cni "${{targets.destdir}}/opt/cni/bin/flannel"
       go version -m "${{targets.destdir}}/opt/cni/bin/flannel" \
         | awk '$1 == "mod" && $2 == "github.com/flannel-io/cni-plugin" { print $3 }' \
-        | grep -Fx '${{vars.cni-plugin-version}}'
+        | grep -Ex '${{vars.cni-plugin-version}}(\+dirty)?'
       # The upstream flannel-cni-plugin image keeps the binary at /flannel; the chart init container copies it.
       ln -s /opt/cni/bin/flannel "${{targets.destdir}}/flannel"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.cni-plugin"
