@@ -1,0 +1,43 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-step-cli@local
+
+accounts:
+  groups:
+    - groupname: step
+      gid: 1000
+  users:
+    - username: step
+      uid: 1000
+      gid: 1000
+      homedir: /home/step
+  run-as: 1000
+
+entrypoint:
+  command: /usr/bin/step
+
+work-dir: /home/step
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  STEPPATH: /home/step/.step
+
+paths:
+  - path: /home/step
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o1777
