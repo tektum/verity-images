@@ -1,0 +1,48 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - kong=3.9.2-r1
+    - kong-entrypoint=3.9.2-r0
+    - tzdata
+
+accounts:
+  groups:
+    - groupname: kong
+      gid: 1000
+  users:
+    - username: kong
+      uid: 1000
+      gid: 1000
+      homedir: /home/kong
+  run-as: 1000
+
+entrypoint:
+  command: /docker-entrypoint.sh
+
+cmd: kong docker-start
+
+stop-signal: SIGQUIT
+
+work-dir: /usr/local/kong
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/local/openresty/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/kong
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /usr/local/kong
+    type: directory
+    uid: 1000
+    gid: 0
+    permissions: 0o775
