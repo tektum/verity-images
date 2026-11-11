@@ -1,0 +1,9 @@
+name: elasticsearch-exporter
+track: wolfi
+description: Prometheus exporter for Elasticsearch and OpenSearch built from pinned source, plain and Go FIPS flavors.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus-community/elasticsearch_exporter
+versions: [1.11]
+flavors: [plain, fips]
+owner: tektum
+enabled: true

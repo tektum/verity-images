@@ -1,0 +1,81 @@
+package:
+  name: elasticsearch-exporter-1.11
+  version: "1.11.0"
+  epoch: 0
+  description: Prometheus exporter for Elasticsearch and OpenSearch metrics
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 57a0ca7c43f9fb07e52272d4acd3f4315a8b9a67
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus-community/elasticsearch_exporter
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X github.com/prometheus/common/version.Version=${{package.version}} \
+          -X github.com/prometheus/common/version.Revision=${{vars.source-commit}} \
+          -X github.com/prometheus/common/version.Branch=HEAD" \
+        -o "${{targets.destdir}}/usr/bin/elasticsearch_exporter" .
+      go version -m "${{targets.destdir}}/usr/bin/elasticsearch_exporter" \
+        | awk '$1 == "mod" && $2 == "github.com/prometheus-community/elasticsearch_exporter" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the elasticsearch-exporter build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/elasticsearch-exporter-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/elasticsearch-exporter-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        elasticsearch_exporter --version 2>&1 | grep -F "version ${{package.version}}"
+        apk info --who-owns /usr/bin/elasticsearch_exporter \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: prometheus-community/elasticsearch_exporter
+    strip-prefix: v

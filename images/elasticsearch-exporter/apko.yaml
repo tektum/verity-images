@@ -1,0 +1,22 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - elasticsearch-exporter-1.11@local
+    - tzdata
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/elasticsearch_exporter
+
+environment:
+  GODEBUG: "@GODEBUG@"
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
