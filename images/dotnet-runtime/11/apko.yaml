@@ -1,0 +1,44 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-dotnet-runtime-11@local
+
+accounts:
+  groups:
+    - groupname: app
+      gid: 1654
+  users:
+    - username: app
+      uid: 1654
+      gid: 1654
+      homedir: /home/app
+  run-as: 1654
+
+entrypoint:
+  command: /usr/bin/dotnet
+
+environment:
+  DOTNET_NOLOGO: "true"
+  DOTNET_ROOT: /usr/share/dotnet
+  DOTNET_RUNNING_IN_CONTAINER: "true"
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /app
+    type: directory
+    uid: 1654
+    gid: 1654
+    permissions: 0o755
+  - path: /home/app
+    type: directory
+    uid: 1654
+    gid: 1654
+    permissions: 0o755
+
+work-dir: /app

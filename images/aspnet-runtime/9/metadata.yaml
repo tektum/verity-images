@@ -1,3 +1,6 @@
+# Disabled: .NET 9 reached end of support on 2026-11-10 (Microsoft .NET support policy and endoflife.date/dotnet),
+# and only upstream-supported streams are published. The last published release of this stream stays in GHCR.
+# Use the 11.0 stream (supported until 2028-11-14) or the 10.0 stream.
 name: aspnet-runtime
 track: wolfi
 # yamllint disable-line rule:line-length
@@ -6,7 +9,7 @@ category: Languages & Build Tools
 upstream: https://dotnet.microsoft.com/
 versions: [9.0]
 owner: tektum
-enabled: true
+enabled: false
 # scan-identity declares both RIDs on purpose. The recipe installs one RID per architecture, but
 # scan_identity.py injects every declared identity into every SBOM, so each SBOM also lists the other
 # architecture's runtime package at the same version. Grype's GHSA data is keyed by the RID package names

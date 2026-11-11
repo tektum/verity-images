@@ -1,0 +1,75 @@
+package:
+  name: verity-dotnet-runtime-11
+  # yamllint disable-line rule:line-length
+  version: "11.0.0"  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>11)\.(?<minor>0)\.(?<patch>\d+)$
+  epoch: 0
+  description: .NET 11 runtime from the pinned official Microsoft release archive.
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # Microsoft's documented runtime dependency set. ICU, OpenSSL and GSSAPI are loaded with dlopen,
+      # so the package cannot discover them as shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - wolfi-baselayout
+      - zlib
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - runs: |
+      # The sha512 values come from the official release metadata of this exact version:
+      # https://builds.dotnet.microsoft.com/dotnet/release-metadata/11.0/releases.json
+      # A version bump without matching checksums fails closed on the check below.
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=d0846e7ad4a6b07fe3fb7c033a381e6938ec16afbe0b7f7454ff2f9b58247cbbc35758cc785af424385c4572c801060cbd656a822ef624f4907d3cc10a16a080
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=b624e647c72e8f62a0d186aa96aad1b113732e8c39f010be6f95ec026feb2633187e33f24c3af5168daaa1d9b4bb0bb9c396f6d172d18660b9673bb507fa9f45
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=dotnet-runtime-${{package.version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/Runtime/${{package.version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      install -d \
+        "${{targets.destdir}}/usr/share/dotnet" \
+        "${{targets.destdir}}/usr/bin" \
+        "${{targets.destdir}}/usr/share/licenses/verity-dotnet-runtime-11"
+      tar -xzf "/tmp/$archive" -C "${{targets.destdir}}/usr/share/dotnet"
+      mv \
+        "${{targets.destdir}}/usr/share/dotnet/LICENSE.txt" \
+        "${{targets.destdir}}/usr/share/dotnet/ThirdPartyNotices.txt" \
+        "${{targets.destdir}}/usr/share/licenses/verity-dotnet-runtime-11/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi does not ship. It only loads
+      # when LTTng tracing is enabled explicitly, so it is dropped instead of pulling a tracing stack in.
+      rm -f "${{targets.destdir}}"/usr/share/dotnet/shared/Microsoft.NETCore.App/*/libcoreclrtraceptprovider.so
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
+
+test:
+  pipeline:
+    - runs: |
+        dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App ${{package.version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet
