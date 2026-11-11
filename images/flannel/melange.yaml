@@ -1,6 +1,7 @@
 package:
   name: verity-flannel-0.28
-  version: "0.28.10"
+  # yamllint disable-line rule:line-length
+  version: "0.28.10"  # renovate: datasource=github-releases depName=flannel-io/flannel versioning=regex:^(?<major>0)\.(?<minor>28)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Flannel overlay network daemon and CNI plugin for Kubernetes.
   copyright:
