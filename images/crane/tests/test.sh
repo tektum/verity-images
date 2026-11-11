@@ -3,8 +3,8 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
-# The repository registry image is the push and pull target.
-registry_image='ghcr.io/tektum/registry@sha256:38539bc58065aa1634bde5ec90bf58963cc070ca26ae2ef72e286c3b37455fd7'
+# The repository registry image is the push and pull target; the pinned index is resolved per platform.
+registry_index='ghcr.io/tektum/registry@sha256:38539bc58065aa1634bde5ec90bf58963cc070ca26ae2ef72e286c3b37455fd7'
 label=verity.test=crane-$$
 network="verity-crane-network-$$"
 registry="verity-crane-registry-$$"
@@ -47,6 +47,26 @@ if docker run --rm --network none --read-only "$image" --definitely-invalid \
 fi
 grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid argument diagnostic is missing'
+
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+registry_image=$(pull_child "$registry_index")
 
 docker network create --label "$label" "$network" >/dev/null
 docker run -d --label "$label" --name "$registry" --network "$network" \
