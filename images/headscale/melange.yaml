@@ -69,7 +69,7 @@ subpackages:
 test:
   pipeline:
     - runs: |
-        headscale version 2>&1 | grep -Fx 'headscale version v${{package.version}}'
+        headscale version 2>&1 | grep -E '^headscale version v${{package.version}}(\+dirty)?$'
         headscale --help 2>&1 | grep -F 'Tailscale control server'
         test -f /usr/share/headscale/config-example.yaml
         test -f /usr/share/licenses/${{package.name}}/LICENSE

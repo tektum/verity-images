@@ -29,7 +29,8 @@ esac
 
 version_output=$(docker run --rm --network none --read-only --user 65534 "$image" version 2>&1) \
   || fail 'headscale version failed'
-printf '%s\n' "$version_output" | grep -Fx "headscale version v$expected_version" >/dev/null \
+printf '%s\n' "$version_output" \
+  | grep -E "^headscale version v$(printf '%s' "$expected_version" | sed 's/\./\\./g')(\+dirty)?\$" >/dev/null \
   || fail "unexpected version output: $version_output"
 
 # Negative: serving without a configuration file must fail with a readable error.
