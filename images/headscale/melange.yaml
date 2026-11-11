@@ -1,6 +1,7 @@
 package:
   name: verity-headscale-0.29
-  version: "0.29.7"
+  # yamllint disable-line rule:line-length
+  version: "0.29.7"  # renovate: datasource=github-releases depName=juanfont/headscale versioning=regex:^(?<major>0)\.(?<minor>29)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Open source, self-hosted implementation of the Tailscale control server.
   copyright:
