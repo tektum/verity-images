@@ -9,6 +9,7 @@ network="verity-kong-network-$$"
 upstream="verity-kong-upstream-$$"
 gateway="verity-kong-gateway-$$"
 tmp=$(mktemp -d)
+chmod 755 "$tmp"
 
 cleanup() {
   docker rm -f "$gateway" "$upstream" >/dev/null 2>&1 || true
