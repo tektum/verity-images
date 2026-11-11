@@ -1,0 +1,43 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-opensearch-dashboards-3@local
+
+accounts:
+  groups:
+    - groupname: opensearch-dashboards
+      gid: 1000
+  users:
+    - username: opensearch-dashboards
+      uid: 1000
+      gid: 1000
+      homedir: /usr/share/opensearch-dashboards
+      shell: /bin/bash
+  run-as: 1000
+
+entrypoint:
+  command: /usr/share/opensearch-dashboards/opensearch-dashboards-docker-entrypoint.sh
+
+cmd: opensearch-dashboards
+
+work-dir: /usr/share/opensearch-dashboards
+
+environment:
+  LANG: en_US.UTF-8
+  OPENSEARCH_DASHBOARDS_HOME: /usr/share/opensearch-dashboards
+  SERVER_HOST: 0.0.0.0
+  PATH: /usr/share/opensearch-dashboards/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /usr/share/opensearch-dashboards
+    type: directory
+    uid: 1000
+    gid: 0
+    permissions: 0o775
+    recursive: true
