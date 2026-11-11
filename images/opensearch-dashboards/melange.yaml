@@ -1,0 +1,111 @@
+package:
+  name: verity-opensearch-dashboards-3
+  # yamllint disable-line rule:line-length
+  version: "3.9.0"  # renovate: datasource=github-releases depName=opensearch-project/OpenSearch-Dashboards versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: OpenSearch Dashboards visualization and management UI for OpenSearch
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - libstdc++
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  # SHA-256 of opensearch-dashboards-3.9.0-linux-{x64,arm64}.tar.gz from artifacts.opensearch.org.
+  # yamllint disable-line rule:line-length
+  osd-sha256-x64: a9ee13b016e43d97e52ea5969e4edafa75c7b64426f485466fc101582fecfac8
+  # yamllint disable-line rule:line-length
+  osd-sha256-arm64: f650be4b075b73680fe2bbe711cbf58458f69942f14329ea263cc93a44d177af
+  # The bundled Node.js 22.23.0 carries fixable advisories; ship the current 22.x release instead.
+  # yamllint disable-line rule:line-length
+  node-version: 22.23.4  # renovate: datasource=node-version depName=node versioning=regex:^(?<major>22)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # SHA-256 of node-v22.23.4-linux-{x64,arm64}.tar.xz from nodejs.org (SHASUMS256.txt).
+  # yamllint disable-line rule:line-length
+  node-sha256-x64: 1805bcd35e6815559bd2eb97db438d3fdb0eb3a5e6a977b7c1badca76337e9ce
+  # yamllint disable-line rule:line-length
+  node-sha256-arm64: 6287aa46b6c375d816e63ae66d024fbbfd70404825aabdfdf898a970871d2f4b
+  # The official container entrypoint from opensearch-build, pinned by commit.
+  # yamllint disable-line rule:line-length
+  entrypoint-url: https://raw.githubusercontent.com/opensearch-project/opensearch-build/f954d46af539080ec5096c5fdd7e0251c26372b1/docker/release/config/opensearch-dashboards/opensearch-dashboards-docker-entrypoint-3.x.sh
+  entrypoint-sha256: 4a1d4b13c0e3fdc129144799e5183271e4122faa44e55644bbce44a4d9874f97
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - glibc
+      - gnutar
+      - libstdc++
+      - xz
+
+pipeline:
+  - runs: |
+      set -eu
+      case "$(uname -m)" in
+        x86_64) osd_arch=x64; osd_sha=${{vars.osd-sha256-x64}}; node_sha=${{vars.node-sha256-x64}} ;;
+        aarch64) osd_arch=arm64; osd_sha=${{vars.osd-sha256-arm64}}; node_sha=${{vars.node-sha256-arm64}} ;;
+        *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+      esac
+      fetch() {
+        curl -fsSL --retry 5 --retry-all-errors -o "$2" "$1"
+      }
+      osd=opensearch-dashboards-${{package.version}}-linux-$osd_arch.tar.gz
+      fetch "https://artifacts.opensearch.org/releases/bundle/opensearch-dashboards/${{package.version}}/$osd" "$osd"
+      printf '%s  %s\n' "$osd_sha" "$osd" | sha256sum -c
+      node=node-v${{vars.node-version}}-linux-$osd_arch.tar.xz
+      fetch "https://nodejs.org/dist/v${{vars.node-version}}/$node" "$node"
+      printf '%s  %s\n' "$node_sha" "$node" | sha256sum -c
+      fetch "${{vars.entrypoint-url}}" entrypoint.sh
+      printf '%s  %s\n' "${{vars.entrypoint-sha256}}" entrypoint.sh | sha256sum -c
+
+      home="${{targets.destdir}}/usr/share/opensearch-dashboards"
+      mkdir -p "$home"
+      tar -xzf "$osd" -C "$home" --strip-components=1
+
+      # Replace the bundled Node.js with the current 22.x release.
+      rm -rf "$home/node"
+      mkdir -p "$home/node/bin"
+      tar -xJf "$node" -C "$home/node/bin" --strip-components=2 "node-v${{vars.node-version}}-linux-$osd_arch/bin/node"
+      "$home/node/bin/node" --version | grep -Fx "v${{vars.node-version}}"
+
+      # Development lockfiles, test fixtures and CI workflow files shipped inside the
+      # plugins describe build-time dependency trees and are not read at runtime;
+      # scanners nevertheless report their pins as if they were deployed.
+      find "$home" \( -name yarn.lock -o -name package-lock.json -o -name pnpm-lock.yaml \) -type f -delete
+      find "$home" -path '*/__data__/repository/*' -name requirements.txt -type f -delete
+      find "$home" -path '*/.github/workflows/*' -type f -delete
+
+      install -m755 entrypoint.sh "$home/opensearch-dashboards-docker-entrypoint.sh"
+      install -Dm644 "$home/LICENSE.txt" "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        /usr/share/opensearch-dashboards/node/bin/node --version | grep -Fx "v${{vars.node-version}}"
+        /usr/share/opensearch-dashboards/bin/opensearch-dashboards --version | grep -F "${{package.version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: opensearch-project/OpenSearch-Dashboards
+    tag-filter-prefix: "3."
+    use-tag: true
