@@ -22,15 +22,15 @@ fail() {
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 999 ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
-  '["/usr/bin/kvrocks"]' || fail 'unexpected entrypoint'
+  '["/usr/bin/kvrocks","-c","/etc/kvrocks/kvrocks.conf","--dir","/var/lib/kvrocks","--pidfile","/var/run/kvrocks/kvrocks.pid","--bind","0.0.0.0"]' || fail 'unexpected entrypoint'
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /var/lib/kvrocks ||
   fail 'unexpected working directory'
 
-docker run --rm --platform "$platform" "$image" --version 2>&1 | grep -E 'kvrocks (version )?[0-9]+\.[0-9]+\.[0-9]+' >/dev/null ||
+docker run --rm --platform "$platform" --entrypoint /usr/bin/kvrocks "$image" --version 2>&1 | grep -E 'kvrocks (version )?[0-9]+\.[0-9]+\.[0-9]+' >/dev/null ||
   fail 'unexpected version output'
 
 # Negative: a missing configuration file must fail with a readable error.
-if docker run --rm --platform "$platform" "$image" -c /definitely-missing.conf >"$tmp/missing" 2>&1; then
+if docker run --rm --platform "$platform" --entrypoint /usr/bin/kvrocks "$image" -c /definitely-missing.conf >"$tmp/missing" 2>&1; then
   fail 'missing config unexpectedly succeeded'
 fi
 grep -F 'definitely-missing.conf' "$tmp/missing" >/dev/null || fail 'missing config diagnostic is missing'
@@ -48,10 +48,9 @@ resp() {
 }
 
 start_server() {
+  # The default entrypoint carries the upstream flags (config, data dir, pidfile, bind).
   docker run --platform "$platform" --name "$container" -d -v "$volume:/var/lib/kvrocks" \
-    -p 127.0.0.1::6666 "$image" \
-    -c /usr/share/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid \
-    --bind 0.0.0.0 >/dev/null
+    -p 127.0.0.1::6666 "$image" >/dev/null
   i=0
   port=
   until [ -n "$port" ] && [ "$(resp "$port" PING 2>/dev/null | head -n 1)" = '+PONG' ]; do
@@ -78,6 +77,10 @@ printf '%s\n' "$reply" | grep -Fx 'persisted' >/dev/null || fail 'GET did not re
 reply=$(resp "$port" 'RPUSH verity:list a b c' 'LRANGE verity:list 0 -1' 'EVAL "return 1+1" 0')
 printf '%s\n' "$reply" | grep -Fx ':3' >/dev/null || fail 'RPUSH did not return 3'
 printf '%s\n' "$reply" | grep -Fx ':2' >/dev/null || fail 'EVAL did not return 2'
+
+# The active configuration can be rewritten by the unprivileged user.
+printf '%s\n' "$(resp "$port" 'CONFIG REWRITE')" | grep -Fx '+OK' >/dev/null ||
+  fail 'CONFIG REWRITE did not return +OK'
 
 docker stop --time 30 "$container" >/dev/null
 test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0 ||

@@ -1,6 +1,7 @@
 package:
   name: kvrocks-2.17
-  version: "2.17.0"
+  # yamllint disable-line rule:line-length
+  version: "2.17.0"  # renovate: datasource=github-releases depName=apache/kvrocks versioning=regex:^(?<major>2)\.(?<minor>17)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Distributed key-value NoSQL database on RocksDB, compatible with the Redis protocol
   copyright:
@@ -56,7 +57,7 @@ pipeline:
       grep -F 'throw std::bad_alloc()' build/_deps/jemalloc-src/src/jemalloc_cpp.cpp
       cmake --build build -j"$(nproc)" -t kvrocks
       install -Dm755 build/kvrocks "${{targets.destdir}}/usr/bin/kvrocks"
-      install -Dm644 kvrocks.conf "${{targets.destdir}}/usr/share/kvrocks/kvrocks.conf"
+      install -Dm644 kvrocks.conf "${{targets.destdir}}/etc/kvrocks/kvrocks.conf"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
   - uses: strip

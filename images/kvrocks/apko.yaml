@@ -20,9 +20,8 @@ accounts:
   run-as: 999
 
 entrypoint:
-  command: /usr/bin/kvrocks
-
-cmd: -c /usr/share/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid --bind 0.0.0.0
+  # yamllint disable-line rule:line-length
+  command: /usr/bin/kvrocks -c /etc/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid --bind 0.0.0.0
 
 work-dir: /var/lib/kvrocks
 
@@ -31,6 +30,12 @@ environment:
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
 
 paths:
+  - path: /etc/kvrocks
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+    recursive: true
   - path: /var/lib/kvrocks
     type: directory
     uid: 999
