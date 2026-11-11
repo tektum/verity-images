@@ -8,7 +8,7 @@ container="verity-cadvisor-test-$$"
 work=$(mktemp -d)
 
 cleanup() {
-  docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  docker ps -aq --filter "label=$label" | xargs -r docker rm -fv >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -23,11 +23,12 @@ expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' 
   "$here/../melange.yaml")
 [ -n "$expected_version" ] || fail 'could not read the recipe version'
 
-test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
+# Upstream runs cAdvisor as root so the container runtime socket and /var/lib/docker are readable.
+test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 0 ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/cadvisor","-logtostderr"]' || fail 'unexpected entrypoint'
-test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /home/nonroot ||
+test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = / ||
   fail 'unexpected working directory'
 
 docker run --rm --network none --read-only "$image" --version >"$work/version" 2>&1 ||
@@ -48,6 +49,10 @@ if docker run --rm --network none --read-only "$image" --port=not-a-port \
 fi
 grep -F 'invalid value "not-a-port" for flag -port' "$work/badport" >/dev/null ||
   fail 'invalid port diagnostic is missing'
+
+# A known container the daemon must discover with its name label.
+target="verity-cadvisor-target-$$"
+docker run -d --label "$label" --name "$target" --network none --read-only "$image" >/dev/null
 
 # Host paths are mounted read-only and the container is not privileged.
 docker run -d --label "$label" --name "$container" --read-only \
@@ -78,6 +83,15 @@ until curl --silent --fail --max-time 10 "$base/metrics" >"$work/metrics" 2>/dev
   sleep 1
 done
 
+attempts=0
+until curl --silent --fail --max-time 10 "$base/metrics" >"$work/metrics" 2>/dev/null &&
+  grep -E "^container_cpu_usage_seconds_total\\{[^}]*name=\"$target\"" "$work/metrics" >/dev/null; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 60 ] || fail "no container_cpu_usage_seconds_total series named $target (docker discovery)"
+  sleep 1
+done
+grep -E "^container_cpu_usage_seconds_total\\{[^}]*image=\"[^\"]+\"[^}]*name=\"$target\"" "$work/metrics" >/dev/null ||
+  fail 'discovered container series has no image label'
 grep -E '^# TYPE container_cpu_usage_seconds_total counter' "$work/metrics" >/dev/null ||
   fail 'container_cpu_usage_seconds_total has the wrong metric type'
 grep -E '^machine_cpu_cores\{[^}]*\} [1-9]' "$work/metrics" >/dev/null ||
