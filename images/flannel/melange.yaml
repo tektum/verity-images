@@ -85,6 +85,12 @@ pipeline:
       # The upstream flannel-cni-plugin image keeps the binary at /flannel; the chart init container copies it.
       ln -s /opt/cni/bin/flannel "${{targets.destdir}}/flannel"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.cni-plugin"
+      # Keep the resolved module files for the build-metadata subpackage, then drop the nested checkout:
+      # melange cannot snapshot its .git directory.
+      mkdir -p ../../cni-plugin-build
+      cp go.mod go.sum ../../cni-plugin-build/
+      cd ../..
+      rm -rf third_party/cni-plugin
   - uses: strip
 
 subpackages:
@@ -96,9 +102,9 @@ subpackages:
             "${{targets.subpkgdir}}/usr/share/flannel-build/go.mod"
           install -Dm644 go.sum \
             "${{targets.subpkgdir}}/usr/share/flannel-build/go.sum"
-          install -Dm644 third_party/cni-plugin/go.mod \
+          install -Dm644 cni-plugin-build/go.mod \
             "${{targets.subpkgdir}}/usr/share/flannel-build/cni-plugin/go.mod"
-          install -Dm644 third_party/cni-plugin/go.sum \
+          install -Dm644 cni-plugin-build/go.sum \
             "${{targets.subpkgdir}}/usr/share/flannel-build/cni-plugin/go.sum"
 
 test:
