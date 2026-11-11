@@ -1,6 +1,7 @@
 package:
   name: verity-kaniko-1.25
-  version: "1.25.22"
+  # yamllint disable-line rule:line-length
+  version: "1.25.22"  # renovate: datasource=github-releases depName=chainguard-forks/kaniko versioning=regex:^(?<major>1)\.(?<minor>25)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Build container images in Kubernetes without a Docker daemon (maintained fork).
   copyright:
