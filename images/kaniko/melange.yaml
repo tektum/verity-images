@@ -1,0 +1,98 @@
+package:
+  name: verity-kaniko-1.25
+  # yamllint disable-line rule:line-length
+  version: "1.25.22"  # renovate: datasource=github-releases depName=chainguard-forks/kaniko versioning=regex:^(?<major>1)\.(?<minor>25)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Build container images in Kubernetes without a Docker daemon (maintained fork).
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 052d1241f26681d6a1c147af200baa3287ab1bec
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  # GoogleContainerTools/kaniko was archived on 2025-06-03. Wolfi's kaniko package builds the module
+  # github.com/chainguard-dev/kaniko, now hosted at chainguard-forks/kaniko, which is still maintained.
+  # Quarantined (enabled: false in metadata.yaml): v1.25.22 pins github.com/moby/go-archive to v0.1.0 with a replace
+  # directive because docker/docker v28.5.2 needs aliases that v0.2.0+ removed, and v0.1.0 carries GO-2026-6253
+  # (tar extraction path traversal, fixed in 0.3.0), so go/remediate cannot make progress. The fork's main branch
+  # already drops docker/docker (chainguard-forks/kaniko #525, #541) but has no tag yet. Enable with the next
+  # fork release (v1.25.23 or later) after revalidating the build.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/chainguard-forks/kaniko
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: >-
+        ./cmd/executor ./cmd/warmer ./third_party/docker-credential-acr-env
+        github.com/GoogleCloudPlatform/docker-credential-gcr/v2
+        github.com/awslabs/amazon-ecr-credential-helper/ecr-login/cli/docker-credential-ecr-login
+  - runs: |
+      mkdir -p out
+      go build -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/chainguard-dev/kaniko/pkg/version.version=v${{package.version}}" \
+        -o out/ ./cmd/executor ./cmd/warmer ./third_party/docker-credential-acr-env \
+        github.com/GoogleCloudPlatform/docker-credential-gcr/v2 \
+        github.com/awslabs/amazon-ecr-credential-helper/ecr-login/cli/docker-credential-ecr-login
+      install -Dm755 out/executor "${{targets.destdir}}/kaniko/executor"
+      install -Dm755 out/warmer "${{targets.destdir}}/kaniko/warmer"
+      install -Dm755 out/docker-credential-acr-env \
+        "${{targets.destdir}}/kaniko/docker-credential-acr-env"
+      install -Dm755 out/docker-credential-gcr "${{targets.destdir}}/kaniko/docker-credential-gcr"
+      install -Dm755 out/docker-credential-ecr-login "${{targets.destdir}}/kaniko/docker-credential-ecr-login"
+      go version -m "${{targets.destdir}}/kaniko/executor" \
+        | awk '$1 == "mod" && $2 == "github.com/chainguard-dev/kaniko" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # The ACR helper must be the patched in-tree copy, not the unpatched upstream helper (GO-2026-6225).
+      acr_info=$(go version -m "${{targets.destdir}}/kaniko/docker-credential-acr-env")
+      acr_path='github\.com/chainguard-dev/kaniko/third_party/docker-credential-acr-env'
+      printf '%s\n' "$acr_info" | grep -Eq "^[[:space:]]*path[[:space:]]+${acr_path}\$"
+      ! printf '%s\n' "$acr_info" | grep -q 'github\.com/chrismellard'
+      # kaniko wipes the root filesystem while building, so the CA bundle must live under /kaniko.
+      install -Dm644 /etc/ssl/certs/ca-certificates.crt \
+        "${{targets.destdir}}/kaniko/ssl/certs/ca-certificates.crt"
+      install -Dm644 files/nsswitch.conf "${{targets.destdir}}/etc/nsswitch.conf"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the kaniko build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/kaniko-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/kaniko-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /kaniko/executor version 2>&1 | grep -F 'v${{package.version}}'
+        test -x /kaniko/warmer
+        test -s /kaniko/ssl/certs/ca-certificates.crt
+        test -f /usr/share/licenses/${{package.name}}/LICENSE

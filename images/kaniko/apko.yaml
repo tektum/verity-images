@@ -1,0 +1,44 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-kaniko-1.25@local
+
+# kaniko unpacks image layers over the container root filesystem, so it must run as root.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /kaniko/executor
+
+work-dir: /workspace
+
+environment:
+  HOME: /root
+  USER: root
+  PATH: /usr/local/bin:/kaniko
+  SSL_CERT_DIR: /kaniko/ssl/certs
+  DOCKER_CONFIG: /kaniko/.docker/
+  DOCKER_CREDENTIAL_GCR_CONFIG: /kaniko/.config/gcloud/docker_credential_gcr_config.json
+
+paths:
+  - path: /kaniko
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o777
+  - path: /kaniko/.docker
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /workspace
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
