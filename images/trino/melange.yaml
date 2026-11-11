@@ -34,9 +34,15 @@ vars:
   # binaries in the release are rebuilt here so they pick up a patched stdlib.
   launcher-version: "321"
   launcher-commit: 55cda05870182df2be6b7bb081989bbb4253611a
-  # Connectors that carry fixable advisories in their bundled libraries at this
-  # release (see the pull request). They are left out until a release clears them.
-  excluded-plugins: iceberg lakehouse ranger mariadb
+  # Connectors shipped. The attestation limit for the image SBOM is 12 MiB and every
+  # connector adds its bundled jars (the full distribution is about 45 MiB), so the
+  # set is curated. iceberg, lakehouse, ranger and mariadb are additionally excluded
+  # because they bundle libraries with fixable advisories at this release.
+  plugins: >-
+    tpch tpcds memory jmx blackhole blob-cache-memory faker hive delta-lake postgresql mysql
+    kafka mongodb
+    prometheus http-event-listener password-authenticators session-property-managers
+    resource-group-managers geospatial functions-python
   # SHA-256 of the pinned upstream LICENSE and health-check at the 484 tag.
   license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
   health-check-sha256: 537918f6a5e7cee2d37feb707d67bde83a8467b5058a13e16de4de65d27b9e1e
@@ -100,8 +106,14 @@ pipeline:
         -ldflags="-s -w -extldflags=-static -X launcher/args.Version=${{vars.launcher-version}}" \
         -o "$src/launcher.bin" .)
 
-      for plugin in ${{vars.excluded-plugins}}; do
-        rm -rf "plugin/$plugin"
+      for plugin in ${{vars.plugins}}; do
+        test -d "plugin/$plugin" || { echo "missing plugin $plugin" >&2; exit 1; }
+      done
+      for dir in plugin/*; do
+        case " ${{vars.plugins}} " in
+          *" ${dir#plugin/} "*) ;;
+          *) rm -rf "$dir" ;;
+        esac
       done
       # Only this architecture's launcher is shipped; the release also carries
       # darwin and ppc64le Go binaries that this image never runs.
