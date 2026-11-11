@@ -1,0 +1,19 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rook-1.21@local
+
+accounts:
+  run-as: 65534
+
+entrypoint:
+  command: /usr/local/bin/rook
+
+environment:
+  PATH: /usr/local/bin:/usr/bin:/bin
