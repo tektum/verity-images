@@ -35,15 +35,17 @@ output=$(run "$image" --kube-subnet-mgr 2>&1) || status=$?
 printf '%s\n' "$output" | grep -F 'Failed to create SubnetManager' >/dev/null \
   || { printf '%s\n' "$output" >&2; fail 'missing-cluster diagnostic missing'; }
 
-# The CNI plugin binary ships in the image at the path the chart copies from.
+# The CNI plugin binary ships in the image as a real file at the path the chart copies from.
 cni_output=$(printf '{"cniVersion":"1.0.0"}' \
   | docker run --rm -i --network none --read-only --cap-drop ALL -e CNI_COMMAND=VERSION \
-      --entrypoint /opt/cni/bin/flannel "$image" 2>&1) || fail 'flannel CNI plugin VERSION failed'
+      --entrypoint /flannel "$image" 2>&1) || fail 'flannel CNI plugin VERSION failed'
 printf '%s\n' "$cni_output" | grep -F '"supportedVersions"' >/dev/null || fail 'flannel CNI plugin VERSION output unexpected'
 
 # The chart init containers copy the plugin and the CNI config with cp.
 run --entrypoint cp "$image" -f /flannel /tmp/flannel >/dev/null 2>&1 \
   || fail 'cannot copy /flannel with cp'
+[ "$(docker run --rm --network none --entrypoint sh "$image" -c '[ -f /flannel ] && [ ! -L /flannel ] && echo real')" = real ] \
+  || fail '/flannel is not a regular file'
 
 # Tools flanneld shells out to are present (not executed: nft failed under qemu-user on the
 # non-native architecture, where this test also runs).

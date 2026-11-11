@@ -78,12 +78,15 @@ pipeline:
       CGO_ENABLED=0 go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w -X main.Version=${{vars.cni-plugin-version}} -X main.Commit=${{vars.cni-plugin-commit}}" \
         -o flannel-cni .
-      install -Dm755 flannel-cni "${{targets.destdir}}/opt/cni/bin/flannel"
-      go version -m "${{targets.destdir}}/opt/cni/bin/flannel" \
+      install -Dm755 flannel-cni "${{targets.destdir}}/flannel"
+      go version -m "${{targets.destdir}}/flannel" \
         | awk '$1 == "mod" && $2 == "github.com/flannel-io/cni-plugin" { print $3 }' \
         | grep -Ex '${{vars.cni-plugin-version}}(\+dirty)?'
-      # The upstream flannel-cni-plugin image keeps the binary at /flannel; the chart init container copies it.
-      ln -s /opt/cni/bin/flannel "${{targets.destdir}}/flannel"
+      # The upstream flannel-cni-plugin image keeps the binary at /flannel and the chart init container
+      # runs `cp -f /flannel /opt/cni/bin/flannel` with the host's /opt/cni/bin mounted, so it must be
+      # a real file here. /opt/cni/bin/flannel is a convenience link for running the image standalone.
+      mkdir -p "${{targets.destdir}}/opt/cni/bin"
+      ln -s /flannel "${{targets.destdir}}/opt/cni/bin/flannel"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.cni-plugin"
       # Keep the resolved module files for the build-metadata subpackage, then drop the nested checkout:
       # melange cannot snapshot its .git directory.
@@ -111,6 +114,7 @@ test:
   pipeline:
     - runs: |
         /opt/bin/flanneld --version 2>&1 | grep -Fx 'v${{package.version}}'
-        /opt/cni/bin/flannel 2>&1 | grep -F 'CNI Plugin'
+        /flannel 2>&1 | grep -F 'CNI Plugin'
+        test -L /opt/cni/bin/flannel
         test -x /opt/bin/mk-docker-opts.sh
         test -f /usr/share/licenses/${{package.name}}/LICENSE
