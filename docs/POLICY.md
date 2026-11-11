@@ -98,7 +98,7 @@ attested SBOM, so the daily monitor scans exactly what the gate scanned. A decla
 identity is asserted, not discovered: a wrong CPE or module path blinds the gate
 for that image, so it needs the same review as a recipe change. Allowlisted images
 predate the rule and are not covered for their main software until their
-image-local follow-up lands. The exception is `no-feed` (kubernetes-reflector,
+image-local follow-up lands. The exception is `no-feed` (kubernetes-reflector, opensearch-dashboards,
 sonar-scanner-cli): no CPE, GHSA or OSV record exists for their main software, so
 the gate covers dependencies and OS packages only, permanently. See
 [CONTRIBUTING.md](../CONTRIBUTING.md#scan-identity).
