@@ -4,12 +4,24 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 work=$(mktemp -d)
+container="verity-apisix-ic-test-$$"
 
-trap 'rm -rf "$work"' EXIT INT TERM
+trap 'docker rm -f "$container" >/dev/null 2>&1 || true; rm -rf "$work"' EXIT INT TERM
 
 fail() {
   printf '%s\n' "$1" >&2
   exit 1
+}
+
+# bounded OUTPUT [DOCKER_RUN_ARGS...]: run the image with a time limit and a known container name;
+# sets status to the exit code and rejects timeouts, so a hung controller fails the test.
+bounded() {
+  out=$1
+  shift
+  status=0
+  timeout 60 docker run --rm --name "$container" --network none --read-only "$@" >"$out" 2>&1 || status=$?
+  docker rm -f "$container" >/dev/null 2>&1 || true
+  [ "$status" -ne 124 ] || fail 'controller hung instead of exiting'
 }
 
 expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' \
@@ -51,29 +63,24 @@ grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid flag diagnostic is missing'
 
 # The default command reads /app/conf/config.yaml, which the image does not ship.
-if timeout 60 docker run --rm --network none --read-only "$image" >"$work/noconfig" 2>&1; then
-  fail 'start without a configuration file unexpectedly succeeded'
-fi
+bounded "$work/noconfig" "$image"
+[ "$status" -ne 0 ] || fail 'start without a configuration file unexpectedly succeeded'
 grep -F 'open /app/conf/config.yaml: no such file or directory' "$work/noconfig" >/dev/null ||
   fail 'missing configuration diagnostic is missing'
 
 chmod 755 "$work"
 printf 'log_level: bogus\n' >"$work/config.yaml"
 chmod 644 "$work/config.yaml"
-if timeout 60 docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
-  >"$work/badlevel" 2>&1; then
-  fail 'invalid log level unexpectedly succeeded'
-fi
+bounded "$work/badlevel" -v "$work:/app/conf:ro" "$image"
+[ "$status" -ne 0 ] || fail 'invalid log level unexpectedly succeeded'
 grep -F 'unrecognized level: "bogus"' "$work/badlevel" >/dev/null ||
   fail 'invalid log level diagnostic is missing'
 
 # A valid configuration is parsed and logged, then the controller stops because no cluster is
 # reachable. A crash loop on startup parsing would not reach this point.
 printf 'log_level: info\n' >"$work/config.yaml"
-if timeout 60 docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
-  >"$work/nocluster" 2>&1; then
-  fail 'start without a cluster unexpectedly succeeded'
-fi
+bounded "$work/nocluster" -v "$work:/app/conf:ro" "$image"
+[ "$status" -ne 0 ] || fail 'start without a cluster unexpectedly succeeded'
 grep -F 'controller start configuration' "$work/nocluster" >/dev/null ||
   fail 'valid configuration was not loaded'
 grep -F 'unable to load in-cluster config' "$work/nocluster" >/dev/null ||
