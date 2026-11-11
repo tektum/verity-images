@@ -11,7 +11,7 @@ registry="verity-crane-registry-$$"
 work=$(mktemp -d)
 
 cleanup() {
-  docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  docker ps -aq --filter "label=$label" | xargs -r docker rm -fv >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
