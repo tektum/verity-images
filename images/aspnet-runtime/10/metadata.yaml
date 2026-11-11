@@ -7,5 +7,10 @@ upstream: https://dotnet.microsoft.com/
 versions: [10.0]
 owner: tektum
 enabled: true
+# scan-identity declares both RIDs on purpose. The recipe installs one RID per architecture, but
+# scan_identity.py injects every declared identity into every SBOM, so each SBOM also lists the other
+# architecture's runtime package at the same version. Grype's GHSA data is keyed by the RID package names
+# and a RID-neutral purl matches nothing (checked at 8.0.0 and 10.0.0), so this is the narrowest identity that
+# keeps the gate symmetric across architectures. Syft reports the real package natively as well.
 # yamllint disable-line rule:line-length
 scan-identity: [pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-arm64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-arm64]
