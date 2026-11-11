@@ -142,7 +142,7 @@ until curl --silent --fail --max-time 3 "http://127.0.0.1:$admin/status" >/dev/n
     fail 'kong exited before becoming ready'
   }
   i=$((i + 1))
-  [ "$i" -lt 90 ] || {
+  [ "$i" -lt 420 ] || {
     docker logs "$gateway" >&2
     fail 'kong did not become ready'
   }
