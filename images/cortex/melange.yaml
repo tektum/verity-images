@@ -1,0 +1,90 @@
+package:
+  name: cortex-1.21
+  # yamllint disable-line rule:line-length
+  version: "1.21.1"  # renovate: datasource=github-releases depName=cortexproject/cortex versioning=regex:^(?<major>1)\.(?<minor>21)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Horizontally scalable, highly available, multi-tenant, long-term Prometheus storage
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 24Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: a149007ab28df6f7a6b638d2f1466269bf1f2cec
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cortexproject/cortex
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cortex
+  - runs: |
+      # The module has no major suffix and the tag has a v prefix, so -buildvcs
+      # stamps the real module version. The guard fails the build otherwise.
+      go build -trimpath -buildvcs=true -tags netgo,slicelabels \
+        -ldflags="-s -w -X main.Branch=release -X main.Version=${{package.version}} \
+          -X main.Revision=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/cortex" ./cmd/cortex
+      go version -m "${{targets.destdir}}/usr/bin/cortex" \
+        | awk '$1 == "mod" && $2 == "github.com/cortexproject/cortex" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Cortex build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/cortex-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/cortex-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        cortex -version 2>&1 | grep -F "version ${{package.version}} "
+        apk info --who-owns /usr/bin/cortex \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: cortexproject/cortex
+    strip-prefix: v
+    tag-filter-prefix: v1.21.
+    use-tag: true
