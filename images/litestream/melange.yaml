@@ -1,6 +1,7 @@
 package:
   name: litestream-0.5
-  version: "0.5.18"
+  # yamllint disable-line rule:line-length
+  version: "0.5.18"  # renovate: datasource=github-releases depName=benbjohnson/litestream versioning=regex:^(?<major>0)\.(?<minor>5)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Streaming replication for SQLite
   copyright:
@@ -76,3 +77,5 @@ update:
   github:
     identifier: benbjohnson/litestream
     strip-prefix: v
+    tag-filter-prefix: v0.5.
+    use-tag: true
