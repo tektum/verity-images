@@ -50,7 +50,7 @@ resp() {
 start_server() {
   docker run --platform "$platform" --name "$container" -d -v "$volume:/var/lib/kvrocks" \
     -p 127.0.0.1::6666 "$image" \
-    -c /var/lib/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid \
+    -c /usr/share/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid \
     --bind 0.0.0.0 >/dev/null
   i=0
   port=

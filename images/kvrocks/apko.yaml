@@ -22,7 +22,7 @@ accounts:
 entrypoint:
   command: /usr/bin/kvrocks
 
-cmd: -c /var/lib/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid --bind 0.0.0.0
+cmd: -c /usr/share/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid --bind 0.0.0.0
 
 work-dir: /var/lib/kvrocks
 
