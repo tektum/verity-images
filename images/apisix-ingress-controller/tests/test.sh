@@ -51,7 +51,7 @@ grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid flag diagnostic is missing'
 
 # The default command reads /app/conf/config.yaml, which the image does not ship.
-if docker run --rm --network none --read-only "$image" >"$work/noconfig" 2>&1; then
+if timeout 60 docker run --rm --network none --read-only "$image" >"$work/noconfig" 2>&1; then
   fail 'start without a configuration file unexpectedly succeeded'
 fi
 grep -F 'open /app/conf/config.yaml: no such file or directory' "$work/noconfig" >/dev/null ||
@@ -60,7 +60,7 @@ grep -F 'open /app/conf/config.yaml: no such file or directory' "$work/noconfig"
 chmod 755 "$work"
 printf 'log_level: bogus\n' >"$work/config.yaml"
 chmod 644 "$work/config.yaml"
-if docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
+if timeout 60 docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
   >"$work/badlevel" 2>&1; then
   fail 'invalid log level unexpectedly succeeded'
 fi
@@ -70,7 +70,7 @@ grep -F 'unrecognized level: "bogus"' "$work/badlevel" >/dev/null ||
 # A valid configuration is parsed and logged, then the controller stops because no cluster is
 # reachable. A crash loop on startup parsing would not reach this point.
 printf 'log_level: info\n' >"$work/config.yaml"
-if docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
+if timeout 60 docker run --rm --network none --read-only -v "$work:/app/conf:ro" "$image" \
   >"$work/nocluster" 2>&1; then
   fail 'start without a cluster unexpectedly succeeded'
 fi

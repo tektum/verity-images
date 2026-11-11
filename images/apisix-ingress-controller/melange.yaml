@@ -48,7 +48,7 @@ pipeline:
       pkg=github.com/apache/apisix-ingress-controller/internal
       min_k8s=$(sed -n 's/^MIN_K8S_VERSION ?= //p' Makefile)
       [ -n "$min_k8s" ]
-      rev=$(git rev-parse --short HEAD)
+      rev=$(git rev-parse --short=7 HEAD)
       ld="-s -w -X $pkg/version._buildVersion=${{package.version}} -X $pkg/version._buildGitRevision=$rev"
       ld="$ld -X $pkg/version._buildOS=linux/$(go env GOARCH) -X $pkg/manager._minK8sVersion=$min_k8s"
       go build -p 4 -mod=readonly -trimpath -buildvcs=false -ldflags="$ld" \
