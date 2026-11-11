@@ -1,0 +1,27 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - coreutils
+    - findutils
+    - verity-cadvisor@local
+
+# Upstream runs cAdvisor as root: it reads the container runtime socket and /var/lib/docker, which are
+# root-only on standard hosts, so a non-root user loses container names, images and labels.
+# Charts may override the user.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/cadvisor -logtostderr
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
