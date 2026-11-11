@@ -48,10 +48,12 @@ pipeline:
         -DENABLE_OPENSSL=ON \
         -DPORTABLE=1 \
         -DCMAKE_EXE_LINKER_FLAGS="-latomic"
-      # jemalloc 5.3.1 (fetched by the configure step above) relies on
-      # <new> pulling in std::__throw_bad_alloc, which newer libstdc++ no
-      # longer does; include the declaring header explicitly.
-      sed -i '1i #include <bits/functexcept.h>' build/_deps/jemalloc-src/src/jemalloc_cpp.cpp
+      # jemalloc 5.3.1 (fetched by the configure step above) calls
+      # std::__throw_bad_alloc(), which the Wolfi libstdc++ no longer
+      # declares; throw the standard exception directly instead.
+      sed -i 's/std::__throw_bad_alloc()/throw std::bad_alloc()/' \
+        build/_deps/jemalloc-src/src/jemalloc_cpp.cpp
+      grep -F 'throw std::bad_alloc()' build/_deps/jemalloc-src/src/jemalloc_cpp.cpp
       cmake --build build -j"$(nproc)" -t kvrocks
       install -Dm755 build/kvrocks "${{targets.destdir}}/usr/bin/kvrocks"
       install -Dm644 kvrocks.conf "${{targets.destdir}}/var/lib/kvrocks/kvrocks.conf"
