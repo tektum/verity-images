@@ -1,0 +1,9 @@
+name: dependency-track
+track: wolfi
+description: Dependency-Track API server with embedded H2 support, built from the pinned upstream source release.
+category: Security & Identity
+upstream: https://github.com/DependencyTrack/dependency-track
+versions: [4.14]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:owasp:dependency-track, pkg:maven/org.dependencytrack/dependency-track]

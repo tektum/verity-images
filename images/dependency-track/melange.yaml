@@ -1,0 +1,116 @@
+package:
+  name: verity-dependency-track
+  # yamllint disable-line rule:line-length
+  version: "4.14.6"  # renovate: datasource=github-releases depName=DependencyTrack/dependency-track versioning=regex:^(?<major>4)\.(?<minor>14)\.(?<patch>\d+)$
+  epoch: 0
+  description: Dependency-Track API server (embedded Jetty) built from the upstream source release
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - openjdk-25-default-jvm
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 10Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+vars:
+  source-commit: 75d7fe1ccf3b9fe23bb908402877ef85573773b0
+  # Dependency versions raised above the ones upstream's Alpine parent POM
+  # manages, to releases that fix the advisories in them. Each is a property
+  # the Alpine parent or the project POM already exposes.
+  # yamllint disable rule:line-length
+  jackson-version: 2.22.4  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
+  micrometer-version: 1.16.8  # renovate: datasource=maven depName=io.micrometer:micrometer-core versioning=regex:^(?<major>1)\.(?<minor>16)\.(?<patch>\d+)$
+  json-java-version: "20260814"  # renovate: datasource=maven depName=org.json:json versioning=maven
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - maven-3.9
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/DependencyTrack/dependency-track
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Build the API server
+    runs: |
+      # The release workflow stamps the version before building; the API
+      # reports it on /api/version.
+      mvn -B --no-transfer-progress versions:set -DnewVersion=${{package.version}} -DgenerateBackupPoms=false
+      mvn -B --no-transfer-progress package \
+        -P quick -P enhance -P embedded-jetty \
+        -Dlogback.configuration.file=src/main/docker/logback.xml \
+        -Dlib.jackson.version=${{vars.jackson-version}} \
+        -Dlib.micrometer.version=${{vars.micrometer-version}} \
+        -Dlib.json-java.version=${{vars.json-java-version}}
+      test -s target/dependency-track-apiserver.jar
+
+      install -Dm644 target/dependency-track-apiserver.jar \
+        "${{targets.destdir}}/opt/owasp/dependency-track/dependency-track-apiserver.jar"
+      install -Dm644 src/main/docker/logback-json.xml \
+        "${{targets.destdir}}/opt/owasp/dependency-track/logback-json.xml"
+      install -Dm644 LICENSE.txt \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - name: Install the launcher
+    runs: |
+      install -d "${{targets.destdir}}/usr/bin"
+      cat >"${{targets.destdir}}/usr/bin/dependency-track" <<'LAUNCHER'
+      #!/bin/sh
+      # Mirrors the launch command of the upstream container image.
+      # shellcheck disable=SC2086
+      exec java \
+        ${JAVA_OPTIONS} ${EXTRA_JAVA_OPTIONS} \
+        --add-opens java.base/java.util.concurrent=ALL-UNNAMED \
+        --sun-misc-unsafe-memory-access=allow \
+        -Dlogback.configurationFile="${LOGGING_CONFIG_PATH}" \
+        -DdependencyTrack.logging.level="${LOGGING_LEVEL}" \
+        -jar /opt/owasp/dependency-track/dependency-track-apiserver.jar \
+        -context "${CONTEXT}" "$@"
+      LAUNCHER
+      chmod 755 "${{targets.destdir}}/usr/bin/dependency-track"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -s /opt/owasp/dependency-track/dependency-track-apiserver.jar
+        test -x /usr/bin/dependency-track
+        java -version 2>&1 | grep -F 'openjdk version "25'
+        unzip -p /opt/owasp/dependency-track/dependency-track-apiserver.jar META-INF/MANIFEST.MF | grep -F 'Main-Class'
+        apk info --who-owns /opt/owasp/dependency-track/dependency-track-apiserver.jar \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: DependencyTrack/dependency-track
+    tag-filter-prefix: "4.14."
+    use-tag: true
