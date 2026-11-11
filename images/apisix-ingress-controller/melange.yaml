@@ -1,0 +1,88 @@
+package:
+  name: verity-apisix-ingress-controller
+  # yamllint disable-line rule:line-length
+  version: "2.2.0"  # renovate: datasource=github-releases depName=apache/apisix-ingress-controller versioning=regex:^(?<major>2)\.(?<minor>2)\.(?<patch>\d+)$
+  epoch: 0
+  description: Kubernetes ingress and Gateway API controller for Apache APISIX
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+vars:
+  source-commit: c915316549b782fb02e4b7947790c17d5315c750
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/apisix-ingress-controller
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+  - runs: |
+      # Upstream tags carry no v prefix, so Go cannot stamp the main module version from VCS data.
+      # The release version is stamped with the upstream ldflags and the scanner identity is declared
+      # in metadata.yaml instead.
+      pkg=github.com/apache/apisix-ingress-controller/internal
+      min_k8s=$(sed -n 's/^MIN_K8S_VERSION ?= //p' Makefile)
+      [ -n "$min_k8s" ]
+      rev=$(git rev-parse --short=7 HEAD)
+      ld="-s -w -X $pkg/version._buildVersion=${{package.version}} -X $pkg/version._buildGitRevision=$rev"
+      ld="$ld -X $pkg/version._buildOS=linux/$(go env GOARCH) -X $pkg/manager._minK8sVersion=$min_k8s"
+      go build -p 4 -mod=readonly -trimpath -buildvcs=false -ldflags="$ld" \
+        -o "${{targets.destdir}}/usr/bin/apisix-ingress-controller" ./cmd
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the APISIX ingress controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/apisix-ingress-controller-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/apisix-ingress-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        apisix-ingress-controller version --long | grep -Fx 'Version: ${{package.version}}'
+        apisix-ingress-controller --help | grep -F -e '--config-path'
+        apk info --who-owns /usr/bin/apisix-ingress-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: apache/apisix-ingress-controller
+    tag-filter-prefix: "2.2."
