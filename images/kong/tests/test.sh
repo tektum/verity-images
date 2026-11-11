@@ -12,7 +12,7 @@ tmp=$(mktemp -d)
 chmod 755 "$tmp"
 
 cleanup() {
-  docker rm -f "$gateway" "$upstream" >/dev/null 2>&1 || true
+  docker rm -f "$gateway" "$upstream" "${bad:-}" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$tmp"
 }
@@ -52,10 +52,15 @@ services:
     routes: definitely-not-a-list
 EOF
 chmod 644 "$tmp/bad.yml"
-if docker run --rm --platform "$platform" -e KONG_DATABASE=off -e KONG_DECLARATIVE_CONFIG=/cfg/bad.yml \
-  -e KONG_NGINX_WORKER_PROCESSES=1 -v "$tmp:/cfg:ro" "$image" >"$tmp/bad.log" 2>&1; then
-  fail 'invalid declarative configuration unexpectedly succeeded'
-fi
+# Bounded: if kong ever accepted the file it would keep serving instead of exiting.
+bad="verity-kong-bad-$$"
+status=0
+timeout 60 docker run --name "$bad" --platform "$platform" -e KONG_DATABASE=off \
+  -e KONG_DECLARATIVE_CONFIG=/cfg/bad.yml -e KONG_NGINX_WORKER_PROCESSES=1 \
+  -v "$tmp:/cfg:ro" "$image" >"$tmp/bad.log" 2>&1 || status=$?
+docker rm -f "$bad" >/dev/null 2>&1 || true
+test "$status" != 124 || fail 'kong kept running with an invalid declarative configuration'
+test "$status" != 0 || fail 'invalid declarative configuration unexpectedly succeeded'
 grep -iE 'declarative|schema|invalid|error' "$tmp/bad.log" >/dev/null ||
   { cat "$tmp/bad.log" >&2; fail 'invalid declarative configuration diagnostic is missing'; }
 
