@@ -8,6 +8,8 @@ contents:
   packages:
     - ca-certificates-bundle
     - git
+    - go-1.27
+    - openssh-client
     - verity-goreleaser@local
 
 accounts:
@@ -30,6 +32,9 @@ environment:
   PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
   HOME: /home/goreleaser
+  GOPATH: /home/goreleaser/go
+  GOCACHE: /home/goreleaser/.cache/go-build
+  GOTOOLCHAIN: local
 
 paths:
   - path: /src
