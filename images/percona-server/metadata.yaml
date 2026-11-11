@@ -1,0 +1,9 @@
+name: percona-server
+track: wolfi
+description: Percona Server for MySQL LTS built from pinned upstream source with the docker-library entrypoint contract.
+category: Databases & Caching
+upstream: https://www.percona.com/mysql/software/percona-server-for-mysql
+versions: [8.4]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:percona:percona_server, cpe:2.3:a:oracle:mysql]
