@@ -42,7 +42,7 @@ if docker run --rm "$image" --list-sdks 2>&1 | grep -q '^[0-9]'; then fail 'an S
 
 # web.dll is a framework-dependent minimal API (built against net10.0; it runs on the 11 runtime through the net11.0 runtimeconfig), committed as base64 text so the test needs no SDK.
 # Regenerate: dotnet publish tests/fixture -c Release -o out && base64 -w0 out/web.dll > web.dll.b64
-# and copy out/web.runtimeconfig.json next to it.
+# and keep the committed net11.0 web.runtimeconfig.json (the published one targets net10.0 and would not start here).
 base64 -d "$here/web.dll.b64" > "$work/web.dll"
 cp "$here/web.runtimeconfig.json" "$work/web.runtimeconfig.json"
 chmod 644 "$work/web.dll" "$work/web.runtimeconfig.json"
