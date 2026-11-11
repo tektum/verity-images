@@ -33,7 +33,7 @@ trap 'rm -rf "$work"' EXIT INT TERM
 chmod 755 "$work"
 # hello.dll is a framework-dependent console app (built against net10.0; it runs on the 11 runtime through the net11.0 runtimeconfig), committed as base64 text so the test needs no SDK.
 # Regenerate: dotnet publish tests/fixture -c Release -o out && base64 -w0 out/hello.dll > hello.dll.b64
-# and copy out/hello.runtimeconfig.json next to it.
+# and keep the committed net11.0 hello.runtimeconfig.json (the published one targets net10.0 and would not start here).
 base64 -d "$here/hello.dll.b64" > "$work/hello.dll"
 cp "$here/hello.runtimeconfig.json" "$work/hello.runtimeconfig.json"
 chmod 644 "$work/hello.dll" "$work/hello.runtimeconfig.json"
