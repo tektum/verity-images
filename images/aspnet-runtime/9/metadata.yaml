@@ -1,0 +1,11 @@
+name: aspnet-runtime
+track: wolfi
+# yamllint disable-line rule:line-length
+description: ASP.NET Core runtime (Microsoft.AspNetCore.App with Microsoft.NETCore.App, no SDK) built from the pinned official Microsoft release binaries with per-architecture checksums. This stream is past upstream end of support; it ships the latest upstream patch release.
+category: Languages & Build Tools
+upstream: https://dotnet.microsoft.com/
+versions: [9.0]
+owner: tektum
+enabled: true
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-arm64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-arm64]

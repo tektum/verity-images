@@ -1,0 +1,76 @@
+package:
+  name: verity-aspnet-runtime-8
+  # yamllint disable-line rule:line-length
+  version: "8.0.34"  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>8)\.(?<minor>0)\.(?<patch>\d+)$
+  epoch: 0
+  description: ASP.NET Core 8 runtime and .NET 8 runtime from the pinned official Microsoft release archive.
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # Microsoft's documented runtime dependency set. ICU, OpenSSL and GSSAPI are loaded with dlopen,
+      # so the package cannot discover them as shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - wolfi-baselayout
+      - zlib
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - runs: |
+      # The sha512 values come from the official release metadata of this exact version:
+      # https://builds.dotnet.microsoft.com/dotnet/release-metadata/8.0/releases.json
+      # A version bump without matching checksums fails closed on the check below.
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=ecf5b14d8a7ec32a3662f131e74c40f9003534e98b24c682c07c0d68f653d08fb1d67c9b3497efdd3d2790179cbeda9fc80b1f88736964411719d94feada9533
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=347c0bf1e5c1e500c15a7e45bddd2f7a54aea1965b0aae187a5f0f21483e365d8dcadd1c6166916bcc88561ef59a808b09e0c0e8ca894e6f946df0ba668fb92e
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=aspnetcore-runtime-${{package.version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/${{package.version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      install -d \
+        "${{targets.destdir}}/usr/share/dotnet" \
+        "${{targets.destdir}}/usr/bin" \
+        "${{targets.destdir}}/usr/share/licenses/verity-aspnet-runtime-8"
+      tar -xzf "/tmp/$archive" -C "${{targets.destdir}}/usr/share/dotnet"
+      mv \
+        "${{targets.destdir}}/usr/share/dotnet/LICENSE.txt" \
+        "${{targets.destdir}}/usr/share/dotnet/ThirdPartyNotices.txt" \
+        "${{targets.destdir}}/usr/share/licenses/verity-aspnet-runtime-8/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi does not ship. It only loads
+      # when LTTng tracing is enabled explicitly, so it is dropped instead of pulling a tracing stack in.
+      rm -f "${{targets.destdir}}"/usr/share/dotnet/shared/Microsoft.NETCore.App/*/libcoreclrtraceptprovider.so
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
+
+test:
+  pipeline:
+    - runs: |
+        dotnet --list-runtimes | grep -q '^Microsoft.AspNetCore.App ${{package.version}} '
+        dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App ${{package.version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet

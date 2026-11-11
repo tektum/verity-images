@@ -1,0 +1,76 @@
+package:
+  name: verity-aspnet-runtime-10
+  # yamllint disable-line rule:line-length
+  version: "10.0.15"  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>10)\.(?<minor>0)\.(?<patch>\d+)$
+  epoch: 0
+  description: ASP.NET Core 10 runtime and .NET 10 runtime from the pinned official Microsoft release archive.
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # Microsoft's documented runtime dependency set. ICU, OpenSSL and GSSAPI are loaded with dlopen,
+      # so the package cannot discover them as shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - wolfi-baselayout
+      - zlib
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - runs: |
+      # The sha512 values come from the official release metadata of this exact version:
+      # https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
+      # A version bump without matching checksums fails closed on the check below.
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=704751c6d671b720935a18849e8f10cdb6938549e9cf25493050ebc838a95eb5cb1caa9936d2edae3b85c5975778ed926e9b736e3a2582d861411babba3229c3
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=1d82a6822871c0e750d2d3d3b9b27657d24a2083eb999c2f78b39b0cd10862178cb2c6d21f941579cd521baf5738a78d3378e5754c5895a93d7546135eb40ec6
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=aspnetcore-runtime-${{package.version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/${{package.version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      install -d \
+        "${{targets.destdir}}/usr/share/dotnet" \
+        "${{targets.destdir}}/usr/bin" \
+        "${{targets.destdir}}/usr/share/licenses/verity-aspnet-runtime-10"
+      tar -xzf "/tmp/$archive" -C "${{targets.destdir}}/usr/share/dotnet"
+      mv \
+        "${{targets.destdir}}/usr/share/dotnet/LICENSE.txt" \
+        "${{targets.destdir}}/usr/share/dotnet/ThirdPartyNotices.txt" \
+        "${{targets.destdir}}/usr/share/licenses/verity-aspnet-runtime-10/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi does not ship. It only loads
+      # when LTTng tracing is enabled explicitly, so it is dropped instead of pulling a tracing stack in.
+      rm -f "${{targets.destdir}}"/usr/share/dotnet/shared/Microsoft.NETCore.App/*/libcoreclrtraceptprovider.so
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
+
+test:
+  pipeline:
+    - runs: |
+        dotnet --list-runtimes | grep -q '^Microsoft.AspNetCore.App ${{package.version}} '
+        dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App ${{package.version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet
