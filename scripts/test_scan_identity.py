@@ -34,7 +34,9 @@ FROZEN_BASELINE: Final = frozenset(
 )
 # Images with no CPE, GHSA or OSV record for their main software: nothing can be declared without
 # inventing an identity. Immutable like FROZEN_BASELINE; adding an image here is a deliberate edit of this set.
-FROZEN_NO_FEED: Final = frozenset({"images/kubernetes-reflector", "images/sonar-scanner-cli"})
+FROZEN_NO_FEED: Final = frozenset(
+    {"images/kubernetes-reflector", "images/opensearch-dashboards", "images/sonar-scanner-cli"}
+)
 LOCAL_FILES: Final = ["/usr", "/usr/bin", "/usr/bin/tool"]
 
 

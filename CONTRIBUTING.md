@@ -124,7 +124,7 @@ for a missing or disabled image. Native coverage of an allowlisted image logs
 `no-feed` marks an image whose main software has no CPE (NVD), GHSA or OSV
 record, so no identity can be declared without inventing one. It is not a pending
 follow-up. For these images the gate covers dependencies and OS packages only,
-not the main software. Currently `kubernetes-reflector` and `sonar-scanner-cli`.
+not the main software. Currently `kubernetes-reflector`, `opensearch-dashboards` and `sonar-scanner-cli`.
 Adding another needs a deliberate edit of the immutable `FROZEN_NO_FEED` set in
 `scripts/test_scan_identity.py`, in a prerequisite pull request with the evidence
 that no feed exists; `FROZEN_BASELINE` is not touched. The allowlist file itself
