@@ -1,0 +1,9 @@
+name: apisix-ingress-controller
+track: wolfi
+description: Kubernetes ingress and Gateway API controller for Apache APISIX, built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/apache/apisix-ingress-controller
+versions: [2.2]
+scan-identity: [pkg:golang/github.com/apache/apisix-ingress-controller]
+owner: tektum
+enabled: true
