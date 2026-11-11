@@ -56,7 +56,10 @@ pipeline:
       grep -F 'throw std::bad_alloc()' build/_deps/jemalloc-src/src/jemalloc_cpp.cpp
       cmake --build build -j"$(nproc)" -t kvrocks
       install -Dm755 build/kvrocks "${{targets.destdir}}/usr/bin/kvrocks"
-      install -Dm644 kvrocks.conf "${{targets.destdir}}/var/lib/kvrocks/kvrocks.conf"
+      # Create the directory first: busybox install -D would give var/lib a mode
+      # the SBOM step cannot write into.
+      mkdir -p "${{targets.destdir}}/var/lib/kvrocks"
+      install -m644 kvrocks.conf "${{targets.destdir}}/var/lib/kvrocks/kvrocks.conf"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
       install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
   - uses: strip
