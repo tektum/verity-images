@@ -1,0 +1,9 @@
+name: trino
+track: wolfi
+description: Trino SQL query engine from the pinned upstream release, with a source-built launcher.
+category: Data & ML
+upstream: https://trino.io/
+versions: [484]
+scan-identity: [cpe:2.3:a:trino:trino, pkg:maven/io.trino/trino-main]
+owner: tektum
+enabled: true

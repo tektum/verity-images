@@ -1,0 +1,52 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - trino-484@local
+
+accounts:
+  groups:
+    - groupname: trino
+      gid: 1000
+  users:
+    - username: trino
+      uid: 1000
+      gid: 1000
+      homedir: /home/trino
+      shell: /bin/bash
+  run-as: 1000
+
+entrypoint:
+  command: /usr/lib/trino/bin/launcher
+
+cmd: run --etc-dir /etc/trino
+
+work-dir: /home/trino
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-25-openjdk
+  LANG: C.UTF-8
+  CATALOG_MANAGEMENT: static
+  PATH: /usr/lib/jvm/java-25-openjdk/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/trino
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /data/trino
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o1777

@@ -1,0 +1,193 @@
+package:
+  name: trino-484
+  # yamllint disable-line rule:line-length
+  version: "484"  # renovate: datasource=maven depName=io.trino:trino-main versioning=regex:^(?<major>\d+)$
+  epoch: 0
+  description: Trino distributed SQL query engine
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - curl
+      - glibc-locale-en
+      - less
+      - libstdc++
+      - openjdk-25-default-jvm
+      - gnutar
+      - zlib
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  # SHA-256 GitHub publishes for the trino-server-484.tar.gz release asset.
+  # yamllint disable-line rule:line-length
+  server-sha256: 4b2d05f2e52fcc156b2f137cabc886353e5dde782d12bf71e290ffc13463b81a
+  # SHA-256 GitHub publishes for the trino-cli-484 (executable jar) release asset.
+  # yamllint disable-line rule:line-length
+  cli-sha256: 9a4dc15cf68af58e05165cbf0b5de20fbeb8af0f5280cb43568ac9001aef9b4e
+  # The airlift launcher the release was built with (airlift 321); the Go
+  # binaries in the release are rebuilt here so they pick up a patched stdlib.
+  launcher-version: "321"
+  launcher-commit: 55cda05870182df2be6b7bb081989bbb4253611a
+  # Connectors that carry fixable advisories in their bundled libraries at this
+  # release (see the pull request). They are left out until a release clears them.
+  excluded-plugins: iceberg lakehouse ranger mariadb
+  # SHA-256 of the pinned upstream LICENSE and health-check at the 484 tag.
+  license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+  health-check-sha256: 537918f6a5e7cee2d37feb707d67bde83a8467b5058a13e16de4de65d27b9e1e
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - go-1.26
+      - python3
+
+pipeline:
+  - uses: fetch
+    with:
+      # yamllint disable-line rule:line-length
+      uri: https://github.com/trinodb/trino/releases/download/${{package.version}}/trino-server-${{package.version}}.tar.gz
+      expected-sha256: ${{vars.server-sha256}}
+      strip-components: 1
+  - uses: fetch
+    with:
+      uri: https://github.com/trinodb/trino/releases/download/${{package.version}}/trino-cli-${{package.version}}
+      expected-sha256: ${{vars.cli-sha256}}
+      extract: false
+  - uses: fetch
+    with:
+      uri: https://raw.githubusercontent.com/trinodb/trino/${{package.version}}/LICENSE
+      expected-sha256: ${{vars.license-sha256}}
+      extract: false
+  - uses: fetch
+    with:
+      uri: https://raw.githubusercontent.com/trinodb/trino/${{package.version}}/core/docker/bin/health-check
+      expected-sha256: ${{vars.health-check-sha256}}
+      extract: false
+  - uses: git-checkout
+    with:
+      repository: https://github.com/airlift/launcher
+      tag: ${{vars.launcher-version}}
+      expected-commit: ${{vars.launcher-commit}}
+      destination: launcher-src
+  - uses: go/remediate
+    with:
+      modroot: launcher-src/src/main/go
+      packages: .
+  - runs: |
+      set -eu
+      case "$(uname -m)" in
+        x86_64) goarch=amd64 ;;
+        aarch64) goarch=arm64 ;;
+        *) echo "unsupported architecture $(uname -m)" >&2; exit 1 ;;
+      esac
+      src=$(pwd)
+
+      # Rebuild the native launcher; the prebuilt one embeds an older Go stdlib.
+      (cd launcher-src/src/main/go && CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+        -ldflags="-s -w -extldflags=-static -X launcher/args.Version=${{vars.launcher-version}}" \
+        -o "$src/launcher.bin" .)
+
+      for plugin in ${{vars.excluded-plugins}}; do
+        rm -rf "plugin/$plugin"
+      done
+      # Only this architecture's launcher is shipped; the release also carries
+      # darwin and ppc64le Go binaries that this image never runs.
+      rm -rf bin/darwin-* bin/linux-ppc64le
+      for other in amd64 arm64; do
+        [ "$other" = "$goarch" ] || rm -rf "bin/linux-$other"
+      done
+      install -m755 launcher.bin "bin/linux-$goarch/launcher"
+
+      dest="${{targets.destdir}}/usr/lib/trino"
+      mkdir -p "$dest"
+      cp -a NOTICE README.txt bin lib plugin secrets-plugin "$dest/"
+      install -Dm755 "trino-cli-${{package.version}}" "${{targets.destdir}}/usr/bin/trino"
+      install -Dm755 health-check "$dest/bin/health-check"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      # The launcher checkout is build input only; removing it keeps the
+      # workspace free of directories the builder user cannot read.
+      rm -rf launcher-src
+
+      # Default single-node configuration, the same as the upstream container.
+      # The jvmkill agent is not shipped: -XX:+ExitOnOutOfMemoryError already
+      # ends the JVM on out-of-memory.
+      etc="${{targets.destdir}}/etc/trino"
+      mkdir -p "$etc/catalog"
+      cat >"$etc/config.properties" <<'EOF'
+      #single node install config
+      coordinator=true
+      node-scheduler.include-coordinator=true
+      discovery.uri=http://localhost:8080
+      catalog.management=${ENV:CATALOG_MANAGEMENT}
+      cache-manager.config-files=etc/cache-manager-memory.properties
+      EOF
+      cat >"$etc/jvm.config" <<'EOF'
+      -server
+      -XX:InitialRAMPercentage=80
+      -XX:MaxRAMPercentage=80
+      -XX:G1HeapRegionSize=32M
+      -XX:+ExplicitGCInvokesConcurrent
+      -XX:+HeapDumpOnOutOfMemoryError
+      -XX:+ExitOnOutOfMemoryError
+      -XX:-OmitStackTraceInFastThrow
+      -XX:ReservedCodeCacheSize=256M
+      -XX:PerMethodRecompilationCutoff=10000
+      -XX:PerBytecodeRecompilationCutoff=10000
+      -Djdk.attach.allowAttachSelf=true
+      -Djdk.nio.maxCachedBufferSize=2000000
+      EOF
+      cat >"$etc/node.properties" <<'EOF'
+      node.environment=docker
+      node.data-dir=/data/trino
+      node.id=${ENV:HOSTNAME}
+      EOF
+      cat >"$etc/log.properties" <<'EOF'
+      # Enable verbose logging from Trino
+      #io.trino=DEBUG
+      EOF
+      cat >"$etc/cache-manager-memory.properties" <<'EOF'
+      cache-manager.name=memory
+      fs.memory-cache.max-size=2GB
+      fs.memory-cache.ttl=24h
+      EOF
+      printf 'connector.name=jmx\n' >"$etc/catalog/jmx.properties"
+      printf 'connector.name=memory\n' >"$etc/catalog/memory.properties"
+      printf 'connector.name=tpcds\n' >"$etc/catalog/tpcds.properties"
+      printf 'connector.name=tpch\ntpch.splits-per-node=4\n' >"$etc/catalog/tpch.properties"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - openjdk-25-default-jvm
+  pipeline:
+    - runs: |
+        test -x /usr/lib/trino/bin/launcher
+        test -x /usr/lib/trino/bin/health-check
+        test -f /etc/trino/config.properties
+        test -d /usr/lib/trino/plugin/tpch
+        apk info --who-owns /usr/bin/trino | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        trino --version | grep -F "${{package.version}}"
+
+update:
+  enabled: true
+  github:
+    identifier: trinodb/trino
+    use-tag: true
