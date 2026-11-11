@@ -1,0 +1,41 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - cortex-1.21@local
+
+accounts:
+  groups:
+    - groupname: cortex
+      gid: 10001
+  users:
+    - username: cortex
+      uid: 10001
+      gid: 10001
+  run-as: 10001
+
+work-dir: /data
+
+entrypoint:
+  command: /usr/bin/cortex
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /data
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 10001
+    gid: 10001
+    permissions: 0o1777
