@@ -1,0 +1,48 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - kvrocks-2.17@local
+
+accounts:
+  groups:
+    - groupname: kvrocks
+      gid: 999
+  users:
+    - username: kvrocks
+      uid: 999
+      gid: 999
+  run-as: 999
+
+entrypoint:
+  # yamllint disable-line rule:line-length
+  command: /usr/bin/kvrocks -c /etc/kvrocks/kvrocks.conf --dir /var/lib/kvrocks --pidfile /var/run/kvrocks/kvrocks.pid --bind 0.0.0.0
+
+work-dir: /var/lib/kvrocks
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /etc/kvrocks
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+    recursive: true
+  - path: /var/lib/kvrocks
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755
+  - path: /var/run/kvrocks
+    type: directory
+    uid: 999
+    gid: 999
+    permissions: 0o755

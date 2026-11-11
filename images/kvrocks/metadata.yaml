@@ -1,0 +1,9 @@
+name: kvrocks
+track: wolfi
+description: Apache Kvrocks, a Redis-compatible store on RocksDB, built from pinned upstream source.
+category: Databases & Caching
+upstream: https://kvrocks.apache.org/
+versions: [2.17]
+scan-identity: [cpe:2.3:a:apache:kvrocks]
+owner: tektum
+enabled: true
