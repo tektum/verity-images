@@ -45,7 +45,7 @@ pipeline:
       # Upstream stamps the release version without the v prefix (see its justfile and release workflow).
       pkg=github.com/opencost/opencost/core/pkg/version
       go build -p 4 -mod=readonly -trimpath -buildvcs=true \
-        -ldflags="-s -w -X $pkg.Version=${{package.version}} -X $pkg.GitCommit=$(git rev-parse --short HEAD)" \
+        -ldflags="-s -w -X $pkg.Version=${{package.version}} -X $pkg.GitCommit=$(git rev-parse --short=7 HEAD)" \
         -o "${{targets.destdir}}/usr/bin/opencost" ./cmd/costmodel
       go version -m "${{targets.destdir}}/usr/bin/opencost" \
         | awk '$1 == "mod" && $2 == "github.com/opencost/opencost" { print $3 }' \

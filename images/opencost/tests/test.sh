@@ -63,7 +63,7 @@ if grep -F 'HTTP server starting' "$work/badport" >/dev/null; then
 fi
 
 # Kubernetes mode without a cluster must stop with a readable error, not hang or crash.
-if docker run --rm --network none --read-only "$image" --kubernetes-enabled \
+if timeout 60 docker run --rm --network none --read-only "$image" --kubernetes-enabled \
   >"$work/nokube" 2>&1; then
   fail 'kubernetes mode without a cluster unexpectedly succeeded'
 fi
