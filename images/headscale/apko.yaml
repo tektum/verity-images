@@ -1,0 +1,36 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-headscale-0.29@local
+
+accounts:
+  run-as: 65534
+
+entrypoint:
+  command: /usr/bin/headscale
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/headscale
+    type: directory
+    uid: 65534
+    gid: 65534
+    permissions: 0o755
+  - path: /var/lib/headscale
+    type: directory
+    uid: 65534
+    gid: 65534
+    permissions: 0o755
+  - path: /var/run/headscale
+    type: directory
+    uid: 65534
+    gid: 65534
+    permissions: 0o755
