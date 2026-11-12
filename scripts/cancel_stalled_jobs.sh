@@ -6,8 +6,13 @@ run_id=${RUN_ID:?RUN_ID is required}
 stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 now=$(date -u +%s)
 
-jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
-  jq '[.[].jobs[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))')
+# A transient API or parse failure must not abort the guard (any exit other than
+# 42 ends the caller's loop and leaves the run unguarded). Keep polling instead.
+if ! jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
+  jq '[.[] | (.jobs // [])[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))'); then
+  echo '::warning title=Stall guard::Could not list jobs; will retry on the next poll.'
+  exit 42
+fi
 
 # The caller only starts this script once matrix has produced at least one
 # image, so an empty result here means the API hasn't caught up with the
@@ -29,7 +34,7 @@ while IFS= read -r job; do
     pending=true
     continue
   fi
-  begun=$(jq -r '[.steps[] | select(.status != "queued")] | length' <<<"$job")
+  begun=$(jq -r '[(.steps // [])[] | select(.status != "queued")] | length' <<<"$job")
   if [[ "$begun" -gt 0 ]]; then
     pending=true
     continue

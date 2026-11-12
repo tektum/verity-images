@@ -95,6 +95,43 @@ if grep -q '/cancel' "$GH_LOG"; then
   exit 1
 fi
 
+# The jobs API returns "steps": null for a job that was just created or is still
+# waiting. That means no steps started: keep polling while young, cancel once old.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$fresh_started" \
+  '{jobs: [{id: 6, name: "publish (nats, images/nats, desc)", status: "queued", started_at: $started, steps: null}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
+[[ "$status" -eq 42 ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'a fresh job with null steps was cancelled\n' >&2
+  exit 1
+fi
+
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [{id: 7, name: "publish (nats, images/nats, desc)", status: "queued", started_at: $started, steps: null}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null || status=$?
+[[ "$status" -eq 1 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
+
+# A malformed API payload is retried (42), not fatal, and never cancels.
+JOBS_PAGE='not json'
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 42 ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'a malformed payload triggered a cancel\n' >&2
+  exit 1
+fi
+
 # No validate/publish jobs visible yet (API hasn't caught up with matrix's
 # output): treat as pending rather than declaring done prematurely.
 JOBS_PAGE=$(jq -n -c '{jobs: []}')
