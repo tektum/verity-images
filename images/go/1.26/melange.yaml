@@ -1,6 +1,6 @@
 package:
   name: verity-go-1.26
-  version: "1.26.10"  # renovate: datasource=golang-version depName=go
+  version: "1.26.11"  # renovate: datasource=golang-version depName=go
   epoch: 0
   description: Go toolchain packaged from the pinned upstream release archive
   target-architecture:
@@ -32,11 +32,11 @@ pipeline:
       case "${{build.arch}}" in
         x86_64)
           archive=go${{package.version}}.linux-amd64.tar.gz
-          sha256=ccfe7ae822d2c2f41f4fe7c956199967a4dac22d0ee0d2b2bfdb440aab3b20c5
+          sha256=9849f4e04ee35303714e34fbc3ac8ab44ea3e448a95aa182f91e3b9b79c710ec
           ;;
         aarch64)
           archive=go${{package.version}}.linux-arm64.tar.gz
-          sha256=3f4227ce7b206a513e794f1393adb473a07b46e94d18bd15d1c684bbb7319797
+          sha256=6c2f29b458b5add0835f18b776f69c8881a6d88428f1484a6da55755e620757e
           ;;
         *) exit 1 ;;
       esac
