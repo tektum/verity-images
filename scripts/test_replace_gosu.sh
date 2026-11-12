@@ -6,7 +6,7 @@ work=$(mktemp -d)
 trap 'rm -rf "$work"' 0
 mkdir -p "$work/bin" "$work/packages" "$work/archive/apk" "$work/repo/scripts" "$work/repo/packages"
 
-version=1.19-r3
+version=1.19-r4
 release_tag=apk-repo-v0006
 asset_name=verity-apk-repository.tar.zst
 tar_bin=$(command -v tar)
@@ -333,9 +333,9 @@ for consumer in $consumers; do
   [ -d "$root/patched/$consumer" ] || continue
   consumer_source="$root/patched/$consumer/source.yaml"
   grep -Fxq "gosu-version: $version" "$consumer_source"
-  grep -Fxq "gosu-amd64-sha256: 5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea" \
+  grep -Fxq "gosu-amd64-sha256: 14b4a2520611d860785096c0d9a59f6d3a0cfbe6b9421502653e8fa1b62ba6ff" \
     "$consumer_source"
-  grep -Fxq "gosu-arm64-sha256: f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69" \
+  grep -Fxq "gosu-arm64-sha256: 9c46abdbfdf93c2ea11b532bf9225d482dcb2b50accaf889a5f78beac4449a57" \
     "$consumer_source"
   [ "$(grep -c '^gosu-' "$consumer_source")" -eq 4 ]
 done
