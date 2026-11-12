@@ -1,9 +1,10 @@
 package:
   name: opa
-  version: "1.22.2"  # renovate: datasource=github-releases depName=open-policy-agent/opa
-  # Wolfi publishes opa-1.22.2-r1 as its fixed revision; r2 stays above it while
-  # go/remediate clears GO-2026-5932 in golang.org/x/crypto.
-  epoch: 2
+  version: "1.22.3"  # renovate: datasource=github-releases depName=open-policy-agent/opa
+  # Wolfi publishes opa-1.22.3-r0 as the fixed release for GO-2026-5932, so the
+  # local build must carry that upstream version; go/remediate stays for
+  # golang.org/x/crypto.
+  epoch: 0
   description: Open Policy Agent, a general-purpose policy engine
   copyright:
     - license: Apache-2.0
@@ -39,7 +40,7 @@ pipeline:
     with:
       repository: https://github.com/open-policy-agent/opa
       tag: v${{package.version}}
-      expected-commit: 482d9e368c2ddfed67ced59259fa6a247bb5f1e5
+      expected-commit: 32b01b6b3268531be9fb1c37be2c7788f6afc08e
 
   - uses: go/remediate
     with:
@@ -53,7 +54,7 @@ pipeline:
       go-package: go-1.27
       ldflags: |
         -X github.com/open-policy-agent/opa/v1/version.Version=${{package.version}}
-        -X github.com/open-policy-agent/opa/v1/version.Vcs=482d9e368c2ddfed67ced59259fa6a247bb5f1e5
+        -X github.com/open-policy-agent/opa/v1/version.Vcs=32b01b6b3268531be9fb1c37be2c7788f6afc08e
 
   - runs: |
       install -Dm644 LICENSE \
