@@ -120,13 +120,15 @@ PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null || stat
 [[ "$status" -eq 1 ]]
 grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
 
-# A malformed API payload is retried (42), not fatal, and never cancels.
+# A malformed API payload is retried briefly, then fails loudly (1, not 42, so
+# the caller stops instead of polling for hours) and never cancels.
+export LIST_JOBS_ATTEMPTS=2 LIST_JOBS_RETRY_SECONDS=0
 JOBS_PAGE='not json'
 export JOBS_PAGE
 : > "$GH_LOG"
 status=0
 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
-[[ "$status" -eq 42 ]]
+[[ "$status" -eq 1 ]]
 if grep -q '/cancel' "$GH_LOG"; then
   printf 'a malformed payload triggered a cancel\n' >&2
   exit 1

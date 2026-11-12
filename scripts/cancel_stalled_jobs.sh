@@ -6,13 +6,24 @@ run_id=${RUN_ID:?RUN_ID is required}
 stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 now=$(date -u +%s)
 
-# A transient API or parse failure must not abort the guard (any exit other than
-# 42 ends the caller's loop and leaves the run unguarded). Keep polling instead.
-if ! jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
-  jq '[.[] | (.jobs // [])[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))'); then
-  echo '::warning title=Stall guard::Could not list jobs; will retry on the next poll.'
-  exit 42
-fi
+# A transient API or parse failure must not abort the guard on the first try
+# (that leaves the run unguarded), but a permanent one (401/403/404, schema
+# error) must not poll for hours either: the caller retries 42 until the job
+# timeout while the run holds the concurrency group. Retry briefly in-process,
+# then fail loudly with a non-42 code.
+attempts=${LIST_JOBS_ATTEMPTS:-5}
+retry_seconds=${LIST_JOBS_RETRY_SECONDS:-10}
+for ((attempt = 1; ; attempt++)); do
+  if jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
+    jq '[.[] | (.jobs // [])[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))'); then
+    break
+  fi
+  if (( attempt >= attempts )); then
+    echo "::error title=Stall guard::Could not list jobs after ${attempts} attempts; failing instead of polling forever."
+    exit 1
+  fi
+  sleep "$retry_seconds"
+done
 
 # The caller only starts this script once matrix has produced at least one
 # image, so an empty result here means the API hasn't caught up with the
