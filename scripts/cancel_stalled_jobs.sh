@@ -4,7 +4,6 @@ set -euo pipefail
 repository=${REPOSITORY:?REPOSITORY is required}
 run_id=${RUN_ID:?RUN_ID is required}
 stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
-now=$(date -u +%s)
 
 # A transient API or parse failure must not abort the guard on the first try
 # (that leaves the run unguarded), but a permanent one (401/403/404, schema
@@ -34,6 +33,7 @@ if [[ "$(jq 'length' <<<"$jobs")" -eq 0 ]]; then
   exit 42
 fi
 
+now=$(date -u +%s)
 pending=false
 stalled=
 while IFS= read -r job; do
