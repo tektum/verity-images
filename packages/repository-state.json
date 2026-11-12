@@ -3,20 +3,20 @@
   "schemaVersion": 2,
   "repository": "tektum/verity-images",
   "release": {
-    "id": 438227684,
-    "tag": "apk-repo-v0013",
-    "targetCommit": "d629a8f83b201cf20cc01c617d67989480ff4611",
+    "id": 443021433,
+    "tag": "apk-repo-v0014",
+    "targetCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
     "immutable": true
   },
   "asset": {
-    "id": 723850390,
+    "id": 739691714,
     "name": "verity-apk-repository.tar.zst",
-    "sha256": "sha256:174d787dc2b87cfda60e32efcad537187b0ae0f8df3d704f67e144cc4872334e"
+    "sha256": "sha256:6947ccbe7e5ab30cb3c6af3f3ce259f606c6e1e5e21279f449646d93e95d6265"
   },
   "archive": {
     "root": "apk",
-    "sha256": "sha256:174d787dc2b87cfda60e32efcad537187b0ae0f8df3d704f67e144cc4872334e",
-    "manifestSha256": "cee2a17b084183575800e1bf5d8352072dc1b5e0c886dbed2593913e98a6d425",
+    "sha256": "sha256:6947ccbe7e5ab30cb3c6af3f3ce259f606c6e1e5e21279f449646d93e95d6265",
+    "manifestSha256": "547a579b26fa8f46dd011767119348d4457e699be1522356e1736a5d5159ddd7",
     "manifest": {
       "architectures": [
         "aarch64",
@@ -26,45 +26,45 @@
       "packages": [
         {
           "architecture": "aarch64",
-          "epoch": 3,
+          "epoch": 4,
           "name": "gosu",
           "origin": {
-            "buildArtifactId": 12413033374,
-            "buildArtifactSha256": "sha256:5d327661d54911e6e4bbcf3e1c6416c041cefee7c8bc9c0e76e20d795c81e806",
-            "buildRunId": 39749996564,
+            "buildArtifactId": 13950737984,
+            "buildArtifactSha256": "sha256:2de3fc6ce23885b1c33c126d32febae8fbb1290264bbcbcbb471e7840e71b36d",
+            "buildRunId": 43231979971,
             "buildWorkflowId": 325229076,
             "bundlePath": "bundles/gosu/aarch64.json",
-            "bundleSha256": "de87d5749ab7d0cdcab29f8e8d8f6db31950ac7dcbb123f72afb9eb001cc9ede",
-            "signingRunId": 39749996564,
+            "bundleSha256": "d642b6c04608123f45ae344f4fd14658bc5227388f9526f6edf00e77dd8e7a97",
+            "signingRunId": 43231979971,
             "signingWorkflowId": 325229076,
-            "sourceCommit": "478245f8e8253e916310e0aa3a8573134765b434",
+            "sourceCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
             "type": "attested-build",
-            "unsignedSha256": "6494b919fcc6006d00d7cd4be186015ec757248521d8c40b00938a9e98ac606d"
+            "unsignedSha256": "a6531454fb057363471b5c9e1d580d44e23e41ff876dde2909cf6bd882129795"
           },
-          "path": "aarch64/gosu-1.19-r3.apk",
-          "sha256": "3d4767368e5c28ebd35cc46d0cfcea8c18e3993d4eb4d2329c0e16e6dac0f6f6",
-          "version": "1.19-r3"
+          "path": "aarch64/gosu-1.19-r4.apk",
+          "sha256": "89d2b28f8e7fe08f62bd81869cc641d7e2f978c73c8f5efddf54512652c25508",
+          "version": "1.19-r4"
         },
         {
           "architecture": "x86_64",
-          "epoch": 3,
+          "epoch": 4,
           "name": "gosu",
           "origin": {
-            "buildArtifactId": 12412629018,
-            "buildArtifactSha256": "sha256:1dc0bf637ddc8836f6e46a31e9d02d1edc57073ab40a7ed244bbcb1899cfb538",
-            "buildRunId": 39749996564,
+            "buildArtifactId": 13951535343,
+            "buildArtifactSha256": "sha256:24aab57ab4952c4db53f1c384f1f56fb56543e507ed80eaa959fdeadb7951cbb",
+            "buildRunId": 43231979971,
             "buildWorkflowId": 325229076,
             "bundlePath": "bundles/gosu/x86_64.json",
-            "bundleSha256": "5cf62c14839b0da5a0ec25ce746a0ec006efc368ce0b5fc83c99353ffb077211",
-            "signingRunId": 39749996564,
+            "bundleSha256": "3deb542ad94a0cfb2d0ef05a434c82166452eb0e44f51b53a208fa7322e54682",
+            "signingRunId": 43231979971,
             "signingWorkflowId": 325229076,
-            "sourceCommit": "478245f8e8253e916310e0aa3a8573134765b434",
+            "sourceCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
             "type": "attested-build",
-            "unsignedSha256": "43872a1f98491eefe6af466bd164c149f01c32ba6c2a941c49edbc518e3c628a"
+            "unsignedSha256": "6044a96c7a39102b745eb6465d1944a5623fed5675c2aca72018b09dffbb0205"
           },
-          "path": "x86_64/gosu-1.19-r3.apk",
-          "sha256": "173c6d739f767faefa974412c6d6e66f9a51459e46fea43c540df1676f71d58f",
-          "version": "1.19-r3"
+          "path": "x86_64/gosu-1.19-r4.apk",
+          "sha256": "1ebd7bb179e51d8d048ca3ba7c326e9fcb2338ca203dbffff98edc31d26114cc",
+          "version": "1.19-r4"
         },
         {
           "architecture": "aarch64",
@@ -155,45 +155,45 @@
   "packages": [
     {
       "architecture": "aarch64",
-      "epoch": 3,
+      "epoch": 4,
       "name": "gosu",
       "origin": {
-        "buildArtifactId": 12413033374,
-        "buildArtifactSha256": "sha256:5d327661d54911e6e4bbcf3e1c6416c041cefee7c8bc9c0e76e20d795c81e806",
-        "buildRunId": 39749996564,
+        "buildArtifactId": 13950737984,
+        "buildArtifactSha256": "sha256:2de3fc6ce23885b1c33c126d32febae8fbb1290264bbcbcbb471e7840e71b36d",
+        "buildRunId": 43231979971,
         "buildWorkflowId": 325229076,
         "bundlePath": "bundles/gosu/aarch64.json",
-        "bundleSha256": "de87d5749ab7d0cdcab29f8e8d8f6db31950ac7dcbb123f72afb9eb001cc9ede",
-        "signingRunId": 39749996564,
+        "bundleSha256": "d642b6c04608123f45ae344f4fd14658bc5227388f9526f6edf00e77dd8e7a97",
+        "signingRunId": 43231979971,
         "signingWorkflowId": 325229076,
-        "sourceCommit": "478245f8e8253e916310e0aa3a8573134765b434",
+        "sourceCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
         "type": "attested-build",
-        "unsignedSha256": "6494b919fcc6006d00d7cd4be186015ec757248521d8c40b00938a9e98ac606d"
+        "unsignedSha256": "a6531454fb057363471b5c9e1d580d44e23e41ff876dde2909cf6bd882129795"
       },
-      "path": "aarch64/gosu-1.19-r3.apk",
-      "sha256": "3d4767368e5c28ebd35cc46d0cfcea8c18e3993d4eb4d2329c0e16e6dac0f6f6",
-      "version": "1.19-r3"
+      "path": "aarch64/gosu-1.19-r4.apk",
+      "sha256": "89d2b28f8e7fe08f62bd81869cc641d7e2f978c73c8f5efddf54512652c25508",
+      "version": "1.19-r4"
     },
     {
       "architecture": "x86_64",
-      "epoch": 3,
+      "epoch": 4,
       "name": "gosu",
       "origin": {
-        "buildArtifactId": 12412629018,
-        "buildArtifactSha256": "sha256:1dc0bf637ddc8836f6e46a31e9d02d1edc57073ab40a7ed244bbcb1899cfb538",
-        "buildRunId": 39749996564,
+        "buildArtifactId": 13951535343,
+        "buildArtifactSha256": "sha256:24aab57ab4952c4db53f1c384f1f56fb56543e507ed80eaa959fdeadb7951cbb",
+        "buildRunId": 43231979971,
         "buildWorkflowId": 325229076,
         "bundlePath": "bundles/gosu/x86_64.json",
-        "bundleSha256": "5cf62c14839b0da5a0ec25ce746a0ec006efc368ce0b5fc83c99353ffb077211",
-        "signingRunId": 39749996564,
+        "bundleSha256": "3deb542ad94a0cfb2d0ef05a434c82166452eb0e44f51b53a208fa7322e54682",
+        "signingRunId": 43231979971,
         "signingWorkflowId": 325229076,
-        "sourceCommit": "478245f8e8253e916310e0aa3a8573134765b434",
+        "sourceCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
         "type": "attested-build",
-        "unsignedSha256": "43872a1f98491eefe6af466bd164c149f01c32ba6c2a941c49edbc518e3c628a"
+        "unsignedSha256": "6044a96c7a39102b745eb6465d1944a5623fed5675c2aca72018b09dffbb0205"
       },
-      "path": "x86_64/gosu-1.19-r3.apk",
-      "sha256": "173c6d739f767faefa974412c6d6e66f9a51459e46fea43c540df1676f71d58f",
-      "version": "1.19-r3"
+      "path": "x86_64/gosu-1.19-r4.apk",
+      "sha256": "1ebd7bb179e51d8d048ca3ba7c326e9fcb2338ca203dbffff98edc31d26114cc",
+      "version": "1.19-r4"
     },
     {
       "architecture": "aarch64",

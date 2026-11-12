@@ -58,14 +58,14 @@ def valid_state() -> None:
     assert validate(candidate).returncode == 0
     assert candidate["schemaVersion"] == 2
     assert candidate["release"] == {
-        "id": 438227684,
-        "tag": "apk-repo-v0013",
-        "targetCommit": "d629a8f83b201cf20cc01c617d67989480ff4611",
+        "id": 443021433,
+        "tag": "apk-repo-v0014",
+        "targetCommit": "e8761441c6d211e03f48a1bb57af530bdaf547f8",
         "immutable": True,
     }
-    assert candidate["asset"]["id"] == 723850390
-    assert candidate["asset"]["sha256"] == "sha256:174d787dc2b87cfda60e32efcad537187b0ae0f8df3d704f67e144cc4872334e"
-    assert candidate["archive"]["manifestSha256"] == "cee2a17b084183575800e1bf5d8352072dc1b5e0c886dbed2593913e98a6d425"
+    assert candidate["asset"]["id"] == 739691714
+    assert candidate["asset"]["sha256"] == "sha256:6947ccbe7e5ab30cb3c6af3f3ce259f606c6e1e5e21279f449646d93e95d6265"
+    assert candidate["archive"]["manifestSha256"] == "547a579b26fa8f46dd011767119348d4457e699be1522356e1736a5d5159ddd7"
     assert candidate["key"] == {
         "path": "packages/keys/verity-apk-2026.rsa.pub",
         "fingerprint": "764c84bdcf9ca8530146da9976d4cac4b37ba961ad258d589e9a11fb05206698",
@@ -73,13 +73,13 @@ def valid_state() -> None:
     assert {(entry["architecture"], entry["name"], entry["version"], entry["epoch"], entry["path"], entry["sha256"]) for entry in candidate["packages"]} == {
         ("x86_64", "openssl-fips-provider", "3.1.2-r3", 3, "x86_64/openssl-fips-provider-3.1.2-r3.apk", "d5d67155c6689825d9eb9ec218adfafa017e88d11204d2e206b6e1c50125cb34"),
         ("aarch64", "openssl-fips-provider", "3.1.2-r3", 3, "aarch64/openssl-fips-provider-3.1.2-r3.apk", "d3479205b01250d98c9e167d467f4af6f839bddf591ce453b5d6fca9b68c294a"),
-        ("x86_64", "gosu", "1.19-r3", 3, "x86_64/gosu-1.19-r3.apk", "173c6d739f767faefa974412c6d6e66f9a51459e46fea43c540df1676f71d58f"),
-        ("aarch64", "gosu", "1.19-r3", 3, "aarch64/gosu-1.19-r3.apk", "3d4767368e5c28ebd35cc46d0cfcea8c18e3993d4eb4d2329c0e16e6dac0f6f6"),
+        ("x86_64", "gosu", "1.19-r4", 4, "x86_64/gosu-1.19-r4.apk", "1ebd7bb179e51d8d048ca3ba7c326e9fcb2338ca203dbffff98edc31d26114cc"),
+        ("aarch64", "gosu", "1.19-r4", 4, "aarch64/gosu-1.19-r4.apk", "89d2b28f8e7fe08f62bd81869cc641d7e2f978c73c8f5efddf54512652c25508"),
         ("x86_64", "verity-restic-0.18", "0.18.1-r8", 8, "x86_64/verity-restic-0.18-0.18.1-r8.apk", "74e97c8a0d89c47d2c31a1143e839a9d1d33414647b0b7340f2fada1fac5700d"),
         ("aarch64", "verity-restic-0.18", "0.18.1-r8", 8, "aarch64/verity-restic-0.18-0.18.1-r8.apk", "f7a45cb5ca18c93b32a5d55cd8d27062fedd02be649fcdf51d18b618f0bba48c"),
     }
     assert all(entry["origin"]["releaseTag"] == "apk-repo-v0002" for entry in candidate["packages"] if entry["name"] == "openssl-fips-provider")
-    assert all(entry["origin"]["sourceCommit"] == "478245f8e8253e916310e0aa3a8573134765b434" for entry in candidate["packages"] if entry["name"] == "gosu")
+    assert all(entry["origin"]["sourceCommit"] == "e8761441c6d211e03f48a1bb57af530bdaf547f8" for entry in candidate["packages"] if entry["name"] == "gosu")
     assert all(entry["origin"]["sourceCommit"] == "d629a8f83b201cf20cc01c617d67989480ff4611" for entry in candidate["packages"] if entry["name"] == "verity-restic-0.18")
 
 
