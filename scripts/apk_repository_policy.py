@@ -121,6 +121,24 @@ GOSU_REVISIONS: Final = {
             "aarch64": "f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69",
         },
     ),
+    "1.19-r4": (
+        (
+            b"vars:\n",
+            b"  go-version: go1.27.4\n",
+            b"  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n",
+            b"  x-sys-version: v0.44.0\n",
+            b"  moby-sys-user-version: v0.4.1\n",
+            b"expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n",
+            b"toolchain_sha256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840\n",
+            b"toolchain_sha256=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92\n",
+            b"expected=14b4a2520611d860785096c0d9a59f6d3a0cfbe6b9421502653e8fa1b62ba6ff\n",
+            b"expected=9c46abdbfdf93c2ea11b532bf9225d482dcb2b50accaf889a5f78beac4449a57\n",
+        ),
+        {
+            "x86_64": "14b4a2520611d860785096c0d9a59f6d3a0cfbe6b9421502653e8fa1b62ba6ff",
+            "aarch64": "9c46abdbfdf93c2ea11b532bf9225d482dcb2b50accaf889a5f78beac4449a57",
+        },
+    ),
 }
 GOSU_REQUIRED_FILES: Final = frozenset({"usr/bin/gosu"})
 GOSU_PAYLOAD_DIRECTORIES: Final = frozenset({"usr", "usr/bin", "var", "var/lib", "var/lib/db", "var/lib/db/sbom"})
