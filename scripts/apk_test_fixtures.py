@@ -48,6 +48,16 @@ GOSU_RECIPE_VARS = {
         "expected=5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea\n"
         "expected=f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69\n"
     ),
+    "1.19-r4": (
+        "vars:\n  go-version: go1.27.4\n  source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513\n"
+        "  x-sys-version: v0.44.0\n"
+        "  moby-sys-user-version: v0.4.1\n"
+        "expected-sha256: 33d7537d588ea49458b9509bcf4554bdf5ceacc66da71e5caa1058ea3b689c3b\n"
+        "toolchain_sha256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840\n"
+        "toolchain_sha256=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92\n"
+        "expected=14b4a2520611d860785096c0d9a59f6d3a0cfbe6b9421502653e8fa1b62ba6ff\n"
+        "expected=9c46abdbfdf93c2ea11b532bf9225d482dcb2b50accaf889a5f78beac4449a57\n"
+    ),
 }
 
 

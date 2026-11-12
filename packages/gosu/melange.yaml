@@ -1,7 +1,7 @@
 package:
   name: gosu
   version: "1.19"
-  epoch: 3
+  epoch: 4
   description: Deterministic gosu build with patched golang.org/x/sys and github.com/moby/sys/user
   target-architecture:
     - x86_64
@@ -11,7 +11,7 @@ package:
 
 vars:
   source-commit: 6456aaa0f3c854d199d0f037f068eb97515b7513
-  go-version: go1.27.3
+  go-version: go1.27.4
   x-sys-version: v0.44.0  # renovate: datasource=go depName=golang.org/x/sys
   moby-sys-user-version: v0.4.1  # renovate: datasource=go depName=github.com/moby/sys/user
 
@@ -38,13 +38,13 @@ pipeline:
       case "${{build.arch}}" in
         x86_64)
           toolchain=${{vars.go-version}}.linux-amd64.tar.gz
-          toolchain_sha256=65efbc80fdc1fa2cd2631cad5b481777a68e8725f34e89f50fc6ac714e379b40
-          expected=5361b0f18e47d19130845ab42e853b218414bfcb97c548c1cc26d284f83e8cea
+          toolchain_sha256=7226736c2339719cda28fbf3a54d71aa63bcefe376e98cef00034268dab24840
+          expected=14b4a2520611d860785096c0d9a59f6d3a0cfbe6b9421502653e8fa1b62ba6ff
           ;;
         aarch64)
           toolchain=${{vars.go-version}}.linux-arm64.tar.gz
-          toolchain_sha256=a06e99309dbcbdca1a8ccd2282c3ee146e55930886e26b4f1193269587165f49
-          expected=f7561674748c361e192375e5a0eddadd07f2683055431396c61a580004122f69
+          toolchain_sha256=3392582988a273a87ab5043ee1b2c9c17a2c3c00580bf9326c47a2e0aaaeac92
+          expected=9c46abdbfdf93c2ea11b532bf9225d482dcb2b50accaf889a5f78beac4449a57
           ;;
         *) exit 1 ;;
       esac
