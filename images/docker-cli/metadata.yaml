@@ -1,0 +1,8 @@
+name: docker-cli
+track: wolfi
+description: Docker command-line client only, without a daemon or plugins. Built from pinned upstream source.
+category: CI/CD & GitOps
+upstream: https://github.com/docker/cli
+versions: [29.9]
+owner: tektum
+enabled: true
