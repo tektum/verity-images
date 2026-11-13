@@ -1,0 +1,112 @@
+package:
+  name: verity-k9s
+  # yamllint disable-line rule:line-length
+  version: "0.51.0"  # renovate: datasource=github-releases depName=derailed/k9s extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes CLI to manage your clusters in style
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/derailed/k9s
+      tag: v${{package.version}}
+      expected-commit: 558caafe7ba067467de46b320cc22ef11fef9c34
+
+  # CVE-2026-19585 and CVE-2026-88922 in github.com/hashicorp/go-getter are not
+  # in the feeds go/remediate reads, and upstream v0.51.0 still requires v1.8.6.
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/hashicorp/go-getter)"
+      if awk -v have="$current" -v want=${{vars.go-getter-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get github.com/hashicorp/go-getter@${{vars.go-getter-floor}}
+      fi
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X github.com/derailed/k9s/cmd.version=v${{package.version}} \
+          -X github.com/derailed/k9s/cmd.commit=$commit \
+          -X github.com/derailed/k9s/cmd.date=$date" \
+        -o "${{targets.destdir}}/usr/bin/k9s" .
+      go version -m "${{targets.destdir}}/usr/bin/k9s" \
+        | awk '$1 == "mod" && $2 == "github.com/derailed/k9s" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the k9s build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/k9s-build/go.mod"
+          if [ -f go.sum ]; then
+            install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/k9s-build/go.sum"
+          fi
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        HOME=/tmp k9s version -s | grep -E '^Version[[:space:]]+v${{package.version}}$'
+        apk info --who-owns /usr/bin/k9s \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+
+update:
+  enabled: true
+  github:
+    identifier: derailed/k9s
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true
