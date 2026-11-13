@@ -157,14 +157,18 @@ scan-package: mosquitto
 
 The entries follow the rules above. There is no version to declare: before the
 gate scans and attests each platform SBOM, `scripts/trim_sbom.py` calls
-`scan_identity.apply_apko()`, which finds the opted-in image whose committed
-lock is byte-identical to the lock the build used and versions the identity from
-the `scan-package` apk in that SBOM. The `-rN` epoch is dropped, and a
+`scan_identity.apply_apko()`. It finds the pure APKO image built under that
+build name (`dist/NAME`, or `NAME-FLAVOR`) from a committed lock byte-identical
+to the lock the build used, and versions the identity from the `scan-package`
+apk in that SBOM. An undeclared image with the same build name and lock makes the
+build ambiguous and fails it, so an image never inherits another image's
+declaration. The `-rN` epoch is dropped, and a
 `_gitYYYYMMDD` snapshot suffix is versioned as the release it was cut after, so
 `3.12.16_git20261030-r0` scans as `3.12.16`. The identity therefore always
 matches the shipped package and moves with every lock refresh. `gen_matrix.py`
 rejects `scan-package` without `scan-identity`, on a melange image, when any
-committed `*apko.lock.json` of the image does not install it, or when its locked
+committed `*apko.lock.json` of the image does not install it on every
+architecture it locks, or when its locked
 version has another suffix (`_p1`, `_rc1`), which has no reliable upstream
 spelling. The build fails closed when the SBOM lists the package at a version the
 lock does not hold.

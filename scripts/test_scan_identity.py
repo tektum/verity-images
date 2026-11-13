@@ -443,6 +443,50 @@ def check_apko_identity() -> None:
         assert image.sbom.read_bytes() == before
         (image.sbom.parent.parent / "apko.lock.json").unlink()
         assert image.apply() is None
+    with TemporaryDirectory() as directory:
+        # The lock alone does not name the image: another build name with the same lock is not this image.
+        image = ApkoImage(Path(directory))
+        (image.root / "dist/tool").rename(image.root / "dist/other")
+        image.sbom = image.root / "dist/other/sbom/sbom-amd64.spdx.json"
+        before = image.sbom.read_bytes()
+        assert image.apply() is None
+        assert image.sbom.read_bytes() == before
+    with TemporaryDirectory() as directory:
+        # An undeclared image built under the same name from a byte-identical lock never inherits the
+        # declaration: the build is ambiguous and fails closed.
+        image = ApkoImage(Path(directory))
+        twin = image.root / "images/tool-twin"
+        twin.mkdir()
+        for name in ("apko.yaml", "apko.lock.json"):
+            (twin / name).write_bytes((image.context / name).read_bytes())
+        (twin / "metadata.yaml").write_text(
+            image.metadata.read_text(encoding="utf-8").replace(APKO_DECLARED, ""), encoding="utf-8"
+        )
+        original = scan_identity.ROOT
+        scan_identity.ROOT = image.root.resolve()
+        try:
+            scan_identity.apply_apko(image.sbom, [image.context, twin])
+        except scan_identity.CoverageError as error:
+            assert "do not declare the same scan identity" in str(error), error
+        else:
+            raise AssertionError("an undeclared twin received the declaration")
+        finally:
+            scan_identity.ROOT = original
+    with TemporaryDirectory() as directory:
+        # A flavor with its own APKO config builds as NAME-FLAVOR from its own lock.
+        image = ApkoImage(Path(directory))
+        image.metadata.write_text(image.metadata.read_text(encoding="utf-8") + "flavors: [plain, fips]\n", encoding="utf-8")
+        (image.context / "fips.apko.yaml").write_text("contents:\n  packages:\n    - tool\n", encoding="utf-8")
+        fips_lock = apko_lock(tool="1.2.4-r0", glibc="2.42-r6")
+        (image.context / "fips.apko.lock.json").write_text(fips_lock, encoding="utf-8")
+        build = image.root / "dist/tool-fips"
+        (build / "sbom").mkdir(parents=True)
+        (build / "apko.lock.json").write_text(fips_lock, encoding="utf-8")
+        document = sbom_fixture()
+        document["packages"] = [apk_package("tool", "1.2.4-r0")]
+        image.sbom = build / "sbom/sbom-amd64.spdx.json"
+        image.sbom.write_text(json.dumps(document), encoding="utf-8")
+        assert "at 1.2.4 (tool 1.2.4-r0)" in str(image.apply())
     for shipped, message in (("1.2.3-r5", "does not lock"), ("", "expected one version")):
         with TemporaryDirectory() as directory:
             image = ApkoImage(Path(directory), shipped=shipped)
@@ -480,6 +524,12 @@ def check_apko_metadata_validation() -> None:
     assert "only valid with scan-identity" in rejected("scan-package: tool\n")
     assert "only N-rN and N_gitDATE-rN" in rejected(APKO_DECLARED, locked="9.9_p1-r0")
     assert "is not installed by fips.apko.lock.json" in rejected(APKO_DECLARED, extra={"fips.apko.lock.json": apko_lock(glibc="2.42-r6")})
+    one_arch = json.dumps({"contents": {"packages": [
+        {"name": "tool", "architecture": "x86_64", "version": "1.2.3-r4"},
+        {"name": "glibc", "architecture": "x86_64", "version": "2.42-r6"},
+        {"name": "glibc", "architecture": "aarch64", "version": "2.42-r6"},
+    ]}})
+    assert "is not installed by fips.apko.lock.json for aarch64" in rejected(APKO_DECLARED, extra={"fips.apko.lock.json": one_arch})
     melange = {"melange.yaml": "package:\n  name: tool\n  version: 1.2.3\n"}
     assert "melange.yaml versions the identity" in rejected(APKO_DECLARED, extra=melange)
     assert "requires an image-local melange.yaml" in rejected(APKO_DECLARED, extra={"fips.melange.yaml": "package:\n"})
@@ -490,6 +540,8 @@ def check_apko_pipeline_contract() -> None:
     build = (gen_matrix.ROOT / "scripts/build_candidate.sh").read_text(encoding="utf-8")
     assert 'output="dist/${build_name}"' in build
     assert 'cp "$lockfile" "${output}/apko.lock.json"' in build
+    assert 'lockfile="${context}/apko.lock.json"' in build
+    assert 'lockfile="${context}/${flavor}.apko.lock.json"' in build
     assert '"spdx-json=${output}/sbom/sbom-${arch}.spdx.json"' in build
     action = (gen_matrix.ROOT / ".github/actions/publish-image/action.yaml").read_text(encoding="utf-8")
     trim = action.index("python3 scripts/trim_sbom.py")

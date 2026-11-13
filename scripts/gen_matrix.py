@@ -312,31 +312,35 @@ def apk_upstream_version(version: str) -> str | None:
     return match.group(1) if match else None
 
 
-def locked_versions(lock: Path, package: str) -> dict[str, str]:
-    """Architecture -> APK version of one package in an apko lock."""
+def lock_entries(lock: Path) -> list[tuple[str, str, str]]:
+    """(name, architecture, APK version) of every package an apko lock installs."""
     try:
         entries = json.loads(lock.read_text(encoding="utf-8"))["contents"]["packages"]
-        return {str(entry["architecture"]): str(entry["version"]) for entry in entries if entry["name"] == package}
+        return [(str(entry["name"]), str(entry["architecture"]), str(entry["version"])) for entry in entries]
     except (OSError, ValueError, KeyError, TypeError) as error:
         raise MetadataError(f"{lock}: unreadable apko lock: {error!r}") from error
 
 
+def locked_versions(lock: Path, package: str) -> dict[str, str]:
+    """Architecture -> APK version of one package in an apko lock."""
+    return {architecture: version for name, architecture, version in lock_entries(lock) if name == package}
+
+
 def check_scan_package(path: Path, package: str) -> None:
-    """Every committed lock of a pure APKO image installs the scan package at a version with an upstream part."""
+    """Every committed lock installs the scan package on each of its architectures, at a scannable version."""
     locks = sorted(path.parent.glob("*apko.lock.json"))
     if not locks:
         raise MetadataError(f"{path}: scan-package {package} needs a committed apko.lock.json")
     for lock in locks:
         versions = locked_versions(lock, package)
-        if not versions:
-            raise MetadataError(f"{path}: scan-package {package} is not installed by {lock.name}")
+        if missing := sorted({architecture for _, architecture, _ in lock_entries(lock)} - versions.keys()):
+            raise MetadataError(f"{path}: scan-package {package} is not installed by {lock.name} for {', '.join(missing)}")
         for architecture, version in sorted(versions.items()):
             if apk_upstream_version(version) is None:
                 raise MetadataError(
                     f"{path}: {lock.name} locks {package} {version} ({architecture}); only N-rN and N_gitDATE-rN "
                     "APK versions have an upstream version to scan"
                 )
-
 
 
 def channel_version(declared: str, source: str, path: Path) -> str:

@@ -227,21 +227,38 @@ def apk_versions(sbom: dict, package: str) -> set[str]:
     }
 
 
+def built_variants(directory: Path, metadata: gen_matrix.Metadata) -> list[tuple[str, Path]]:
+    """(build name, committed lock) per flavor, chosen as scripts/build_candidate.sh and gen_matrix.py choose them."""
+    variants = []
+    for flavor in metadata.flavors:
+        lock = directory / "apko.lock.json"
+        if flavor != "plain" and (directory / f"{flavor}.apko.yaml").is_file():
+            lock = directory / f"{flavor}.apko.lock.json"
+        variants.append((metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}", lock))
+    return variants
+
+
 def apko_declaration(lock: Path, directories: list[Path]) -> tuple[Path, gen_matrix.Metadata] | None:
-    """The opted-in pure APKO image whose committed lock is byte-identical to the lock a build used."""
-    built = lock.read_bytes()
-    found = [
-        (directory, metadata)
-        for directory in directories
-        if gen_matrix.is_pure_apko(directory)
-        and any(candidate.read_bytes() == built for candidate in directory.glob("*apko.lock.json"))
-        for metadata in (gen_matrix.parse_metadata(directory / "metadata.yaml"),)
-        if metadata.scan_package
-    ]
+    """The opted-in pure APKO image built into dist/BUILD/ from a committed lock byte-identical to BUILD's lock.
+
+    Every pure APKO variant with that build name and lock is a candidate, declared or not, so an image that
+    did not opt in never receives another image's identity: candidates that disagree fail closed.
+    """
+    build, built = lock.parent.name, lock.read_bytes()
+    found = []
+    for directory in directories:
+        if not gen_matrix.is_pure_apko(directory):
+            continue
+        metadata = gen_matrix.parse_metadata(directory / "metadata.yaml")
+        if any(
+            name == build and candidate.is_file() and candidate.read_bytes() == built
+            for name, candidate in built_variants(directory, metadata)
+        ):
+            found.append((directory, metadata))
     if len({(metadata.scan_identity, metadata.scan_package) for _, metadata in found}) > 1:
         names = ", ".join(relative_context(directory) for directory, _ in found)
-        raise CoverageError(f"{lock}: matches the locks of {names}, which declare different scan identities")
-    return found[0] if found else None
+        raise CoverageError(f"{lock}: built as {build} by {names}, which do not declare the same scan identity")
+    return found[0] if found and found[0][1].scan_package else None
 
 
 def apply_apko(sbom_path: Path, directories: list[Path] | None = None) -> str | None:
