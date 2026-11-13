@@ -1,0 +1,73 @@
+package:
+  name: verity-ripgrep
+  # yamllint disable-line rule:line-length
+  version: "15.2.0"  # renovate: datasource=github-releases depName=BurntSushi/ripgrep
+  epoch: 0
+  description: Recursively searches directories for a regex pattern while respecting gitignore rules
+  copyright:
+    - license: Unlicense OR MIT
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - glibc-2.44-dev
+      - pcre2-dev
+      - pkgconf
+      - rust-1.99
+  environment:
+    # Link the Wolfi libpcre2-8 instead of the copy vendored by pcre2-sys, so
+    # the scanner sees the PCRE2 library through its apk record.
+    PCRE2_SYS_STATIC: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/BurntSushi/ripgrep
+      tag: ${{package.version}}
+      expected-commit: e89fff89ac9af12e8d4ce9d5fd07beb408ca730f
+
+  - uses: cargo/remediate
+    with:
+      features: pcre2
+
+  - runs: |
+      cargo auditable build --release --locked --features pcre2
+      install -Dm755 target/release/rg "${{targets.destdir}}/usr/bin/rg"
+      install -Dm644 LICENSE-MIT \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-MIT"
+      install -Dm644 UNLICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/UNLICENSE"
+      rm -rf .cargo
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        rg --version | sed -n 1p | grep -F 'ripgrep ${{package.version}} '
+        rg --version | grep -Fx 'features:+pcre2'
+        printf 'foo=bar\n' | rg -P '(?<=foo=)\w+' -o | grep -Fx bar
+        apk info --who-owns /usr/bin/rg \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+
+update:
+  enabled: true
+  github:
+    identifier: BurntSushi/ripgrep
+    use-tag: true
