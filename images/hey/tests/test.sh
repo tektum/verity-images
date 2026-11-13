@@ -75,6 +75,13 @@ docker run --rm --network none "$image" >"$work/usage" 2>&1 || rc=$?
 test "$rc" -ne 0 || fail 'missing URL unexpectedly succeeded'
 grep -F 'Usage: hey [options...] <url>' "$work/usage" >/dev/null || fail 'usage text is missing'
 
+# Negative: an unknown flag exits non-zero with a diagnostic.
+rc=0
+docker run --rm --network none "$image" --no-such-flag >"$work/flag" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'unknown flag unexpectedly succeeded'
+grep -F 'flag provided but not defined: -no-such-flag' "$work/flag" >/dev/null ||
+  fail "unknown flag diagnostic is missing: $(cat "$work/flag")"
+
 # 20 GET requests over 4 workers: summary and an all-200 status distribution.
 run -n 20 -c 4 -H 'X-Smoke: get' "http://127.0.0.1:$port/ok" >"$work/get" ||
   fail 'GET run failed'
