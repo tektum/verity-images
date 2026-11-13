@@ -1,0 +1,88 @@
+package:
+  name: proxysql
+  # 3.0.10 and later carry 396c742f, the zlib decompressed-length check for
+  # MySQL compressed packets (GHSA-fvch-fpgq-pwfx). Upstream tags the same
+  # commits as v3.1.x and v4.0.x for builds with PROXYSQL31/PROXYSQL40; this
+  # recipe builds the default 3.0 feature set, so Renovate tracks v3.0.x only.
+  # yamllint disable-line rule:line-length
+  version: "3.0.12"  # renovate: datasource=github-tags depName=sysown/proxysql versioning=regex:^(?<major>3)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: High-performance MySQL and PostgreSQL proxy built from pinned upstream source
+  copyright:
+    - license: GPL-3.0-or-later
+  resources:
+    cpu: "16"
+    memory: 32Gi
+  test-resources:
+    cpu: "1"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - bison
+      - build-base
+      - busybox
+      - bzip2
+      - cmake-3
+      - flex
+      - gawk
+      - git
+      - gnutls-dev
+      - grep
+      - icu
+      - icu-dev
+      - jemalloc-dev
+      - libevent-dev
+      - libgcrypt-dev
+      - libtool
+      - m4
+      - openssl
+      - openssl-dev
+      - patch
+      - perl
+      - pkgconf-dev
+      - posix-libc-utils
+      - python3
+      - util-linux-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sysown/proxysql
+      tag: v${{package.version}}
+      expected-commit: e2f317aba4e2ce06acfbab05920dc446a602cb40
+
+  # The bundled dependencies, including the statically linked OpenSSL, come
+  # from tarballs pinned in the checked-out tree. Wolfi's GCC defaults to
+  # -fno-delete-null-pointer-checks, under which a function address is not a
+  # constant expression and the bundled abseil fails to compile
+  # (hash_policy_traits.h get_hash_slot_fn() == nullptr). WASAN is the only
+  # flag hook shared by abseil, re2, lib and src, the C++ code that includes
+  # abseil; the C dependencies keep the Wolfi default.
+  - runs: |
+      make -j"$(nproc)" GIT_VERSION=${{package.version}}-r${{package.epoch}} \
+        WASAN=-fdelete-null-pointer-checks
+
+  - runs: |
+      mkdir -p ${{targets.destdir}}/usr/bin ${{targets.destdir}}/etc
+      install -m 0755 src/proxysql ${{targets.destdir}}/usr/bin/proxysql
+      install -m 0644 etc/proxysql.cnf ${{targets.destdir}}/etc/proxysql.cnf
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        proxysql --help >/dev/null
+        proxysql --version 2>&1 | grep -F 'ProxySQL version ${{package.version}}-r${{package.epoch}}'

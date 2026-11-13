@@ -25,6 +25,18 @@ trap cleanup EXIT INT TERM
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/proxysql"]' ] || fail 'unexpected image entrypoint'
 [ "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = '["-f"]' ] || fail 'unexpected image command'
 
+# 3.0.10 is the first 3.0.x release with the zlib decompressed-length check
+# for MySQL compressed packets (GHSA-fvch-fpgq-pwfx).
+version=$(docker run --rm "$image" --version 2>&1 |
+  sed -n 's/^ProxySQL version \([0-9][0-9]*\)\.\([0-9][0-9]*\)\.\([0-9][0-9]*\).*/\1 \2 \3/p' |
+  sed -n 1p)
+[ -n "$version" ] || fail 'cannot read ProxySQL version'
+# shellcheck disable=SC2086 # split "major minor patch" into positionals
+set -- $version
+if [ "$1" -lt 3 ] || { [ "$1" -eq 3 ] && [ "$2" -eq 0 ] && [ "$3" -lt 10 ]; }; then
+  fail "ProxySQL $1.$2.$3 predates the 3.0.10 security floor"
+fi
+
 # A classic Docker image store cannot bind the index digest to a second
 # platform's image, so pull the fixture by its own per-platform child digest.
 # The index bytes are verified against the pinned digest before a child is
@@ -75,11 +87,13 @@ docker run --name "$backend" --network "$network" --network-alias backend -d \
   -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=verity \
   -e MARIADB_USER=verity -e MARIADB_PASSWORD=verity "$fixture" >/dev/null
 
+# The fixture initializes its datadir with a temporary socket-only server and
+# then restarts; on the arm64 validation runner that takes more than 30s.
 i=0
 until docker run --rm --network "$network" "$fixture" \
   mariadb-admin ping -h backend -u root -proot --silent >/dev/null 2>&1; do
   i=$((i + 1))
-  [ "$i" -lt 30 ] || { docker logs "$backend" >&2; fail 'MariaDB fixture did not become ready'; }
+  [ "$i" -lt 120 ] || { docker logs "$backend" >&2; fail 'MariaDB fixture did not become ready'; }
   sleep 1
 done
 
