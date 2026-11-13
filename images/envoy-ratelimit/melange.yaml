@@ -1,0 +1,97 @@
+package:
+  name: verity-envoy-ratelimit
+  # Upstream publishes no releases (the last tag, v1.4.0, is from 2020) and
+  # ships every main commit as an image tagged by commit. The version is the
+  # UTC commit date of the pinned main commit in vars.source-commit.
+  version: "2026.11.11"
+  epoch: 0
+  description: Envoy global rate limit service (gRPC and HTTP JSON) backed by Redis or Memcached
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: ba4615b82df20fc1212c3825fdf74f325b2897b5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/envoyproxy/ratelimit
+      branch: main
+      depth: -1
+      expected-commit: ${{vars.source-commit}}
+
+  - runs: |
+      # The version must be the pinned commit's UTC date.
+      test "$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y.%m.%d)" = '${{package.version}}'
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./src/service_cmd
+
+  - runs: |
+      # Same package and flags as the upstream Dockerfile. With the full history
+      # Go stamps the main module with the pseudo-version of the pinned commit
+      # (v1.4.1-0.<date>-<commit>), which Grype matches against GHSA.
+      bin="${{targets.destdir}}/usr/bin/ratelimit"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "$bin" ./src/service_cmd
+      short=$(printf '%s' '${{vars.source-commit}}' | cut -c1-12)
+      mod=$(go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/envoyproxy/ratelimit" { print $3 }')
+      printf '%s\n' "$mod" | grep -Ex "v[0-9]+\.[0-9]+\.[0-9]+-0\.[0-9]{14}-$short(\+dirty)?" ||
+        { echo "unexpected main module version '$mod'" >&2; exit 1; }
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the envoy ratelimit build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/envoy-ratelimit-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/envoy-ratelimit-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -x /usr/bin/ratelimit
+        apk info --who-owns /usr/bin/ratelimit \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
