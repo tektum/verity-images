@@ -6,3 +6,5 @@ upstream: https://getcomposer.org/
 versions: [2.11.1]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:getcomposer:composer, pkg:composer/composer/composer]
+scan-package: composer
