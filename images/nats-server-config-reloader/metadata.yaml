@@ -1,0 +1,8 @@
+name: nats-server-config-reloader
+track: wolfi
+description: Sidecar that signals a NATS server to reload on config file changes, built from pinned upstream source.
+category: Messaging & Streaming
+upstream: https://github.com/nats-io/nack/tree/main/cmd/nats-server-config-reloader
+versions: [0.25]
+owner: tektum
+enabled: true
