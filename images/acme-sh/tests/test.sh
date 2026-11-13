@@ -45,6 +45,10 @@ grep -Fqx "DEFAULT_ACME_SERVER='https://acme-v02.api.letsencrypt.org/directory'"
 info=$(acme --info)
 printf '%s\n' "$info" | grep -Fqx 'LE_WORKING_DIR=/usr/share/acme.sh' || fail "unexpected --info: $info"
 
+# The default nonroot user can write the image's own config home.
+docker run --rm --network none "$image" --set-default-ca --server letsencrypt >/dev/null \
+  || fail 'nonroot 65532 cannot write the default config home /acme.sh'
+
 # Offline key and CSR generation through the bundled openssl.
 acme --create-domain-key -d example.test --keylength ec-256 >/dev/null
 acme --create-csr -d example.test -d www.example.test --keylength ec-256 >/dev/null
