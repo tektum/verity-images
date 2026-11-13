@@ -60,6 +60,10 @@ cat >"$work/site/templates/index.html" <<'HTML'
 <footer>{{ config.title }}</footer>
 HTML
 
+# docker cp keeps host modes (files become root-owned), so make the fixture
+# readable by uid 65532 regardless of the host umask.
+chmod -R a+rX "$work/site"
+
 # Copy the fixture into the container instead of bind-mounting it, so the
 # build runs as the image user on its own /work and the host never has to
 # delete files owned by uid 65532.
