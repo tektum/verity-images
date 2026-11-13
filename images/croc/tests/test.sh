@@ -8,20 +8,22 @@ id=$$
 network="verity-croc-$id"
 relay="verity-croc-relay-$id"
 sender="verity-croc-send-$id"
+sender2="verity-croc-send2-$id"
 work=$(mktemp -d)
 pass=relay-pass-$id
 code=4821-verity-smoke-$id
+code2=4821-verity-second-$id
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
-  for c in "$relay" "$sender"; do
+  for c in "$relay" "$sender" "$sender2"; do
     docker logs "$c" 2>&1 | tail -n 20 >&2 || true
   done
   exit 1
 }
 
 cleanup() {
-  docker rm -f "$relay" "$sender" >/dev/null 2>&1 || true
+  docker rm -f "$relay" "$sender" "$sender2" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -84,16 +86,8 @@ until docker logs "$sender" 2>&1 | grep -F "code=$code" >/dev/null; do
   sleep 1
 done
 
-# A receiver with the wrong code must fail and must not write the file.
-rc=0
-docker run --rm --network "$network" --read-only --cap-drop=ALL --tmpfs /tmp:rw,mode=1777 --tmpfs /home/nonroot:rw,uid=65532,gid=65532 \
-  -v "$work/wrong:/work" -e CROC_SECRET="9999-wrong-code-$id" "$image" \
-  --relay "$relay:9009" --pass "$pass" --yes --no-update-check >"$work/wrong.log" 2>&1 || rc=$?
-test "$rc" -ne 0 || fail 'receiver with a wrong code unexpectedly succeeded'
-test ! -e "$work/wrong/payload.bin" || fail 'receiver with a wrong code wrote the file'
-grep -F 'Receiving' "$work/wrong.log" >/dev/null && fail 'receiver with a wrong code started a transfer'
-
-docker run --rm --network "$network" --read-only --cap-drop=ALL --tmpfs /tmp:rw,mode=1777 --tmpfs /home/nonroot:rw,uid=65532,gid=65532 \
+# The receiver runs with the image's own writable root and /home/nonroot.
+docker run --rm --network "$network" --cap-drop=ALL \
   -v "$work/out:/work" -e CROC_SECRET="$code" "$image" \
   --relay "$relay:9009" --pass "$pass" --yes --no-update-check --overwrite >"$work/recv.log" 2>&1 ||
   fail "receive failed: $(cat "$work/recv.log")"
@@ -103,6 +97,27 @@ test "$got" = "$want" || fail "checksum mismatch: got $got want $want"
 
 code_rc=$(docker wait "$sender")
 test "$code_rc" -eq 0 || fail "sender exit code $code_rc"
+
+# A receiver with a wrong code in the same relay room (croc picks the room from
+# the first four characters) must fail and must not write the file. A failed
+# handshake aborts the sender, so this case uses its own sender.
+docker run -d --name "$sender2" --network "$network" --read-only --cap-drop=ALL \
+  --tmpfs /tmp:rw,mode=1777 --tmpfs /home/nonroot:rw,uid=65532,gid=65532 -v "$work/in:/in:ro" -e CROC_SECRET="$code2" "$image" \
+  --relay "$relay:9009" --pass "$pass" --yes --no-update-check send --no-local /in/payload.bin >/dev/null
+i=0
+until docker logs "$sender2" 2>&1 | grep -F "code=$code2" >/dev/null; do
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || fail 'second sender did not register with the relay'
+  sleep 1
+done
+rc=0
+docker run --rm --network "$network" --read-only --cap-drop=ALL --tmpfs /tmp:rw,mode=1777 --tmpfs /home/nonroot:rw,uid=65532,gid=65532 \
+  -v "$work/wrong:/work" -e CROC_SECRET="4821-wrong-code-$id" "$image" \
+  --relay "$relay:9009" --pass "$pass" --yes --no-update-check >"$work/wrong.log" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'receiver with a wrong code unexpectedly succeeded'
+test ! -e "$work/wrong/payload.bin" || fail 'receiver with a wrong code wrote the file'
+grep -F 'Receiving' "$work/wrong.log" >/dev/null && fail 'receiver with a wrong code started a transfer'
+docker rm -f "$sender2" >/dev/null 2>&1 || true
 
 # The relay keeps serving after the transfer and stops cleanly on SIGTERM.
 docker inspect --format '{{.State.Running}}' "$relay" | grep -Fx true >/dev/null ||
