@@ -410,16 +410,18 @@ def cached_images(path: Path | None, max_age: timedelta) -> dict[tuple[str, str]
     return cached
 
 
-def published_identities(path: Path | None) -> set[tuple[str, str]]:
-    """Every name and version the published catalog already carries, at any age."""
+def published_identities(path: Path | None) -> dict[tuple[str, str], str | None]:
+    """Every name and version the published catalog already carries, at any age, with its input digest."""
     if path is None:
-        return set()
+        return {}
     document = json.loads(path.read_text(encoding="utf-8"))
     images = document.get("images")
     if not isinstance(images, list):
         raise MetadataError(f"{path}: catalog images must be an array")
     return {
-        (image["name"], image["version"])
+        (image["name"], image["version"]): (
+            image["inputDigest"] if isinstance(image.get("inputDigest"), str) else None
+        )
         for image in images
         if isinstance(image, dict) and isinstance(image.get("name"), str) and isinstance(image.get("version"), str)
     }
@@ -526,6 +528,16 @@ def generate(
                 continue
             fingerprint = input_digest(directory, flavor)
             if cached.get((metadata.name, tag_version)) == fingerprint and remediation_target != target:
+                continue
+            # A trusted main build already published these exact inputs, so the changed-image
+            # delta has nothing left to build for this stream, even if the run that built it
+            # did not fully succeed. Freshness rebuilds stay with the age-bounded `--catalog`.
+            # SCAN_IDENTITY_PATHS are not part of the input digest, so their sample always builds.
+            if (
+                published.get((metadata.name, tag_version)) == fingerprint
+                and remediation_target != target
+                and not (scan_identity_changed and relative == SCAN_IDENTITY_SAMPLE)
+            ):
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
             is_latest = version == latest[metadata.name]
