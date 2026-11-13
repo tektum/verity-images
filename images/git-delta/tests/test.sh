@@ -69,4 +69,22 @@ docker run --rm -i --network none "$image" --no-gitconfig --paging=never \
   --zero-style=normal <"$fixture" >"$work/plain" 2>&1 || fail 'plain styles failed'
 cmp -s "$fixture" "$work/plain" || fail 'plain styled output differs from the input'
 
+# Two-file mode: delta diffs mounted files itself through `diff -u` in /work.
+mkdir -p "$work/files"
+printf 'hello\nold line\n' >"$work/files/a.txt"
+printf 'hello\nnew line\n' >"$work/files/b.txt"
+chmod 0755 "$work/files"
+chmod 0644 "$work/files/a.txt" "$work/files/b.txt"
+rc=0
+docker run --rm --network none --read-only --cap-drop=ALL -v "$work/files:/work:ro" "$image" \
+  --no-gitconfig --paging=never --color-only --features= a.txt b.txt >"$work/files.out" 2>&1 || rc=$?
+test "$rc" -eq 1 || fail "two-file diff exit code $rc, want 1: $(cat "$work/files.out")"
+sed "s/${esc}\[[0-9;]*[mK]//g" "$work/files.out" >"$work/files.plain"
+grep -Fx -e '-old line' "$work/files.plain" >/dev/null || fail "two-file diff misses the removed line: $(cat "$work/files.plain")"
+grep -Fx -e '+new line' "$work/files.plain" >/dev/null || fail 'two-file diff misses the added line'
+rc=0
+docker run --rm --network none --read-only --cap-drop=ALL -v "$work/files:/work:ro" "$image" \
+  --no-gitconfig --paging=never a.txt a.txt >"$work/same.out" 2>&1 || rc=$?
+test "$rc" -eq 0 || fail "identical files exit code $rc, want 0: $(cat "$work/same.out")"
+
 printf 'SMOKE PASS image=%s\n' "$image"

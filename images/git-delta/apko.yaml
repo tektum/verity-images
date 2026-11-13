@@ -5,6 +5,8 @@ contents:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
   packages:
     - delta=0.20.1-r3
+    # delta runs `diff -u` for its two-file mode (`delta a b`).
+    - diffutils=3.12-r10
 
 accounts:
   groups:

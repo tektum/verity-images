@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/git-delta/apko.yaml",
-    "checksum": "sha256-p1OTDPm1UWuOiqUFLE173Xn/mffBwMaxJyOaMx5pHok="
+    "checksum": "sha256-Ho1M4iv9O2FXJGSf9kcITDb4zfFp9zGboCSz4DuNiPw="
   },
   "contents": {
     "keyring": [
@@ -161,6 +161,25 @@
         "checksum": "Q1xjgho+El0Rc17kRx/WFeN5HmNh0="
       },
       {
+        "name": "diffutils",
+        "url": "https://packages.wolfi.dev/os/x86_64/diffutils-3.12-r10.apk",
+        "version": "3.12-r10",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17489",
+          "checksum": "sha1-jJwgJ0FdLl8KAt+5GzDoirTtEYE="
+        },
+        "data": {
+          "range": "bytes=17490-192603",
+          "checksum": "sha256-uc+gFxVKSM5UP27Mtv004keyTawCwtdXA15mzo5fMPw="
+        },
+        "checksum": "Q1jJwgJ0FdLl8KAt+5GzDoirTtEYE="
+      },
+      {
         "name": "wolfi-baselayout",
         "url": "https://packages.wolfi.dev/os/aarch64/wolfi-baselayout-20230201-r31.apk",
         "version": "20230201-r31",
@@ -292,6 +311,25 @@
           "checksum": "sha256-xmAilFfEzxJJ6SUBW9bFCW8/M+ZdG8ASHbHtoGrsx18="
         },
         "checksum": "Q1rpnyHqVdpTg3yxlpb+oIrV+TxFI="
+      },
+      {
+        "name": "diffutils",
+        "url": "https://packages.wolfi.dev/os/aarch64/diffutils-3.12-r10.apk",
+        "version": "3.12-r10",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-17524",
+          "checksum": "sha1-WrI9vUInX+usKWh9nun1r+GER6g="
+        },
+        "data": {
+          "range": "bytes=17525-190791",
+          "checksum": "sha256-0mAkjspLuLQg4AfD/fDRG9N68+UMV+3acDHyALt2bvI="
+        },
+        "checksum": "Q1WrI9vUInX+usKWh9nun1r+GER6g="
       }
     ]
   }
