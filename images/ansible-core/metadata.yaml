@@ -6,3 +6,5 @@ upstream: https://github.com/ansible/ansible
 versions: [2.22]
 owner: tektum
 enabled: true
+scan-identity: [pkg:pypi/ansible-core]
+scan-package: py3.13-ansible-core
