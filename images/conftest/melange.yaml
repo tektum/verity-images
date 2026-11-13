@@ -1,0 +1,112 @@
+package:
+  name: verity-conftest
+  # yamllint disable-line rule:line-length
+  version: "0.71.1"  # renovate: datasource=github-releases depName=open-policy-agent/conftest versioning=regex:^(?<major>0)\.(?<minor>71)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Test structured configuration data using Open Policy Agent Rego policies
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - git
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 8f7ac015cb51d81992f2ffbe2b0c1451fd05d1c5
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/open-policy-agent/conftest
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # CVE-2026-19585 (GHSA-86f4-5vj6-9fg3) is not in the feeds go/remediate reads,
+  # and upstream v0.71.1 still requires go-getter v1.8.9.
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/hashicorp/go-getter)"
+      if awk -v have="$current" -v want=${{vars.go-getter-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get github.com/hashicorp/go-getter@${{vars.go-getter-floor}}
+      fi
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/open-policy-agent/conftest/internal/version.Version=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/conftest" .
+      go version -m "${{targets.destdir}}/usr/bin/conftest" \
+        | awk '$1 == "mod" && $2 == "github.com/open-policy-agent/conftest" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/conftest" --version | grep -Fx 'Conftest: ${{package.version}}'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the conftest build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/conftest-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/conftest-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        conftest --version | grep -Fx 'Conftest: ${{package.version}}'
+        conftest --help >/dev/null
+        apk info --who-owns /usr/bin/conftest \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: open-policy-agent/conftest
+    strip-prefix: v
+    tag-filter-prefix: v0.71.
+    use-tag: true

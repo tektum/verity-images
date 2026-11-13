@@ -1,0 +1,9 @@
+name: conftest
+track: wolfi
+description: Tests structured configuration files against Rego policies, built from pinned upstream source.
+category: Policy & Compliance
+upstream: https://github.com/open-policy-agent/conftest
+versions: [0.71]
+flavors: [plain]
+owner: tektum
+enabled: true
