@@ -1,0 +1,94 @@
+package:
+  name: verity-vault-k8s
+  # yamllint disable-line rule:line-length
+  version: "1.7.7"  # renovate: datasource=github-releases depName=hashicorp/vault-k8s versioning=regex:^(?<major>1)\.(?<minor>7)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Vault Agent Injector mutating admission webhook for Kubernetes
+  copyright:
+    - license: MPL-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 82c261c9829b3d28edb8028050f13ee625f4db01
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/hashicorp/vault-k8s
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/hashicorp/vault-k8s/version.Version=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/vault-k8s" .
+      go version -m "${{targets.destdir}}/usr/bin/vault-k8s" \
+        | awk '$1 == "mod" && $2 == "github.com/hashicorp/vault-k8s" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      test "$("${{targets.destdir}}/usr/bin/vault-k8s" version)" = 'vault-k8s v${{package.version}}'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the vault-k8s build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/vault-k8s-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/vault-k8s-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test "$(vault-k8s version)" = 'vault-k8s v${{package.version}}'
+        apk info --who-owns /usr/bin/vault-k8s \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MPL-2.0
+        grep -F 'Mozilla Public License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: hashicorp/vault-k8s
+    strip-prefix: v
+    tag-filter-prefix: v1.7.
+    use-tag: true
