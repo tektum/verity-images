@@ -1314,6 +1314,7 @@ def main() -> None:
     assert 'if [[ "$run_id" == "$explicit_run_id" ]]; then\n              deferrable=\n' in discovery_step
     assert "::notice title=Build run deferred::" in discovery_step
     assert discovery_step.count("failed identity validation: %s.") == 2
+    assert '"$updated_at" > "$hold_after"' in discovery_step
     assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
     assert 'run_attempt' in discovery_step
     assert 'consumedRuns: .' in discovery_step

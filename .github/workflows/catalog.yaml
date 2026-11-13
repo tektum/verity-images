@@ -227,6 +227,9 @@ jobs:
           # attempt never gains artifacts, so a run becomes consumable afterwards
           # only by completing an attempt later, which puts updated_at past
           # publishedAt; the margin covers artifact listings that lag completion.
+          # A run deferred for a commit newer than the checkout completed no more
+          # than the margin before publishedAt (see the candidate loop below), so
+          # it is listed again.
           # Older unconsumed runs (failed or cancelled without a build report) are
           # skipped instead of costing one artifacts call each on every catalog run.
           # Such a later attempt was created at most one build duration earlier
@@ -315,8 +318,15 @@ jobs:
           fi
 
           : > "$RUNNER_TEMP/reconciliation.ndjson"
+          # publishedAt becomes the completion of the newest consumed candidate,
+          # and later discovery lists only runs completed since publishedAt minus
+          # the margin. Once a candidate is deferred, hold back non-explicit
+          # candidates completed more than the margin after it, so the deferred
+          # run stays listed even if its own catalog run is replaced while pending.
+          hold_after=
           while IFS= read -r metadata; do
             run_id=$(jq -r .id <<<"$metadata")
+            updated_at=$(jq -r .updated_at <<<"$metadata")
             # The explicit run was validated above and is never deferred.
             deferrable=defer
             if [[ "$run_id" == "$explicit_run_id" ]]; then
@@ -325,11 +335,21 @@ jobs:
             identity=0
             validate_terminal "$metadata" "$deferrable" || identity=$?
             if [[ "$identity" -eq 3 && "$deferrable" == defer ]]; then
+              if [[ -z "$hold_after" ]]; then
+                hold_after=$(jq -rn --arg at "$updated_at" --argjson margin "$DISCOVERY_MARGIN_SECONDS" \
+                  '$at | fromdateiso8601 + $margin | todateiso8601')
+              fi
               continue
             elif [[ "$identity" -ne 0 ]]; then
               printf '::error title=Catalog not updated::Run %s failed validation (status %s).\n' \
                 "$run_id" "$identity"
               exit 1
+            fi
+            if [[ -n "$hold_after" && "$deferrable" == defer && "$updated_at" > "$hold_after" ]]; then
+              printf '::notice title=Build run deferred::Run %s completed after %s, %s; %s.\n' \
+                "$run_id" "$hold_after" "past the margin after a deferred run" \
+                "a later catalog run will consume it"
+              continue
             fi
             artifacts=$(gh_api --paginate \
               "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp)

@@ -301,18 +301,28 @@ def main() -> None:
         ).stdout.strip()
         queued = run(106, created=PUBLISHED + hours(1), updated=PUBLISHED + hours(5), head_sha=newer)
         unfetched = run(107, created=PUBLISHED + hours(2), updated=PUBLISHED + hours(6), head_sha="f" * 40)
-        race_artifacts = {**artifacts, "106": consumable(106), "107": consumable(107)}
+        # Completed within the margin after the first deferred run: consumed.
+        near = run(112, created=PUBLISHED + hours(3), updated=PUBLISHED + hours(11), head_sha=head)
+        # Completed past the margin after it: held back, so publishedAt stays
+        # close enough for the next bounded discovery to list the deferred run.
+        late = run(111, created=PUBLISHED + hours(4), updated=PUBLISHED + hours(12), head_sha=head)
+        race_artifacts = {
+            **artifacts, **{str(number): consumable(number) for number in (106, 107, 111, 112)}
+        }
         consumed, calls, stdout = discover(
-            work, [*small, queued, unfetched], race_artifacts, previous=previous, event_run=103
+            work, [*small, queued, unfetched, near, late], race_artifacts, previous=previous, event_run=103
         )
-        assert consumed == [(104, 1), (102, 1), (103, 1)], consumed
+        assert consumed == [(104, 1), (102, 1), (103, 1), (112, 1)], consumed
         for deferred in ("106", "107"):
             assert f"::notice title=Build run deferred::Run {deferred}: commit " in stdout, stdout
             assert not any(f"/runs/{deferred}/" in call for call in calls), calls
         assert f"{newer} is not an ancestor of HEAD {head}" in stdout, stdout
         assert f"{'f' * 40} is not in the checkout at HEAD {head}" in stdout, stdout
+        assert "::notice title=Build run deferred::Run 111 completed after 2026-11-10T23:00:00Z" in stdout, stdout
+        assert not any("/runs/111/" in call for call in calls), calls
         ledger = json.loads((work / "catalog-source.json").read_text(encoding="utf-8"))
-        assert ledger["consumedRuns"] == {"100": 1, "102": 1, "103": 1, "104": 1}, ledger
+        assert ledger["consumedRuns"] == {"100": 1, "102": 1, "103": 1, "104": 1, "112": 1}, ledger
+        assert ledger["runId"] == "112", ledger
 
         # The explicit run is never deferred: a run newer than the checkout that
         # triggered this catalog run fails it.
@@ -321,14 +331,16 @@ def main() -> None:
         )
         assert f"::error title=Catalog not updated::Run 106 failed identity validation: commit {newer}" in stdout
 
-        # The later catalog run triggered by the deferred build's completion
-        # checks out its commit and consumes it from the ledger left above.
+        # A later catalog run at a HEAD that contains the deferred commit (here
+        # the one triggered by the held-back build, as if the deferred build's
+        # own catalog run was replaced while pending) still lists the deferred
+        # run within the margin and consumes it from the ledger left above.
         subprocess.run([*git, "reset", "-q", newer], check=True)
-        follow_up = {"publishedAt": iso(PUBLISHED + hours(2)), "source": ledger}
+        follow_up = {"publishedAt": near["updated_at"], "source": ledger}
         consumed, _, stdout = discover(
-            work, [*small, queued], race_artifacts, previous=follow_up, event_run=106
+            work, [*small, queued, near, late], race_artifacts, previous=follow_up, event_run=111
         )
-        assert consumed == [(106, 1)], consumed
+        assert consumed == [(106, 1), (111, 1)], consumed
         assert "deferred" not in stdout, stdout
         subprocess.run([*git, "reset", "-q", head], check=True)
 
