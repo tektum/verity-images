@@ -48,7 +48,7 @@ base="http://127.0.0.1:$port"
 
 ready=
 for _ in $(seq 1 60); do
-  if curl -fsS "$base/readyz" >/dev/null 2>&1; then
+  if curl -fsS --connect-timeout 1 --max-time 5 "$base/readyz" >/dev/null 2>&1; then
     ready=1
     break
   fi
@@ -56,21 +56,21 @@ for _ in $(seq 1 60); do
 done
 test -n "$ready" || fail 'podinfo did not become ready on :9898'
 
-health=$(curl -fsS "$base/healthz")
+health=$(curl -fsS --connect-timeout 1 --max-time 5 "$base/healthz")
 printf '%s\n' "$health" | tr -d ' \n' | grep -Fq '"status":"OK"' \
   || fail "unexpected /healthz body: $health"
 
-info=$(curl -fsS "$base/version")
+info=$(curl -fsS --connect-timeout 1 --max-time 5 "$base/version")
 printf '%s\n' "$info" | tr -d ' \n' | grep -Fq "\"version\":\"$version\"" \
   || fail "unexpected /version body: $info"
 printf '%s\n' "$info" | tr -d ' \n' | grep -Eq '"commit":"[0-9a-f]{40}"' \
   || fail "missing source commit in /version: $info"
 
 # Browsers get the UI template rendered from /home/app/ui.
-curl -fsS -A 'Mozilla/5.0' "$base/" | grep -Fq '<title>' \
+curl -fsS --connect-timeout 1 --max-time 5 -A 'Mozilla/5.0' "$base/" | grep -Fq '<title>' \
   || fail 'UI was not served from /home/app/ui'
 # /artifact serves a tarball of the bundled /home/app/kustomize manifests.
-curl -fsS -o /dev/null "$base/artifact" || fail '/artifact was not served'
+curl -fsS --connect-timeout 1 --max-time 5 -o /dev/null "$base/artifact" || fail '/artifact was not served'
 
 # SIGTERM must shut the server down cleanly.
 docker stop -t 30 "$name" >/dev/null
