@@ -96,12 +96,15 @@ docker stop -t 10 "$container" >/dev/null
   fail 'opa-envoy did not exit cleanly on SIGTERM'
 docker rm "$container" >/dev/null
 
-if docker run --rm "$image" run --server \
+# A server that wrongly accepts the configuration would keep running, so bound
+# the run and keep it named for cleanup; exit status 124 is a failure.
+status=0
+timeout 60 docker run --name "$container" --rm "$image" run --server \
   --set=plugins.envoy_ext_authz_grpc.path=envoy/authz/allow \
   --set=plugins.envoy_ext_authz_grpc.query=data.envoy.authz.allow \
-  >"$tmp/invalid.log" 2>&1; then
-  fail 'conflicting ext_authz plugin configuration unexpectedly succeeded'
-fi
+  >"$tmp/invalid.log" 2>&1 || status=$?
+[ "$status" -ne 0 ] || fail 'conflicting ext_authz plugin configuration unexpectedly succeeded'
+[ "$status" -ne 124 ] || fail 'conflicting ext_authz plugin configuration did not exit'
 grep -F 'specify a value for only the "path" field' "$tmp/invalid.log" >/dev/null || {
   cat "$tmp/invalid.log" >&2
   fail 'invalid plugin configuration error is not readable'
