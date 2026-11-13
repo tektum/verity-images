@@ -1,0 +1,9 @@
+name: envoy-ratelimit
+track: wolfi
+description: Envoy global rate limit service (gRPC and HTTP JSON) backed by Redis, built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/envoyproxy/ratelimit
+versions: [2026.11.11]
+flavors: [plain]
+owner: tektum
+enabled: true
