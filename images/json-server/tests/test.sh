@@ -60,8 +60,10 @@ chmod 666 "$work/data/db.json" "$work/bad/db.json"
 
 # Negative: a malformed database exits non-zero with a readable error.
 rc=0
-docker run --rm --network none -v "$work/bad:/data" "$image" >"$work/malformed" 2>&1 || rc=$?
-test "$rc" -ne 0 || fail 'malformed database unexpectedly started'
+timeout 30 docker run --rm --name "$server-bad" --network none -v "$work/bad:/data" "$image" \
+  >"$work/malformed" 2>&1 || rc=$?
+docker rm -f "$server-bad" >/dev/null 2>&1 || true
+{ test "$rc" -ne 0 && test "$rc" -ne 124; } || fail 'malformed database unexpectedly started'
 grep -F 'Malformed JSON in file: db.json' "$work/malformed" >/dev/null ||
   fail "malformed database diagnostic is missing: $(cat "$work/malformed")"
 
