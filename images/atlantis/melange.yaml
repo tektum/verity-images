@@ -163,7 +163,12 @@ pipeline:
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/conftest/LICENSE"
       install -Dm644 third_party/git-lfs/LICENSE.md \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/git-lfs/LICENSE.md"
-      # The bundled tool checkouts are build inputs only.
+      # Keep the bundled tools' resolved module files for the build-metadata
+      # subpackage; the checkouts themselves are build inputs only.
+      for tool in conftest git-lfs; do
+        install -Dm644 "third_party/$tool/go.mod" ".verity-$tool/go.mod"
+        install -Dm644 "third_party/$tool/go.sum" ".verity-$tool/go.sum"
+      done
       rm -rf third_party
 
   - uses: strip
@@ -175,6 +180,12 @@ subpackages:
       - runs: |
           install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/atlantis-build/go.mod"
           install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/atlantis-build/go.sum"
+          for tool in conftest git-lfs; do
+            install -Dm644 ".verity-$tool/go.mod" \
+              "${{targets.subpkgdir}}/usr/share/atlantis-build/$tool/go.mod"
+            install -Dm644 ".verity-$tool/go.sum" \
+              "${{targets.subpkgdir}}/usr/share/atlantis-build/$tool/go.sum"
+          done
 
 test:
   environment:
