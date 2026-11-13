@@ -102,6 +102,14 @@ if run --url "$url" --no-dump-schema up >"$work/broken.log" 2>&1; then
   fail 'a broken migration was accepted'
 fi
 grep -qi 'syntax error' "$work/broken.log" || fail "unexpected broken-migration error: $(cat "$work/broken.log")"
+out=$(docker run --rm --label "$label" --network none --entrypoint /usr/bin/sqlite3 \
+  -v "$work/project:/work" "$image" /work/db/app.sqlite3 \
+  "SELECT count(*) FROM schema_migrations WHERE version = '20260103000000';")
+test "$out" = 0 || fail "the failed migration was recorded as applied: $out"
+out=$(docker run --rm --label "$label" --network none --entrypoint /usr/bin/sqlite3 \
+  -v "$work/project:/work" "$image" /work/db/app.sqlite3 \
+  "SELECT count(*) FROM sqlite_master WHERE name = 'broken';")
+test "$out" = 0 || fail "the failed migration left a broken table: $out"
 
 # Dump clients for the other supported databases are present.
 docker run --rm --label "$label" --network none --entrypoint /usr/bin/pg_dump "$image" --version |
