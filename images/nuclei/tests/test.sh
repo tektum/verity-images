@@ -105,6 +105,12 @@ test "$rc" -ne 0 || fail 'invalid template unexpectedly validated'
 grep -F 'Invalid matcher type: nosuchmatcher' "$work/invalid" >/dev/null ||
   fail "invalid template diagnostic is missing: $(cat "$work/invalid")"
 
+rc=0
+run none -no-such-flag >"$work/flag" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'unknown flag unexpectedly succeeded'
+grep -F 'flag provided but not defined: -no-such-flag' "$work/flag" >/dev/null ||
+  fail "unknown flag diagnostic is missing: $(cat "$work/flag")"
+
 # Target fixture: a loopback server that exposes /banner and nothing else.
 cat >"$work/server.py" <<'PY'
 import http.server
