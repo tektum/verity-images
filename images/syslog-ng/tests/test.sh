@@ -27,7 +27,7 @@ test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" =
   fail 'unexpected entrypoint'
 
 docker run --rm --network none "$image" --version >"$work/version" || fail 'syslog-ng --version failed'
-grep -E '^Installer-Version: 4\.[0-9]+\.[0-9]+$' "$work/version" >/dev/null || fail 'version output is missing'
+grep -E '^Installer-Version: 4\.12\.[0-9]+$' "$work/version" >/dev/null || fail 'unexpected syslog-ng version'
 for module in afsocket affile json-plugin; do
   grep -E "^Available-Modules: .*\b$module\b" "$work/version" >/dev/null || fail "module $module is missing"
 done
@@ -57,12 +57,14 @@ grep -F 'Error parsing config' "$work/broken.log" >/dev/null || fail 'broken con
 # Negative: the image ships no configuration at the documented path, so a bare start must fail.
 # Bound the run: a regression that ships a usable default would otherwise serve forever.
 bare_status=0
-timeout 30 docker run --rm --name "$container" --network none "$image" >/dev/null 2>&1 || bare_status=$?
+timeout 30 docker run --rm --name "$container" --network none "$image" >"$work/bare.log" 2>&1 || bare_status=$?
 docker rm -f "$container" >/dev/null 2>&1 || true
 case "$bare_status" in
   0) fail 'syslog-ng started without a mounted configuration' ;;
   124) fail 'syslog-ng started without a mounted configuration (still running after 30s)' ;;
 esac
+grep -F "Error opening configuration file; filename='/etc/syslog-ng/syslog-ng.conf'" "$work/bare.log" >/dev/null ||
+  fail 'bare start did not fail on the missing configuration file'
 
 docker run -d --name "$container" --read-only \
   -v "$work/syslog-ng.conf:/etc/syslog-ng/syslog-ng.conf:ro" \
