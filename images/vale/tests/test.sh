@@ -72,9 +72,12 @@ docker run --rm --network none --read-only -v "$work/docs:/work:ro" "$image" \
   fail "linting good.md failed: $(cat "$work/good.out")"
 test ! -s "$work/good.out" || fail "clean file produced alerts: $(cat "$work/good.out")"
 
+# Lint the clean file so a nonzero exit can only come from the config error.
 rc=0
 docker run --rm --network none --read-only -v "$work/docs:/work:ro" "$image" \
-  --config=missing.ini bad.md >"$work/missing" 2>&1 || rc=$?
-test "$rc" -ne 0 || fail 'missing config unexpectedly succeeded'
+  --config=missing.ini good.md >"$work/missing" 2>&1 || rc=$?
+test "$rc" -eq 2 || fail "missing config exited $rc, want 2: $(cat "$work/missing")"
+grep -F "path 'missing.ini' does not exist" "$work/missing" >/dev/null ||
+  fail "missing config diagnostic is missing: $(cat "$work/missing")"
 
 printf 'SMOKE PASS\n'
