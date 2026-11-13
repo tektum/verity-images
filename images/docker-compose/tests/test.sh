@@ -28,6 +28,9 @@ fail() {
 [ "$(docker image inspect "$image" --format '{{json .Config.Entrypoint}}')" = '["/usr/bin/docker-compose"]' ] ||
   fail 'unexpected image config: Entrypoint'
 
+docker image inspect "$image" --format '{{json .Config.Env}}' | grep -F '"HOME=/home/nonroot"' >/dev/null ||
+  fail 'unexpected image config: HOME'
+
 actual=$(docker run --rm "$image" version) || fail 'docker-compose version failed'
 [ "$actual" = "Docker Compose version v$expected_version" ] ||
   fail "unexpected version output: $actual"
@@ -71,7 +74,8 @@ services:
     command: ["version", "--short"]
 EOF
   chmod 644 "$tmp/lifecycle.yaml"
-  docker run --rm --read-only --tmpfs /tmp -e HOME=/tmp --group-add "$socket_gid" \
+  docker run --rm --read-only --tmpfs /tmp --tmpfs /home/nonroot:uid=65532,gid=65532 \
+    --group-add "$socket_gid" \
     -v "$socket:/var/run/docker.sock" -v "$tmp:/work:ro" -w /work "$image" \
     -p "$project" -f lifecycle.yaml up --abort-on-container-exit --exit-code-from probe \
     >"$tmp/up.log" 2>&1 || { cat "$tmp/up.log" >&2; fail 'docker-compose up failed'; }
@@ -79,7 +83,8 @@ EOF
     cat "$tmp/up.log" >&2
     fail 'service output not attached'
   }
-  docker run --rm --read-only --tmpfs /tmp -e HOME=/tmp --group-add "$socket_gid" \
+  docker run --rm --read-only --tmpfs /tmp --tmpfs /home/nonroot:uid=65532,gid=65532 \
+    --group-add "$socket_gid" \
     -v "$socket:/var/run/docker.sock" -v "$tmp:/work:ro" -w /work "$image" \
     -p "$project" -f lifecycle.yaml down >/dev/null 2>&1 || fail 'docker-compose down failed'
   [ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$project")" ] ||
