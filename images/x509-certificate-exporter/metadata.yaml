@@ -1,0 +1,9 @@
+name: x509-certificate-exporter
+track: wolfi
+description: Prometheus x509 certificate expiry exporter (PEM files, kubeconfigs, secrets). Built from pinned source.
+category: Cert Management
+upstream: https://github.com/enix/x509-certificate-exporter
+versions: [4]
+flavors: [plain]
+owner: tektum
+enabled: true
