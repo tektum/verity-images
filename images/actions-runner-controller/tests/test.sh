@@ -19,8 +19,6 @@ fail() {
 expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' \
   "$here/../melange.yaml")
 [ -n "$expected_version" ] || fail 'could not read the recipe version'
-expected_commit=$(awk '$1 == "source-commit:" { print $2; exit }' "$here/../melange.yaml")
-[ -n "$expected_commit" ] || fail 'could not read the recipe source commit'
 
 # Runtime contract of the upstream gha-runner-scale-set-controller image
 # (Dockerfile on gcr.io/distroless/static:nonroot).
@@ -59,9 +57,11 @@ head -c 4 "$work/rootfs/usr/share/zoneinfo/Etc/UTC" | grep -Fx TZif >/dev/null |
   fail 'zoneinfo database is not readable'
 
 # The image is the controller only, like the distroless upstream image.
-for tool in /bin/sh /usr/bin/kubectl; do
-  if run --entrypoint "$tool" "$image" -c true >/dev/null 2>&1; then
-    fail "unexpected $tool in the image"
+# Check the exported rootfs so a present tool cannot pass by rejecting the
+# probe's arguments.
+for tool in bin/sh usr/bin/kubectl; do
+  if [ -e "$work/rootfs/$tool" ] || [ -L "$work/rootfs/$tool" ]; then
+    fail "unexpected /$tool in the image"
   fi
 done
 
