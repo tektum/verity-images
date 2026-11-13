@@ -99,4 +99,10 @@ run "$work/empty" >"$work/none" 2>&1 || rc=$?
 test "$rc" -ne 0 || fail 'missing justfile unexpectedly succeeded'
 grep -Fi 'justfile' "$work/none" >/dev/null || fail 'missing justfile diagnostic is missing'
 
+rc=0
+run "$work/project" --no-such-flag >"$work/flag" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'unknown flag unexpectedly succeeded'
+grep -F "unexpected argument '--no-such-flag'" "$work/flag" >/dev/null ||
+  fail "unknown flag diagnostic is missing: $(cat "$work/flag")"
+
 printf 'SMOKE PASS\n'
