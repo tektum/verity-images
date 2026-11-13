@@ -241,8 +241,9 @@ def built_variants(directory: Path, metadata: gen_matrix.Metadata) -> list[tuple
 def apko_declaration(lock: Path, directories: list[Path]) -> tuple[Path, gen_matrix.Metadata] | None:
     """The opted-in pure APKO image built into dist/BUILD/ from a committed lock byte-identical to BUILD's lock.
 
-    Every pure APKO variant with that build name and lock is a candidate, declared or not, so an image that
-    did not opt in never receives another image's identity: candidates that disagree fail closed.
+    Every enabled pure APKO variant with that build name and lock is a candidate, declared or not, so an image
+    that did not opt in never receives another image's identity: candidates that disagree fail closed. A
+    disabled stream is never built (gen_matrix.py skips it), so it cannot be the image that produced BUILD.
     """
     build, built = lock.parent.name, lock.read_bytes()
     found = []
@@ -250,6 +251,8 @@ def apko_declaration(lock: Path, directories: list[Path]) -> tuple[Path, gen_mat
         if not gen_matrix.is_pure_apko(directory):
             continue
         metadata = gen_matrix.parse_metadata(directory / "metadata.yaml")
+        if not metadata.enabled:
+            continue
         if any(
             name == build and candidate.is_file() and candidate.read_bytes() == built
             for name, candidate in built_variants(directory, metadata)

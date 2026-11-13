@@ -473,6 +473,26 @@ def check_apko_identity() -> None:
         finally:
             scan_identity.ROOT = original
     with TemporaryDirectory() as directory:
+        # A disabled twin is never built, so it neither blocks nor shares the enabled image's declaration.
+        image = ApkoImage(Path(directory))
+        twin = image.root / "images/tool-twin"
+        twin.mkdir()
+        for name in ("apko.yaml", "apko.lock.json"):
+            (twin / name).write_bytes((image.context / name).read_bytes())
+        (twin / "metadata.yaml").write_text(
+            image.metadata.read_text(encoding="utf-8")
+            .replace(APKO_DECLARED, "")
+            .replace("enabled: true", "enabled: false"),
+            encoding="utf-8",
+        )
+        original = scan_identity.ROOT
+        scan_identity.ROOT = image.root.resolve()
+        try:
+            assert "at 1.2.3 (tool 1.2.3-r4)" in str(scan_identity.apply_apko(image.sbom, [image.context, twin]))
+            assert scan_identity.apply_apko(image.sbom, [twin]) is None
+        finally:
+            scan_identity.ROOT = original
+    with TemporaryDirectory() as directory:
         # A flavor with its own APKO config builds as NAME-FLAVOR from its own lock.
         image = ApkoImage(Path(directory))
         image.metadata.write_text(image.metadata.read_text(encoding="utf-8") + "flavors: [plain, fips]\n", encoding="utf-8")
