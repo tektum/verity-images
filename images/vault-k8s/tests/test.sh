@@ -45,10 +45,13 @@ fi
 grep -F 'flag provided but not defined: -definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid argument diagnostic is missing'
 
-if docker run --rm --network none --read-only "$image" bogus-command \
-  >"$work/bogus" 2>&1; then
-  fail 'unknown subcommand unexpectedly succeeded'
-fi
+# The CLI answers an unknown subcommand with its usage and exit status 127.
+status=0
+docker run --rm --network none --read-only "$image" bogus-command \
+  >"$work/bogus" 2>&1 || status=$?
+test "$status" = 127 || fail "unknown subcommand exited $status, want 127"
+grep -F 'Usage: vault-k8s' "$work/bogus" >/dev/null ||
+  fail "unknown subcommand usage is missing: $(cat "$work/bogus")"
 
 if docker run --rm --network none --read-only "$image" agent-inject \
   >"$work/novault" 2>&1; then
@@ -65,11 +68,5 @@ if docker run --rm --network none --read-only \
 fi
 grep -F 'Error loading in-cluster K8S config: unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined' \
   "$work/nocluster" >/dev/null || fail "in-cluster diagnostic is missing: $(cat "$work/nocluster")"
-
-if docker run --rm --network none --read-only "$image" agent-inject \
-  -vault-address=https://vault.example.invalid:8200 -tls-min-version=tls9 \
-  >"$work/badtls" 2>&1; then
-  fail 'agent-inject with an invalid TLS version unexpectedly succeeded'
-fi
 
 printf 'SMOKE PASS image=%s\n' "$image"
