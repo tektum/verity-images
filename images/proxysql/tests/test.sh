@@ -87,11 +87,13 @@ docker run --name "$backend" --network "$network" --network-alias backend -d \
   -e MARIADB_ROOT_PASSWORD=root -e MARIADB_DATABASE=verity \
   -e MARIADB_USER=verity -e MARIADB_PASSWORD=verity "$fixture" >/dev/null
 
+# The fixture initializes its datadir with a temporary socket-only server and
+# then restarts; on the arm64 validation runner that takes more than 30s.
 i=0
 until docker run --rm --network "$network" "$fixture" \
   mariadb-admin ping -h backend -u root -proot --silent >/dev/null 2>&1; do
   i=$((i + 1))
-  [ "$i" -lt 30 ] || { docker logs "$backend" >&2; fail 'MariaDB fixture did not become ready'; }
+  [ "$i" -lt 120 ] || { docker logs "$backend" >&2; fail 'MariaDB fixture did not become ready'; }
   sleep 1
 done
 
