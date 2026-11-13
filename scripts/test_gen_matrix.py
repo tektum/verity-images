@@ -256,6 +256,31 @@ def check_published_gap_selection() -> None:
             assert gen_matrix.generate("base", published_catalog=catalog)["include"] == []
 
 
+def check_published_input_digest_pruning() -> None:
+    # A changed image whose published record already carries the candidate input
+    # digest was built by a trusted main run, so the delta must not rebuild it.
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        write_image(root / "images/trivy", name="trivy", versions="0.73.0")
+        catalog = root / "catalog.json"
+        with (
+            patch.object(gen_matrix, "ROOT", root),
+            patch.object(gen_matrix, "changed_paths", return_value={"images/trivy/apko.yaml"}),
+        ):
+            fingerprint = gen_matrix.input_digest(root / "images/trivy", "plain")
+            stale = {"name": "trivy", "version": "0.73.0", "inputDigest": f"sha256:{'0' * 64}"}
+            catalog.write_text(json.dumps({"images": [stale]}), encoding="utf-8")
+            assert len(gen_matrix.generate("base", published_catalog=catalog)["include"]) == 1
+            catalog.write_text(json.dumps({"images": [{"name": "trivy", "version": "0.73.0"}]}), encoding="utf-8")
+            assert len(gen_matrix.generate("base", published_catalog=catalog)["include"]) == 1
+            current = {**stale, "inputDigest": fingerprint}
+            catalog.write_text(json.dumps({"images": [current]}), encoding="utf-8")
+            assert gen_matrix.generate("base", published_catalog=catalog)["include"] == []
+            assert len(gen_matrix.generate("base")["include"]) == 1
+            target = gen_matrix.generate(None, published_catalog=catalog, remediation_target="trivy@0.73.0")
+            assert len(target["include"]) == 1
+
+
 def check_apk_repository_consumers() -> None:
     with TemporaryDirectory() as temporary_directory:
         root = Path(temporary_directory)
@@ -639,6 +664,7 @@ def main() -> None:
     check_flavor_only_melange()
     check_source_built_flag()
     check_published_gap_selection()
+    check_published_input_digest_pruning()
     check_authority_drift()
     check_apk_repository_consumers()
     check_scan_identity_selection()
