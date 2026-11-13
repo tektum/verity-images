@@ -1,0 +1,40 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-atlantis@local
+
+accounts:
+  groups:
+    - groupname: atlantis
+      gid: 1000
+  users:
+    - username: atlantis
+      uid: 100
+      gid: 1000
+      homedir: /home/atlantis
+  run-as: 100
+
+entrypoint:
+  command: /usr/bin/dumb-init --single-child -- /usr/local/bin/docker-entrypoint.sh
+
+cmd: server
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /home/atlantis
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
