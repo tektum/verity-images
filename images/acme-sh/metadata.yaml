@@ -1,0 +1,9 @@
+name: acme-sh
+track: wolfi
+description: Shell ACME client for issuing and renewing TLS certificates. Assembled from Wolfi packages.
+category: Cert Management
+upstream: https://github.com/acmesh-official/acme.sh
+versions: [3.1]
+flavors: [plain]
+owner: tektum
+enabled: true
