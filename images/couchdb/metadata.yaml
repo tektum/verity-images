@@ -6,3 +6,5 @@ upstream: https://couchdb.apache.org/
 versions: [3.5]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:apache:couchdb]
+scan-package: couchdb-3.5
