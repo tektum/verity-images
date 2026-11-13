@@ -30,6 +30,12 @@ elif [[ "$1" == api ]]; then
   # every listing with API_ERROR.
   limited=$(grep -c -- '--paginate' "$GH_LOG" || true)
   if (( limited <= ${RATE_LIMITED_CALLS:-0} )); then
+    # gh's GH_DEBUG=api log carries the failed response's headers.
+    if [[ -n "${RETRY_AFTER:-}" && "${GH_DEBUG:-}" == api ]]; then
+      printf '* Request to https://api.github.com/x\n< HTTP/2.0 403 Forbidden\n< Retry-After: %s\n\n' \
+        "$RETRY_AFTER" >&2
+      printf '{\n  "message": "You have exceeded a secondary rate limit."\n}\n' >&2
+    fi
     printf 'gh: %s\n' "$RATE_LIMIT_ERROR" >&2
     exit 1
   fi
@@ -247,6 +253,23 @@ GH_RATE_LIMIT_MAX_WAIT=5 GH_RATE_LIMIT_SECONDARY_WAIT=1 PATH="$work/bin:$PATH" \
   "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
 [[ "$status" -eq 42 ]]
 [[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 2 ]]
+
+# A retry-after on the failed response wins over the fixed secondary delay:
+# 30s does not fit a 5s budget, so the guard pauses instead of retrying after 1s.
+export RATE_LIMITED_CALLS=1 RETRY_AFTER=30
+: > "$GH_LOG"
+status=0
+output=$(GH_RATE_LIMIT_MAX_WAIT=5 GH_RATE_LIMIT_SECONDARY_WAIT=1 PATH="$work/bin:$PATH" \
+  "$root/scripts/cancel_stalled_jobs.sh" 2>"$work/stderr") || status=$?
+[[ "$status" -eq 42 ]]
+[[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 1 ]]
+grep -Fq '::warning title=Stall guard paused::' <<<"$output"
+if grep -Eq '^(< |\* |  ")' "$work/stderr"; then
+  printf 'the debug log leaked into stderr\n' >&2
+  exit 1
+fi
+grep -Fq 'gh: You have exceeded a secondary rate limit' "$work/stderr"
+unset RETRY_AFTER
 
 # Repeated secondary limits back off exponentially (1s, 2s, 4s here) and give
 # up with a pending warning once that exceeds the budget.
