@@ -153,6 +153,7 @@ def discover(
     previous: dict[str, object] | None,
     event_run: int,
     later: list[dict[str, object]] | None = None,
+    succeed: bool = True,
 ) -> tuple[list[tuple[int, int]], list[str], str]:
     for name in ("input", "previous.json", "reconciliation.json", "catalog-source.json"):
         subprocess.run(["rm", "-rf", str(work / name)], check=True)
@@ -190,7 +191,7 @@ def discover(
             "REPOSITORY": REPOSITORY,
         },
     )
-    assert result.returncode == 0, result.stdout + result.stderr
+    assert (result.returncode == 0) == succeed, result.stdout + result.stderr
     consumed: list[tuple[int, int]] = []
     if "ready=true" in output.read_text(encoding="utf-8"):
         reconciliation = json.loads((work / "reconciliation.json").read_text(encoding="utf-8"))
@@ -288,6 +289,86 @@ def main() -> None:
         listings = [call for call in calls if "/workflows/build.yaml/runs" in call]
         assert len(listings) == 1 and "created=" not in listings[0], listings
         assert "created since any time, completed since any time" in stdout
+
+        # Queued-catalog race: this catalog run checked out `head`, but a build
+        # of a newer main commit completed before it started discovering. That
+        # candidate is deferred (its own completion triggers a later catalog
+        # run) and the ledger leaves it unconsumed. One newer commit was fetched
+        # into the checkout; the other is not in it at all.
+        newer = subprocess.run(
+            [*git, "commit-tree", "-p", head, "-m", "newer", f"{head}^{{tree}}"],
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        queued = run(106, created=PUBLISHED + hours(1), updated=PUBLISHED + hours(5), head_sha=newer)
+        unfetched = run(107, created=PUBLISHED + hours(2), updated=PUBLISHED + hours(6), head_sha="f" * 40)
+        # Completed within the margin after the first deferred run: consumed.
+        near = run(112, created=PUBLISHED + hours(3), updated=PUBLISHED + hours(11), head_sha=head)
+        # Completed past the margin after it: held back, so publishedAt stays
+        # close enough for the next bounded discovery to list the deferred run.
+        late = run(111, created=PUBLISHED + hours(4), updated=PUBLISHED + hours(12), head_sha=head)
+        race_artifacts = {
+            **artifacts, **{str(number): consumable(number) for number in (106, 107, 111, 112)}
+        }
+        consumed, calls, stdout = discover(
+            work, [*small, queued, unfetched, near, late], race_artifacts, previous=previous, event_run=103
+        )
+        assert consumed == [(104, 1), (102, 1), (103, 1), (112, 1)], consumed
+        for deferred in ("106", "107"):
+            assert f"::notice title=Build run deferred::Run {deferred}: commit " in stdout, stdout
+            assert not any(f"/runs/{deferred}/" in call for call in calls), calls
+        assert f"{newer} is not an ancestor of HEAD {head}" in stdout, stdout
+        assert f"{'f' * 40} is not in the checkout at HEAD {head}" in stdout, stdout
+        assert "::notice title=Build run deferred::Run 111 completed after 2026-11-10T23:00:00Z" in stdout, stdout
+        assert not any("/runs/111/" in call for call in calls), calls
+        ledger = json.loads((work / "catalog-source.json").read_text(encoding="utf-8"))
+        assert ledger["consumedRuns"] == {"100": 1, "102": 1, "103": 1, "104": 1, "112": 1}, ledger
+        assert ledger["runId"] == "112", ledger
+
+        # The explicit run is never deferred: a run newer than the checkout that
+        # triggered this catalog run fails it.
+        _, _, stdout = discover(
+            work, [*small, queued], race_artifacts, previous=previous, event_run=106, succeed=False
+        )
+        assert f"::error title=Catalog not updated::Run 106 failed identity validation: commit {newer}" in stdout
+
+        # A later catalog run at a HEAD that contains the deferred commit (here
+        # the one triggered by the held-back build, as if the deferred build's
+        # own catalog run was replaced while pending) still lists the deferred
+        # run within the margin and consumes it from the ledger left above.
+        subprocess.run([*git, "reset", "-q", newer], check=True)
+        follow_up = {"publishedAt": near["updated_at"], "source": ledger}
+        consumed, _, stdout = discover(
+            work, [*small, queued, near, late], race_artifacts, previous=follow_up, event_run=111
+        )
+        assert consumed == [(106, 1), (111, 1)], consumed
+        assert "deferred" not in stdout, stdout
+        subprocess.run([*git, "reset", "-q", head], check=True)
+
+        # Every other identity condition stays fatal, for candidates as well as
+        # the explicit run, and names the run and the reason.
+        branch = {**run(108, created=PUBLISHED + hours(1), updated=PUBLISHED + hours(3), head_sha=head),
+                  "head_branch": "feature"}
+        _, _, stdout = discover(
+            work, [*small, branch], {**artifacts, "108": consumable(108)}, previous=previous,
+            event_run=103, succeed=False,
+        )
+        assert ('::error title=Catalog not updated::Run 108 failed identity validation: '
+                'head branch is "feature", expected "main".') in stdout, stdout
+        foreign = {**run(109, created=PUBLISHED + hours(1), updated=PUBLISHED + hours(3), head_sha=head),
+                   "head_repository": {"full_name": "fork/repo"}}
+        _, _, stdout = discover(
+            work, [*small, foreign], {**artifacts, "109": consumable(109)}, previous=previous,
+            event_run=109, succeed=False,
+        )
+        assert ('::error title=Catalog not updated::Run 109 failed identity validation: '
+                'head repository is "fork/repo", expected "owner/repo".') in stdout, stdout
+        renamed = {**run(110, created=PUBLISHED + hours(1), updated=PUBLISHED + hours(3), head_sha=newer),
+                   "path": ".github/workflows/other.yaml"}
+        _, _, stdout = discover(
+            work, [*small, renamed], {**artifacts, "110": consumable(110)}, previous=previous,
+            event_run=103, succeed=False,
+        )
+        assert "Run 110 failed identity validation: workflow path is" in stdout, stdout
 
     print("passed scripts/test_catalog_discovery.py")
 
