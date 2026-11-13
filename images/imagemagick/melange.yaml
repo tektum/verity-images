@@ -1,0 +1,193 @@
+package:
+  name: imagemagick-7
+  # APK spelling of vars.upstream-version (7.1.2-35 -> 7.1.2.35).
+  version: "7.1.2.35"
+  epoch: 0
+  description: ImageMagick image processing CLI built from pinned upstream source
+  copyright:
+    - license: ImageMagick
+  dependencies:
+    provides:
+      - imagemagick=${{package.full-version}}
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+
+vars:
+  # yamllint disable-line rule:line-length
+  upstream-version: 7.1.2-35  # renovate: datasource=github-tags depName=ImageMagick/ImageMagick versioning=regex:^(?<major>7)\.(?<minor>\d+)\.(?<patch>\d+)-(?<build>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - fontconfig-dev
+      - freetype-dev
+      - lcms2-dev
+      - libheif-dev
+      - libjpeg-turbo-dev
+      - libpng-dev
+      - libwebp-dev
+      - libxml2-dev
+      - openjpeg-dev
+      - pango-dev
+      - pkgconf
+      - pkgconf-dev
+      - tiff-dev
+      - xz-dev
+      - zlib-dev
+      - zstd-dev
+
+pipeline:
+  - runs: |
+      # package.version is the APK spelling of the upstream tag.
+      [ "$(printf '%s' '${{vars.upstream-version}}' | tr - .)" = '${{package.version}}' ] || {
+        echo "package.version ${{package.version}} does not match ${{vars.upstream-version}}" >&2
+        exit 1
+      }
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ImageMagick/ImageMagick
+      tag: ${{vars.upstream-version}}
+      expected-commit: 5d1bcc55f2c83bc2ff802118b7369756610f3ad4
+
+  # Same delegates as the Wolfi imagemagick-7 build except X11: the X coder and
+  # display/animate/import need an X server, which this headless CLI never has.
+  # Ghostscript stays an external delegate that the image does not ship.
+  - uses: autoconf/configure
+    with:
+      opts: |
+        --disable-static \
+        --disable-docs \
+        --enable-hdri \
+        --with-quantum-depth=16 \
+        --with-security-policy=open \
+        --without-x \
+        --without-perl \
+        --without-gslib \
+        --without-fftw \
+        --without-djvu \
+        --without-openexr \
+        --without-raw \
+        --without-wmf \
+        --with-bzlib \
+        --with-fontconfig \
+        --with-freetype \
+        --with-heic \
+        --with-jpeg \
+        --with-lcms \
+        --with-lzma \
+        --with-openjp2 \
+        --with-pango \
+        --with-png \
+        --with-tiff \
+        --with-webp \
+        --with-xml \
+        --with-zlib \
+        --with-zstd
+
+  - uses: autoconf/make
+
+  - uses: autoconf/make-install
+
+  - runs: |
+      # Runtime CLI only: drop headers, pkg-config files, build helpers and docs.
+      rm -rf "${{targets.destdir}}/usr/include" "${{targets.destdir}}/usr/lib/pkgconfig" \
+        "${{targets.destdir}}/usr/share/doc" "${{targets.destdir}}/usr/share/man"
+      rm -f "${{targets.destdir}}"/usr/bin/*-config
+      find "${{targets.destdir}}" -name '*.la' -delete
+
+      # Default restrictive policy, derived from upstream config/policy-secure.xml
+      # (https://github.com/ImageMagick/ImageMagick/blob/7.1.2-35/config/policy-secure.xml,
+      # https://imagemagick.org/script/security-policy.php). The image points
+      # MAGICK_CONFIGURE_PATH at this directory. ImageMagick loads every policy.xml
+      # on its search path, MAGICK_CONFIGURE_PATH first and /etc/ImageMagick-7 after,
+      # and the last matching rights rule wins, so this file must not live in
+      # /etc/ImageMagick-7, where an operator policy could never relax it.
+      # /etc/ImageMagick-7/policy.xml stays upstream's open policy, which sets no rules.
+      install -d -m755 "${{targets.destdir}}/etc/ImageMagick-7/secure"
+      cat > "${{targets.destdir}}/etc/ImageMagick-7/secure/policy.xml" <<'EOF'
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE policymap [
+        <!ELEMENT policymap (policy)*>
+        <!ATTLIST policymap xmlns CDATA #FIXED "">
+        <!ELEMENT policy EMPTY>
+        <!ATTLIST policy xmlns CDATA #FIXED "" domain NMTOKEN #REQUIRED
+          name NMTOKEN #IMPLIED pattern CDATA #IMPLIED rights NMTOKEN #IMPLIED
+          stealth NMTOKEN #IMPLIED value CDATA #IMPLIED>
+      ]>
+      <!--
+        Verity default ImageMagick security policy for untrusted input.
+
+        Based on upstream config/policy-secure.xml for ImageMagick 7.1.2-35:
+          https://github.com/ImageMagick/ImageMagick/blob/7.1.2-35/config/policy-secure.xml
+          https://imagemagick.org/script/security-policy.php
+        Additions over upstream: the coder rules below deny MVG, MSL, TEXT,
+        EPHEMERAL, the URL coders and the PostScript, PDF and XPS coders for both
+        reading and writing.
+
+        Replace this policy by pointing MAGICK_CONFIGURE_PATH at a directory with
+        your own policy.xml. To relax single rules instead, list this directory
+        first and yours after it, for example
+        MAGICK_CONFIGURE_PATH=/etc/ImageMagick-7/secure:/policy: rights rules are
+        evaluated in load order and the last match wins, while for resource
+        limits the first file that sets a limit wins.
+      -->
+      <policymap>
+        <policy domain="resource" name="thread" value="2"/>
+        <policy domain="resource" name="time" value="120"/>
+        <policy domain="resource" name="file" value="768"/>
+        <policy domain="resource" name="memory" value="768MiB"/>
+        <policy domain="resource" name="map" value="2GiB"/>
+        <policy domain="resource" name="area" value="32MP"/>
+        <policy domain="resource" name="disk" value="2GiB"/>
+        <policy domain="resource" name="list-length" value="32"/>
+        <policy domain="resource" name="width" value="8KP"/>
+        <policy domain="resource" name="height" value="8KP"/>
+        <policy domain="cache" name="memory-map" value="anonymous"/>
+        <policy domain="cache" name="synchronize" value="true"/>
+        <policy domain="delegate" rights="none" pattern="*"/>
+        <policy domain="filter" rights="none" pattern="*"/>
+        <policy domain="path" rights="none" pattern="-"/>
+        <policy domain="path" rights="none" pattern="[Ff][Dd]:*"/>
+        <policy domain="path" rights="none" pattern="/etc/*"/>
+        <policy domain="path" rights="none" pattern="*../*"/>
+        <policy domain="path" rights="none" pattern="@*"/>
+        <policy domain="path" rights="none" pattern="|*"/>
+        <policy domain="module" rights="write" pattern="{MSL,MVG,PDF,PS,SVG,TXT,URL,XPS}"/>
+        <policy domain="coder" rights="none" pattern="{MVG,MSL,TEXT,EPHEMERAL}"/>
+        <policy domain="coder" rights="none" pattern="{URL,HTTP,HTTPS,FTP}"/>
+        <policy domain="coder" rights="none" pattern="{PS,PS2,PS3,EPS,EPSF,EPSI,EPI,EPT}"/>
+        <policy domain="coder" rights="none" pattern="{PDF,EPDF,PDFA,AI,XPS}"/>
+        <policy domain="system" name="shred" value="1"/>
+        <policy domain="system" name="memory-map" value="anonymous"/>
+        <policy domain="system" name="max-memory-request" value="256MiB"/>
+        <policy domain="system" name="max-profile-size" value="16MiB"/>
+        <policy domain="system" name="max-profile-count" value="16"/>
+        <policy domain="system" name="symlink" rights="none" pattern="follow"/>
+      </policymap>
+      EOF
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        magick --version | grep -F "Version: ImageMagick ${{vars.upstream-version}} Q16-HDRI"
+        MAGICK_CONFIGURE_PATH=/etc/ImageMagick-7/secure magick -list policy |
+          grep -Fx 'Path: /etc/ImageMagick-7/secure/policy.xml'

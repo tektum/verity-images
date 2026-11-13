@@ -14,3 +14,15 @@ ignore:
       NVD records all OpenSearch before 3.3.0, but the fix was backported to 2.19.4
       (CVE text and GHSA-mw3v-mmfw-3x2g). Scoped to the scan-identity package
       declared by images/opensearch/2 (cpe amazon:opensearch) at 2.19.7.
+  - vulnerability: CVE-2023-5341
+    package:
+      name: imagemagick
+      version: 7.1.2-35
+      type: UnknownPackage
+    reason: >-
+      NVD records ImageMagick before 7.1.2, and Grype orders 7.1.2-35 before 7.1.2 as a
+      prerelease. The fix (coders/bmp.c, commit aa673b2e4defc7cad5bec16c4fc8324f71e531f1,
+      referenced by the CVE) first shipped in 7.1.1-19 (upstream ChangeLog
+      https://imagemagick.org/changelog/), and 7.1.2-35 contains it. Scoped to the
+      scan-identity package declared by images/imagemagick (cpe imagemagick:imagemagick)
+      at 7.1.2-35.

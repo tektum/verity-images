@@ -1,8 +1,9 @@
 name: imagemagick
 track: wolfi
-description: ImageMagick image processing CLI (magick) assembled from Wolfi packages.
+description: ImageMagick image processing CLI (magick) built from pinned upstream source with a restrictive policy.
 category: Base & Utilities
 upstream: https://github.com/ImageMagick/ImageMagick
 versions: [7]
+scan-identity: [cpe:2.3:a:imagemagick:imagemagick]
 owner: tektum
 enabled: true
