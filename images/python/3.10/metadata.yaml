@@ -1,3 +1,7 @@
+# Disabled: CPython 3.10 is end of life upstream since 2026-10-01 (PEP 619) and receives no further
+# fixes; Wolfi carries no backports. The shipped 3.10.22 is affected by 9 unfixed CVEs, including the
+# Critical CVE-2026-115557 (ssl eMudhra CA denylist). No unblock condition: upstream EOL is final.
+# Use the 3.12 stream (images/python/3.12) or newer.
 name: python
 track: wolfi
 description: Python runtime assembled from Wolfi packages.
@@ -5,4 +9,4 @@ category: Languages & Build Tools
 upstream: https://www.python.org/
 versions: [3.10]
 owner: tektum
-enabled: true
+enabled: false
