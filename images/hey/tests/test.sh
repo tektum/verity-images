@@ -23,8 +23,8 @@ test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" =
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /work ||
   fail 'unexpected working directory'
 
-# Target fixture: a loopback server that records each request's method, path and
-# custom header, answers 200 on /ok and 404 elsewhere.
+# Target fixture: a loopback server that records each request's method, path,
+# custom header and body, answers 200 on /ok and 404 elsewhere.
 cat >"$work/server.py" <<'PY'
 import http.server
 import sys
@@ -32,10 +32,13 @@ import sys
 
 class Handler(http.server.BaseHTTPRequestHandler):
     def handle_one(self):
-        with open(sys.argv[2], "a", encoding="ascii") as log:
-            log.write(f"{self.command} {self.path} {self.headers.get('X-Smoke', '-')}\n")
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
+        with open(sys.argv[2], "a", encoding="ascii") as log:
+            log.write(
+                f"{self.command} {self.path} {self.headers.get('X-Smoke', '-')} "
+                f"{body.decode('ascii') or '-'}\n"
+            )
         status = 200 if self.path == "/ok" else 404
         self.send_response(status)
         self.send_header("Content-Length", str(len(body)))
@@ -89,16 +92,16 @@ grep -F 'Summary:' "$work/get" >/dev/null || fail 'summary is missing'
 grep -F 'Requests/sec:' "$work/get" >/dev/null || fail 'request rate is missing'
 grep -Ex '[[:space:]]+\[200\][[:space:]]+20 responses' "$work/get" >/dev/null ||
   fail "unexpected GET status distribution: $(cat "$work/get")"
-test "$(grep -cx 'GET /ok get' "$work/requests")" -eq 20 ||
-  fail 'server did not receive 20 GET requests with the custom header'
+test "$(grep -cx 'GET /ok get -' "$work/requests")" -eq 20 ||
+  fail 'server did not receive 20 bodiless GET requests with the custom header'
 
 # POST with a body, and 404 responses are reported in the distribution.
 run -n 5 -c 1 -m POST -d 'payload' "http://127.0.0.1:$port/missing" >"$work/post" ||
   fail 'POST run failed'
 grep -Ex '[[:space:]]+\[404\][[:space:]]+5 responses' "$work/post" >/dev/null ||
   fail "unexpected POST status distribution: $(cat "$work/post")"
-test "$(grep -cx 'POST /missing -' "$work/requests")" -eq 5 ||
-  fail 'server did not receive 5 POST requests'
+test "$(grep -cx 'POST /missing - payload' "$work/requests")" -eq 5 ||
+  fail 'server did not receive 5 POST requests carrying the payload body'
 
 # CSV output emits one row per request.
 run -n 3 -c 1 -o csv "http://127.0.0.1:$port/ok" >"$work/csv" || fail 'CSV run failed'
