@@ -100,7 +100,10 @@ for that image, so it needs the same review as a recipe change. Allowlisted imag
 predate the rule and are not covered for their main software until their
 image-local follow-up lands. The exception is `no-feed` (kubernetes-reflector, opensearch-dashboards,
 sonar-scanner-cli): no CPE, GHSA or OSV record exists for their main software, so
-the gate covers dependencies and OS packages only, permanently. See
+the gate covers dependencies and OS packages only, permanently. A pure APKO image
+whose Wolfi package the feeds miss may opt in with `scan-identity` and
+`scan-package`; the identity is then versioned from that package's locked
+version in the same SBOM, so it cannot drift from what ships. See
 [CONTRIBUTING.md](../CONTRIBUTING.md#scan-identity).
 
 Patched images enable Copa's experimental patch-level library remediation.

@@ -94,14 +94,16 @@ declaration against the software. Take the CPE from the NVD CPE dictionary and
 the module path from the `module` line of the upstream `go.mod`, then confirm
 with a scan of the built SBOM at an older, known-vulnerable version that findings
 appear. Declare the main software only, not its bundled dependencies, and expect
-NVD ranges to be coarse. The field needs an image-local `melange.yaml`; patched
-and pure APKO images are scanned from their real package databases. A CPE entry
+NVD ranges to be coarse. The field needs an image-local `melange.yaml`, or a pure
+APKO image with `scan-package` (below); patched images are scanned from their
+real package databases. A CPE entry
 is matched through NVD only. A Go purl is matched through GHSA only, so declare
 both when the software has CPE-only advisories. A `metadata.yaml` edit that declares
 `scan-identity` selects its image for a build and is part of the image's input
 fingerprint; other metadata edits stay catalog-only. An edit to
-`scripts/scan_identity.py` builds one sample melange image, as shared pipeline
-changes do.
+`scripts/scan_identity.py` or `scripts/trim_sbom.py` builds one sample melange
+image and the first pure APKO image that declares an identity, as shared
+pipeline changes do.
 
 The allowlist is a temporary exception for images that predate the rule, except
 for the permanent `no-feed` kind described below. It is one file per image in
@@ -136,6 +138,43 @@ then follows:
 - For an image that does not exist yet, add its `no-feed` allowlist file in the
   pull request that adds the image, since the test rejects an entry for a missing
   image.
+
+#### Pure APKO images
+
+A pure APKO image (an `apko.yaml` and no `*melange.yaml`) is scanned from its
+real Wolfi package database. Grype matches each apk through the Wolfi secdb,
+which reports fixable findings, and through CPEs Syft guesses from the apk name,
+which never carry a fix version. When Wolfi has no secdb entry for an upstream
+CVE and the guess names the wrong vendor or product (`mosquitto:mosquitto`
+instead of `eclipse:mosquitto`), the gate cannot see the main software. Such an
+image may opt in by declaring the upstream identity and the Wolfi package that
+ships it:
+
+```yaml
+scan-identity: [cpe:2.3:a:eclipse:mosquitto]
+scan-package: mosquitto
+```
+
+The entries follow the rules above. There is no version to declare: before the
+gate scans and attests each platform SBOM, `scripts/trim_sbom.py` calls
+`scan_identity.apply_apko()`, which finds the opted-in image whose committed
+lock is byte-identical to the lock the build used and versions the identity from
+the `scan-package` apk in that SBOM. The `-rN` epoch is dropped, and a
+`_gitYYYYMMDD` snapshot suffix is versioned as the release it was cut after, so
+`3.12.16_git20261030-r0` scans as `3.12.16`. The identity therefore always
+matches the shipped package and moves with every lock refresh. `gen_matrix.py`
+rejects `scan-package` without `scan-identity`, on a melange image, when any
+committed `*apko.lock.json` of the image does not install it, or when its locked
+version has another suffix (`_p1`, `_rc1`), which has no reliable upstream
+spelling. The build fails closed when the SBOM lists the package at a version the
+lock does not hold.
+
+Opting in is image-local: other images' input fingerprints and SBOMs do not
+change. Expect the declared identity to surface CVEs that the Wolfi secdb does
+not list. Each one is real until shown otherwise: bump the Wolfi package if a
+fixed build exists, build the fixed release in the image otherwise, and use a
+version-pinned `.grype.yaml` ignore with a sourced reason only for a proven
+Wolfi backport or a wrong match.
 
 ### Published version authority
 

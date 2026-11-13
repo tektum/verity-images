@@ -74,6 +74,16 @@ def write_image(
     return metadata
 
 
+def apko_lock(**packages: str) -> str:
+    """An apko.lock.json that installs each package at its APK version on both architectures."""
+    entries = [
+        {"name": name, "version": version, "architecture": architecture}
+        for name, version in packages.items()
+        for architecture in ("x86_64", "aarch64")
+    ]
+    return json.dumps({"version": "v1", "contents": {"packages": entries}}, indent=2) + "\n"
+
+
 def derived_version(root: Path, index: int, **arguments: str | None) -> str:
     directory = root / "images" / f"example-{index}"
     return gen_matrix.parse_metadata(write_image(directory, **arguments)).versions[0]
@@ -349,6 +359,7 @@ def check_scan_identity_selection() -> None:
 
         with patch.object(gen_matrix, "ROOT", root):
             before = gen_matrix.input_digest(root / "images/tool", "plain")
+            rqlite = gen_matrix.input_digest(root / "images/rqlite", "plain")
             metadata.write_text(metadata.read_text(encoding="utf-8") + "category: Tools\n", encoding="utf-8")
             assert selected("images/tool/metadata.yaml") == []
             assert gen_matrix.input_digest(root / "images/tool", "plain") == before
@@ -366,6 +377,33 @@ def check_scan_identity_selection() -> None:
 
             # A change to the rule validates one real melange build, not every image.
             assert selected("scripts/scan_identity.py") == [gen_matrix.SCAN_IDENTITY_SAMPLE]
+
+            tool = gen_matrix.input_digest(root / "images/tool", "plain")
+            # A pure APKO image opts in with scan-package; until one does, a rule change builds rqlite only.
+            apko = root / "images/apkotool"
+            write_image(apko, name="apkotool", versions="1")
+            (apko / "apko.lock.json").write_text(apko_lock(apkotool="1.4.2-r3", busybox="1.37.0-r5"), encoding="utf-8")
+            assert selected("scripts/trim_sbom.py") == [gen_matrix.SCAN_IDENTITY_SAMPLE]
+            plain = gen_matrix.input_digest(apko, "plain")
+            apko_metadata = apko / "metadata.yaml"
+            apko_metadata.write_text(
+                apko_metadata.read_text(encoding="utf-8")
+                + "scan-identity: [cpe:2.3:a:example:apkotool]\nscan-package: apkotool\n",
+                encoding="utf-8",
+            )
+            assert selected("images/apkotool/metadata.yaml") == ["images/apkotool"]
+            opted = gen_matrix.input_digest(apko, "plain")
+            assert opted != plain
+            apko_metadata.write_text(
+                apko_metadata.read_text(encoding="utf-8").replace("scan-package: apkotool", "scan-package: busybox"),
+                encoding="utf-8",
+            )
+            assert gen_matrix.input_digest(apko, "plain") not in {plain, opted}
+            for path in gen_matrix.SCAN_IDENTITY_PATHS:
+                assert selected(path) == ["images/apkotool", gen_matrix.SCAN_IDENTITY_SAMPLE], path
+            # Opting in is image-local: the other images keep their fingerprints.
+            assert gen_matrix.input_digest(root / "images/tool", "plain") == tool
+            assert gen_matrix.input_digest(root / "images/rqlite", "plain") == rqlite
 
 
 def check_authority_drift() -> None:

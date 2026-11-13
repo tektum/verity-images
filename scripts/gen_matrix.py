@@ -35,7 +35,7 @@ COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/bui
 CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
 GO_REMEDIATE_SAMPLE: Final = "images/rqlite"
-SCAN_IDENTITY_PATHS: Final = {"scripts/scan_identity.py"}
+SCAN_IDENTITY_PATHS: Final = {"scripts/scan_identity.py", "scripts/trim_sbom.py"}
 SCAN_IDENTITY_SAMPLE: Final = "images/rqlite"
 FINGERPRINT_VERSION: Final = "verity-image-receipt-v1"
 APK_REPOSITORY_URL: Final = "https://tektum.github.io/verity-images/apk"
@@ -50,8 +50,17 @@ COMMON_REQUIRED_FIELDS: Final = {"name", "track", "description", "enabled"}
 WOLFI_REQUIRED_FIELDS: Final = {"upstream", "versions"}
 DESCRIPTION_VERSION: Final = re.compile(r"(?<![A-Za-z0-9])v?\d+(?:\.\d+)*(?![A-Za-z0-9])")
 NUMERIC_VERSION: Final = re.compile(r"\d+(?:\.\d+)*")
-SCAN_IDENTITY_CPE: Final = re.compile(r"cpe:2\.3:a:([a-z0-9][a-z0-9_.-]*):([a-z0-9][a-z0-9_.-]*)")
+# NVD spells a few products with a slash (erlang:erlang/otp); scan_identity.py escapes it in the CPE.
+SCAN_IDENTITY_CPE: Final = re.compile(
+    r"cpe:2\.3:a:([a-z0-9][a-z0-9_.-]*):([a-z0-9][a-z0-9_.-]*(?:/[a-z0-9][a-z0-9_.-]*)*)"
+)
 SCAN_IDENTITY_PURL: Final = re.compile(r"pkg:[a-z][a-z0-9.+-]*/[^@?#\s]+")
+# A Wolfi package name, and an APK version whose upstream part versions a pure APKO scan identity:
+# the `-rN` build epoch is dropped, and so is a `_gitYYYYMMDD` snapshot suffix, which leaves the
+# release the snapshot was cut after. Any other APK suffix (_p1, _rc1, ...) has no reliable
+# upstream spelling, so it fails closed instead of guessing.
+SCAN_PACKAGE: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
+APK_UPSTREAM_VERSION: Final = re.compile(r"([0-9][0-9A-Za-z.]*?)(?:_git[0-9]+)?-r[0-9]+")
 INLINE_COMMENT: Final = re.compile(r"\s+#.*$")
 IMAGE_ROOTS: Final = frozenset({"images", "patched"})
 
@@ -99,6 +108,7 @@ class Metadata:
     enabled: bool
     category: str
     scan_identity: tuple[str, ...]
+    scan_package: str
 
 
 class MetadataError(ValueError):
@@ -141,7 +151,7 @@ def parse_metadata(path: Path) -> Metadata:
             required = COMMON_REQUIRED_FIELDS
         case _:
             raise MetadataError(f"{path}: track must be wolfi or patched")
-    optional = {"flavors", "major", "owner", "category", "scan-identity"}
+    optional = {"flavors", "major", "owner", "category", "scan-identity", "scan-package"}
     allowed = required | optional | (WOLFI_REQUIRED_FIELDS if track == "patched" else set())
     missing = required - values.keys()
     unknown = values.keys() - allowed
@@ -186,6 +196,7 @@ def parse_metadata(path: Path) -> Metadata:
             f"{path}: major {major} must be the major component of the published version {version}"
         )
     scan_identity = values.get("scan-identity", ())
+    scan_package = values.get("scan-package", "")
     if "scan-identity" in values:
         if (
             not isinstance(scan_identity, tuple)
@@ -197,8 +208,22 @@ def parse_metadata(path: Path) -> Metadata:
                 f"{path}: scan-identity must be a unique list of cpe:2.3:a:VENDOR:PRODUCT or pkg:TYPE/NAME "
                 "entries without a version"
             )
-        if not (path.parent / "melange.yaml").is_file():
-            raise MetadataError(f"{path}: scan-identity requires an image-local melange.yaml")
+        if (path.parent / "melange.yaml").is_file():
+            if "scan-package" in values:
+                raise MetadataError(f"{path}: scan-package is for pure APKO images; melange.yaml versions the identity")
+        elif track == "wolfi" and is_pure_apko(path.parent):
+            if not isinstance(scan_package, str) or not SCAN_PACKAGE.fullmatch(scan_package):
+                raise MetadataError(
+                    f"{path}: scan-identity on a pure APKO image requires scan-package, the Wolfi package "
+                    "whose locked version versions the identity"
+                )
+            check_scan_package(path, scan_package)
+        else:
+            raise MetadataError(
+                f"{path}: scan-identity requires an image-local melange.yaml, or a pure APKO image with scan-package"
+            )
+    elif "scan-package" in values:
+        raise MetadataError(f"{path}: scan-package is only valid with scan-identity")
 
     return Metadata(
         name=str(values["name"]),
@@ -212,6 +237,7 @@ def parse_metadata(path: Path) -> Metadata:
         enabled=enabled,
         category=str(values.get("category", "")),
         scan_identity=scan_identity,
+        scan_package=str(scan_package),
     )
 
 
@@ -273,6 +299,44 @@ def melange_version(directory: Path) -> str | None:
     if version is None:
         raise MetadataError(f"{path}: package.version is missing")
     return version
+
+
+def is_pure_apko(directory: Path) -> bool:
+    """An image assembled from repository packages only: an apko.yaml and no melange recipe of any flavor."""
+    return (directory / "apko.yaml").is_file() and not any(directory.glob("*melange.yaml"))
+
+
+def apk_upstream_version(version: str) -> str | None:
+    """The upstream release in an APK version (see APK_UPSTREAM_VERSION), or None when it has no safe spelling."""
+    match = APK_UPSTREAM_VERSION.fullmatch(version)
+    return match.group(1) if match else None
+
+
+def locked_versions(lock: Path, package: str) -> dict[str, str]:
+    """Architecture -> APK version of one package in an apko lock."""
+    try:
+        entries = json.loads(lock.read_text(encoding="utf-8"))["contents"]["packages"]
+        return {str(entry["architecture"]): str(entry["version"]) for entry in entries if entry["name"] == package}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise MetadataError(f"{lock}: unreadable apko lock: {error!r}") from error
+
+
+def check_scan_package(path: Path, package: str) -> None:
+    """Every committed lock of a pure APKO image installs the scan package at a version with an upstream part."""
+    locks = sorted(path.parent.glob("*apko.lock.json"))
+    if not locks:
+        raise MetadataError(f"{path}: scan-package {package} needs a committed apko.lock.json")
+    for lock in locks:
+        versions = locked_versions(lock, package)
+        if not versions:
+            raise MetadataError(f"{path}: scan-package {package} is not installed by {lock.name}")
+        for architecture, version in sorted(versions.items()):
+            if apk_upstream_version(version) is None:
+                raise MetadataError(
+                    f"{path}: {lock.name} locks {package} {version} ({architecture}); only N-rN and N_gitDATE-rN "
+                    "APK versions have an upstream version to scan"
+                )
+
 
 
 def channel_version(declared: str, source: str, path: Path) -> str:
@@ -373,9 +437,11 @@ def input_digest(directory: Path, flavor: str) -> str:
             ),
         }
     )
-    identity = parse_metadata(directory / "metadata.yaml").scan_identity
-    if identity:
-        digest.update(b"\0scan-identity\0" + "\0".join(identity).encode())
+    metadata = parse_metadata(directory / "metadata.yaml")
+    if metadata.scan_identity:
+        digest.update(b"\0scan-identity\0" + "\0".join(metadata.scan_identity).encode())
+    if metadata.scan_package:
+        digest.update(b"\0scan-package\0" + metadata.scan_package.encode())
     for relative in paths:
         digest.update(b"\0")
         digest.update(relative.encode())
@@ -478,6 +544,20 @@ def generate(
             ),
             default="",
         )
+    # A SCAN_IDENTITY_PATHS change builds one sample per identity path: the melange recipe sample, and
+    # the first pure APKO image that declares one, derived so it selects nothing extra while none does.
+    scan_identity_samples: set[str] = set()
+    if scan_identity_changed:
+        scan_identity_samples = {SCAN_IDENTITY_SAMPLE} | {
+            min(
+                (
+                    candidate_directory.relative_to(ROOT).as_posix()
+                    for candidate_directory, candidate in catalog
+                    if candidate.enabled and candidate.scan_package
+                ),
+                default=SCAN_IDENTITY_SAMPLE,
+            )
+        }
     latest = {
         metadata.name: max(
             (candidate.versions[0] for _, candidate in catalog if candidate.name == metadata.name),
@@ -522,7 +602,7 @@ def generate(
                 and not (go_remediate_changed and relative == GO_REMEDIATE_SAMPLE)
                 and not (corepack_install_changed and relative == COREPACK_INSTALL_SAMPLE)
                 and not (cargo_remediate_changed and relative == cargo_remediate_sample)
-                and not (scan_identity_changed and relative == SCAN_IDENTITY_SAMPLE)
+                and relative not in scan_identity_samples
                 and (not global_changed or samples[(metadata.track, flavor)] != relative)
             ):
                 continue
@@ -532,11 +612,11 @@ def generate(
             # A trusted main build already published these exact inputs, so the changed-image
             # delta has nothing left to build for this stream, even if the run that built it
             # did not fully succeed. Freshness rebuilds stay with the age-bounded `--catalog`.
-            # SCAN_IDENTITY_PATHS are not part of the input digest, so their sample always builds.
+            # SCAN_IDENTITY_PATHS are not part of the input digest, so their samples always build.
             if (
                 published.get((metadata.name, tag_version)) == fingerprint
                 and remediation_target != target
-                and not (scan_identity_changed and relative == SCAN_IDENTITY_SAMPLE)
+                and relative not in scan_identity_samples
             ):
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"

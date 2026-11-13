@@ -19,6 +19,11 @@ and the document metadata stay, so a scan of the trimmed SBOM matches the full o
 matches packages, never file entries. The document gains a `comment` that records the
 trim and the original file count. An SBOM that is still too large after the trim fails
 closed here, with a clear message, instead of failing later inside Rekor.
+
+Before the size check, every SBOM of an opted-in pure APKO image gains its declared
+scan-identity packages (scan_identity.apply_apko). This is the one step every image runs
+between Syft and the gate scan, and it is not part of any image's input digest, so a
+pure APKO image opts in through its own metadata.yaml without changing other images.
 """
 
 from __future__ import annotations
@@ -29,6 +34,8 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Final
+
+import scan_identity
 
 # Rekor's request-body limit is 24 MiB, and the DSSE payload is base64, so an SBOM of
 # 18 MiB is the largest that can be attested. Trimming above 12 MiB leaves a 4/3 request
@@ -104,7 +111,12 @@ def main(arguments: list[str]) -> int:
         return 2
     try:
         for argument in arguments:
+            if status := scan_identity.apply_apko(Path(argument)):
+                print(status)
             print(trim_file(Path(argument)))
+    except scan_identity.CoverageError as error:
+        print(f"::error title=Scan coverage::{error}", file=sys.stderr)
+        return 1
     except TrimError as error:
         print(f"::error title=SBOM too large to attest::{error}", file=sys.stderr)
         return 1

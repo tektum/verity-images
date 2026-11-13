@@ -10,9 +10,11 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final
+from unittest.mock import patch
 
 import gen_matrix
 import scan_identity
+import trim_sbom
 
 # Immutable. The allowlist may only shrink, and this set is the superset it was frozen from. Never
 # edit it again, not even to delete a name when an image leaves the allowlist: that image-local pull
@@ -254,6 +256,7 @@ def check_metadata_validation() -> None:
         "pkg:golang/github.com/coredns/coredns",
         "cpe:2.3:a:nodejs:node.js",
     )
+    assert parse("scan-identity: [cpe:2.3:a:erlang:erlang/otp]\n").scan_identity == ("cpe:2.3:a:erlang:erlang/otp",)
     for identity in (
         "scan-identity: []\n",
         "scan-identity: [cpe:2.3:a:oracle:mysql, cpe:2.3:a:oracle:mysql]\n",
@@ -265,6 +268,9 @@ def check_metadata_validation() -> None:
         "scan-identity: [pkg:golang]\n",
         "scan-identity: [mysql]\n",
         "scan-identity: oracle:mysql\n",
+        "scan-identity: [cpe:2.3:a:erlang:erlang/]\n",
+        "scan-identity: [cpe:2.3:a:erlang:/otp]\n",
+        "scan-identity: [cpe:2.3:a:erlang/otp:otp]\n",
     ):
         try:
             parse(identity)
@@ -313,6 +319,192 @@ def check_repository_allowlist() -> None:
         assert not metadata.scan_identity, f"{context}: declares scan-identity, delete its allowlist entry"
 
 
+APKO_DECLARED: Final = "scan-identity: [cpe:2.3:a:example:tool, pkg:pypi/tool]\nscan-package: tool\n"
+
+
+def apko_lock(**packages: str) -> str:
+    entries = [
+        {"name": name, "version": version, "architecture": architecture}
+        for name, version in packages.items()
+        for architecture in ("x86_64", "aarch64")
+    ]
+    return json.dumps({"version": "v1", "contents": {"packages": entries}}, indent=2) + "\n"
+
+
+def apk_package(name: str, version: str) -> dict:
+    """An installed apk as Syft writes it to SPDX, with the CPE it guesses from the apk name."""
+    return {
+        "name": name,
+        "SPDXID": f"SPDXRef-Package-apk-{name}",
+        "versionInfo": version,
+        "externalRefs": [
+            {"referenceCategory": "SECURITY", "referenceType": "cpe23Type",
+             "referenceLocator": f"cpe:2.3:a:{name}:{name}:{version}:*:*:*:*:*:*:*"},
+            {"referenceCategory": "PACKAGE-MANAGER", "referenceType": "purl",
+             "referenceLocator": f"pkg:apk/wolfi/{name}@{version}?arch=x86_64&distro=wolfi-20230201"},
+        ],
+    }
+
+
+class ApkoImage:
+    """A pure APKO image, and the dist/ layout scripts/build_candidate.sh leaves for its x86_64 build."""
+
+    def __init__(self, root: Path, *, declared: str = APKO_DECLARED, locked: str = "1.2.3-r4", shipped: str = ""):
+        self.root = root
+        self.context = root / "images/tool"
+        self.context.mkdir(parents=True)
+        self.metadata = self.context / "metadata.yaml"
+        self.metadata.write_text(
+            "name: tool\ntrack: wolfi\ndescription: Example.\nupstream: https://example.com/\nversions: [1]\n"
+            f"enabled: true\n{declared}",
+            encoding="utf-8",
+        )
+        (self.context / "apko.yaml").write_text("contents:\n  packages:\n    - tool\n", encoding="utf-8")
+        lock = apko_lock(tool=locked, glibc="2.42-r6")
+        (self.context / "apko.lock.json").write_text(lock, encoding="utf-8")
+        build = root / "dist/tool"
+        (build / "sbom").mkdir(parents=True)
+        (build / "apko.lock.json").write_text(lock, encoding="utf-8")
+        self.sbom = build / "sbom/sbom-amd64.spdx.json"
+        document = sbom_fixture()
+        document["packages"] = [apk_package("tool", shipped or locked), apk_package("glibc", "2.42-r6")]
+        self.sbom.write_text(json.dumps(document), encoding="utf-8")
+
+    def apply(self) -> str | None:
+        original = scan_identity.ROOT
+        scan_identity.ROOT = self.root.resolve()
+        try:
+            return scan_identity.apply_apko(self.sbom, [self.context])
+        finally:
+            scan_identity.ROOT = original
+
+    def locators(self) -> dict[str, list[str]]:
+        packages = json.loads(self.sbom.read_text(encoding="utf-8"))["packages"]
+        return {p["SPDXID"]: [r["referenceLocator"] for r in p["externalRefs"]] for p in packages}
+
+
+def check_apko_identity() -> None:
+    with TemporaryDirectory() as directory:
+        image = ApkoImage(Path(directory))
+        assert image.apply() == (
+            "images/tool: scanning declared identity cpe:2.3:a:example:tool, pkg:pypi/tool at 1.2.3 (tool 1.2.3-r4)"
+        )
+        locators = image.locators()
+        assert locators["SPDXRef-Package-scan-identity-0"] == [
+            "cpe:2.3:a:example:tool:1.2.3:*:*:*:*:*:*:*",
+            "pkg:generic/tool@1.2.3",
+        ]
+        assert locators["SPDXRef-Package-scan-identity-1"] == ["pkg:pypi/tool@1.2.3"]
+        # The apk Syft found stays; the declaration only adds the upstream identity next to it.
+        assert "pkg:apk/wolfi/tool@1.2.3-r4?arch=x86_64&distro=wolfi-20230201" in locators["SPDXRef-Package-apk-tool"]
+        injected = image.sbom.read_bytes()
+        image.apply()
+        assert image.sbom.read_bytes() == injected, "a second pass injected the identity twice"
+    with TemporaryDirectory() as directory:
+        # The fixture of an old, known-vulnerable build: the identity follows the locked version, so a
+        # Grype scan matches the declared CPE at 3.0.6 (see the CONTRIBUTING.md confirmation step).
+        image = ApkoImage(Path(directory), declared="scan-identity: [cpe:2.3:a:proxysql:proxysql]\nscan-package: tool\n",
+                          locked="3.0.6-r0")
+        image.apply()
+        assert image.locators()["SPDXRef-Package-scan-identity-0"][0] == "cpe:2.3:a:proxysql:proxysql:3.0.6:*:*:*:*:*:*:*"
+    with TemporaryDirectory() as directory:
+        # NVD's erlang/otp: the CPE escapes the slash, the purl percent-encodes it.
+        image = ApkoImage(Path(directory), declared="scan-identity: [cpe:2.3:a:erlang:erlang/otp]\nscan-package: tool\n",
+                          locked="28.5.0.8-r0")
+        image.apply()
+        assert image.locators()["SPDXRef-Package-scan-identity-0"] == [
+            "cpe:2.3:a:erlang:erlang\\/otp:28.5.0.8:*:*:*:*:*:*:*",
+            "pkg:generic/erlang%2Fotp@28.5.0.8",
+        ]
+    with TemporaryDirectory() as directory:
+        # A git snapshot is versioned as the release it was cut after.
+        image = ApkoImage(Path(directory), locked="3.12.16_git20261030-r0")
+        assert "at 3.12.16 (tool 3.12.16_git20261030-r0)" in str(image.apply())
+    with TemporaryDirectory() as directory:
+        # Wolfi package names may be capitalized (R).
+        image = ApkoImage(Path(directory))
+        for path in (image.metadata, image.context / "apko.lock.json", image.sbom.parent.parent / "apko.lock.json", image.sbom):
+            path.write_text(path.read_text(encoding="utf-8").replace('"tool"', '"R"').replace("scan-package: tool", "scan-package: R")
+                            .replace("pkg:apk/wolfi/tool@", "pkg:apk/wolfi/R@"), encoding="utf-8")
+        assert gen_matrix.parse_metadata(image.metadata).scan_package == "R"
+        assert "at 1.2.3 (R 1.2.3-r4)" in str(image.apply())
+    with TemporaryDirectory() as directory:
+        # Without the declaration the SBOM is the one Syft wrote, byte for byte.
+        image = ApkoImage(Path(directory), declared="")
+        before = image.sbom.read_bytes()
+        assert image.apply() is None
+        assert image.sbom.read_bytes() == before
+    with TemporaryDirectory() as directory:
+        # Another build (a melange image locks at build time) leaves a lock no opted-in image commits.
+        image = ApkoImage(Path(directory))
+        (image.sbom.parent.parent / "apko.lock.json").write_text(apko_lock(tool="1.2.3-r5"), encoding="utf-8")
+        before = image.sbom.read_bytes()
+        assert image.apply() is None
+        assert image.sbom.read_bytes() == before
+        (image.sbom.parent.parent / "apko.lock.json").unlink()
+        assert image.apply() is None
+    for shipped, message in (("1.2.3-r5", "does not lock"), ("", "expected one version")):
+        with TemporaryDirectory() as directory:
+            image = ApkoImage(Path(directory), shipped=shipped)
+            if not shipped:
+                document = json.loads(image.sbom.read_text(encoding="utf-8"))
+                document["packages"] = document["packages"][1:]
+                image.sbom.write_text(json.dumps(document), encoding="utf-8")
+            try:
+                image.apply()
+            except scan_identity.CoverageError as error:
+                assert message in str(error), error
+            else:
+                raise AssertionError(f"a drifted scan-package was accepted: {shipped!r}")
+
+
+def check_apko_metadata_validation() -> None:
+    def rejected(declared: str, *, locked: str = "1.2.3-r4", extra: dict[str, str] | None = None) -> str:
+        with TemporaryDirectory() as directory:
+            image = ApkoImage(Path(directory), declared=declared, locked=locked)
+            for name, contents in (extra or {}).items():
+                (image.context / name).write_text(contents, encoding="utf-8")
+            try:
+                gen_matrix.parse_metadata(image.metadata)
+            except gen_matrix.MetadataError as error:
+                return str(error)
+            raise AssertionError(f"invalid pure APKO declaration accepted: {declared!r}")
+
+    with TemporaryDirectory() as directory:
+        metadata = gen_matrix.parse_metadata(ApkoImage(Path(directory)).metadata)
+        assert (metadata.scan_identity, metadata.scan_package) == (("cpe:2.3:a:example:tool", "pkg:pypi/tool"), "tool")
+    with TemporaryDirectory() as directory:
+        assert gen_matrix.parse_metadata(ApkoImage(Path(directory), declared="").metadata).scan_package == ""
+    assert "requires scan-package" in rejected("scan-identity: [cpe:2.3:a:example:tool]\n")
+    assert "is not installed by apko.lock.json" in rejected(APKO_DECLARED.replace("scan-package: tool", "scan-package: other"))
+    assert "only valid with scan-identity" in rejected("scan-package: tool\n")
+    assert "only N-rN and N_gitDATE-rN" in rejected(APKO_DECLARED, locked="9.9_p1-r0")
+    assert "is not installed by fips.apko.lock.json" in rejected(APKO_DECLARED, extra={"fips.apko.lock.json": apko_lock(glibc="2.42-r6")})
+    melange = {"melange.yaml": "package:\n  name: tool\n  version: 1.2.3\n"}
+    assert "melange.yaml versions the identity" in rejected(APKO_DECLARED, extra=melange)
+    assert "requires an image-local melange.yaml" in rejected(APKO_DECLARED, extra={"fips.melange.yaml": "package:\n"})
+
+
+def check_apko_pipeline_contract() -> None:
+    """apply_apko finds the build's lock next to its SBOM, before the gate scans and attests that SBOM."""
+    build = (gen_matrix.ROOT / "scripts/build_candidate.sh").read_text(encoding="utf-8")
+    assert 'output="dist/${build_name}"' in build
+    assert 'cp "$lockfile" "${output}/apko.lock.json"' in build
+    assert '"spdx-json=${output}/sbom/sbom-${arch}.spdx.json"' in build
+    action = (gen_matrix.ROOT / ".github/actions/publish-image/action.yaml").read_text(encoding="utf-8")
+    trim = action.index("python3 scripts/trim_sbom.py")
+    assert '"${SBOM_DIRECTORY}/sbom-amd64.spdx.json"' in action[trim:]
+    assert trim < action.index('grype "sbom:${SBOM}"'), "the gate scans the SBOM before the identity is injected"
+    workflow = (gen_matrix.ROOT / ".github/workflows/build.yaml").read_text(encoding="utf-8")
+    assert "sbom-directory: dist/${{ matrix.build_name }}/sbom" in workflow
+    with TemporaryDirectory() as directory:
+        # trim_sbom.py is the caller in production: it injects, then size-checks the same file.
+        image = ApkoImage(Path(directory))
+        with patch.object(gen_matrix, "ROOT", image.root), patch.object(scan_identity, "ROOT", image.root):
+            assert trim_sbom.main([str(image.sbom)]) == 0
+        assert "SPDXRef-Package-scan-identity-0" in image.locators()
+
+
 def main() -> None:
     check_blind_spot_fails_closed()
     check_native_coverage()
@@ -321,6 +513,9 @@ def main() -> None:
     check_metadata_validation()
     check_underscore_heavy_paths()
     check_repository_allowlist()
+    check_apko_identity()
+    check_apko_metadata_validation()
+    check_apko_pipeline_contract()
     print("passed scripts/test_scan_identity.py")
 
 

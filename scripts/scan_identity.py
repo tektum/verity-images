@@ -5,7 +5,8 @@
 # ///
 # How to run (build_candidate.sh calls this once per platform, right after Syft):
 #   uv run scripts/scan_identity.py CONTEXT RECIPE SBOM SYFT_JSON
-"""Declare the main software of a source-built image to the scanners, or fail closed.
+# trim_sbom.py calls apply_apko() on every SBOM before the gate scans and attests it.
+"""Declare the main software of an image to the scanners, or fail closed.
 
 Melange stamps a .note.package into every binary it builds, so Syft reports the
 main software as a renamed apk that no vulnerability feed knows. A declared
@@ -13,6 +14,13 @@ main software as a renamed apk that no vulnerability feed knows. A declared
 the recipe, so Grype matches the software itself. Without a declared identity the
 image must expose a versioned main component natively, or sit on the shrink-only
 allowlist in scripts/scan_identity_allowlist.d/, one file per image.
+
+A pure APKO image is scanned from its real Wolfi package database, which Grype
+matches through the Wolfi secdb and through CPEs Syft guesses from the apk name.
+When that guess names the wrong vendor or product, the image may opt in with
+`scan-identity` plus `scan-package`, the Wolfi package that ships the software.
+The identity is then versioned from that package's version in the SBOM, which
+is the locked version, so the declaration cannot drift from what ships.
 """
 
 from __future__ import annotations
@@ -60,9 +68,11 @@ def identity_package(identity: str, version: str, index: int, source: str) -> di
     if (cpe := gen_matrix.SCAN_IDENTITY_CPE.fullmatch(identity)) is not None:
         vendor, product = cpe.groups()
         name = product
+        # CPE 2.3 escapes '/' in a component; a purl percent-encodes it in the name.
+        cpe_product, purl_name = product.replace("/", "\\/"), product.replace("/", "%2F")
         refs = [
-            ("SECURITY", "cpe23Type", f"cpe:2.3:a:{vendor}:{product}:{version}:*:*:*:*:*:*:*"),
-            ("PACKAGE-MANAGER", "purl", f"pkg:generic/{product}@{version}"),
+            ("SECURITY", "cpe23Type", f"cpe:2.3:a:{vendor}:{cpe_product}:{version}:*:*:*:*:*:*:*"),
+            ("PACKAGE-MANAGER", "purl", f"pkg:generic/{purl_name}@{version}"),
         ]
     else:
         kind, name = identity[len("pkg:") :].split("/", 1)
@@ -200,6 +210,68 @@ def apply(context: Path, recipe: Path, sbom_path: Path, syft_path: Path, allowli
         "'0 fixable' would prove nothing. Declare scan-identity in metadata.yaml (see CONTRIBUTING.md) or, "
         "for Go, stamp the main module version."
     )
+
+
+def built_lock(sbom_path: Path) -> Path:
+    """The lock a wolfi build used: build_candidate.sh writes dist/BUILD/apko.lock.json and dist/BUILD/sbom/*."""
+    return sbom_path.parent.parent / "apko.lock.json"
+
+
+def apk_versions(sbom: dict, package: str) -> set[str]:
+    """Versions of the installed apk named package in an SPDX SBOM."""
+    return {
+        str(item.get("versionInfo", ""))
+        for item in sbom.get("packages", [])
+        if item.get("name") == package
+        and any(ref.get("referenceLocator", "").startswith("pkg:apk/") for ref in item.get("externalRefs", []))
+    }
+
+
+def apko_declaration(lock: Path, directories: list[Path]) -> tuple[Path, gen_matrix.Metadata] | None:
+    """The opted-in pure APKO image whose committed lock is byte-identical to the lock a build used."""
+    built = lock.read_bytes()
+    found = [
+        (directory, metadata)
+        for directory in directories
+        if gen_matrix.is_pure_apko(directory)
+        and any(candidate.read_bytes() == built for candidate in directory.glob("*apko.lock.json"))
+        for metadata in (gen_matrix.parse_metadata(directory / "metadata.yaml"),)
+        if metadata.scan_package
+    ]
+    if len({(metadata.scan_identity, metadata.scan_package) for _, metadata in found}) > 1:
+        names = ", ".join(relative_context(directory) for directory, _ in found)
+        raise CoverageError(f"{lock}: matches the locks of {names}, which declare different scan identities")
+    return found[0] if found else None
+
+
+def apply_apko(sbom_path: Path, directories: list[Path] | None = None) -> str | None:
+    """Inject the declared identity of an opted-in pure APKO image; None for every other SBOM, left untouched."""
+    lock = built_lock(sbom_path)
+    if not lock.is_file():
+        return None
+    declaration = apko_declaration(lock, gen_matrix.image_directories() if directories is None else directories)
+    if declaration is None:
+        return None
+    directory, metadata = declaration
+    key, package, identities = relative_context(directory), metadata.scan_package, metadata.scan_identity
+    sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
+    installed = apk_versions(sbom, package)
+    if len(installed) != 1:
+        raise CoverageError(f"{key}: the SBOM lists scan-package {package} at {sorted(installed)}, expected one version")
+    apk = installed.pop()
+    if apk not in gen_matrix.locked_versions(lock, package).values():
+        raise CoverageError(f"{key}: the SBOM lists {package} {apk}, which {lock} does not lock")
+    version = gen_matrix.apk_upstream_version(apk)
+    if version is None:
+        raise CoverageError(f"{key}: {package} {apk} has no upstream version to scan (see gen_matrix.APK_UPSTREAM_VERSION)")
+    status = f"{key}: scanning declared identity {', '.join(identities)} at {version} ({package} {apk})"
+    if not declared_missing(sbom, identities, version):
+        return status
+    inject(sbom, identities, version, f"{key}/metadata.yaml")
+    sbom_path.write_text(json.dumps(sbom, indent=2) + "\n", encoding="utf-8")
+    if missing := declared_missing(json.loads(sbom_path.read_text(encoding="utf-8")), identities, version):
+        raise CoverageError(f"{key}: declared scan-identity missing from the SBOM: {', '.join(missing)}")
+    return status
 
 
 def main() -> None:
