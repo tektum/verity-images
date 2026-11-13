@@ -1,8 +1,9 @@
 name: python
 track: wolfi
-description: Python runtime assembled from Wolfi packages.
+description: CPython runtime built from pinned upstream source with security patches.
 category: Languages & Build Tools
 upstream: https://www.python.org/
 versions: [3.12]
+scan-identity: [cpe:2.3:a:python:python]
 owner: tektum
 enabled: true
