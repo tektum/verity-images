@@ -1307,6 +1307,13 @@ def main() -> None:
     assert 'forced_metadata=$explicit_metadata' in discovery_step
     assert 'git merge-base --is-ancestor "$source_sha" HEAD' in discovery_step
     assert discovery_step.count('validate_identity "$metadata"') == 1
+    # Only candidates may be deferred for a commit newer than the checkout; the
+    # explicit run and every other identity failure stay fatal.
+    assert 'validate_terminal "$explicit_metadata"\n' in discovery_step
+    assert 'validate_terminal "$metadata" "$deferrable" || identity=$?' in discovery_step
+    assert 'if [[ "$run_id" == "$explicit_run_id" ]]; then\n              deferrable=\n' in discovery_step
+    assert "::notice title=Build run deferred::" in discovery_step
+    assert discovery_step.count("failed identity validation: %s.") == 2
     assert 'jq -s . "$RUNNER_TEMP/reconciliation.ndjson" > reconciliation.json' in discovery_step
     assert 'run_attempt' in discovery_step
     assert 'consumedRuns: .' in discovery_step

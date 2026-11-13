@@ -139,22 +139,58 @@ jobs:
             scripts/gh_api_backoff.sh "$@"
           }
 
+          # Identity failures are fatal and name the run and reason. A commit that is
+          # not an ancestor of HEAD is fatal only when deferral is not allowed (the
+          # explicit run); otherwise return 3 so the caller can skip it. A queued
+          # catalog run checks out the main commit of its own trigger, so a build of
+          # a newer main commit can complete first; that build's completion triggers
+          # a later catalog run, and the ledger keeps it unconsumed until then.
           validate_identity() {
-            local metadata=$1
-            local source_sha
-            jq -e --arg repository "$REPOSITORY" '
-              .name == "Build images" and
-              .path == ".github/workflows/build.yaml" and
-              .head_branch == "main" and
-              .head_repository.full_name == $repository and
-              (.event == "push" or .event == "schedule" or .event == "workflow_dispatch")
-            ' <<<"$metadata" >/dev/null
+            local metadata=$1 deferrable=${2:-}
+            local run_id reason source_sha
+            run_id=$(jq -r '.id // "unknown"' <<<"$metadata") || run_id=unknown
+            reason=$(jq -r --arg repository "$REPOSITORY" '
+              if .name != "Build images" then
+                "workflow name is \(.name | tojson), expected \"Build images\""
+              elif .path != ".github/workflows/build.yaml" then
+                "workflow path is \(.path | tojson), expected \".github/workflows/build.yaml\""
+              elif .head_branch != "main" then
+                "head branch is \(.head_branch | tojson), expected \"main\""
+              elif .head_repository.full_name != $repository then
+                "head repository is \(.head_repository.full_name | tojson), expected \($repository | tojson)"
+              elif (.event | IN("push", "schedule", "workflow_dispatch") | not) then
+                "event is \(.event | tojson), expected push, schedule or workflow_dispatch"
+              elif ((.head_sha | type == "string" and test("^[0-9a-f]{40}$")) | not) then
+                "head_sha is \(.head_sha | tojson), expected a 40-character commit SHA"
+              else empty end
+            ' <<<"$metadata") || reason="run metadata is not a valid JSON object"
+            if [[ -n "$reason" ]]; then
+              printf '::error title=Catalog not updated::Run %s failed identity validation: %s.\n' \
+                "$run_id" "$reason"
+              exit 1
+            fi
             source_sha=$(jq -r .head_sha <<<"$metadata")
-            git merge-base --is-ancestor "$source_sha" HEAD
+            if git merge-base --is-ancestor "$source_sha" HEAD 2>/dev/null; then
+              return 0
+            fi
+            if git cat-file -e "${source_sha}^{commit}" 2>/dev/null; then
+              reason="commit $source_sha is not an ancestor of HEAD $(git rev-parse HEAD)"
+            else
+              reason="commit $source_sha is not in the checkout at HEAD $(git rev-parse HEAD)"
+            fi
+            if [[ "$deferrable" == defer ]]; then
+              printf '::notice title=Build run deferred::Run %s: %s; a later catalog run will consume it.\n' \
+                "$run_id" "$reason"
+              return 3
+            fi
+            printf '::error title=Catalog not updated::Run %s failed identity validation: %s.\n' \
+              "$run_id" "$reason"
+            exit 1
           }
 
+          # Exits on any failure; returns 3 only for a deferrable candidate.
           validate_terminal() {
-            local metadata=$1
+            local metadata=$1 deferrable=${2:-}
             local run_id conclusion status
             run_id=$(jq -r .id <<<"$metadata")
             conclusion=$(jq -r .conclusion <<<"$metadata")
@@ -165,7 +201,7 @@ jobs:
                 "$(jq -r .html_url <<<"$metadata")" "$run_id"
               exit 1
             fi
-            validate_identity "$metadata"
+            validate_identity "$metadata" "$deferrable"
           }
 
           explicit_run_id=
@@ -280,8 +316,21 @@ jobs:
 
           : > "$RUNNER_TEMP/reconciliation.ndjson"
           while IFS= read -r metadata; do
-            validate_terminal "$metadata"
             run_id=$(jq -r .id <<<"$metadata")
+            # The explicit run was validated above and is never deferred.
+            deferrable=defer
+            if [[ "$run_id" == "$explicit_run_id" ]]; then
+              deferrable=
+            fi
+            identity=0
+            validate_terminal "$metadata" "$deferrable" || identity=$?
+            if [[ "$identity" -eq 3 && "$deferrable" == defer ]]; then
+              continue
+            elif [[ "$identity" -ne 0 ]]; then
+              printf '::error title=Catalog not updated::Run %s failed validation (status %s).\n' \
+                "$run_id" "$identity"
+              exit 1
+            fi
             artifacts=$(gh_api --paginate \
               "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp)
             report_count=$(jq \
