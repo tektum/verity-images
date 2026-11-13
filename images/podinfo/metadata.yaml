@@ -1,0 +1,10 @@
+name: podinfo
+track: wolfi
+description: Go microservice for Kubernetes demos and end-to-end tests, built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/stefanprodan/podinfo
+versions: [6.17]
+flavors: [plain]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:stefanprodan:podinfo]
