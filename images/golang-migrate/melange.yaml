@@ -1,0 +1,83 @@
+package:
+  name: golang-migrate-4.20
+  # yamllint disable-line rule:line-length
+  version: "4.20.1"  # renovate: datasource=github-releases depName=golang-migrate/migrate versioning=regex:^(?<major>4)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Database migrations CLI (golang-migrate)
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 504568a3cbd23b8754760f55a3d89aec1b0c4963
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    # The upstream release image's driver and source set (Makefile DATABASE and
+    # SOURCE) without the pgx v4 driver (pgx://, pgx4://): pgx v4 and pgproto3 v2
+    # have no fix for GO-2026-5004 and GO-2026-4518, which govulncheck reports as
+    # called through it. PostgreSQL stays available as postgres:// and pgx5://.
+    # go/remediate reads GOFLAGS, so it scans the same build graph.
+    # yamllint disable-line rule:line-length
+    GOFLAGS: -tags=postgres,mysql,redshift,cassandra,spanner,cockroachdb,yugabytedb,clickhouse,mongodb,sqlserver,firebird,neo4j,pgx5,rqlite,file,go_bindata,github,github_ee,bitbucket,aws_s3,google_cloud_storage,godoc_vfs,gitlab
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/golang-migrate/migrate
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/migrate
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.Version=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/migrate" ./cmd/migrate
+      go version -m "${{targets.destdir}}/usr/bin/migrate" \
+        | awk '$1 == "mod" && $2 == "github.com/golang-migrate/migrate/v4" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the golang-migrate build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/golang-migrate-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/golang-migrate-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        migrate -version 2>&1 | grep -Fx "${{package.version}}"
+        apk info --who-owns /usr/bin/migrate \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        migrate -help 2>&1 | grep -F 'Database drivers:' | grep -F postgres
+        migrate -help 2>&1 | grep -F 'Source drivers:' | grep -F s3
+
+update:
+  enabled: true
+  github:
+    identifier: golang-migrate/migrate
+    strip-prefix: v
