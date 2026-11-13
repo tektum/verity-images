@@ -1,0 +1,107 @@
+package:
+  name: verity-trivy-operator
+  # yamllint disable-line rule:line-length
+  version: "0.36.1"  # renovate: datasource=github-releases depName=aquasecurity/trivy-operator versioning=regex:^(?<major>0)\.(?<minor>36)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes operator that runs Trivy scans and stores the results as custom resources
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: b40091af2bfba4c90b109fc0817d6c3f49bfc9a4
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOEXPERIMENT: jsonv2
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aquasecurity/trivy-operator
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/trivy-operator
+
+  - runs: |
+      # Same stamps as the upstream GoReleaser build (GOEXPERIMENT=jsonv2,
+      # main.version/commit/date); the date is the pinned commit's timestamp.
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      bin="${{targets.destdir}}/usr/bin/trivy-operator"
+      stamp="-X main.version=${{package.version}} -X main.commit=${{vars.source-commit}}"
+      stamp="$stamp -X main.date=$build_date"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" \
+        -o "$bin" ./cmd/trivy-operator
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/aquasecurity/trivy-operator" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      go version -m "$bin" | grep -Fx '	build	GOEXPERIMENT=jsonv2'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the trivy-operator build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/trivy-operator-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/trivy-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        # Without a cluster the operator logs its build info, then fails cleanly.
+        rc=0
+        OPERATOR_NAMESPACE=trivy-system trivy-operator >/tmp/out 2>&1 || rc=$?
+        test "$rc" -ne 0
+        grep -F '"Version":"${{package.version}}"' /tmp/out
+        grep -F 'unable to run trivy operator' /tmp/out
+        apk info --who-owns /usr/bin/trivy-operator \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: aquasecurity/trivy-operator
+    strip-prefix: v
+    tag-filter-prefix: v0.36.
+    use-tag: true
