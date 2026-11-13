@@ -6,9 +6,9 @@ here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
 # Peers for a real control plane: Verity etcd 3.7, kube-apiserver 1.37 and
 # kubectl 1.35, pinned by digest.
-etcd_image=ghcr.io/tektum/etcd@sha256:fc322841b20ac374159333e013fb417aa712e776380c53dc34ab8a1958c07fd2
-api_image=ghcr.io/tektum/kube-apiserver@sha256:b46742424f608bb186b83390c41cbe7f97df411ae3cf8fc3e4578c096a6b57bd
-kubectl_image=ghcr.io/tektum/kubectl@sha256:537780af388652be3a0130aacd6d1cfed24704ab6a820c6c7024602ec7777332
+etcd_index=ghcr.io/tektum/etcd@sha256:fc322841b20ac374159333e013fb417aa712e776380c53dc34ab8a1958c07fd2
+api_index=ghcr.io/tektum/kube-apiserver@sha256:b46742424f608bb186b83390c41cbe7f97df411ae3cf8fc3e4578c096a6b57bd
+kubectl_index=ghcr.io/tektum/kubectl@sha256:537780af388652be3a0130aacd6d1cfed24704ab6a820c6c7024602ec7777332
 
 id=$$
 network="verity-localpv-$id"
@@ -85,6 +85,28 @@ run "$image" >"$work/nocluster" 2>&1 || status=$?
 test "$status" -ne 0 || fail 'provisioner outside a cluster unexpectedly succeeded'
 grep -F 'KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined' "$work/nocluster" >/dev/null ||
   fail "in-cluster diagnostic is missing: $(cat "$work/nocluster")"
+
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+etcd_image=$(pull_child "$etcd_index")
+api_image=$(pull_child "$api_index")
+kubectl_image=$(pull_child "$kubectl_index")
 
 # Control plane: etcd and kube-apiserver with a static admin token.
 mkdir -p "$work/pki" "$work/kube" "$work/host"
