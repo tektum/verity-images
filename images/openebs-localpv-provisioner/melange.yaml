@@ -1,0 +1,108 @@
+package:
+  name: verity-openebs-localpv-provisioner
+  # yamllint disable-line rule:line-length
+  version: "4.6.0"  # renovate: datasource=github-releases depName=openebs/dynamic-localpv-provisioner extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: OpenEBS Dynamic Local PV hostpath provisioner for Kubernetes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      # Node mode (--node-deployment) runs its volume and quota scripts with
+      # busybox sh, xfs_quota and xfs_io, repquota and setquota, chattr and lsattr.
+      - busybox
+      - ca-certificates-bundle
+      - e2fsprogs-extra
+      - quota-tools
+      - wolfi-baselayout
+      - xfsprogs-extra
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 7426127d566ac249dde04cad9e22a66f80049e0f
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/openebs/dynamic-localpv-provisioner
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/provisioner-localpv
+
+  # Same version stamps as upstream buildscripts/build.sh for a release tag.
+  # The module path has no /v4 suffix, so Go ignores the v4 tags and stamps the
+  # main module with a v0.0.0 pseudo-version of the pinned commit.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      pkg=github.com/openebs/dynamic-localpv-provisioner/pkg/version
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X $pkg.GitCommit=$commit -X $pkg.Version=${{package.version}} \
+          -X main.CtlName=provisioner-localpv" \
+        -o "${{targets.destdir}}/usr/bin/provisioner-localpv" ./cmd/provisioner-localpv
+      go version -m "${{targets.destdir}}/usr/bin/provisioner-localpv" \
+        | awk '$1 == "mod" && $2 == "github.com/openebs/dynamic-localpv-provisioner" { print $3 }' \
+        | grep -Ex "v0\.0\.0-[0-9]{14}-$(git rev-parse --short=12 HEAD)(\+dirty)?"
+      # Upstream images install the binary under /usr/local/bin.
+      mkdir -p "${{targets.destdir}}/usr/local/bin"
+      ln -s ../../bin/provisioner-localpv "${{targets.destdir}}/usr/local/bin/provisioner-localpv"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the provisioner-localpv build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/openebs-localpv-provisioner-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/openebs-localpv-provisioner-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        provisioner-localpv --help | grep -F -- '--node-deployment'
+        test "$(readlink -f /usr/local/bin/provisioner-localpv)" = /usr/bin/provisioner-localpv
+        apk info --who-owns /usr/bin/provisioner-localpv \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: openebs/dynamic-localpv-provisioner
+    strip-prefix: v
+    use-tag: true
