@@ -1,0 +1,215 @@
+package:
+  name: verity-atlantis
+  # yamllint disable-line rule:line-length
+  version: "0.49.0"  # renovate: datasource=github-releases depName=runatlantis/atlantis versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Terraform pull request automation server
+  copyright:
+    - license: Apache-2.0
+      paths:
+        - usr/bin/atlantis
+        - usr/local/bin/conftest
+        - usr/local/bin/docker-entrypoint.sh
+    - license: MIT
+      paths:
+        - usr/bin/git-lfs
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - dumb-init
+      - git
+      - openssh-client
+      - unzip
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # Upstream bundles conftest and git-lfs. The Wolfi builds carry
+  # golang.org/x/crypto v0.57.0 (GO-2026-5932), so both are rebuilt here.
+  # yamllint disable-line rule:line-length
+  conftest-version: "0.71.1"  # renovate: datasource=github-releases depName=open-policy-agent/conftest extractVersion=^v(?<version>.+)$
+  conftest-commit: 8f7ac015cb51d81992f2ffbe2b0c1451fd05d1c5
+  # yamllint disable-line rule:line-length
+  git-lfs-version: "3.8.1"  # renovate: datasource=github-releases depName=git-lfs/git-lfs extractVersion=^v(?<version>.+)$
+  # The git-lfs release tag is annotated; this is the peeled commit it points to.
+  git-lfs-commit: a662a6dbfedf706cfa9fc7a5b7bcc7ba2e2c8a65
+  # CVE-2026-19585 (go-getter S3 and GCS path traversal) has an NVD record
+  # but no Go vulnerability database entry, so go/remediate does not raise it.
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
+  go-getter-v2-floor: v2.2.5  # renovate: datasource=go depName=github.com/hashicorp/go-getter/v2
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/runatlantis/atlantis
+      tag: v${{package.version}}
+      expected-commit: 5718f12b631cd5bc490a380325737d42a5400fa5
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/open-policy-agent/conftest
+      tag: v${{vars.conftest-version}}
+      expected-commit: ${{vars.conftest-commit}}
+      destination: third_party/conftest
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/git-lfs/git-lfs
+      tag: v${{vars.git-lfs-version}}
+      expected-commit: ${{vars.git-lfs-commit}}
+      destination: third_party/git-lfs
+
+  - runs: |
+      # Raise a required module to its floor when the checkout pins it lower.
+      raise_floor() {
+        dir=$1 module=$2 floor=$3
+        current=$(cd "$dir" && go list -m -f '{{.Version}}' "$module" 2>/dev/null) || return 0
+        if awk -v have="$current" -v want="$floor" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'; then
+          (cd "$dir" && go get "$module@$floor")
+        fi
+      }
+      raise_floor . github.com/hashicorp/go-getter/v2 ${{vars.go-getter-v2-floor}}
+      raise_floor third_party/conftest github.com/hashicorp/go-getter ${{vars.go-getter-floor}}
+      (cd . && go list -m github.com/hashicorp/go-getter/v2)
+      (cd third_party/conftest && go list -m github.com/hashicorp/go-getter)
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/conftest
+      packages: .
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/git-lfs
+      packages: .
+
+  - runs: |
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      commit=$(git rev-parse HEAD)
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.version=v${{package.version}} -X main.commit=$commit \
+          -X main.date=$build_date" \
+        -o "${{targets.destdir}}/usr/bin/atlantis" .
+      go version -m "${{targets.destdir}}/usr/bin/atlantis" \
+        | awk '$1 == "mod" && $2 == "github.com/runatlantis/atlantis" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      (
+        cd third_party/conftest
+        version_var=github.com/open-policy-agent/conftest/internal/version.Version
+        go build -mod=readonly -trimpath -buildvcs=true \
+          -ldflags="-s -w -X $version_var=${{vars.conftest-version}}" \
+          -o "${{targets.destdir}}/usr/local/bin/conftest" .
+      )
+      go version -m "${{targets.destdir}}/usr/local/bin/conftest" \
+        | awk '$1 == "mod" && $2 == "github.com/open-policy-agent/conftest" { print $3 }' \
+        | grep -Ex 'v${{vars.conftest-version}}(\+dirty)?'
+      (
+        cd third_party/git-lfs
+        go build -mod=readonly -trimpath -buildvcs=true \
+          -ldflags="-s -w -X github.com/git-lfs/git-lfs/v3/config.GitCommit=${{vars.git-lfs-commit}}" \
+          -o "${{targets.destdir}}/usr/bin/git-lfs" .
+      )
+      go version -m "${{targets.destdir}}/usr/bin/git-lfs" \
+        | awk '$1 == "mod" && $2 == "github.com/git-lfs/git-lfs/v3" { print $3 }' \
+        | grep -Ex 'v${{vars.git-lfs-version}}(\+dirty)?'
+      # Upstream starts the script through `env -S dumb-init --single-child`,
+      # which busybox env cannot parse. The image entrypoint runs dumb-init the
+      # same way, so the script itself only needs /bin/sh.
+      head -n 1 docker-entrypoint.sh \
+        | grep -Fx '#!/usr/bin/env -S dumb-init --single-child /bin/sh'
+      sed '1s|.*|#!/bin/sh|' docker-entrypoint.sh >docker-entrypoint.verity.sh
+      install -Dm755 docker-entrypoint.verity.sh \
+        "${{targets.destdir}}/usr/local/bin/docker-entrypoint.sh"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 third_party/conftest/LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/conftest/LICENSE"
+      install -Dm644 third_party/git-lfs/LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/git-lfs/LICENSE.md"
+      # Keep the bundled tools' resolved module files for the build-metadata
+      # subpackage; the checkouts themselves are build inputs only.
+      for tool in conftest git-lfs; do
+        install -Dm644 "third_party/$tool/go.mod" ".verity-$tool/go.mod"
+        install -Dm644 "third_party/$tool/go.sum" ".verity-$tool/go.sum"
+      done
+      rm -rf third_party
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Atlantis build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/atlantis-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/atlantis-build/go.sum"
+          for tool in conftest git-lfs; do
+            install -Dm644 ".verity-$tool/go.mod" \
+              "${{targets.subpkgdir}}/usr/share/atlantis-build/$tool/go.mod"
+            install -Dm644 ".verity-$tool/go.sum" \
+              "${{targets.subpkgdir}}/usr/share/atlantis-build/$tool/go.sum"
+          done
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        atlantis version | grep -F 'atlantis v${{package.version}} (commit: '
+        test -x /usr/local/bin/docker-entrypoint.sh
+        head -n 1 /usr/local/bin/docker-entrypoint.sh | grep -Fx '#!/bin/sh'
+        conftest --version | grep -F 'Conftest: ${{vars.conftest-version}}'
+        git-lfs version | grep -F 'git-lfs/${{vars.git-lfs-version}} '
+        apk info --who-owns /usr/bin/atlantis \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -F Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: runatlantis/atlantis
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true
