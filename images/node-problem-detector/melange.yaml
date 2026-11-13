@@ -1,0 +1,111 @@
+package:
+  name: verity-node-problem-detector
+  # yamllint disable-line rule:line-length
+  version: "1.37.0"  # renovate: datasource=github-releases depName=kubernetes/node-problem-detector versioning=regex:^(?<major>1)\.(?<minor>37)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes daemon that detects node problems and reports them as conditions, events and metrics
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 7dad835ec831225db2a8090bde46430970bfcc9b
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+      - systemd-dev
+  environment:
+    # The journald build tag links libsystemd for the journald log watcher and
+    # log-counter, as upstream does.
+    CGO_ENABLED: "1"
+    # cmd/logcounter only builds with the journald tag; remediation lists and
+    # scans the same tagged package graph that ships.
+    GOFLAGS: -p=4 -tags=journald
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/node-problem-detector
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # The host collector of the system-stats monitor rejects an /etc/os-release
+  # ID it does not know; accept "wolfi", the ID of this image's base layout.
+  - uses: patch
+    with:
+      patches: os-release-wolfi.patch
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/nodeproblemdetector ./cmd/healthchecker ./cmd/logcounter
+
+  - runs: |
+      for cmd in nodeproblemdetector:node-problem-detector healthchecker:health-checker logcounter:log-counter; do
+        go build -mod=vendor -trimpath -buildvcs=true -tags journald \
+          -ldflags="-s -w -X k8s.io/node-problem-detector/pkg/version.version=v${{package.version}}" \
+          -o "${{targets.destdir}}/usr/bin/${cmd#*:}" "./cmd/${cmd%%:*}"
+        go version -m "${{targets.destdir}}/usr/bin/${cmd#*:}" \
+          | awk '$1 == "mod" && $2 == "k8s.io/node-problem-detector" { print $3 }' \
+          | grep -Ex 'v${{package.version}}(\+dirty)?'
+      done
+      # Upstream image paths, used by the shipped configs and common charts.
+      mkdir -p "${{targets.destdir}}/home/kubernetes/bin"
+      ln -s /usr/bin/node-problem-detector "${{targets.destdir}}/node-problem-detector"
+      ln -s /usr/bin/health-checker "${{targets.destdir}}/home/kubernetes/bin/health-checker"
+      ln -s /usr/bin/log-counter "${{targets.destdir}}/home/kubernetes/bin/log-counter"
+      mkdir -p "${{targets.destdir}}/config"
+      cp -R config/. "${{targets.destdir}}/config/"
+      find "${{targets.destdir}}/config" -name 'windows*' -exec rm -rf {} +
+      find "${{targets.destdir}}/config" -type f -name '*.json' -exec chmod 0644 {} +
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the node-problem-detector build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/node-problem-detector-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/node-problem-detector-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        node-problem-detector --version | grep -Fx 'v${{package.version}}'
+        health-checker --help 2>&1 | grep -F -- '--component'
+        log-counter --help 2>&1 | grep -F -- '--journald-source'
+        test -f /config/kernel-monitor.json
+        test -x /config/plugin/check_ntp.sh
+        apk info --who-owns /usr/bin/node-problem-detector \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes/node-problem-detector
+    strip-prefix: v
