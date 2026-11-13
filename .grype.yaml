@@ -26,3 +26,44 @@ ignore:
       https://imagemagick.org/changelog/), and 7.1.2-35 contains it. Scoped to the
       scan-identity package declared by images/imagemagick (cpe imagemagick:imagemagick)
       at 7.1.2-35.
+  - vulnerability: CVE-2014-9826
+    package:
+      name: imagemagick
+      version: 7.1.2-35
+      type: UnknownPackage
+    reason: >-
+      Wrong match: NVD's only configuration is cpe imagemagick:imagemagick:- with no version
+      range, so Grype matches every version. The fix is ImageMagick-6 svn r17149 ("Fix error
+      handling in sun file", the Debian patch 69490f5c cited by NVD), carried into ImageMagick 7
+      as commit 76d045a787b16952e2111c248713e72de2f593da, an ancestor of 7.1.2-35 (first tag
+      7.0.1-0). At the 7.1.2-35 tag coders/sun.c:323-326 throws CorruptImageError as fixed.
+      Debian marks 8:7.1.2.35 fixed (https://security-tracker.debian.org/tracker/CVE-2014-9826).
+      Scoped to the scan-identity package declared by images/imagemagick
+      (cpe imagemagick:imagemagick) at 7.1.2-35.
+  - vulnerability: CVE-2016-7538
+    package:
+      name: imagemagick
+      version: 7.1.2-35
+      type: UnknownPackage
+    reason: >-
+      Wrong match: NVD's only configuration is cpe imagemagick:imagemagick:- with no version
+      range, so Grype matches every version. The fix (commit
+      82e2049862a8b8a999e160734ad64fb6cc3b145f, referenced by the CVE, issue #148) is an
+      ancestor of 7.1.2-35 (first tag 7.0.1-0). At the 7.1.2-35 tag
+      RemoveICCProfileFromResourceBlock (coders/psd.c:3497-3552) bounds the memmove by the
+      profile length. Debian marks 8:7.1.2.35 fixed
+      (https://security-tracker.debian.org/tracker/CVE-2016-7538). Scoped to the scan-identity
+      package declared by images/imagemagick (cpe imagemagick:imagemagick) at 7.1.2-35.
+  - vulnerability: CVE-2017-5506
+    package:
+      name: imagemagick
+      version: 7.1.2-35
+      type: UnknownPackage
+    reason: >-
+      Wrong match: NVD's configuration is cpe imagemagick:imagemagick:* with no version range,
+      so Grype matches every version. The fix (commit 9a069e0f2e027ec5138f998023cf9cb62c04889f,
+      referenced by the CVE, issue #354) is an ancestor of 7.1.2-35 (first tag 7.0.4-4). At
+      the 7.1.2-35 tag SyncExifProfile (MagickCore/profile.c:2542-2545) rejects offset < 0.
+      Debian marks 8:7.1.2.35 fixed (https://security-tracker.debian.org/tracker/CVE-2017-5506).
+      Scoped to the scan-identity package declared by images/imagemagick
+      (cpe imagemagick:imagemagick) at 7.1.2-35.
