@@ -1,0 +1,95 @@
+package:
+  name: verity-eksctl
+  # yamllint disable-line rule:line-length
+  version: "0.231.0"  # renovate: datasource=github-releases depName=eksctl-io/eksctl extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: The official CLI for Amazon EKS
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 11Gi
+
+vars:
+  source-commit: f671416a1ca0f8eb407dd0056de22044283926b2
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/eksctl-io/eksctl
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/eksctl
+
+  - runs: |
+      # Same version stamping as the upstream goreleaser release build: an
+      # empty PreReleaseID makes `eksctl version` report the plain release.
+      version_pkg=github.com/weaveworks/eksctl/pkg/version
+      commit=$(git rev-parse --short HEAD)
+      date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X $version_pkg.gitCommit=$commit \
+          -X $version_pkg.buildDate=$date \
+          -X $version_pkg.PreReleaseID=" \
+        -o "${{targets.destdir}}/usr/bin/eksctl" ./cmd/eksctl
+      # The Go main module is the scan identity; it must carry the release version.
+      go version -m "${{targets.destdir}}/usr/bin/eksctl" \
+        | awk '$1 == "mod" && $2 == "github.com/weaveworks/eksctl" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the eksctl build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/eksctl-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/eksctl-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        HOME=/tmp eksctl version | grep -Fx "${{package.version}}"
+        apk info --who-owns /usr/bin/eksctl \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: eksctl-io/eksctl
+    strip-prefix: v
