@@ -60,9 +60,14 @@ if docker run --rm --network none -v "$work/broken.conf:/etc/lighttpd/lighttpd.c
 fi
 
 # Negative: the image ships no configuration, so a bare start must fail.
-if docker run --rm --network none "$image" >/dev/null 2>&1; then
-  fail 'server started without a configuration'
-fi
+# Bound the run: a regression that ships a usable default would otherwise serve forever.
+bare_status=0
+timeout 30 docker run --rm --name "$container" --network none "$image" >/dev/null 2>&1 || bare_status=$?
+docker rm -f "$container" >/dev/null 2>&1 || true
+case "$bare_status" in
+  0) fail 'server started without a configuration' ;;
+  124) fail 'server started without a configuration (still running after 30s)' ;;
+esac
 
 docker run -d --name "$container" --read-only \
   -v "$work/lighttpd.conf:/etc/lighttpd/lighttpd.conf:ro" \
