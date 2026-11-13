@@ -1,0 +1,8 @@
+name: kubelet-csr-approver
+track: wolfi
+description: Approver for kubelet-serving certificate signing requests that pass node name, DNS and IP checks.
+category: Kubernetes & Orchestration
+upstream: https://github.com/postfinance/kubelet-csr-approver
+versions: [1.2]
+owner: tektum
+enabled: true
