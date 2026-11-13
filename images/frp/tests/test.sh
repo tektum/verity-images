@@ -171,8 +171,13 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$client") in
   0 | 143) ;;
   *) fail 'frpc did not stop on SIGTERM' ;;
 esac
-docker logs "$server" 2>&1 | grep -F 'client exit success' >/dev/null ||
-  fail 'frpc did not close its session with frps on SIGTERM'
+# frps logs the closed session asynchronously after frpc exits; poll for it.
+attempts=0
+until docker logs "$server" 2>&1 | grep -F 'client exit success' >/dev/null; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 10 ] || fail 'frpc did not close its session with frps on SIGTERM'
+  sleep 1
+done
 docker stop --time 10 "$server" >/dev/null
 case $(docker inspect --format '{{.State.ExitCode}}' "$server") in
   0 | 143) ;;
