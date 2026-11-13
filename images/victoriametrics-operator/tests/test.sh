@@ -70,10 +70,11 @@ if grep -F VM_OPERATOR_VERSION "$work/badformat" >/dev/null; then
 fi
 
 # Outside a cluster and without a kubeconfig the manager must fail fast, not crash-loop.
-if timeout 60 docker run --rm --network none --read-only "$image" \
-  >"$work/nocluster" 2>&1; then
-  fail 'operator outside a cluster unexpectedly succeeded'
-fi
+status=0
+timeout 60 docker run --rm --network none --read-only "$image" \
+  >"$work/nocluster" 2>&1 || status=$?
+[ "$status" -ne 0 ] || fail 'operator outside a cluster unexpectedly succeeded'
+[ "$status" -ne 124 ] || fail 'operator hung outside a cluster instead of failing fast'
 grep -F 'unable to load in-cluster configuration, KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined' \
   "$work/nocluster" >/dev/null || fail "in-cluster diagnostic is missing: $(cat "$work/nocluster")"
 
