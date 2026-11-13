@@ -1,0 +1,70 @@
+{
+  "version": "v1",
+  "config": {
+    "name": "images/shfmt/apko.yaml",
+    "checksum": "sha256-Gk2QOB1SrEx0znFQVWfz8/kxN/7gekLEqZjsdGrgCYI="
+  },
+  "contents": {
+    "keyring": [
+      {
+        "name": "packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "url": "https://packages.wolfi.dev/os/wolfi-signing.rsa.pub",
+        "content": "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEA5qQUHmzqX9oa/RS3OSgL\nYTYB1mzvVmnWC0JXsAafdgRkavJ9xRhsXMKXWPKMghZw6UnkxuxQCZlB9UhaFqed\nX7SWfQ8qRgECFmdGUjoeV7P3VUkg17RU0mUKsXZZF/2mU+jCGyk5eweKcLWrk6bn\nlNNF1vBJ9EXbHdfvbQsA5GfLku5tJhqRJ4FVQAGCw+1JoSKu+o3q+6xP7z6kMfR9\ncp54FSj48rTJUibbAv+cPtZ3AnbpjdyarV7SYMfxp14Q/KR0CJYDihG3CFoU+TaM\ndr7LUrgXaYw7m7g8hA2PY1jF8aqDqVFjVu/csPKnKVQSqNHfm4C4gljwT6TDVhPe\n6xKSGKfAUNvHx2RIqSsZJCh68Af+VnfuimbHMYzGhzV4/efihpJlYsDnOXJj/PeY\nSbEIYG2yoI3AYvDFyFX2OAOtQ9d4TPs4zS4aDg4R3UseXLib46FX3ZTfIi1/W0IO\neC3AFU5mK+02jq+7swcGbgzem30dFA/B3n8NQExJjF2WlGNJxFw2WnJQqKIkIh0s\nkm5jaxJ28xYgik+bEgxy1LsilKTowdkbEPRKv36JGdap4dOEGR+LwZsM+ontF1AO\nwY6tvwtZKJWhgj7ES3BdtiC1GA2htFnP90lA7KnKbSMOxwWtSCH8spitdPdzgI8G\nSxrOb0SZs6ZFAxYYe3GlvS0CAwEAAQ==\n-----END PUBLIC KEY-----\n"
+      }
+    ],
+    "build_repositories": [],
+    "runtime_repositories": [],
+    "repositories": [
+      {
+        "name": "packages.wolfi.dev/os/x86_64",
+        "url": "https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz",
+        "architecture": "x86_64"
+      },
+      {
+        "name": "packages.wolfi.dev/os/aarch64",
+        "url": "https://packages.wolfi.dev/os/aarch64/APKINDEX.tar.gz",
+        "architecture": "aarch64"
+      }
+    ],
+    "packages": [
+      {
+        "name": "shfmt",
+        "url": "https://packages.wolfi.dev/os/x86_64/shfmt-3.14.1-r3.apk",
+        "version": "3.14.1-r3",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-12229",
+          "checksum": "sha1-mJ56Nw0DR9mopPbF3sIc6LdHlwA="
+        },
+        "data": {
+          "range": "bytes=12230-1703474",
+          "checksum": "sha256-5plvZNzHpU+iX4q40wmq4d9tZ3M8FUZ5i/T8ZBzywr4="
+        },
+        "checksum": "Q1mJ56Nw0DR9mopPbF3sIc6LdHlwA="
+      },
+      {
+        "name": "shfmt",
+        "url": "https://packages.wolfi.dev/os/aarch64/shfmt-3.14.1-r3.apk",
+        "version": "3.14.1-r3",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-12264",
+          "checksum": "sha1-cjvM/kDXVGWuGcgZdUgdUt/XpHU="
+        },
+        "data": {
+          "range": "bytes=12265-1535662",
+          "checksum": "sha256-zKdxVq1aS/Ix9C4miccvTiUbVV/uR+uWS4XhMQcyinI="
+        },
+        "checksum": "Q1cjvM/kDXVGWuGcgZdUgdUt/XpHU="
+      }
+    ]
+  }
+}
