@@ -28,6 +28,13 @@ test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = null |
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /work ||
   fail 'unexpected working directory'
 
+# The bundled toolchain is the only one mage may use: a project that asks for a
+# newer Go fails clearly instead of downloading an unscanned toolchain.
+docker image inspect --format '{{json .Config.Env}}' "$image" >"$work/env"
+for var in GOTOOLCHAIN=local GOPATH=/home/nonroot/go GOCACHE=/home/nonroot/.cache/go-build; do
+  jq -e --arg v "$var" 'index($v) != null' "$work/env" >/dev/null || fail "image environment lacks $var"
+done
+
 # Offline on a read-only root with no capabilities: only the mounted project
 # and an executable tmpfs home (Go build cache, compiled magefile cache) are
 # writable.
@@ -136,6 +143,19 @@ run project nope >"$work/unknown" 2>&1 || rc=$?
 test "$rc" -eq 2 || fail "unknown target exited $rc, expected 2"
 grep -F 'Unknown target specified: "nope"' "$work/unknown" >/dev/null ||
   fail "unknown target diagnostic is missing: $(cat "$work/unknown")"
+
+mkdir -p "$work/newgo"
+chmod 777 "$work/newgo"
+cp "$work/project/magefile.go" "$work/newgo/magefile.go"
+printf 'module example.com/newgo\n\ngo 1.999\n' >"$work/newgo/go.mod"
+chmod 644 "$work/newgo/go.mod"
+rc=0
+run newgo greet x >"$work/newgo.log" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'a project requiring a newer Go unexpectedly built'
+grep -F 'requires go >= 1.999' "$work/newgo.log" >/dev/null ||
+  fail "newer Go requirement diagnostic is missing: $(cat "$work/newgo.log")"
+grep -F 'GOTOOLCHAIN=local' "$work/newgo.log" >/dev/null ||
+  fail "the toolchain was not pinned to the local one: $(cat "$work/newgo.log")"
 
 # -compile writes a standalone static binary that runs without the toolchain.
 run project -compile /work/magebin >"$work/compile" 2>&1 || fail "compile failed: $(cat "$work/compile")"

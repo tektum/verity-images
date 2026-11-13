@@ -28,6 +28,9 @@ environment:
   PATH: /usr/bin:/bin
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
   HOME: /home/nonroot
+  GOPATH: /home/nonroot/go
+  GOCACHE: /home/nonroot/.cache/go-build
+  GOTOOLCHAIN: local
 
 paths:
   - path: /home/nonroot
