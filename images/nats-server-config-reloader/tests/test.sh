@@ -128,15 +128,15 @@ sed 's/^max_payload: 1048576$/max_payload: 2097152/' "$work/config/nats.conf" >"
 cat "$work/next.conf" >"$work/config/nats.conf"
 
 attempts=0
-until docker logs "$server" 2>&1 | grep -F 'Reloaded server configuration' >/dev/null; do
+# Wait for the specific change: the in-place rewrite truncates the file first,
+# so an earlier SIGHUP may reload a partial file before the final content lands.
+until docker logs "$server" 2>&1 | grep -F 'Reloaded: max_payload = 2097152' >/dev/null; do
   attempts=$((attempts + 1))
-  [ "$attempts" -lt 60 ] || fail 'server was never signalled to reload its configuration'
+  [ "$attempts" -lt 60 ] || fail 'server never applied the new max_payload'
   sleep 1
 done
 docker logs "$reloader" 2>&1 | grep -E "Sending pid [0-9]+ 'hangup' signal to reload changes from: \[/etc/nats-config/nats.conf\]" \
   >/dev/null || fail 'reloader did not report the SIGHUP it sent'
-docker logs "$server" 2>&1 | grep -F 'Reloaded: max_payload = 2097152' >/dev/null ||
-  fail 'server did not apply the new max_payload'
 
 docker stop --time 10 "$reloader" >/dev/null
 test "$(docker inspect --format '{{.State.ExitCode}}' "$reloader")" = 0 ||
