@@ -1,8 +1,9 @@
 name: proxysql
 track: wolfi
-description: High-performance MySQL proxy assembled from Wolfi packages.
+description: High-performance MySQL proxy built from pinned upstream source.
 category: Databases & Caching
 upstream: https://github.com/sysown/proxysql
 versions: [3]
+scan-identity: [cpe:2.3:a:proxysql:proxysql]
 owner: tektum
 enabled: true
