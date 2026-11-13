@@ -532,7 +532,12 @@ def generate(
             # A trusted main build already published these exact inputs, so the changed-image
             # delta has nothing left to build for this stream, even if the run that built it
             # did not fully succeed. Freshness rebuilds stay with the age-bounded `--catalog`.
-            if published.get((metadata.name, tag_version)) == fingerprint and remediation_target != target:
+            # SCAN_IDENTITY_PATHS are not part of the input digest, so their sample always builds.
+            if (
+                published.get((metadata.name, tag_version)) == fingerprint
+                and remediation_target != target
+                and not (scan_identity_changed and relative == SCAN_IDENTITY_SAMPLE)
+            ):
                 continue
             build_name = metadata.name if flavor == "plain" else f"{metadata.name}-{flavor}"
             is_latest = version == latest[metadata.name]

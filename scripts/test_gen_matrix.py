@@ -280,6 +280,22 @@ def check_published_input_digest_pruning() -> None:
             target = gen_matrix.generate(None, published_catalog=catalog, remediation_target="trivy@0.73.0")
             assert len(target["include"]) == 1
 
+        # scan_identity.py is not hashed into the input digest, so its sample must
+        # still build when the published record matches.
+        write_image(root / "images/rqlite", name="rqlite", versions="1", package_version="1.0.0")
+        with (
+            patch.object(gen_matrix, "ROOT", root),
+            patch.object(gen_matrix, "changed_paths", return_value={"scripts/scan_identity.py"}),
+        ):
+            rqlite = {
+                "name": "rqlite",
+                "version": "1",
+                "inputDigest": gen_matrix.input_digest(root / "images/rqlite", "plain"),
+            }
+            catalog.write_text(json.dumps({"images": [current, rqlite]}), encoding="utf-8")
+            entries = gen_matrix.generate("base", published_catalog=catalog)["include"]
+            assert [entry["context"] for entry in entries] == [gen_matrix.SCAN_IDENTITY_SAMPLE]
+
 
 def check_apk_repository_consumers() -> None:
     with TemporaryDirectory() as temporary_directory:
