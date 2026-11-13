@@ -58,14 +58,6 @@ done
 head -c 4 "$work/rootfs/usr/share/zoneinfo/Etc/UTC" | grep -Fx TZif >/dev/null ||
   fail 'zoneinfo database is not readable'
 
-# The manager and listener carry the release version and the pinned commit.
-for bin in manager ghalistener; do
-  grep -aF "build.Version=$expected_version " "$work/rootfs/$bin" >/dev/null ||
-    fail "/$bin is not stamped with version $expected_version"
-  grep -aF "build.CommitSHA=$expected_commit" "$work/rootfs/$bin" >/dev/null ||
-    fail "/$bin is not stamped with commit $expected_commit"
-done
-
 # The image is the controller only, like the distroless upstream image.
 for tool in /bin/sh /usr/bin/kubectl; do
   if run --entrypoint "$tool" "$image" -c true >/dev/null 2>&1; then

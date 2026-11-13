@@ -73,10 +73,22 @@ pipeline:
         printf '%s\n' "$mod" | grep -Ex "v[0-9]+\.[0-9]+\.[0-9]+-(0\.)?[0-9]{14}-$short(\+dirty)?" ||
           { echo "$bin: unexpected main module version '$mod'" >&2; exit 1; }
       done
+      # The linker silently ignores -X for a missing variable, and the recorded
+      # -ldflags text proves nothing. When -X does set a live string variable,
+      # the linker emits a "<var>.str" data symbol holding the value. Link the
+      # stamped binaries once more without -s -w (cached, link only) and fail
+      # unless both stamp targets got that symbol.
+      nmdir=$(mktemp -d)
+      go build $flags -ldflags="$stamp" -o "$nmdir/manager" .
+      go build $flags -ldflags="$stamp" -o "$nmdir/ghalistener" ./cmd/ghalistener
       for bin in manager ghalistener; do
-        go version -m "$dest/$bin" | grep -F -- "-X $pkg.Version=${{package.version}}" ||
-          { echo "$bin: missing version stamp" >&2; exit 1; }
+        go tool nm "$nmdir/$bin" >"$nmdir/$bin.nm"
+        for var in Version CommitSHA; do
+          awk -v s="$pkg.$var.str" '$NF == s { found = 1 } END { exit !found }' "$nmdir/$bin.nm" ||
+            { echo "$bin: -X did not set $pkg.$var" >&2; exit 1; }
+        done
       done
+      rm -rf "$nmdir"
 
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
