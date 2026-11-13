@@ -40,6 +40,13 @@ assert arguments[0] == "api", arguments
 path = next(a for a in arguments[1:] if not a.startswith("-"))
 url = urlsplit(path)
 parts = url.path.split("/")
+listing = os.environ.get("LISTED_ONCE") and os.path.exists(os.environ["LISTED_ONCE"])
+if urlsplit(path).path.endswith("/actions/workflows/build.yaml/runs"):
+    # Runs that complete between two listing queries.
+    if listing:
+        later = {run["id"]: run for run in fixture.get("later", [])}
+        fixture["runs"] = [later.get(run["id"], run) for run in fixture["runs"]]
+    open(os.environ["LISTED_ONCE"], "a").close()
 runs = {str(run["id"]): run for run in fixture["runs"]}
 
 def emit(value):
@@ -145,6 +152,7 @@ def discover(
     *,
     previous: dict[str, object] | None,
     event_run: int,
+    later: list[dict[str, object]] | None = None,
 ) -> tuple[list[tuple[int, int]], list[str], str]:
     for name in ("input", "previous.json", "reconciliation.json", "catalog-source.json"):
         subprocess.run(["rm", "-rf", str(work / name)], check=True)
@@ -152,8 +160,10 @@ def discover(
         (work / "previous.json").write_text(json.dumps(previous), encoding="utf-8")
     fixture = work / "fixture.json"
     fixture.write_text(
-        json.dumps({"runs": runs, "artifacts": artifacts, "zip": report_zip()}), encoding="utf-8"
+        json.dumps({"runs": runs, "later": later or [], "artifacts": artifacts, "zip": report_zip()}),
+        encoding="utf-8",
     )
+    (work / "listed-once").unlink(missing_ok=True)
     calls = work / "calls.log"
     calls.write_text("", encoding="utf-8")
     output = work / "github-output"
@@ -170,6 +180,7 @@ def discover(
             "PATH": f"{work / 'bin'}:{os.environ['PATH']}",
             "FIXTURE": str(fixture),
             "CALL_LOG": str(calls),
+            "LISTED_ONCE": str(work / "listed-once"),
             "GITHUB_OUTPUT": str(output),
             "RUNNER_TEMP": str(temp),
             "EVENT": "workflow_run",
@@ -227,21 +238,32 @@ def main() -> None:
             for index in range(1100)
         ]
         assert all(filler["updated_at"] < iso(PUBLISHED - hours(6)) for filler in fillers)
+        # The oldest run in the first (newest 1000) query is listed again by the
+        # inclusive created slice. It completes between the two queries, and
+        # the completed snapshot must win over the in-progress one.
+        boundary = fillers[103]
+        assert boundary["id"] == 1103
+        fillers[103] = {
+            **boundary, "status": "in_progress", "conclusion": None, "updated_at": iso(PUBLISHED + hours(3))
+        }
+        boundary_done = {**boundary, "conclusion": "success", "updated_at": iso(PUBLISHED + hours(4))}
         runs = [consumed_run, dead, slow, fresh, lagging, rerun, *fillers]
-        artifacts = {str(number): consumable(number) for number in (100, 102, 103, 104, 105)}
+        artifacts = {str(number): consumable(number) for number in (100, 102, 103, 104, 105, 1103)}
         previous = {
             "publishedAt": iso(PUBLISHED),
             "source": {"runId": "100", "consumedRuns": {"100": 1}},
         }
 
-        consumed, calls, stdout = discover(work, runs, artifacts, previous=previous, event_run=103)
-        assert consumed == [(104, 1), (102, 1), (103, 1)], consumed
+        consumed, calls, stdout = discover(
+            work, runs, artifacts, previous=previous, event_run=103, later=[boundary_done]
+        )
+        assert consumed == [(104, 1), (102, 1), (103, 1), (1103, 1)], consumed
         listings = [call for call in calls if "/workflows/build.yaml/runs" in call]
         assert len(listings) == 2, listings
         assert "created=" not in listings[0], listings
         assert "created=2026-11-07T12%3A00%3A00Z..2026-11-09" in listings[1], listings
         artifact_runs = {call.split("/runs/")[1].split("/")[0] for call in calls if "/artifacts?" in call}
-        assert artifact_runs == {"102", "103", "104"}, artifact_runs
+        assert artifact_runs == {"102", "103", "104", "1103"}, artifact_runs
         assert "created since 2026-11-07T12:00:00Z, completed since 2026-11-10T06:00:00Z" in stdout
 
         # The re-run of an old run is outside the listing but consumed through

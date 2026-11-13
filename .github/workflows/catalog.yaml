@@ -242,7 +242,6 @@ jobs:
                   .head_repository.full_name == $repository and
                   ($since == "" or .updated_at >= $since)
                 )]
-            | unique_by(.id)
             + (if $explicit == null then [] else [$explicit] end)
           ' "$RUNNER_TEMP/build-run-pages.json" > "$RUNNER_TEMP/build-runs.json"
           printf 'Listed %s build runs (created since %s, completed since %s).\n' \

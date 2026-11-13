@@ -77,7 +77,13 @@ done < <(jq -c '.[]' <<<"$jobs")
 # false). Exit non-zero (not 42) so this job fails loudly.
 if [[ -n "$stalled" ]]; then
   printf '%s' "$stalled"
-  "$gh_api" -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null
+  status=0
+  "$gh_api" -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null || status=$?
+  if (( status == 75 )); then
+    echo "::warning title=Stall guard paused::GitHub API rate limit did not reset within ${GH_RATE_LIMIT_MAX_WAIT}s; retrying the cancel on the next poll."
+    exit 42
+  fi
+  (( status == 0 )) || exit "$status"
   exit 1
 fi
 

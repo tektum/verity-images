@@ -20,6 +20,10 @@ if [[ "$1 $2" == "api rate_limit" ]]; then
   printf '%s %s\n' "${RATE_LIMIT_REMAINING:-0}" "${RATE_LIMIT_RESET:?}"
   exit 0
 elif [[ "$1 $2" == "api -X" ]]; then
+  if [[ -n "${CANCEL_RATE_LIMITED:-}" ]]; then
+    printf 'gh: %s\n' "$RATE_LIMIT_ERROR" >&2
+    exit 1
+  fi
   exit 0
 elif [[ "$1" == api ]]; then
   # Fail the first RATE_LIMITED_CALLS job listings with RATE_LIMIT_ERROR, or
@@ -243,7 +247,35 @@ GH_RATE_LIMIT_MAX_WAIT=5 GH_RATE_LIMIT_SECONDARY_WAIT=1 PATH="$work/bin:$PATH" \
   "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
 [[ "$status" -eq 42 ]]
 [[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 2 ]]
+
+# Repeated secondary limits back off exponentially (1s, 2s, 4s here) and give
+# up with a pending warning once that exceeds the budget.
+export RATE_LIMITED_CALLS=99
+: > "$GH_LOG"
+status=0
+output=$(GH_RATE_LIMIT_MAX_WAIT=5 GH_RATE_LIMIT_SECONDARY_WAIT=1 PATH="$work/bin:$PATH" \
+  "$root/scripts/cancel_stalled_jobs.sh" 2>/dev/null) || status=$?
+[[ "$status" -eq 42 ]]
+[[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 3 ]]
+grep -Fq '::warning title=Stall guard paused::' <<<"$output"
 unset RATE_LIMIT_REMAINING
+
+# A rate-limited cancel of a stalled run does not fail the run either: it warns
+# and reports pending so the next poll retries the cancel.
+export RATE_LIMITED_CALLS=0 CANCEL_RATE_LIMITED=1
+RATE_LIMIT_RESET=$(( $(date -u +%s) + 3600 ))
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [{id: 9, name: "publish (nats, images/nats, desc)", status: "queued", started_at: $started, steps: []}]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+output=$(GH_RATE_LIMIT_MAX_WAIT=5 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" 2>/dev/null) ||
+  status=$?
+[[ "$status" -eq 42 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
+grep -Fq '::warning title=Stall guard paused::' <<<"$output"
+unset CANCEL_RATE_LIMITED
 
 # Any other API error still fails closed as before (1 after the retries, not 0
 # and not 42), and never waits on the rate-limit budget.
