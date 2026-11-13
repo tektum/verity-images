@@ -1,11 +1,13 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - imagemagick-7=7.1.2.35-r0
+    - imagemagick-7@local
 
 accounts:
   groups:
@@ -27,6 +29,9 @@ environment:
   PATH: /usr/bin:/bin
   HOME: /home/nonroot
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  # Default restrictive policy; set MAGICK_CONFIGURE_PATH to a directory with
+  # your own policy.xml to replace it.
+  MAGICK_CONFIGURE_PATH: /etc/ImageMagick-7/secure
 
 paths:
   - path: /home/nonroot
