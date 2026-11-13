@@ -1,0 +1,20 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - opa-envoy=1.22.3-r0
+    - wolfi-baselayout
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/opa
+
+cmd: run
+
+environment:
+  PATH: /usr/bin:/bin
