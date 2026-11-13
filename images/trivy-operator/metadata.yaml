@@ -1,0 +1,9 @@
+name: trivy-operator
+track: wolfi
+description: Kubernetes operator that runs Trivy scans and stores the reports as resources. Built from pinned source.
+category: Security & Identity
+upstream: https://github.com/aquasecurity/trivy-operator
+versions: [0.36]
+flavors: [plain]
+owner: tektum
+enabled: true
