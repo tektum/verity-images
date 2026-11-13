@@ -23,6 +23,13 @@ docker run --rm --network none --read-only "$image" -help 2>&1 |
   grep -F 'Utility to simplify running applications in docker containers' >/dev/null ||
   fail 'dockerize help output is missing'
 
+# Negative: an unknown flag must exit non-zero and name the flag.
+if docker run --rm --network none --read-only "$image" -no-such-flag >"$work/flag.log" 2>&1; then
+  fail 'unknown flag unexpectedly succeeded'
+fi
+grep -F 'flag provided but not defined: -no-such-flag' "$work/flag.log" >/dev/null ||
+  fail 'unknown flag error was not reported'
+
 # The bind mount is writable by the image user so rendered output lands on the host.
 chmod 0777 "$work"
 cat >"$work/app.tmpl" <<'EOF'
