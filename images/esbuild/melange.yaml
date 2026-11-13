@@ -1,0 +1,89 @@
+package:
+  name: verity-esbuild
+  # yamllint disable-line rule:line-length
+  version: "0.28.2"  # renovate: datasource=github-releases depName=evanw/esbuild extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Extremely fast bundler and minifier for JavaScript, TypeScript and CSS
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/evanw/esbuild
+      tag: v${{package.version}}
+      expected-commit: 609683d892977362a0f99026cb74b96263d728a9
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/esbuild
+
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/esbuild" ./cmd/esbuild
+      go version -m "${{targets.destdir}}/usr/bin/esbuild" \
+        | awk '$1 == "mod" && $2 == "github.com/evanw/esbuild" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the esbuild build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/esbuild-build/go.mod"
+          if [ -f go.sum ]; then
+            install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/esbuild-build/go.sum"
+          fi
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        esbuild --version | grep -Fx '${{package.version}}'
+        printf 'export const x: number = 1 + 1\n' >/tmp/in.ts
+        esbuild /tmp/in.ts --format=esm | grep -F 'const x = 1 + 1;'
+        apk info --who-owns /usr/bin/esbuild \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+
+update:
+  enabled: true
+  github:
+    identifier: evanw/esbuild
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true

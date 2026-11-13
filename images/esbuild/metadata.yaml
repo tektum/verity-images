@@ -1,0 +1,10 @@
+name: esbuild
+track: wolfi
+description: Minimal esbuild bundler and minifier CLI image built from pinned upstream source.
+category: Languages & Build Tools
+upstream: https://github.com/evanw/esbuild
+versions: [0.28]
+flavors: [plain]
+scan-identity: [pkg:npm/esbuild]
+owner: tektum
+enabled: true
