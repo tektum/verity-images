@@ -84,4 +84,10 @@ rc=0
 run -c 'open missing.json' >"$work/missing" 2>&1 || rc=$?
 test "$rc" -ne 0 || fail 'opening a missing file unexpectedly succeeded'
 
+rc=0
+run --no-such-flag >"$work/flag" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'unknown flag unexpectedly succeeded'
+grep -F "Unknown flag '--no-such-flag'" "$work/flag" >/dev/null ||
+  fail "unknown flag diagnostic is missing: $(cat "$work/flag")"
+
 printf 'SMOKE PASS\n'
