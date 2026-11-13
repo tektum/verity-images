@@ -223,6 +223,31 @@ subjects:
   - apiGroup: rbac.authorization.k8s.io
     kind: Group
     name: system:nodes
+---
+# Test-only: let the approver decide kube-apiserver-client CSRs too, so the
+# check below fails if it ever acts on a signer other than kubelet-serving.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: smoke-approve-client-signer
+rules:
+  - apiGroups: [certificates.k8s.io]
+    resources: [signers]
+    resourceNames: [kubernetes.io/kube-apiserver-client]
+    verbs: [approve]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: smoke-approve-client-signer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: smoke-approve-client-signer
+subjects:
+  - apiGroup: rbac.authorization.k8s.io
+    kind: User
+    name: kubelet-csr-approver
 EOF
 
 # A bad provider IP prefix is rejected at startup with exit status 10.
@@ -277,6 +302,10 @@ serving=kubernetes.io/kubelet-serving
 usages='digital signature, server auth'
 node_subject='/O=system:nodes/CN=system:node:node1'
 
+# The client CSR goes first, so the approver has seen it before it settles the
+# kubelet-serving ones below.
+csr client admin kubernetes.io/kube-apiserver-client 'digital signature, client auth' \
+  '/O=verity/CN=verity-client' 'DNS:client.cluster.test'
 csr good node1 "$serving" "$usages" "$node_subject" "DNS:$node_dns,IP:$node_ip"
 csr wrong-dns node1 "$serving" "$usages" "$node_subject" "DNS:evil.example,IP:$node_ip"
 csr wrong-domain node1 "$serving" "$usages" "$node_subject" "DNS:node1.evil.example,IP:$node_ip"
@@ -284,8 +313,6 @@ csr wrong-host node1 "$serving" "$usages" "$node_subject" "DNS:node2.cluster.tes
 csr unresolved-ip node1 "$serving" "$usages" "$node_subject" "DNS:$node_dns,IP:10.20.30.41"
 csr outside-ip node1 "$serving" "$usages" "$node_subject" "IP:192.168.7.7"
 csr not-a-node admin "$serving" "$usages" '/O=system:nodes/CN=verity-admin' "DNS:$node_dns"
-csr client admin kubernetes.io/kube-apiserver-client 'digital signature, client auth' \
-  '/O=verity/CN=verity-client' 'DNS:client.cluster.test'
 
 # outcome NAME: print the condition types and the message of a CSR.
 outcome() {
@@ -321,11 +348,30 @@ expect unresolved-ip Denied 'One of the SAN IP addresses, 10.20.30.41, is not co
 expect outside-ip Denied 'One of the SAN IP addresses, 192.168.7.7, is not part'
 expect not-a-node Denied 'CSR Spec.Username is not prefixed with system:node:'
 
-# CSRs for other signers are left alone.
-outcome client >"$work/csr/client.status" 2>&1 || fail "cannot read CSR client: $(cat "$work/csr/client.status")"
-if [ -s "$work/csr/client.status" ]; then
-  fail "the approver acted on a non kubelet-serving CSR: $(cat "$work/csr/client.status")"
-fi
+# CSRs for other signers are left alone, although the approver may decide them.
+kubectl_as admin create -o 'jsonpath={.status.allowed}' -f - >"$work/sar" 2>&1 <<'EOF' ||
+apiVersion: authorization.k8s.io/v1
+kind: SubjectAccessReview
+spec:
+  user: kubelet-csr-approver
+  resourceAttributes:
+    group: certificates.k8s.io
+    resource: signers
+    name: kubernetes.io/kube-apiserver-client
+    verb: approve
+EOF
+  fail "could not review the approver's access: $(cat "$work/sar")"
+test "$(cat "$work/sar")" = true || fail "approver cannot approve the client signer: $(cat "$work/sar")"
+i=0
+while [ "$i" -lt 5 ]; do
+  outcome client >"$work/csr/client.status" 2>&1 ||
+    fail "cannot read CSR client: $(cat "$work/csr/client.status")"
+  if [ -s "$work/csr/client.status" ]; then
+    fail "the approver acted on a non kubelet-serving CSR: $(cat "$work/csr/client.status")"
+  fi
+  i=$((i + 1))
+  sleep 2
+done
 
 # The approval was recorded through the approver identity, and the controller
 # exports reconcile metrics.
