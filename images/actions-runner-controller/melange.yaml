@@ -1,0 +1,130 @@
+package:
+  name: verity-actions-runner-controller
+  # yamllint disable-line rule:line-length
+  version: "0.15.1"  # renovate: datasource=github-tags depName=actions/actions-runner-controller versioning=regex:^(?<major>0)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^gha-runner-scale-set-(?<version>.+)$
+  epoch: 0
+  description: Actions Runner Controller manager, scale set listener, webhook and metrics servers
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 23159a8e2d70ca4cece740fe43a8d9eb0c2818de
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/actions/actions-runner-controller
+      tag: gha-runner-scale-set-${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: . ./cmd/ghalistener ./cmd/githubwebhookserver ./cmd/actionsmetricsserver ./cmd/sleep
+
+  - runs: |
+      # Same binaries, paths and stamps as the upstream Dockerfile. The release
+      # workflow passes VERSION as the bare chart version; CommitSHA carries the
+      # pinned source commit instead of the Dockerfile's "dev" default.
+      pkg=github.com/actions/actions-runner-controller/build
+      stamp="-X $pkg.Version=${{package.version}} -X $pkg.CommitSHA=${{vars.source-commit}}"
+      dest="${{targets.destdir}}"
+      flags="-mod=readonly -trimpath -buildvcs=true"
+      go build $flags -ldflags="-s -w $stamp" -o "$dest/manager" .
+      go build $flags -ldflags="-s -w $stamp" -o "$dest/ghalistener" ./cmd/ghalistener
+      go build $flags -ldflags="-s -w" -o "$dest/github-webhook-server" ./cmd/githubwebhookserver
+      go build $flags -ldflags="-s -w" -o "$dest/actions-metrics-server" ./cmd/actionsmetricsserver
+      go build $flags -ldflags="-s -w" -o "$dest/sleep" ./cmd/sleep
+
+      # The release tag is not semver, so Go stamps the main module with a
+      # pseudo-version of the pinned commit; fail if any binary drifted from it.
+      short=$(printf '%s' '${{vars.source-commit}}' | cut -c1-12)
+      for bin in manager ghalistener github-webhook-server actions-metrics-server sleep; do
+        mod=$(go version -m "$dest/$bin" \
+          | awk '$1 == "mod" && $2 == "github.com/actions/actions-runner-controller" { print $3 }')
+        printf '%s\n' "$mod" | grep -Ex "v[0-9]+\.[0-9]+\.[0-9]+-(0\.)?[0-9]{14}-$short(\+dirty)?" ||
+          { echo "$bin: unexpected main module version '$mod'" >&2; exit 1; }
+      done
+      # The linker silently ignores -X for a missing variable, and the recorded
+      # -ldflags text proves nothing. When -X does set a live string variable,
+      # the linker emits a "<var>.str" data symbol holding the value. Link the
+      # stamped binaries once more without -s -w (cached, link only) and fail
+      # unless both stamp targets got that symbol.
+      nmdir=$(mktemp -d)
+      go build $flags -ldflags="$stamp" -o "$nmdir/manager" .
+      go build $flags -ldflags="$stamp" -o "$nmdir/ghalistener" ./cmd/ghalistener
+      for bin in manager ghalistener; do
+        go tool nm "$nmdir/$bin" >"$nmdir/$bin.nm"
+        for var in Version CommitSHA; do
+          awk -v s="$pkg.$var.str" '$NF == s { found = 1 } END { exit !found }' "$nmdir/$bin.nm" ||
+            { echo "$bin: -X did not set $pkg.$var" >&2; exit 1; }
+        done
+      done
+      rm -rf "$nmdir"
+
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Actions Runner Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/actions-runner-controller-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/actions-runner-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        for bin in manager ghalistener github-webhook-server actions-metrics-server sleep; do
+          test -x "/$bin"
+          apk info --who-owns "/$bin" | grep -F "${{package.name}}-${{package.full-version}}"
+        done
+        /manager -help 2>&1 | grep -F -- '-auto-scaling-runner-set-only'
+        /sleep -seconds 0 | grep -Fx 'done sleeping'
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: actions/actions-runner-controller
+    strip-prefix: gha-runner-scale-set-
+    tag-filter-prefix: gha-runner-scale-set-0.15.
+    use-tag: true
