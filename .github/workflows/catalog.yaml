@@ -24,6 +24,7 @@ on:  # zizmor: ignore[dangerous-triggers]
       - scripts/catalog_reconciliation.jq
       - scripts/check_pages_size.py
       - scripts/gen_matrix.py
+      - scripts/gh_api_backoff.sh
       - scripts/select_monitor_shards.py
       - scripts/validate_repository_state.py
       - site/**
@@ -116,9 +117,13 @@ jobs:
         id: reconcile
         shell: bash
         env:
+          # Bounded discovery window, see "List build runs" below.
+          DISCOVERY_LOOKBACK_SECONDS: "259200"
+          DISCOVERY_MARGIN_SECONDS: "21600"
           DISPATCH_RUN_ID: ${{ inputs.run-id }}
           EVENT: ${{ github.event_name }}
           EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          GH_RATE_LIMIT_MAX_WAIT: "1200"
           GH_TOKEN: ${{ github.token }}
           MODE: ${{ steps.mode.outputs.value }}
           REPOSITORY: ${{ github.repository }}
@@ -128,6 +133,11 @@ jobs:
             printf 'ready=true\n' >> "$GITHUB_OUTPUT"
             exit 0
           fi
+
+          # Back off on the shared installation rate limit instead of failing.
+          gh_api() {
+            scripts/gh_api_backoff.sh "$@"
+          }
 
           validate_identity() {
             local metadata=$1
@@ -168,24 +178,74 @@ jobs:
           fi
 
           if [[ -n "$explicit_run_id" ]]; then
-            explicit_metadata=$(gh api "repos/${REPOSITORY}/actions/runs/${explicit_run_id}")
+            explicit_metadata=$(gh_api "repos/${REPOSITORY}/actions/runs/${explicit_run_id}")
             validate_terminal "$explicit_metadata"
           fi
           if [[ "$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID" ]]; then
             forced_metadata=$explicit_metadata
           fi
 
-          gh api --paginate \
-            "repos/${REPOSITORY}/actions/workflows/build.yaml/runs?branch=main&per_page=100" \
-            --slurp > "$RUNNER_TEMP/build-run-pages.json"
-          jq --arg repository "$REPOSITORY" --argjson explicit "$explicit_metadata" '
+          # List build runs. The published catalog consumed every attempt that was
+          # consumable when it discovered runs, and its publishedAt (completion of
+          # its newest consumed run) is no later than that discovery. A completed
+          # attempt never gains artifacts, so a run becomes consumable afterwards
+          # only by completing an attempt later, which puts updated_at past
+          # publishedAt; the margin covers artifact listings that lag completion.
+          # Older unconsumed runs (failed or cancelled without a build report) are
+          # skipped instead of costing one artifacts call each on every catalog run.
+          # Such a later attempt was created at most one build duration earlier
+          # (observed maximum 24.6h; a job can queue for 24h). The first query
+          # lists the newest runs exactly as before (the runs API returns at most
+          # 1000), so re-runs of older runs are seen at least as far back as
+          # before. When a busy lookback window holds more than that, the rest of
+          # it is listed in created-time slices. Without a consumption ledger, list
+          # one query as before.
+          created_since=
+          completed_since=
+          if [[ -f previous.json ]] && jq -e '.source.consumedRuns' previous.json >/dev/null; then
+            created_since=$(jq -r --argjson lookback "$DISCOVERY_LOOKBACK_SECONDS" \
+              '.publishedAt | fromdateiso8601 - $lookback | todateiso8601' previous.json)
+            completed_since=$(jq -r --argjson margin "$DISCOVERY_MARGIN_SECONDS" \
+              '.publishedAt | fromdateiso8601 - $margin | todateiso8601' previous.json)
+          fi
+          : > "$RUNNER_TEMP/build-run-pages.ndjson"
+          range=
+          oldest=
+          while :; do
+            query="branch=main&per_page=100"
+            if [[ -n "$range" ]]; then
+              query+="&created=$(jq -rn --arg range "$range" '$range | @uri')"
+            fi
+            gh_api --paginate \
+              "repos/${REPOSITORY}/actions/workflows/build.yaml/runs?${query}" \
+              --slurp > "$RUNNER_TEMP/build-run-slice.json"
+            jq -c '.[]' "$RUNNER_TEMP/build-run-slice.json" >> "$RUNNER_TEMP/build-run-pages.ndjson"
+            [[ -n "$created_since" ]] || break
+            listed=$(jq '[.[].workflow_runs[]] | length' "$RUNNER_TEMP/build-run-slice.json")
+            total=$(jq '.[0].total_count // 0' "$RUNNER_TEMP/build-run-slice.json")
+            (( listed < total )) || break
+            next=$(jq -r '[.[].workflow_runs[].created_at] | min // empty' "$RUNNER_TEMP/build-run-slice.json")
+            if [[ -z "$next" || "$next" == "$oldest" ]]; then
+              printf '::error title=Catalog not updated::Build run listing stopped at %s of %s runs.\n' \
+                "$listed" "$total"
+              exit 1
+            fi
+            [[ "$next" > "$created_since" ]] || break
+            oldest=$next
+            range="${created_since}..${oldest}"
+          done
+          jq -s . "$RUNNER_TEMP/build-run-pages.ndjson" > "$RUNNER_TEMP/build-run-pages.json"
+          jq --arg repository "$REPOSITORY" --arg since "$completed_since" --argjson explicit "$explicit_metadata" '
             [.[].workflow_runs[]
               | select(
                   (.event == "push" or .event == "schedule" or .event == "workflow_dispatch") and
-                  .head_repository.full_name == $repository
+                  .head_repository.full_name == $repository and
+                  ($since == "" or .updated_at >= $since)
                 )]
             + (if $explicit == null then [] else [$explicit] end)
           ' "$RUNNER_TEMP/build-run-pages.json" > "$RUNNER_TEMP/build-runs.json"
+          printf 'Listed %s build runs (created since %s, completed since %s).\n' \
+            "$(jq length "$RUNNER_TEMP/build-runs.json")" "${created_since:-any time}" "${completed_since:-any time}"
 
           if [[ -f previous.json ]]; then
             consumed_runs=$(jq -c '.source.consumedRuns // empty' previous.json)
@@ -206,7 +266,7 @@ jobs:
           jq '.candidates' "$RUNNER_TEMP/reconciliation-plan.json" > "$RUNNER_TEMP/candidates.json"
 
           if [[ "$EVENT" == workflow_dispatch && -n "$DISPATCH_RUN_ID" ]]; then
-            explicit_artifacts=$(gh api --paginate \
+            explicit_artifacts=$(gh_api --paginate \
               "repos/${REPOSITORY}/actions/runs/${DISPATCH_RUN_ID}/artifacts?per_page=100" --slurp)
             explicit_report_count=$(jq \
               '[.[].artifacts[] | select(.name == "build-report" and .expired == false)] | length' \
@@ -222,7 +282,7 @@ jobs:
           while IFS= read -r metadata; do
             validate_terminal "$metadata"
             run_id=$(jq -r .id <<<"$metadata")
-            artifacts=$(gh api --paginate \
+            artifacts=$(gh_api --paginate \
               "repos/${REPOSITORY}/actions/runs/${run_id}/artifacts?per_page=100" --slurp)
             report_count=$(jq \
               '[.[].artifacts[] | select(.name == "build-report" and .expired == false)] | length' \
@@ -288,6 +348,7 @@ jobs:
         if: steps.reconcile.outputs.ready == 'true' && steps.mode.outputs.value != 'packages'
         shell: bash
         env:
+          GH_RATE_LIMIT_MAX_WAIT: "1200"
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: |

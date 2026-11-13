@@ -1291,9 +1291,12 @@ def main() -> None:
     assert '"$conclusion" != success && "$conclusion" != failure && "$conclusion" != cancelled' in discovery_step
     assert 'Run %s (id %s) is not terminal; catalog unchanged.' in discovery_step
     assert 'select(.name == "build-report" and .expired == false)' in discovery_step
-    assert "actions/workflows/build.yaml/runs?branch=main&per_page=100" in discovery_step
+    assert 'query="branch=main&per_page=100"' in discovery_step
+    assert '"repos/${REPOSITORY}/actions/workflows/build.yaml/runs?${query}"' in discovery_step
+    assert "      - scripts/gh_api_backoff.sh\n" in catalog
     assert "status=completed" not in discovery_step
-    assert "gh api --paginate" in discovery_step
+    assert "gh_api --paginate" in discovery_step
+    assert "gh api " not in discovery_step
     assert '.head_repository.full_name == $repository' in discovery_step
     assert "      - scripts/catalog_reconciliation.jq\n" in catalog
     assert "--from-file scripts/catalog_reconciliation.jq" in discovery_step
