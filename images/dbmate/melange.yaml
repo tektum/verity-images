@@ -1,0 +1,90 @@
+package:
+  name: verity-dbmate
+  # yamllint disable-line rule:line-length
+  version: "2.38.1"  # renovate: datasource=github-releases depName=amacneil/dbmate versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Lightweight, framework-agnostic database migration tool
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 31089e3959350b3690838dc39f4c003b5e9d300c
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+      - sqlite-dev
+  environment:
+    # CGO links the SQLite driver against Wolfi's shared libsqlite3.
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/amacneil/dbmate
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Upstream links its vendored SQLite amalgamation; libsqlite3 uses the
+      # Wolfi shared library instead so SQLite fixes arrive as package updates.
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -tags libsqlite3,sqlite_omit_load_extension -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/dbmate" .
+      go version -m "${{targets.destdir}}/usr/bin/dbmate" \
+        | awk '$1 == "mod" && $2 == "github.com/amacneil/dbmate/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the dbmate build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/dbmate-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/dbmate-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        dbmate --version | grep -Fx "dbmate version ${{package.version}}"
+        apk info --who-owns /usr/bin/dbmate \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: amacneil/dbmate
+    strip-prefix: v
