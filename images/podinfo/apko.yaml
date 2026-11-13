@@ -1,0 +1,39 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-podinfo@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+# Upstream ships a command, not an entrypoint, and its Helm chart and
+# kustomize manifests run ./podinfo from /home/app.
+cmd: /usr/bin/podinfo
+
+work-dir: /home/app
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  HOME: /home/nonroot
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755

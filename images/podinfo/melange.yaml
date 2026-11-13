@@ -1,0 +1,112 @@
+package:
+  name: verity-podinfo
+  # yamllint disable-line rule:line-length
+  version: "6.17.0"  # renovate: datasource=github-releases depName=stefanprodan/podinfo versioning=regex:^(?<major>6)\.(?<minor>17)\.(?<patch>\d+)$
+  epoch: 0
+  description: Go microservice template for Kubernetes demos and end-to-end tests
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # The release tag is annotated; this is the peeled commit it points to.
+  source-commit: fd3a834ed8d14b80ea334cf8a2fddd4597924da6
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  # Release tags carry no "v" prefix, so the Go module version is a
+  # pseudo-version based on the module's last semver tag (v1.8.0). Go advisories
+  # for podinfo use those pseudo-versions; full history lets -buildvcs derive it.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/stefanprodan/podinfo
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+      depth: -1
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/podinfo ./cmd/podcli
+
+  - runs: |
+      grep -Fx 'var VERSION = "${{package.version}}"' pkg/version/version.go
+      commit=$(git rev-parse HEAD)
+      for cmd in podinfo podcli; do
+        go build -mod=readonly -trimpath -buildvcs=true \
+          -ldflags="-s -w -X github.com/stefanprodan/podinfo/pkg/version.REVISION=$commit" \
+          -o "${{targets.destdir}}/usr/bin/$cmd" "./cmd/$cmd"
+        go version -m "${{targets.destdir}}/usr/bin/$cmd" \
+          | awk '$1 == "mod" && $2 == "github.com/stefanprodan/podinfo" { print $3 }' \
+          | grep -Ex "v1\.8\.1-0\.[0-9]{14}-$(git rev-parse --short=12 HEAD)(\+dirty)?"
+      done
+      "${{targets.destdir}}/usr/bin/podinfo" --version | grep -Fx '${{package.version}}'
+      mkdir -p "${{targets.destdir}}/home/app" "${{targets.destdir}}/usr/local/bin"
+      cp -R ui "${{targets.destdir}}/home/app/ui"
+      cp -R kustomize "${{targets.destdir}}/home/app/kustomize"
+      ln -s ../../usr/bin/podinfo "${{targets.destdir}}/home/app/podinfo"
+      ln -s ../../bin/podcli "${{targets.destdir}}/usr/local/bin/podcli"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the podinfo build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/podinfo-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/podinfo-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        podinfo --version | grep -Fx '${{package.version}}'
+        podcli version | grep -F '${{package.version}}'
+        podinfo --help >/dev/null
+        test -f /home/app/ui/vue.html
+        test -f /home/app/kustomize/kustomization.yaml
+        test "$(readlink -f /home/app/podinfo)" = /usr/bin/podinfo
+        apk info --who-owns /usr/bin/podinfo \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: stefanprodan/podinfo
+    tag-filter-prefix: "6.17."
+    use-tag: true
