@@ -1,0 +1,117 @@
+package:
+  name: verity-system-upgrade-controller
+  # yamllint disable-line rule:line-length
+  version: "0.21.0"  # renovate: datasource=github-releases depName=rancher/system-upgrade-controller versioning=regex:^(?<major>0)\.(?<minor>21)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes-native upgrade controller for nodes, driven by Plan resources
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 7ead1f248d4da34a26af1a2466b852262f363d83
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rancher/system-upgrade-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - runs: |
+      # k8s.io/kubernetes requires its staging modules at v0.0.0 and resolves
+      # them with replaces that do not apply to dependents, so the full module
+      # graph that go/remediate lists fails with "unknown revision v0.0.0".
+      # Pin each of them to the matching staging release. Only the v0.0.0
+      # placeholder is replaced; the selected build list stays unchanged.
+      kubernetes=$(go list -m -f '{{.Version}}' k8s.io/kubernetes)
+      staging="v0.${kubernetes#v1.}"
+      gomod=$(go mod download -json "k8s.io/kubernetes@$kubernetes" \
+        | sed -n 's/^[[:space:]]*"GoMod": "\(.*\)",$/\1/p')
+      test -s "$gomod"
+      for module in $(awk '$1 ~ /^k8s\.io\// && $2 == "v0.0.0" { print $1 }' "$gomod"); do
+        go mod edit -replace="$module@v0.0.0=$module@$staging"
+      done
+      go list -mod=mod -m all >/dev/null
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Same stamping as upstream package/Dockerfile and scripts/version for a
+      # clean tagged checkout: Version is the git tag, GitCommit the short commit.
+      commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-7)
+      pkg=github.com/rancher/system-upgrade-controller/pkg/version
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X $pkg.Version=v${{package.version}} -X $pkg.GitCommit=$commit" \
+        -o "${{targets.destdir}}/usr/bin/system-upgrade-controller" .
+      go version -m "${{targets.destdir}}/usr/bin/system-upgrade-controller" \
+        | awk '$1 == "mod" && $2 == "github.com/rancher/system-upgrade-controller" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      test "$("${{targets.destdir}}/usr/bin/system-upgrade-controller" --version)" = \
+        "system-upgrade-controller version v${{package.version}} ($commit)"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the system-upgrade-controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/system-upgrade-controller-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/system-upgrade-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        system-upgrade-controller --version \
+          | grep -Ex 'system-upgrade-controller version v${{package.version}} \([0-9a-f]{7}\)'
+        apk info --who-owns /usr/bin/system-upgrade-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: rancher/system-upgrade-controller
+    strip-prefix: v
+    tag-filter-prefix: v0.21.
+    use-tag: true

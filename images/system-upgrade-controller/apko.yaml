@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-system-upgrade-controller@local
+
+accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /nonexistent
+  run-as: "65534:65534"
+
+entrypoint:
+  command: /bin/system-upgrade-controller
+
+work-dir: /
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
