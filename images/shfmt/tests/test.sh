@@ -65,4 +65,10 @@ test "$rc" -ne 0 || fail 'syntax error unexpectedly succeeded'
 grep -E 'broken\.sh:1:1: .*must end with .fi.' "$work/err" >/dev/null ||
   fail "syntax diagnostic is missing: $(cat "$work/err")"
 
+rc=0
+run --no-such-flag >"$work/flag" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'unknown flag unexpectedly succeeded'
+grep -F 'flag provided but not defined: -no-such-flag' "$work/flag" >/dev/null ||
+  fail "unknown flag diagnostic is missing: $(cat "$work/flag")"
+
 printf 'SMOKE PASS\n'
