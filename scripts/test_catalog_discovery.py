@@ -213,8 +213,9 @@ def main() -> None:
         # A report that landed just before publication but whose artifacts were
         # not yet listed then: inside the completion margin, still consumed.
         lagging = run(104, created=PUBLISHED - hours(2), updated=PUBLISHED - hours(1), head_sha=head)
-        # A re-run of a run created before the lookback, delivered by its own
-        # workflow_run event.
+        # A re-run of a run created before the lookback. Behind 1000 newer runs
+        # only its own workflow_run event delivers it; otherwise the first,
+        # unfiltered query still lists it as it did before.
         rerun = run(105, created=PUBLISHED - hours(24 * 5), updated=PUBLISHED + hours(3), head_sha=head,
                     attempt=2)
         # More cancelled runs than one runs query returns, all newer than the
@@ -237,7 +238,7 @@ def main() -> None:
         assert consumed == [(104, 1), (102, 1), (103, 1)], consumed
         listings = [call for call in calls if "/workflows/build.yaml/runs" in call]
         assert len(listings) == 2, listings
-        assert "created=%3E%3D2026-11-07T12%3A00%3A00Z" in listings[0], listings
+        assert "created=" not in listings[0], listings
         assert "created=2026-11-07T12%3A00%3A00Z..2026-11-09" in listings[1], listings
         artifact_runs = {call.split("/runs/")[1].split("/")[0] for call in calls if "/artifacts?" in call}
         assert artifact_runs == {"102", "103", "104"}, artifact_runs
@@ -246,6 +247,10 @@ def main() -> None:
         # The re-run of an old run is outside the listing but consumed through
         # its own event.
         consumed, _, _ = discover(work, runs, artifacts, previous=previous, event_run=105)
+        assert consumed == [(104, 1), (102, 1), (103, 1), (105, 2)], consumed
+        consumed, _, _ = discover(
+            work, [consumed_run, dead, slow, fresh, lagging, rerun], artifacts, previous=previous, event_run=103
+        )
         assert consumed == [(104, 1), (102, 1), (103, 1), (105, 2)], consumed
 
         # Without a published catalog every page is listed in one query and the

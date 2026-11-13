@@ -216,9 +216,9 @@ GH_RATE_LIMIT_MAX_WAIT=5 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jo
 [[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 2 ]]
 grep -Fq 'api rate_limit' "$GH_LOG"
 
-# A reset beyond the wait budget stops the best-effort guard with a warning and
-# exit 0 instead of failing the run, without sleeping until the reset and
-# without cancelling anything.
+# A reset beyond the wait budget warns and reports pending (42) instead of
+# failing the run, so the caller polls again later. It neither sleeps until the
+# reset nor cancels anything.
 export RATE_LIMITED_CALLS=99
 RATE_LIMIT_RESET=$(( $(date -u +%s) + 3600 ))
 : > "$GH_LOG"
@@ -226,8 +226,8 @@ status=0
 started=$(date -u +%s)
 output=$(GH_RATE_LIMIT_MAX_WAIT=5 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" 2>/dev/null) ||
   status=$?
-[[ "$status" -eq 0 ]]
-grep -Fq '::warning title=Stall guard stopped::' <<<"$output"
+[[ "$status" -eq 42 ]]
+grep -Fq '::warning title=Stall guard paused::' <<<"$output"
 (( $(date -u +%s) - started < 5 ))
 if grep -q '/cancel' "$GH_LOG"; then
   printf 'a rate-limited guard cancelled the run\n' >&2

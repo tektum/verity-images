@@ -194,23 +194,22 @@ jobs:
           # Older unconsumed runs (failed or cancelled without a build report) are
           # skipped instead of costing one artifacts call each on every catalog run.
           # Such a later attempt was created at most one build duration earlier
-          # (observed maximum 24.6h; a job can queue for 24h), so only runs created
-          # within the lookback are listed. A re-run of an older run arrives through
-          # its own workflow_run event or a run-id dispatch. The runs API returns at
-          # most 1000 runs per query, so a busy window is listed in created-time
-          # slices, newest first, until every run in it is seen. Without a
-          # consumption ledger, list every page in one query as before.
+          # (observed maximum 24.6h; a job can queue for 24h). The first query
+          # lists the newest runs exactly as before (the runs API returns at most
+          # 1000), so re-runs of older runs are seen at least as far back as
+          # before. When a busy lookback window holds more than that, the rest of
+          # it is listed in created-time slices. Without a consumption ledger, list
+          # one query as before.
           created_since=
           completed_since=
-          range=
           if [[ -f previous.json ]] && jq -e '.source.consumedRuns' previous.json >/dev/null; then
             created_since=$(jq -r --argjson lookback "$DISCOVERY_LOOKBACK_SECONDS" \
               '.publishedAt | fromdateiso8601 - $lookback | todateiso8601' previous.json)
             completed_since=$(jq -r --argjson margin "$DISCOVERY_MARGIN_SECONDS" \
               '.publishedAt | fromdateiso8601 - $margin | todateiso8601' previous.json)
-            range=">=${created_since}"
           fi
           : > "$RUNNER_TEMP/build-run-pages.ndjson"
+          range=
           oldest=
           while :; do
             query="branch=main&per_page=100"
@@ -221,7 +220,7 @@ jobs:
               "repos/${REPOSITORY}/actions/workflows/build.yaml/runs?${query}" \
               --slurp > "$RUNNER_TEMP/build-run-slice.json"
             jq -c '.[]' "$RUNNER_TEMP/build-run-slice.json" >> "$RUNNER_TEMP/build-run-pages.ndjson"
-            [[ -n "$range" ]] || break
+            [[ -n "$created_since" ]] || break
             listed=$(jq '[.[].workflow_runs[]] | length' "$RUNNER_TEMP/build-run-slice.json")
             total=$(jq '.[0].total_count // 0' "$RUNNER_TEMP/build-run-slice.json")
             (( listed < total )) || break
@@ -231,6 +230,7 @@ jobs:
                 "$listed" "$total"
               exit 1
             fi
+            [[ "$next" > "$created_since" ]] || break
             oldest=$next
             range="${created_since}..${oldest}"
           done
