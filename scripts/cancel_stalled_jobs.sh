@@ -12,9 +12,19 @@ stall_minutes=${STALL_MINUTES:?STALL_MINUTES is required}
 # then fail loudly with a non-42 code.
 attempts=${LIST_JOBS_ATTEMPTS:-5}
 retry_seconds=${LIST_JOBS_RETRY_SECONDS:-10}
+# The guard is best-effort: a rate-limited API must not fail the run it guards.
+# Wait for the reset within a bounded budget, then stop guarding with a warning.
+export GH_RATE_LIMIT_MAX_WAIT=${GH_RATE_LIMIT_MAX_WAIT:-900}
+gh_api=$(dirname "$0")/gh_api_backoff.sh
 for ((attempt = 1; ; attempt++)); do
-  if jobs=$(gh api --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100" |
-    jq '[.[] | (.jobs // [])[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))'); then
+  status=0
+  pages=$("$gh_api" --paginate --slurp "repos/${repository}/actions/runs/${run_id}/jobs?per_page=100") ||
+    status=$?
+  if (( status == 75 )); then
+    echo "::warning title=Stall guard stopped::GitHub API rate limit did not reset within ${GH_RATE_LIMIT_MAX_WAIT}s; stopping the best-effort stall guard without failing the run."
+    exit 0
+  fi
+  if (( status == 0 )) && jobs=$(jq '[.[] | (.jobs // [])[]] | map(select(.name | test("^(native-arm64|validate|publish( / publish)?) \\(")))' <<<"$pages"); then
     break
   fi
   if (( attempt >= attempts )); then
@@ -66,7 +76,7 @@ done < <(jq -c '.[]' <<<"$jobs")
 # false). Exit non-zero (not 42) so this job fails loudly.
 if [[ -n "$stalled" ]]; then
   printf '%s' "$stalled"
-  gh api -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null
+  "$gh_api" -X POST "repos/${repository}/actions/runs/${run_id}/cancel" >/dev/null
   exit 1
 fi
 

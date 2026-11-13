@@ -15,9 +15,24 @@ cat > "$work/bin/gh" <<'EOF'
 set -euo pipefail
 printf '%q ' "$@" >> "$GH_LOG"
 printf '\n' >> "$GH_LOG"
-if [[ "$1 $2" == "api -X" ]]; then
+if [[ "$1 $2" == "api rate_limit" ]]; then
+  # The caller asks for `.resources.core | "\(.remaining) \(.reset)"`.
+  printf '%s %s\n' "${RATE_LIMIT_REMAINING:-0}" "${RATE_LIMIT_RESET:?}"
+  exit 0
+elif [[ "$1 $2" == "api -X" ]]; then
   exit 0
 elif [[ "$1" == api ]]; then
+  # Fail the first RATE_LIMITED_CALLS job listings with RATE_LIMIT_ERROR, or
+  # every listing with API_ERROR.
+  limited=$(grep -c -- '--paginate' "$GH_LOG" || true)
+  if (( limited <= ${RATE_LIMITED_CALLS:-0} )); then
+    printf 'gh: %s\n' "$RATE_LIMIT_ERROR" >&2
+    exit 1
+  fi
+  if [[ -n "${API_ERROR:-}" ]]; then
+    printf 'gh: %s\n' "$API_ERROR" >&2
+    exit 1
+  fi
   args=" $* "
   if [[ "$args" != *" --paginate "* || "$args" != *" --slurp "* ]]; then
     printf 'the `--paginate` and `--slurp` options are required\n' >&2
@@ -184,3 +199,63 @@ if grep -q '/cancel' "$GH_LOG"; then
   printf 'an unrelated or completed job was cancelled\n' >&2
   exit 1
 fi
+
+# The workflow token shares one installation-wide budget. A rate-limited job
+# listing waits for the reported reset and then guards as usual.
+pending_page=$(jq -n -c \
+  --arg started "$fresh_started" \
+  '{jobs: [{id: 8, name: "publish (nats, images/nats, desc)", status: "queued", started_at: $started, steps: null}]}')
+export JOBS_PAGE=$pending_page
+export RATE_LIMIT_ERROR='API rate limit exceeded for installation. If you reach out to GitHub Support for help, please include the request ID 0000:0000'
+export RATE_LIMITED_CALLS=1 RATE_LIMIT_RESET
+RATE_LIMIT_RESET=$(date -u +%s)
+: > "$GH_LOG"
+status=0
+GH_RATE_LIMIT_MAX_WAIT=5 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 42 ]]
+[[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 2 ]]
+grep -Fq 'api rate_limit' "$GH_LOG"
+
+# A reset beyond the wait budget stops the best-effort guard with a warning and
+# exit 0 instead of failing the run, without sleeping until the reset and
+# without cancelling anything.
+export RATE_LIMITED_CALLS=99
+RATE_LIMIT_RESET=$(( $(date -u +%s) + 3600 ))
+: > "$GH_LOG"
+status=0
+started=$(date -u +%s)
+output=$(GH_RATE_LIMIT_MAX_WAIT=5 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" 2>/dev/null) ||
+  status=$?
+[[ "$status" -eq 0 ]]
+grep -Fq '::warning title=Stall guard stopped::' <<<"$output"
+(( $(date -u +%s) - started < 5 ))
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'a rate-limited guard cancelled the run\n' >&2
+  exit 1
+fi
+
+# A secondary rate limit (core budget left) backs off for the fixed delay.
+export RATE_LIMITED_CALLS=1 RATE_LIMIT_REMAINING=4000
+export RATE_LIMIT_ERROR='You have exceeded a secondary rate limit. Please wait a few minutes before you try again.'
+: > "$GH_LOG"
+status=0
+GH_RATE_LIMIT_MAX_WAIT=5 GH_RATE_LIMIT_SECONDARY_WAIT=1 PATH="$work/bin:$PATH" \
+  "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 42 ]]
+[[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq 2 ]]
+unset RATE_LIMIT_REMAINING
+
+# Any other API error still fails closed as before (1 after the retries, not 0
+# and not 42), and never waits on the rate-limit budget.
+export RATE_LIMITED_CALLS=0
+export API_ERROR='HTTP 403: Resource not accessible by integration'
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" >/dev/null 2>&1 || status=$?
+[[ "$status" -eq 1 ]]
+[[ "$(grep -c -- '--paginate' "$GH_LOG")" -eq "$LIST_JOBS_ATTEMPTS" ]]
+if grep -q 'rate_limit' "$GH_LOG"; then
+  printf 'a non-rate-limit error consulted the rate-limit budget\n' >&2
+  exit 1
+fi
+unset API_ERROR

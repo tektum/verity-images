@@ -13,13 +13,17 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath
+from typing import Final
 from zipfile import BadZipFile, ZipFile
 
 
-def gh(*arguments: str) -> bytes:
-    """Run one GitHub CLI request and return its bytes."""
+GH_API: Final = Path(__file__).with_name("gh_api_backoff.sh")
+
+
+def gh_api(*arguments: str) -> bytes:
+    """Run one rate-limit-aware `gh api` request and return its bytes."""
     return subprocess.run(
-        ["gh", *arguments],
+        [str(GH_API), *arguments],
         check=True,
         capture_output=True,
     ).stdout
@@ -28,8 +32,7 @@ def gh(*arguments: str) -> bytes:
 def latest_artifact(repository: str, run_id: str, name: str) -> int:
     """Return the newest live artifact ID for one run and logical name."""
     pages = json.loads(
-        gh(
-            "api",
+        gh_api(
             "--paginate",
             "--slurp",
             f"repos/{repository}/actions/runs/{run_id}/artifacts?per_page=100",
@@ -81,7 +84,7 @@ def main() -> None:
         raise SystemExit("repository, numeric run ID, and artifact name are required")
     try:
         artifact_id = latest_artifact(repository, run_id, name)
-        archive = gh("api", f"repos/{repository}/actions/artifacts/{artifact_id}/zip")
+        archive = gh_api(f"repos/{repository}/actions/artifacts/{artifact_id}/zip")
         extract_archive(archive, Path(destination_text))
     except (OSError, ValueError, json.JSONDecodeError, subprocess.CalledProcessError) as error:
         raise SystemExit(f"artifact download failed: {error}") from error
