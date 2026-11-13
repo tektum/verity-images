@@ -1,7 +1,7 @@
 package:
   name: rabbitmq-cluster-operator
-  version: "2.23.0"
-  epoch: 2
+  version: "2.23.2"
+  epoch: 3
   description: RabbitMQ Cluster Operator for Kubernetes
   copyright:
     - license: MPL-2.0
@@ -24,7 +24,7 @@ pipeline:
     with:
       repository: https://github.com/rabbitmq/cluster-operator
       tag: v${{package.version}}
-      expected-commit: 3ad2b0ec0b43dbeb4b57c1142fc5c813a5716033
+      expected-commit: fec3016c0e35b80cbc1419d458b913d27fd1603a
   - uses: go/remediate
     with:
       modroot: .
