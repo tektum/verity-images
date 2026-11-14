@@ -6,3 +6,5 @@ upstream: https://konghq.com/
 versions: [3.9]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:konghq:kong_gateway]
+scan-package: kong
