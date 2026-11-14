@@ -1,0 +1,88 @@
+package:
+  name: verity-hickory-dns
+  # yamllint disable-line rule:line-length
+  version: "0.26.3"  # renovate: datasource=github-releases depName=hickory-dns/hickory-dns versioning=regex:^(?<major>0)\.(?<minor>26)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Rust DNS server with authoritative, forwarding and recursive zones
+  copyright:
+    - license: MIT OR Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 8Gi
+
+vars:
+  # ring is the only crypto provider: aws-lc-rs would vendor a second C
+  # cryptography library. jemalloc, systemd and ascii-art stay off.
+  # yamllint disable-line rule:line-length
+  features: hickory-dns/sqlite hickory-dns/resolver hickory-dns/recursor hickory-dns/blocklist hickory-dns/rustls-platform-verifier hickory-dns/dnssec-ring hickory-dns/tls-ring hickory-dns/https-ring hickory-dns/quic-ring hickory-dns/prometheus-metrics
+  # The remediation check compiles every workspace member, so the test and
+  # utility crates get the matching cfg features; they are not shipped.
+  # yamllint disable-line rule:line-length
+  workspace-features: hickory-integration/sqlite hickory-integration/metrics hickory-integration/dnssec-ring hickory-integration/tls-ring hickory-integration/https-ring hickory-integration/quic-ring hickory-util/rustls-platform-verifier hickory-util/dnssec-ring hickory-util/tls-ring hickory-util/https-ring hickory-util/quic-ring
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - glibc-2.44-dev
+      - pkgconf
+      - rust-1.99
+      - sqlite-dev
+  environment:
+    # rusqlite enables the bundled SQLite amalgamation; link the Wolfi
+    # libsqlite3 instead so SQLite fixes arrive as package updates.
+    LIBSQLITE3_SYS_USE_PKG_CONFIG: "1"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/hickory-dns/hickory-dns
+      tag: v${{package.version}}
+      expected-commit: bd37cafbdd86112a6da32878f8c9bab22e14377e
+
+  - uses: cargo/remediate
+    with:
+      features: ${{vars.features}} ${{vars.workspace-features}}
+
+  - runs: |
+      cargo auditable build --release --locked -p hickory-dns \
+        --features "$(printf '%s' '${{vars.features}}' | tr ' ' ',')"
+      readelf -d target/release/hickory-dns | grep -F 'Shared library: [libsqlite3.so'
+      install -Dm755 target/release/hickory-dns "${{targets.destdir}}/usr/bin/hickory-dns"
+      install -Dm644 LICENSE-MIT \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-MIT"
+      install -Dm644 LICENSE-APACHE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-APACHE"
+      rm -rf .cargo
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        hickory-dns --version | grep -Fx 'Hickory DNS named server ${{package.version}}'
+        hickory-dns --help | grep -F -- '--zonedir'
+        apk info --who-owns /usr/bin/hickory-dns \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx 'MIT OR Apache-2.0'
+
+update:
+  enabled: true
+  github:
+    identifier: hickory-dns/hickory-dns
+    strip-prefix: v

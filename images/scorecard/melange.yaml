@@ -1,0 +1,96 @@
+package:
+  name: verity-scorecard
+  # yamllint disable-line rule:line-length
+  version: "5.6.0"  # renovate: datasource=github-releases depName=ossf/scorecard extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: OpenSSF Scorecard security health metrics for open source repositories
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ossf/scorecard
+      tag: v${{package.version}}
+      expected-commit: 61e84743356275f6ffca23b1b2f2cb945e19eb96
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Upstream scripts/version-ldflags, with the values of the pinned tag.
+      version_pkg=sigs.k8s.io/release-utils/version
+      ldflags="-s -w -X ${version_pkg}.gitVersion=v${{package.version}}"
+      ldflags="$ldflags -X ${version_pkg}.gitCommit=$(git rev-parse HEAD)"
+      ldflags="$ldflags -X ${version_pkg}.gitTreeState=clean"
+      ldflags="$ldflags -X ${version_pkg}.buildDate=$(git log -1 --pretty=%ct)"
+      go build -mod=readonly -trimpath -buildvcs=true -tags netgo \
+        -ldflags="$ldflags" \
+        -o "${{targets.destdir}}/usr/bin/scorecard" .
+      # Syft reports the stamped main module natively, so the gate scans the
+      # scorecard module itself through GHSA without a scan-identity entry.
+      go version -m "${{targets.destdir}}/usr/bin/scorecard" \
+        | awk '$1 == "mod" && $2 == "github.com/ossf/scorecard/v5" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the scorecard build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/scorecard-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/scorecard-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        scorecard version 2>&1 | grep -Ex 'GitVersion: +v${{package.version}}'
+        apk info --who-owns /usr/bin/scorecard \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: ossf/scorecard
+    strip-prefix: v
+    tag-filter: v
+    use-tag: true
