@@ -1,0 +1,9 @@
+name: manifest-tool
+track: wolfi
+description: Creates and inspects multi-platform image indexes and manifest lists, built from pinned upstream source.
+category: CI/CD & GitOps
+upstream: https://github.com/estesp/manifest-tool
+versions: [2.2]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/estesp/manifest-tool/v2]
