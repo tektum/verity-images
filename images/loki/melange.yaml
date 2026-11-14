@@ -1,6 +1,6 @@
 package:
   name: loki-3.6
-  version: "3.6.20"  # renovate: datasource=github-releases depName=grafana/loki
+  version: "3.6.21"  # renovate: datasource=github-releases depName=grafana/loki
   epoch: 0
   description: Like Prometheus, but for logs
   copyright:
@@ -17,7 +17,7 @@ package:
     memory: 1Gi
 
 vars:
-  source-commit: bbbdf8a0246f42d6f9d67e698cdfb75e74a7d45e
+  source-commit: af033ff9e624baf8c966089f01d5f34da2123e38
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
 
 environment:
@@ -65,7 +65,7 @@ pipeline:
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.Version=${{package.version}}"
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.Revision=${{vars.source-commit}}"
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildUser=verity"
-      flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildDate=2026-11-06T14:59:13Z"
+      flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.BuildDate=2026-11-12T03:44:24Z"
       go build -mod=readonly -trimpath -tags netgo -ldflags "$flags" \
         -o "${{targets.destdir}}/usr/bin/loki" ./cmd/loki
       actual="$(go version -m "${{targets.destdir}}/usr/bin/loki" \
