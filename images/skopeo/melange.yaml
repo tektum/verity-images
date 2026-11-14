@@ -1,0 +1,92 @@
+package:
+  name: verity-skopeo
+  version: "1.25.1"  # renovate: datasource=github-releases depName=containers/skopeo extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Work with remote container images and image repositories
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+    # Upstream's DISABLE_CGO=1 tag set (Makefile): pure-Go OpenPGP instead of
+    # gpgme and no btrfs graph driver. Remediation scans the same build.
+    GOFLAGS: -tags=exclude_graphdriver_btrfs,containers_image_openpgp
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/containers/skopeo
+      tag: v${{package.version}}
+      expected-commit: 1fb351f23dbde474416ba33c3786a8d04304429b
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/skopeo
+
+  - runs: |
+      # version/version.go holds the release version; main.go appends the
+      # vcs.revision build setting, so keep VCS stamping on.
+      go build -p 4 -trimpath -buildvcs=true -ldflags='-s -w' \
+        -o "${{targets.destdir}}/usr/bin/skopeo" ./cmd/skopeo
+      binary="${{targets.destdir}}/usr/bin/skopeo"
+      grep -Fx 'const Version = "${{package.version}}"' version/version.go
+      "$binary" --version \
+        | grep -Fx "skopeo version ${{package.version}} commit: $(git rev-parse HEAD)"
+      go version -m "$binary" | grep -E '^[[:space:]]+build[[:space:]]+CGO_ENABLED=0$'
+      go version -m "$binary" \
+        | grep -E '^[[:space:]]+build[[:space:]]+-tags=exclude_graphdriver_btrfs,containers_image_openpgp$'
+      # Upstream `make install` paths (CONTAINERSCONFDIR=/etc/containers).
+      install -Dm644 default-policy.json \
+        "${{targets.destdir}}/etc/containers/policy.json"
+      install -Dm644 default.yaml \
+        "${{targets.destdir}}/etc/containers/registries.d/default.yaml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        skopeo --version | grep -E '^skopeo version ${{package.version}} commit: [0-9a-f]{40}$'
+        skopeo --help >/dev/null
+        test -s /etc/containers/policy.json
+        test -s /etc/containers/registries.d/default.yaml
+        apk info --who-owns /usr/bin/skopeo \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: containers/skopeo
+    strip-prefix: v
+    use-tag: true
