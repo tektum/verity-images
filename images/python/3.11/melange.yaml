@@ -1,0 +1,265 @@
+package:
+  name: verity-python-3.11
+  # CPython 3.11 from the latest upstream release tag, built with the Wolfi
+  # python-3.11 configure options and package split, plus the upstream
+  # security fixes that 3.11 releases do not carry (CVE-*.patch below).
+  # yamllint disable-line rule:line-length
+  version: "3.11.18"  # renovate: datasource=github-tags depName=python/cpython versioning=regex:^(?<major>3)\.(?<minor>11)\.(?<patch>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: CPython 3.11 built from pinned upstream source with security patches
+  copyright:
+    - license: PSF-2.0
+  resources:
+    cpu: "5"
+    memory: 9Gi
+  dependencies:
+    runtime:
+      - ${{package.name}}-base=${{package.full-version}}
+
+vars:
+  python: python3.11
+  pyversion: "3.11"
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    # Same build dependencies as Wolfi python-3.11.
+    packages:
+      - build-base
+      - busybox
+      - bzip2-dev
+      - ca-certificates-bundle
+      - expat-dev
+      - gdbm-dev
+      - glibc-2.44-dev
+      - libffi-dev
+      - linux-headers
+      - mpdecimal-dev
+      - ncurses-dev
+      - openssl-4.0-dev
+      - readline-dev
+      - sqlite-dev
+      - xz-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/python/cpython
+      tag: v${{package.version}}
+      expected-commit: 26badd80b6dc7786cd8fb63c3608a31f04754219
+
+  # Upstream security fixes that no 3.11 release carries. Each patch header
+  # names the upstream commit, issue and CVE, and how it was backported.
+  # CVE-2026-12345.patch is the exception: it is upstream's open 3.11
+  # backport python/cpython#161944 at head e6872ab7fbeb, pending upstream
+  # review; replace it with the merged commit.
+  - name: Apply upstream security fixes
+    uses: patch
+    with:
+      patches: |
+        CVE-2026-6019.patch
+        CVE-2025-12781.patch
+        CVE-2026-103995-1.patch
+        CVE-2026-103995-2.patch
+        CVE-2026-3479.patch
+        CVE-2026-3446-1.patch
+        CVE-2026-3446-2.patch
+        CVE-2025-15367.patch
+        CVE-2025-15366.patch
+        CVE-2026-116566.patch
+        CVE-2026-12345.patch
+
+  - name: Force use of system libraries
+    runs: |
+      rm -rf Modules/expat \
+        Modules/_ctypes/darwin* \
+        Modules/_ctypes/libffi*
+
+  # The non-security patches below are copied unchanged from Wolfi
+  # python-3.11 (wolfi-dev/os python-3.11/).
+  - uses: patch
+    with:
+      patches: |
+        gh-127301.patch
+        gh-61460.patch
+
+  - name: Support OpenSSL 4 ABI
+    uses: patch
+    with:
+      patches: |
+        0001-gh-141801-Use-accessors-for-ASN1_STRING-fields-in-li.patch
+        0002-gh-144787-tests-Allow-TLS-v1.2-to-be-minimum-version.patch
+        0003-gh-146207-Add-support-for-OpenSSL-4.0.0-alpha1-14621.patch
+        0004-gh-148600-Add-Modules-_ssl_data_40.h-data-148601.patch
+        0005-gh-148292-Update-_ssl._SSLSocket-for-OpenSSL-4-14910.patch
+        0006-gh-148600-Add-OpenSSL-4.0.0-support-to-test-configur.patch
+        0007-3.11-gh-156369-Update-OpenSSL-error-ID-data-GH-15638.patch
+        0008-Fix-typo-in-PROTOCOL_TO_TLS_VERSION-in-test_ssl-GH-9.patch
+        0009-Allow-HelloRetryRequest-in-test_ssl-servername-callb.patch
+        0010-Always-provide-PROTOCOL_TLSv1-and-fix-HAS_TLSv1_2-wi.patch
+        0011-gh-136929-ensure-that-hashlib.-name-does-not-raise-A.patch
+        0012-gh-110357-hashlib-no-longer-logs-at-import-when-a-gu.patch
+
+  - uses: autoconf/configure
+    with:
+      opts: |
+        --host=${{host.triplet.gnu}} \
+        --build=${{host.triplet.gnu}} \
+        --target=${{host.triplet.gnu}} \
+        --prefix=/usr \
+        --enable-ipv6 \
+        --enable-loadable-sqlite-extensions \
+        $([ -d /usr/lib/oldglibc ] || echo --enable-optimizations) \
+        --enable-shared \
+        --with-lto \
+        --with-computed-gotos \
+        --with-dbmliborder=gdbm:ndbm \
+        --with-system-expat \
+        --with-system-libmpdec \
+        --without-ensurepip \
+        --with-builtin-hashlib-hashes=blake2 \
+        --with-wheel-pkg-dir=/usr/share/python-wheels
+
+  - uses: autoconf/make
+
+  # Upstream regression tests of every patched module, including the tests
+  # each security patch adds, plus ssl for the OpenSSL 4 patches.
+  # test_ssl.test_dh_params is skipped as in Wolfi python-3.11: it calls
+  # set_ciphers("kEDH"), which this OpenSSL rejects.
+  - name: Run the regression tests of the patched modules
+    runs: |
+      LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 -i test_dh_params \
+        test_base64 test_binascii test_http_cookies test_httplib \
+        test_imaplib test_poplib test_socket test_pkgutil test_ssl \
+        test_tempfile test_shutil
+
+  - uses: autoconf/make-install
+
+  - runs: |
+      find ${{targets.destdir}}/usr/lib -type f -name 'libpython*.a' -exec rm -rf '{}' +
+      find ${{targets.destdir}}/usr/lib -type d -name 'test' -exec rm -rf '{}' +
+      find ${{targets.destdir}}/usr/lib -type d -name 'tests' -exec rm -rf '{}' +
+      find ${{targets.destdir}}/usr/lib -type d -name 'idle_test' -exec rm -rf '{}' +
+
+      cd ${{targets.destdir}}/usr/bin
+      rm -f idle3* 2to3*
+      rm ${{targets.destdir}}/usr/lib/libpython3.so
+
+      # Same python -> python3 link as Wolfi.
+      ln -s python3 ${{targets.destdir}}/usr/bin/python
+
+      cd ${{targets.destdir}}/usr/lib/${{vars.python}}
+      rm site-packages/README.txt
+      rmdir site-packages
+
+  - runs: |
+      rm -R ${{targets.destdir}}/usr/lib/${{vars.python}}/ensurepip/_bundled/
+
+  - runs: |
+      find ${{targets.destdir}}/usr/lib -type f -name '*.pyc' -exec rm -rf '{}' +
+      find ${{targets.destdir}}/usr/lib -type f -name '*.pyo' -exec rm -rf '{}' +
+
+      export LD_LIBRARY_PATH="${{targets.destdir}}/usr/lib${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+      ${{targets.destdir}}/usr/bin/${{vars.python}} -B -m compileall -f --invalidation-mode=unchecked-hash \
+          -r100 ${{targets.destdir}}/usr/lib/
+
+  - uses: strip
+
+# Same split as Wolfi python-3.11; the image installs the main package and -base.
+subpackages:
+  - name: ${{package.name}}-base
+    description: ${{package.name}} without /usr/bin/python3
+    dependencies:
+      runtime:
+        - py3-setuptools-wheel
+        - py3-pip-wheel
+    pipeline:
+      - runs: |
+          mkdir -p ${{targets.subpkgdir}}/usr/bin ${{targets.subpkgdir}}/usr/lib
+          mv ${{targets.destdir}}/usr/bin/${{vars.python}} \
+              ${{targets.destdir}}/usr/bin/pydoc${{vars.pyversion}} \
+              ${{targets.subpkgdir}}/usr/bin
+          mv -v ${{targets.destdir}}/usr/lib/${{vars.python}} \
+             ${{targets.subpkgdir}}/usr/lib
+          mv -v ${{targets.destdir}}/usr/lib/libpython${{vars.pyversion}}.so.* \
+             ${{targets.subpkgdir}}/usr/lib
+
+          # pyconfig.h is needed at runtime.
+          d=usr/include/${{vars.python}}
+          mkdir -p "${{targets.subpkgdir}}"/$d
+          mv "${{targets.destdir}}"/$d/pyconfig.h "${{targets.subpkgdir}}"/$d/
+
+          # Move usr/lib/python3.X/config-3.X-* back into the main package so
+          # -base-dev can take it below.
+          d="usr/lib/${{vars.python}}"
+          mkdir -p "${{targets.destdir}}/$d"
+          mv -v "${{targets.subpkgdir}}/$d"/config-${{vars.pyversion}}* \
+              "${{targets.destdir}}/$d"
+
+  - name: ${{package.name}}-doc
+    description: python3 documentation
+    pipeline:
+      - uses: split/manpages
+
+  - name: ${{package.name}}-dev
+    description: python3 development headers
+    dependencies:
+      runtime:
+        - ${{package.name}}=${{package.full-version}}
+        - ${{package.name}}-base-dev=${{package.full-version}}
+    pipeline:
+      - runs: |
+          mkdir -p ${{targets.subpkgdir}}/usr/bin
+          mv -v ${{targets.destdir}}/usr/bin/python3-config ${{targets.subpkgdir}}/usr/bin
+
+          d="usr/lib/pkgconfig"
+          mkdir -p "${{targets.subpkgdir}}/$d"
+          mv -v \
+             "${{targets.destdir}}"/$d/python3-embed.pc \
+             "${{targets.destdir}}"/$d/python3.pc \
+             "${{targets.subpkgdir}}/$d/"
+
+  - name: ${{package.name}}-base-dev
+    description: python3 development headers
+    dependencies:
+      runtime:
+        - ${{package.name}}-base=${{package.full-version}}
+    pipeline:
+      - runs: |
+          # usr/lib/python3.X/config-3.X-*: split/dev would move only two
+          # files from it, but the whole directory belongs here.
+          d="usr/lib/${{vars.python}}"
+          mkdir -p "${{targets.subpkgdir}}/$d"
+          mv -v "${{targets.destdir}}"/$d/config-${{vars.pyversion}}* \
+             "${{targets.subpkgdir}}"/$d
+      - uses: split/dev
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - name: Verify the interpreter names and version
+      runs: |
+        expected="Python ${{package.version}}"
+        for bin in python python3 ${{vars.python}}; do
+          found=$($bin --version)
+          [ "$found" = "$expected" ] || { echo "FAIL: $bin --version printed '$found', expected '$expected'"; exit 1; }
+        done
+        pydoc3 -h >/dev/null
+    - name: Verify the stdlib extension modules load
+      runs: |
+        python3 -c 'import _bz2, _ctypes, _curses, _dbm, _decimal, _gdbm, _hashlib'
+        python3 -c 'import _lzma, _sqlite3, _ssl, pyexpat, readline, zlib'
+    - name: Verify a venv installs the system pip wheel
+      runs: |
+        d=$(mktemp -d)
+        python3 -m venv "$d"
+        "$d/bin/pip" list
+        "$d/bin/pip" check
+        rm -Rf "$d"
