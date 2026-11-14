@@ -159,9 +159,12 @@ walg_src backup-push /var/lib/postgresql/data >"$work/push.log" 2>&1 ||
 # Close the WAL segment that holds the backup end and archive the segments
 # the backup needs, except the one still being written.
 psql "$source_db" 'SELECT pg_switch_wal()' >/dev/null
-current=$(psql "$source_db" 'SELECT pg_walfile_name(pg_current_wal_lsn())')
+# The insert LSN is never on a segment boundary, so it names the segment in
+# progress; awk compares as strings ("" concatenation) because all-digit names
+# lose precision as numbers.
+current=$(psql "$source_db" 'SELECT pg_walfile_name(pg_current_wal_insert_lsn())')
 segments=$(docker exec "$source_db" ls /var/lib/postgresql/data/pg_wal |
-  grep -E '^[0-9A-F]{24}$' | sort | awk -v cur="$current" '$0 < cur')
+  grep -E '^[0-9A-F]{24}$' | sort | awk -v cur="$current" '($0 "") < (cur "")')
 [ -n "$segments" ] || fail 'no completed WAL segment to archive'
 for segment in $segments; do
   walg_src wal-push "/var/lib/postgresql/data/pg_wal/$segment" >"$work/walpush.log" 2>&1 ||
