@@ -1,0 +1,100 @@
+package:
+  name: verity-wal-g
+  # yamllint disable-line rule:line-length
+  version: "3.0.9"  # renovate: datasource=github-releases depName=wal-g/wal-g versioning=regex:^(?<major>3)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Archival and restoration of PostgreSQL backups and WAL to object storage
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 3e493188db28335fb93a45bd680c6ff8fc3028c1
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - libsodium-dev
+      - python3
+  environment:
+    # CGO links Wolfi's shared libsodium for WALG_LIBSODIUM_KEY encryption.
+    CGO_ENABLED: "1"
+    # internal/backup.go and internal/uploader.go import encoding/json/v2.
+    GOEXPERIMENT: jsonv2
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/wal-g/wal-g
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./main/pg
+
+  - runs: |
+      # The module path github.com/wal-g/wal-g has no /v3 suffix, so Go cannot
+      # stamp the v3 tag as the main module version; metadata.yaml declares the
+      # scan identity instead and the version is checked through --version.
+      revision=$(git rev-parse --short=12 HEAD)
+      build_date=$(date -u -d "@${SOURCE_DATE_EPOCH:-0}" +%Y-%m-%dT%H:%M:%SZ)
+      # osusergo: when the user ID is not in /etc/passwd (a postgres UID of
+      # another image), os/user falls back to $USER and $HOME instead of
+      # failing the config lookup.
+      go build -mod=readonly -trimpath -buildvcs=false -tags libsodium,osusergo \
+        -ldflags="-s -w \
+          -X github.com/wal-g/wal-g/cmd/pg.walgVersion=v${{package.version}} \
+          -X github.com/wal-g/wal-g/cmd/pg.gitRevision=${revision} \
+          -X github.com/wal-g/wal-g/cmd/pg.buildDate=${build_date}" \
+        -o "${{targets.destdir}}/usr/bin/wal-g" ./main/pg
+      "${{targets.destdir}}/usr/bin/wal-g" --version \
+        | grep -E "^wal-g version v${{package.version}}[[:space:]]${revision}[[:space:]]"
+      install -Dm644 LICENSE.md \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.md"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the wal-g build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/wal-g-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/wal-g-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        wal-g --version | grep -E '^wal-g version v${{package.version}}[[:space:]]'
+        wal-g --help | grep -F 'backup-push'
+        apk info --who-owns /usr/bin/wal-g \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+
+update:
+  enabled: true
+  github:
+    identifier: wal-g/wal-g
+    strip-prefix: v
