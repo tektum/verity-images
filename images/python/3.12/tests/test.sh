@@ -168,6 +168,107 @@ for host, port in ((b'127.0.0.1\x00.attacker.example', 80), ('127.0.0.1', '80\x0
         raise AssertionError(f'getaddrinfo({host!r}, {port!r}) truncated at NUL: {res[0][4]}')
 EOF
 
+# Local fixes for upstream bugs in the security patches.
+# CVE-2025-15366-2.patch: a rejected APPEND does not leave its message
+# pending as the literal of the next command.
+check "imaplib drops the literal of a rejected APPEND" <<'EOF'
+import imaplib, socket, threading
+client_sock, server_sock = socket.socketpair()
+client_sock.settimeout(5)
+seen = []
+
+def serve():
+    f = server_sock.makefile('rwb')
+    f.write(b'* PREAUTH ready\r\n')
+    f.flush()
+    for line in f:
+        seen.append(line)
+        tag = line.split(b' ', 1)[0]
+        if b'CAPABILITY' in line:
+            f.write(b'* CAPABILITY IMAP4rev1\r\n')
+        if line.rstrip().endswith(b'}'):
+            f.write(b'+ go\r\n')
+        else:
+            f.write(tag + b' OK done\r\n')
+        f.flush()
+
+threading.Thread(target=serve, daemon=True).start()
+
+class Client(imaplib.IMAP4):
+    def open(self, host='', port=imaplib.IMAP4_PORT, timeout=None):
+        self.host, self.port, self.sock = host, port, client_sock
+        self.file = client_sock.makefile('rb')
+
+client = Client()
+try:
+    client.append('bad\nmailbox', None, None, b'message')
+except ValueError:
+    pass
+else:
+    raise AssertionError('append() accepted LF in the mailbox name')
+assert client.literal is None, f'pending literal after rejected APPEND: {client.literal!r}'
+assert client.noop()[0] == 'OK'
+assert [l for l in seen if b'NOOP' in l] == [seen[-1]] and seen[-1].endswith(b' NOOP\r\n'), seen
+EOF
+
+# CVE-2026-103995-3.patch: an oversized but well-formed Content-Length is
+# ignored, as in 3.11.18, instead of raising ValueError from int().
+check "http.client ignores a Content-Length longer than the int digit limit" <<'EOF'
+import http.client, io
+
+class Sock:
+    def makefile(self, *args, **kwargs):
+        return io.BytesIO(b'HTTP/1.1 200 OK\r\nContent-Length: ' + b'1' * 5000
+                          + b'\r\n\r\nHello')
+
+r = http.client.HTTPResponse(Sock())
+r.begin()
+assert r.length is None, r.length
+assert r.read() == b'Hello'
+EOF
+
+# CVE-2026-12345-tempfile-bytes.patch: a bytes-named TemporaryDirectory
+# recovers from a PermissionError during cleanup.
+check "TemporaryDirectory cleanup of a bytes name recovers from PermissionError" <<'EOF'
+import os, tempfile
+from unittest import mock
+d = tempfile.TemporaryDirectory(prefix=b'tmp')
+sub = os.path.join(d.name, b'sub')
+os.mkdir(sub)
+open(os.path.join(sub, b'f'), 'wb').close()
+unlink = os.unlink
+failed = []
+def hook(path, *, dir_fd=None):
+    if not failed:
+        failed.append(path)
+        raise PermissionError(13, 'Permission denied', path)
+    return unlink(path, dir_fd=dir_fd)
+with mock.patch('os.unlink', hook):
+    d.cleanup()
+assert failed and not os.path.exists(d.name), (failed, os.path.exists(d.name))
+EOF
+
+# gh-127301.patch: in FIPS mode the builtin blake2 wrappers keep their
+# constants. A minimal OpenSSL config turns FIPS mode on (base provider,
+# default_properties fips=yes), as upstream's _test_hashlib_fips.py does.
+check "hashlib blake2 constants survive FIPS mode" <<'EOF'
+# Nothing may import hashlib before OPENSSL_CONF is set (tempfile does,
+# through random), so the config goes to a fixed path.
+import os
+cnf = '/tmp/fips-openssl.cnf'
+with open(cnf, 'w') as f:
+    f.write('openssl_conf = openssl_init\n[openssl_init]\nproviders = provider_sect\n'
+            'alg_section = algorithm_sect\n[provider_sect]\nbase = base_sect\n'
+            '[base_sect]\nactivate = 1\n[algorithm_sect]\ndefault_properties = fips=yes\n')
+os.environ['OPENSSL_CONF'] = cnf
+import _hashlib, hashlib
+assert _hashlib.get_fips_mode() == 1, _hashlib.get_fips_mode()
+for md in (hashlib.blake2b, hashlib.blake2s):
+    d = md(b'data', digest_size=md.MAX_DIGEST_SIZE, usedforsecurity=False)
+    assert d.digest_size == md.MAX_DIGEST_SIZE
+    assert md.MAX_KEY_SIZE and md.PERSON_SIZE and md.SALT_SIZE
+EOF
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1
