@@ -1,0 +1,91 @@
+package:
+  name: verity-cfssl
+  # yamllint disable-line rule:line-length
+  version: "1.7.1"  # renovate: datasource=github-releases depName=cloudflare/cfssl versioning=regex:^(?<major>1)\.(?<minor>7)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Cloudflare PKI and TLS toolkit
+  copyright:
+    - license: BSD-2-Clause
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: ab47f0d984778865b3f5b5adf6ba336a15b96c31
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    # Upstream Linux release binaries are built with CGO disabled.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cloudflare/cfssl
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/...
+
+  - runs: |
+      for cmd in cfssl cfssl-bundle cfssl-certinfo cfssl-newkey cfssl-scan cfssljson mkbundle multirootca; do
+        go build -mod=vendor -trimpath -buildvcs=true \
+          -ldflags="-s -w -X github.com/cloudflare/cfssl/cli/version.version=${{package.version}}" \
+          -o "${{targets.destdir}}/usr/bin/$cmd" "./cmd/$cmd"
+        go version -m "${{targets.destdir}}/usr/bin/$cmd" \
+          | awk '$1 == "mod" && $2 == "github.com/cloudflare/cfssl" { print $3 }' \
+          | grep -Ex 'v${{package.version}}(\+dirty)?'
+      done
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the cfssl build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/cfssl-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/cfssl-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        cfssl version | grep -Fx "Version: ${{package.version}}"
+        for cmd in cfssl cfssl-bundle cfssl-certinfo cfssl-newkey cfssl-scan cfssljson mkbundle multirootca; do
+          apk info --who-owns "/usr/bin/$cmd" \
+            | grep -F "${{package.name}}-${{package.full-version}}"
+        done
+        apk info --license "${{package.name}}" | grep -Fx BSD-2-Clause
+        grep -F 'Copyright (c) 2014 CloudFlare Inc.' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: cloudflare/cfssl
+    strip-prefix: v
