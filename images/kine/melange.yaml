@@ -33,7 +33,10 @@ environment:
   environment:
     # The SQLite driver (mattn/go-sqlite3) compiles the bundled SQLite with cgo.
     CGO_ENABLED: "1"
-    GOFLAGS: -p=4
+    # Upstream scripts/build tags, here so remediation lists, scans, and builds
+    # the same tagged package graph that ships.
+    # yamllint disable-line rule:line-length
+    GOFLAGS: -p=4 -tags=nats,sqlite_unlock_notify,sqlite_vtable,sqlite_stat4,sqlite_preupdate_hook,sqlite_math_functions,sqlite_dbstat,sqlite_column_metadata
     GOTOOLCHAIN: local
 
 pipeline:
@@ -49,7 +52,7 @@ pipeline:
       packages: .
 
   - runs: |
-      # Same tags, SQLite options, and version stamping as upstream scripts/build,
+      # Same SQLite options and version stamping as upstream scripts/build,
       # linked dynamically against glibc instead of statically.
       export CGO_CFLAGS="-DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_DISABLE_INTRINSIC \
         -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ENABLE_DBSTAT_VTAB \
@@ -58,10 +61,8 @@ pipeline:
         -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_SNAPSHOT \
         -DSQLITE_ENABLE_STAT4 -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_LIKE_DOESNT_MATCH_BLOBS \
         -DSQLITE_THREADSAFE=1 -DSQLITE_WITHOUT_ZONEMALLOC -O2"
-      tags=nats,sqlite_unlock_notify,sqlite_vtable,sqlite_stat4,sqlite_preupdate_hook
-      tags=$tags,sqlite_math_functions,sqlite_dbstat,sqlite_column_metadata
       commit=$(git rev-parse --short HEAD)
-      go build -mod=readonly -trimpath -buildvcs=true -tags "$tags" \
+      go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w \
           -X github.com/k3s-io/kine/pkg/version.Version=v${{package.version}} \
           -X github.com/k3s-io/kine/pkg/version.GitCommit=$commit" \
@@ -72,6 +73,14 @@ pipeline:
         | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the kine build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/kine-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/kine-build/go.sum"
 
 test:
   environment:

@@ -10,6 +10,7 @@ etcd_index=ghcr.io/tektum/etcd@sha256:fc322841b20ac374159333e013fb417aa712e77638
 id=$$
 network="verity-kine-$id"
 kine="verity-kine-$id"
+watch="verity-kine-watch-$id"
 volume="verity-kine-db-$id"
 work=$(mktemp -d)
 
@@ -20,7 +21,7 @@ fail() {
 }
 
 cleanup() {
-  docker rm -f "$kine" >/dev/null 2>&1 || true
+  docker rm -f "$kine" "$watch" >/dev/null 2>&1 || true
   docker volume rm "$volume" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
@@ -129,22 +130,22 @@ test "$(mod_rev /registry/smoke/alpha)" -gt "$rev" || fail 'update did not move 
 test "$(txn "mod(\"/registry/smoke/alpha\") = \"$rev\"" 'put /registry/smoke/alpha stale' \
   'get /registry/smoke/alpha')" = FAILURE || fail 'stale update was not refused'
 test "$(etcdctl get /registry/smoke/alpha --print-value-only)" = uno || fail 'stale update took effect'
-etcdctl watch /registry/smoke/alpha --rev="$rev" >"$work/watch" 2>&1 &
-watcher=$!
+docker run -d --name "$watch" --network "$network" --entrypoint /usr/bin/etcdctl "$etcd_image" \
+  --endpoints="http://$kine:2379" watch /registry/smoke/alpha --rev="$rev" >/dev/null
 i=0
-until grep -Fx uno "$work/watch" >/dev/null; do
+until docker logs "$watch" 2>&1 | grep -Fx uno >/dev/null; do
   i=$((i + 1))
-  [ "$i" -lt 20 ] || { kill "$watcher" 2>/dev/null || true; fail "watch did not replay: $(cat "$work/watch")"; }
+  [ "$i" -lt 20 ] || fail "watch did not replay: $(docker logs "$watch" 2>&1)"
   sleep 1
 done
-kill "$watcher" 2>/dev/null || true
-wait "$watcher" 2>/dev/null || true
+docker rm -f "$watch" >/dev/null
 
 # Guarded delete removes the key.
 rev=$(mod_rev /registry/smoke/beta)
 test "$(txn "mod(\"/registry/smoke/beta\") = \"$rev\"" 'del /registry/smoke/beta' \
   'get /registry/smoke/beta')" = SUCCESS || fail 'delete beta failed'
-test -z "$(etcdctl get /registry/smoke/beta)" || fail 'beta survived deletion'
+got=$(etcdctl get /registry/smoke/beta) || fail 'get beta failed'
+test -z "$got" || fail 'beta survived deletion'
 
 # The keys live in SQLite on the volume and survive a restart.
 docker rm -f "$kine" >/dev/null
@@ -154,6 +155,7 @@ docker run --rm -v "$volume:/db:ro" --entrypoint /bin/sh "$etcd_image" -c \
 start_kine
 test "$(etcdctl get /registry/smoke/alpha --print-value-only)" = uno || fail 'alpha did not persist'
 test "$(etcdctl get /registry/other/gamma --print-value-only)" = three || fail 'gamma did not persist'
-test -z "$(etcdctl get /registry/smoke/beta)" || fail 'deleted beta reappeared'
+got=$(etcdctl get /registry/smoke/beta) || fail 'get beta failed after restart'
+test -z "$got" || fail 'deleted beta reappeared'
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$expected_version"
