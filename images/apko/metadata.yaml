@@ -1,0 +1,9 @@
+name: apko
+track: wolfi
+description: APK-based OCI image builder built from a pinned upstream source commit.
+category: CI/CD & GitOps
+upstream: https://github.com/chainguard-dev/apko
+versions: [1]
+scan-identity: [pkg:golang/chainguard.dev/apko]
+owner: tektum
+enabled: true
