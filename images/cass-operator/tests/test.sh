@@ -404,23 +404,40 @@ test "$(cat "$work/out")" = True || fail "unexpected Stopped condition: $(cat "$
 # The operator records events through the events.k8s.io recorder: the
 # machine-readable constant is the action and the human-readable text is the
 # reason.
-kubectl get events -n "$ns" -o json >"$work/events.json"
-for expected in 'CreatedResource|Created statefulset verity-dc1-default-sts' \
-  'CreatedResource|Created service verity-dc1-service' \
-  'CreatedResource|Created service verity-seed-service' \
-  'CreatedResource|Created PodDisruptionBudget dc1-pdb' \
-  'StoppingDatacenter|Stopping datacenter'; do
-  jq -e --arg a "${expected%%|*}" --arg r "${expected#*|}" '[.items[]
-    | select(.involvedObject.name == "dc1" and .action == $a and .reason == $r)] | length > 0' \
-    "$work/events.json" >/dev/null ||
-    fail "no '$expected' event for dc1: $(jq -c '[.items[] | select(.involvedObject.name == "dc1") | .action + "|" + .reason] | unique' "$work/events.json")"
+# Events are written asynchronously after the objects they report on, so poll
+# until every expected event has reached the API server.
+events_missing() {
+  kubectl get events -n "$ns" -o json >"$work/events.json" 2>/dev/null || {
+    echo 'kubectl get events failed'
+    return 0
+  }
+  for expected in 'CreatedResource|Created statefulset verity-dc1-default-sts' \
+    'CreatedResource|Created service verity-dc1-service' \
+    'CreatedResource|Created service verity-seed-service' \
+    'CreatedResource|Created PodDisruptionBudget dc1-pdb' \
+    'StoppingDatacenter|Stopping datacenter'; do
+    jq -e --arg a "${expected%%|*}" --arg r "${expected#*|}" '[.items[]
+      | select(.involvedObject.name == "dc1" and .action == $a and .reason == $r)] | length > 0' \
+      "$work/events.json" >/dev/null || {
+      echo "no '$expected' event for dc1: $(jq -c '[.items[] | select(.involvedObject.name == "dc1") | .action + "|" + .reason] | unique' "$work/events.json")"
+      return 0
+    }
+  done
+  # The operator itself rejects a datacenter whose superuser secret lacks a key.
+  jq -e '[.items[] | select(.involvedObject.name == "invalid" and .type == "Warning"
+    and .action == "ValidationFailed" and (.reason | contains("Missing key: password")))]
+    | length > 0' "$work/events.json" >/dev/null || {
+    echo "no ValidationFailed event for the invalid datacenter: $(jq -c '[.items[] | select(.involvedObject.name == "invalid") | .action + "|" + .reason]' "$work/events.json")"
+    return 0
+  }
+  return 1
+}
+i=0
+while missing=$(events_missing); do
+  i=$((i + 1))
+  [ "$i" -lt 60 ] || fail "$missing"
+  sleep 2
 done
-
-# The operator itself rejects a datacenter whose superuser secret lacks a key.
-jq -e '[.items[] | select(.involvedObject.name == "invalid" and .type == "Warning"
-  and .action == "ValidationFailed" and (.reason | contains("Missing key: password")))]
-  | length > 0' "$work/events.json" >/dev/null ||
-  fail "no ValidationFailed event for the invalid datacenter: $(jq -c '[.items[] | select(.involvedObject.name == "invalid") | .action + "|" + .reason]' "$work/events.json")"
 if kubectl get statefulset -n "$ns" broken-invalid-default-sts -o name >/dev/null 2>&1; then
   fail 'the invalid datacenter was reconciled'
 fi
