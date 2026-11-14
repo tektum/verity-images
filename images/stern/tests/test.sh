@@ -41,6 +41,7 @@ grep -F 'unknown flag: --definitely-invalid' "$work/flag" >/dev/null ||
 
 rc=0
 docker run --rm --network none "$image" >"$work/noquery" 2>&1 || rc=$?
+test "$rc" -ne 0 || fail 'missing query unexpectedly succeeded'
 grep -F 'One of pod-query, --selector, --field-selector, --prompt or --stdin is required' \
   "$work/noquery" >/dev/null || fail "missing query diagnostic is missing: $(cat "$work/noquery")"
 
