@@ -5,7 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 recipe="$(dirname "$0")/../melange.yaml"
 version=$(sed -n 's/^  version: "\([0-9.]*\)".*$/\1/p' "$recipe")
 # Catalog Kafka (KRaft) image, pinned by index digest, provides the broker and client tools.
-kafka=ghcr.io/tektum/kafka@sha256:186c1aea3c1ceb0e556e99e2be42cbf898787f63a46f66c9d617abd136716baf
+kafka_index=ghcr.io/tektum/kafka@sha256:186c1aea3c1ceb0e556e99e2be42cbf898787f63a46f66c9d617abd136716baf
 label="verity-test=kafka-proxy-$$"
 backend="verity-kafka-proxy-back-$$"
 frontend="verity-kafka-proxy-front-$$"
@@ -69,7 +69,26 @@ grep -q 'server-mapping must be in form' "$work/bad-mapping.log" ||
 docker network create --label "$label" --internal "$backend" >/dev/null
 docker network create --label "$label" --internal "$frontend" >/dev/null
 
-docker pull --quiet "$kafka" >/dev/null
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+# Pulling the index itself for a second platform fails with "cannot overwrite digest".
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+kafka=$(pull_child "$kafka_index")
 docker run -d --name "$broker" --label "$label" --network "$backend" --entrypoint sh "$kafka" -c '
   set -e
   config=/opt/kafka/config/server.properties
