@@ -9,6 +9,9 @@ package:
   dependencies:
     runtime:
       - ca-certificates-bundle
+      # go-systemd sdjournal dlopens libsystemd.so.0 for the journald
+      # watchers and log-counter; there is no ELF NEEDED entry to detect.
+      - libsystemd
       - tzdata
   resources:
     cpu: "4"

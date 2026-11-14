@@ -56,6 +56,11 @@ run --entrypoint /home/kubernetes/bin/health-checker "$image" --help >"$work/hc.
 grep -q -- '--component' "$work/hc.log" || fail "health-checker help: $(cat "$work/hc.log")"
 run --entrypoint /home/kubernetes/bin/log-counter "$image" --help >"$work/lc.log" 2>&1 || true
 grep -q -- '--journald-source' "$work/lc.log" || fail "log-counter help: $(cat "$work/lc.log")"
+# The journald readers dlopen libsystemd; log-counter opens an (empty) journal.
+run --tmpfs /journal --entrypoint /home/kubernetes/bin/log-counter "$image" \
+  --journald-source=kernel --log-path=/journal --lookback=1m --delay=0s --count=1 \
+  --pattern=verity >"$work/journal.log" 2>&1 ||
+  fail "log-counter could not open a journal: $(cat "$work/journal.log")"
 
 # Negative: an unknown flag is rejected.
 if run "$image" --definitely-not-a-flag >"$work/bad.log" 2>&1; then
@@ -97,7 +102,7 @@ cat >"$work/plugin/monitor.json" <<'JSON'
   "rules": [
     {
       "type": "temporary",
-      "reason": "MarkerPresent",
+      "reason": "MarkerPresentTemporary",
       "path": "/plugin/check_marker.sh",
       "timeout": "3s"
     },
@@ -149,7 +154,7 @@ gauge() {
 }
 counter() {
   metrics | sed -n 's/^problem_counter{\(.*\)} \([0-9.e+]*\)$/\1 \2/p' |
-    grep 'reason="MarkerPresent"' | awk '{print $NF}'
+    grep 'reason="MarkerPresentTemporary"' | awk '{print $NF}'
 }
 wait_for() {
   what=$1
