@@ -1,0 +1,94 @@
+package:
+  name: verity-kaf
+  # yamllint disable-line rule:line-length
+  version: "0.2.14"  # renovate: datasource=github-releases depName=birdayz/kaf versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Modern CLI for Apache Kafka
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 2ecc79847b37255049390564fdc51df16fe54f6f
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/birdayz/kaf
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # go/remediate raises golang.org/x/crypto past GO-2026-5932 and any other
+  # module with a released fix.
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/kaf
+
+  - runs: |
+      # Same flags as the upstream GoReleaser defaults (CGO_ENABLED=0, -s -w); of
+      # its stamps only main.version and main.commit exist in the binary.
+      bin="${{targets.destdir}}/usr/bin/kaf"
+      stamp="-X main.version=${{package.version}} -X main.commit=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" -o "$bin" ./cmd/kaf
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/birdayz/kaf" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the kaf build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/kaf-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/kaf-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        kaf --version | grep -Fx 'kaf version ${{package.version}} (${{vars.source-commit}})'
+        apk info --who-owns /usr/bin/kaf \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: birdayz/kaf
+    strip-prefix: v
+    use-tag: true
