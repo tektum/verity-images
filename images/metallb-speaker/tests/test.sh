@@ -16,6 +16,20 @@ fail() {
   exit 1
 }
 
+# images/metallb-controller must ship the same MetalLB release; a speaker bump
+# fails here until the controller recipe moves with it.
+here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+recipe_value() {
+  awk -v key="$1" '$1 == key { gsub(/"/, "", $2); print $2; exit }' "$2"
+}
+for key in version: source-commit:; do
+  speaker_value=$(recipe_value "$key" "$here/../melange.yaml")
+  controller_value=$(recipe_value "$key" "$here/../../metallb-controller/melange.yaml")
+  [ -n "$speaker_value" ] || fail "metallb-speaker $key is missing"
+  [ "$speaker_value" = "$controller_value" ] ||
+    fail "metallb-speaker $key $speaker_value does not match metallb-controller ${controller_value:-(missing)}"
+done
+
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/speaker"]'
 test -z "$(docker image inspect --format '{{.Config.User}}' "$image")"
 

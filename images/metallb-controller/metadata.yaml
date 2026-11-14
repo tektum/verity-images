@@ -1,0 +1,8 @@
+name: metallb-controller
+track: wolfi
+description: MetalLB controller built from a pinned upstream source commit, on the metallb-speaker release.
+category: Service Mesh & Networking
+upstream: https://github.com/metallb/metallb
+versions: [0.15.3]
+owner: tektum
+enabled: true
