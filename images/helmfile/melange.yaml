@@ -1,0 +1,149 @@
+package:
+  name: verity-helmfile
+  # yamllint disable-line rule:line-length
+  version: "1.8.4"  # renovate: datasource=github-releases depName=helmfile/helmfile versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Declarative spec for deploying Helm charts
+  copyright:
+    - license: MIT
+      paths:
+        - usr/bin/helmfile
+    - license: Apache-2.0
+      paths:
+        - usr/libexec/helm/plugins/diff/bin/diff
+        - usr/libexec/helm/plugins/diff/plugin.yaml
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - helm-4
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 119a9effecb99764a4aa196cb90c1176753516a8
+  # yamllint disable-line rule:line-length
+  helm-diff-version: "3.15.15"  # renovate: datasource=github-releases depName=databus23/helm-diff versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  helm-diff-commit: 63945947a87e026f2f0a985319fe29b781ae0a35
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/helmfile/helmfile
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # helmfile diff and apply shell out to the helm-diff plugin.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/databus23/helm-diff
+      tag: v${{vars.helm-diff-version}}
+      expected-commit: ${{vars.helm-diff-commit}}
+      destination: third_party/helm-diff
+
+  - runs: |
+      # git-checkout copies its 0700 clone directory mode to the destination, which the runner
+      # cannot read back when it retrieves the workspace.
+      chmod -R a+rX third_party/helm-diff
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - uses: go/remediate
+    with:
+      modroot: third_party/helm-diff
+      packages: .
+
+  - runs: |
+      # Same stamps as the upstream GoReleaser build; the dates are the pinned
+      # commit's timestamp.
+      commit_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      bin="${{targets.destdir}}/usr/bin/helmfile"
+      stamp="-X go.szostok.io/version.version=${{package.version}}"
+      stamp="$stamp -X go.szostok.io/version.buildDate=$commit_date"
+      stamp="$stamp -X go.szostok.io/version.commit=${{vars.source-commit}}"
+      stamp="$stamp -X go.szostok.io/version.commitDate=$commit_date"
+      stamp="$stamp -X go.szostok.io/version.dirtyBuild=false"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" -o "$bin" .
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/helmfile/helmfile" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - runs: |
+      # The plugin is installed where HELM_PLUGINS in the image points, with its
+      # upstream plugin.yaml; the install hook only fetches release binaries and
+      # never runs here.
+      cd third_party/helm-diff
+      plugin="${{targets.destdir}}/usr/libexec/helm/plugins/diff"
+      stamp="-X github.com/databus23/helm-diff/v3/cmd.Version=${{vars.helm-diff-version}}"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" -o "$plugin/bin/diff" .
+      go version -m "$plugin/bin/diff" \
+        | awk '$1 == "mod" && $2 == "github.com/databus23/helm-diff/v3" { print $3 }' \
+        | grep -Ex 'v${{vars.helm-diff-version}}(\+dirty)?'
+      grep -Fx 'version: "${{vars.helm-diff-version}}"' plugin.yaml
+      install -Dm644 plugin.yaml "$plugin/plugin.yaml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/helm-diff/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the helmfile build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/helmfile-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/helmfile-build/go.sum"
+          install -Dm644 third_party/helm-diff/go.mod \
+            "${{targets.subpkgdir}}/usr/share/helmfile-build/helm-diff/go.mod"
+          install -Dm644 third_party/helm-diff/go.sum \
+            "${{targets.subpkgdir}}/usr/share/helmfile-build/helm-diff/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        helmfile version --output short | grep -Fx 'v${{package.version}}'
+        apk info --who-owns /usr/bin/helmfile \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -F MIT
+        apk info --license "${{package.name}}" | grep -F Apache-2.0
+        grep -F 'MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/helm-diff/LICENSE"
+        HELM_PLUGINS=/usr/libexec/helm/plugins /usr/libexec/helm/plugins/diff/bin/diff version \
+          | grep -Fx '${{vars.helm-diff-version}}'
+
+update:
+  enabled: true
+  github:
+    identifier: helmfile/helmfile
+    strip-prefix: v
+    use-tag: true
