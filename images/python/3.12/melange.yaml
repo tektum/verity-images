@@ -58,6 +58,9 @@ pipeline:
 
   # Upstream security fixes that no 3.12 release carries. Each patch header
   # names the upstream commit, issue and CVE, and how it was backported.
+  # CVE-2026-103995-3.patch, CVE-2025-15366-2.patch and
+  # CVE-2026-12345-tempfile-bytes.patch are local fixes for upstream bugs in
+  # those fixes (not upstream; see their headers).
   - name: Apply upstream security fixes
     uses: patch
     with:
@@ -68,9 +71,12 @@ pipeline:
         CVE-2025-15367.patch
         CVE-2026-103995-1.patch
         CVE-2026-103995-2.patch
+        CVE-2026-103995-3.patch
         CVE-2026-3479.patch
         CVE-2026-116566.patch
         CVE-2025-15366.patch
+        CVE-2025-15366-2.patch
+        CVE-2026-12345-tempfile-bytes.patch
 
   - name: Force use of system libraries
     runs: |
@@ -124,12 +130,22 @@ pipeline:
   - uses: autoconf/make
 
   # Upstream regression tests of every patched module, including the tests
-  # each security patch adds, plus ssl for the OpenSSL 4 patches.
+  # each security patch adds, plus ssl for the OpenSSL 4 patches and tempfile
+  # for CVE-2026-12345-tempfile-bytes.patch.
   - name: Run the regression tests of the patched modules
     runs: |
       LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 \
         test_base64 test_binascii test_http_cookies test_httplib \
-        test_imaplib test_poplib test_socket test_pkgutil test_ssl
+        test_imaplib test_poplib test_socket test_pkgutil test_ssl \
+        test_tempfile
+      # gh-127301.patch FIPS wrappers, under the mock FIPS OPENSSL_CONF that
+      # upstream's test_builtins_in_openssl_fips_mode uses. Its
+      # test_algorithms_available is not run: it assumes every builtin hash
+      # is compiled in, and this build has only blake2.
+      OPENSSL_CONF="$PWD/Lib/test/hashlibdata/openssl.cnf" LD_LIBRARY_PATH="$PWD" \
+        ./python -E -u Lib/test/_test_hashlib_fips.py -v \
+        HashLibFIPSTestCase.test_usedforsecurity_true \
+        HashLibFIPSTestCase.test_blake2_constants
 
   - uses: autoconf/make-install
 
