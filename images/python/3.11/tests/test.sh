@@ -158,6 +158,32 @@ else:
     raise AssertionError(f'chunk-size 0x3 was accepted: {body!r}')
 EOF
 
+# CVE-2026-103995-3.patch: an oversized but well-formed Content-Length is
+# ignored, as in 3.11.18, instead of raising ValueError from int().
+check "http.client ignores a Content-Length longer than the int digit limit" <<'EOF'
+import http.client, io
+
+class Sock:
+    def makefile(self, *args, **kwargs):
+        return io.BytesIO(b'HTTP/1.1 200 OK\r\nContent-Length: ' + b'1' * 5000
+                          + b'\r\n\r\nHello')
+
+r = http.client.HTTPResponse(Sock())
+r.begin()
+assert r.length is None, r.length
+assert r.read() == b'Hello'
+EOF
+
+# gh-127301.patch: the builtin hash constructors work without _hashlib.
+# The build keeps only blake2 builtin (--with-builtin-hashlib-hashes=blake2).
+check "hashlib builtin constructors work without _hashlib" <<'EOF'
+import sys
+sys.modules['_hashlib'] = None
+import hashlib
+assert hashlib.blake2b(b'').hexdigest().startswith('786a02f7'), hashlib.blake2b(b'').hexdigest()
+assert hashlib.new('blake2s', b'').hexdigest().startswith('69217a30'), hashlib.new('blake2s', b'').hexdigest()
+EOF
+
 check "CVE-2026-116566: getaddrinfo rejects an embedded NUL" <<'EOF'
 import socket
 for host, port in ((b'127.0.0.1\x00.attacker.example', 80), ('127.0.0.1', '80\x00x')):
