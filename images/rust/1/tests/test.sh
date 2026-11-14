@@ -22,7 +22,7 @@ docker run --rm --network none --entrypoint /bin/sh "$image" -c '
   [ -w /app ]
   [ -w /usr/local/cargo ]
 '
-docker run --rm --network none "$image" --version | grep -q '^rustc 1\.86\.' || { echo 'unexpected rustc version' >&2; exit 1; }
+docker run --rm --network none "$image" --version | grep -q '^rustc 1\.100\.' || { echo 'unexpected rustc version' >&2; exit 1; }
 
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT INT TERM
