@@ -1,0 +1,9 @@
+name: cert-exporter
+track: wolfi
+description: Prometheus exporter for certificate and kubeconfig expiry. Built from pinned upstream source.
+category: Cert Management
+upstream: https://github.com/joe-elliott/cert-exporter
+versions: [2.19]
+scan-identity: [pkg:golang/github.com/joe-elliott/cert-exporter]
+owner: tektum
+enabled: true
