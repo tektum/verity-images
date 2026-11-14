@@ -1,0 +1,47 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rabbitmq-messaging-topology-operator@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/manager
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  # Upstream manifests and Helm charts run the hardcoded command /manager.
+  - path: /manager
+    type: symlink
+    source: /usr/bin/manager
+    uid: 0
+    gid: 0
+  # The symlink entry resets the target's mode; restore the executable bits.
+  - path: /usr/bin/manager
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
