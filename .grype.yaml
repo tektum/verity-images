@@ -184,8 +184,10 @@ ignore:
       NVD lists no fixed 3.11 release. The images/python/3.11 build applies
       CVE-2025-15366.patch, upstream python/cpython commit
       71926d943c05bde79bd2a866933103541d91b6a2 (gh-143921, 3.13 branch, v3.13.15):
-      imaplib now rejects NUL, CR and LF in commands. Scoped to the scan-identity
-      package declared by images/python/3.11 (cpe python:python) at 3.11.18.
+      imaplib now rejects NUL, CR and LF in commands. CVE-2025-15366-2.patch is a
+      local follow-up that drops a rejected APPEND's pending literal. Scoped to the
+      scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
   - vulnerability: CVE-2025-15367
     package:
       name: python

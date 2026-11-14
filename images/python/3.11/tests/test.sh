@@ -90,6 +90,48 @@ for c in '\0\r\n':
         raise AssertionError(f'select() sent {c!r} in a command: {typ} {data}')
 EOF
 
+# CVE-2025-15366-2.patch: a rejected APPEND does not leave its message
+# pending as the literal of the next command.
+check "imaplib drops the literal of a rejected APPEND" <<'EOF'
+import imaplib, socket, threading
+client_sock, server_sock = socket.socketpair()
+client_sock.settimeout(5)
+seen = []
+
+def serve():
+    f = server_sock.makefile('rwb')
+    f.write(b'* PREAUTH ready\r\n')
+    f.flush()
+    for line in f:
+        seen.append(line)
+        tag = line.split(b' ', 1)[0]
+        if b'CAPABILITY' in line:
+            f.write(b'* CAPABILITY IMAP4rev1\r\n')
+        if line.rstrip().endswith(b'}'):
+            f.write(b'+ go\r\n')
+        else:
+            f.write(tag + b' OK done\r\n')
+        f.flush()
+
+threading.Thread(target=serve, daemon=True).start()
+
+class Client(imaplib.IMAP4):
+    def open(self, host='', port=imaplib.IMAP4_PORT, timeout=None):
+        self.host, self.port, self.sock = host, port, client_sock
+        self.file = client_sock.makefile('rb')
+
+client = Client()
+try:
+    client.append('bad\nmailbox', None, None, b'message')
+except ValueError:
+    pass
+else:
+    raise AssertionError('append() accepted LF in the mailbox name')
+assert client.literal is None, f'pending literal after rejected APPEND: {client.literal!r}'
+assert client.noop()[0] == 'OK'
+assert [l for l in seen if b'NOOP' in l] == [seen[-1]] and seen[-1].endswith(b' NOOP\r\n'), seen
+EOF
+
 check "CVE-2025-15367: poplib rejects control characters in commands" <<'EOF'
 import poplib, socket
 client_sock, server_sock = socket.socketpair()
