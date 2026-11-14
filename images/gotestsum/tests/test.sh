@@ -30,6 +30,13 @@ test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = null |
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /work ||
   fail 'unexpected working directory'
 
+# The bundled toolchain is the only one gotestsum may use: a module that asks
+# for a newer Go fails clearly instead of downloading an unscanned toolchain.
+docker image inspect --format '{{json .Config.Env}}' "$image" >"$work/env"
+for var in GOTOOLCHAIN=local GOPATH=/home/nonroot/go GOCACHE=/home/nonroot/.cache/go-build; do
+  jq -e --arg v "$var" 'index($v) != null' "$work/env" >/dev/null || fail "image environment lacks $var"
+done
+
 # Offline on a read-only root with no capabilities. The module is mounted
 # read-only at the working directory; reports go to /out and the build cache
 # lives on an exec tmpfs, where go test also links the test binaries.
@@ -138,7 +145,7 @@ grep -F '"Action":"pass","Package":"example.test/smoke/calc","Test":"TestAdd"' "
   >/dev/null || fail 'test2json log is missing the TestAdd pass event'
 
 # The tool subcommand reads the recorded log back.
-run tool slowest --jsonfile /out/pass.json --threshold 10ms >"$work/slowest" 2>&1 ||
+run tool slowest --jsonfile /out/pass.json --threshold 25ms >"$work/slowest" 2>&1 ||
   fail "tool slowest failed: $(cat "$work/slowest")"
 grep -E '^example\.test/smoke/calc TestAdd [0-9.]+m?s$' "$work/slowest" >/dev/null ||
   fail "tool slowest does not list TestAdd: $(cat "$work/slowest")"
@@ -167,6 +174,20 @@ run -- ./nocompile/... >"$work/nocompile" 2>&1 || status=$?
 test "$status" -ne 0 || fail 'a package that does not compile passed'
 grep -F 'cannot use "x"' "$work/nocompile" >/dev/null ||
   fail "compile error is not shown: $(cat "$work/nocompile")"
+
+# Negative: a module that requires a newer Go fails with the local toolchain pinned.
+mkdir -p "$work/newgo"
+printf 'module example.test/newgo\n\ngo 1.999\n' >"$work/newgo/go.mod"
+printf 'package newgo\n' >"$work/newgo/x.go"
+chmod -R a+rX "$work/newgo"
+status=0
+docker run --rm --network none --read-only --cap-drop=ALL --tmpfs /tmp:exec,mode=1777 \
+  -e GOCACHE=/tmp/go-build -v "$work/newgo:/work:ro" "$image" -- ./... >"$work/newgo.log" 2>&1 || status=$?
+test "$status" -ne 0 || fail 'a module requiring a newer Go unexpectedly passed'
+grep -F 'requires go >= 1.999' "$work/newgo.log" >/dev/null ||
+  fail "newer Go requirement diagnostic is missing: $(cat "$work/newgo.log")"
+grep -F 'GOTOOLCHAIN=local' "$work/newgo.log" >/dev/null ||
+  fail "the toolchain was not pinned to the local one: $(cat "$work/newgo.log")"
 
 # --rerun-fails reruns only the failed test and succeeds when it then passes.
 run --format testname --rerun-fails=2 --packages ./flaky/... -- -count=1 >"$work/rerun" 2>&1 ||
