@@ -138,6 +138,8 @@ wait_http() {
 }
 dex_hostport=$(wait_http "$dex" 5556 /dex/.well-known/openid-configuration)
 
+# The default --approval-prompt=force asks Dex to show its approval screen even
+# with skipApprovalScreen; auto keeps the login flow to the password form.
 docker run -d --name "$proxy" --label "$label" --network "$network" \
   --network-alias proxy --read-only --cap-drop ALL --security-opt no-new-privileges \
   -p 127.0.0.1::4180 "$image" \
@@ -151,6 +153,7 @@ docker run -d --name "$proxy" --label "$label" --network "$network" \
   --cookie-secure=false \
   --email-domain='*' \
   --skip-provider-button=true \
+  --approval-prompt=auto \
   --set-xauthrequest=true \
   --upstream=static://200 >/dev/null
 proxy_hostport=$(wait_http "$proxy" 4180 /ping)
