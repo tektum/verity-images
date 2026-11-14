@@ -226,6 +226,27 @@ assert hashlib.blake2b(b'').hexdigest().startswith('786a02f7'), hashlib.blake2b(
 assert hashlib.new('blake2s', b'').hexdigest().startswith('69217a30'), hashlib.new('blake2s', b'').hexdigest()
 EOF
 
+# gh-127301.patch: in FIPS mode the builtin blake2 wrappers keep their
+# constants. A minimal OpenSSL config turns FIPS mode on (base provider,
+# default_properties fips=yes), as upstream's _test_hashlib_fips.py does.
+check "hashlib blake2 constants survive FIPS mode" <<'EOF'
+# Nothing may import hashlib before OPENSSL_CONF is set (tempfile does,
+# through random), so the config goes to a fixed path.
+import os
+cnf = '/tmp/fips-openssl.cnf'
+with open(cnf, 'w') as f:
+    f.write('openssl_conf = openssl_init\n[openssl_init]\nproviders = provider_sect\n'
+            'alg_section = algorithm_sect\n[provider_sect]\nbase = base_sect\n'
+            '[base_sect]\nactivate = 1\n[algorithm_sect]\ndefault_properties = fips=yes\n')
+os.environ['OPENSSL_CONF'] = cnf
+import _hashlib, hashlib
+assert _hashlib.get_fips_mode() == 1, _hashlib.get_fips_mode()
+for md in (hashlib.blake2b, hashlib.blake2s):
+    d = md(b'data', digest_size=md.MAX_DIGEST_SIZE, usedforsecurity=False)
+    assert d.digest_size == md.MAX_DIGEST_SIZE
+    assert md.MAX_KEY_SIZE and md.PERSON_SIZE and md.SALT_SIZE
+EOF
+
 check "CVE-2026-116566: getaddrinfo rejects an embedded NUL" <<'EOF'
 import socket
 for host, port in ((b'127.0.0.1\x00.attacker.example', 80), ('127.0.0.1', '80\x00x')):

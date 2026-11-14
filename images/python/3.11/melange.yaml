@@ -141,7 +141,8 @@ pipeline:
   #   builtin hash is compiled in; this build has only blake2
   #   (--with-builtin-hashlib-hashes=blake2). Wolfi documents this and
   #   ignores the test in its regrtest step. The rest of that FIPS test,
-  #   test_usedforsecurity_true, runs on its own below.
+  #   test_usedforsecurity_true and test_blake2_constants, run on their
+  #   own below.
   - name: Run the regression tests of the patched modules
     runs: |
       LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 \
@@ -151,7 +152,8 @@ pipeline:
         test_tempfile test_shutil test_hashlib
       OPENSSL_CONF="$PWD/Lib/test/hashlibdata/openssl.cnf" LD_LIBRARY_PATH="$PWD" \
         ./python -E -u Lib/test/_test_hashlib_fips.py -v \
-        HashLibFIPSTestCase.test_usedforsecurity_true
+        HashLibFIPSTestCase.test_usedforsecurity_true \
+        HashLibFIPSTestCase.test_blake2_constants
 
   - uses: autoconf/make-install
 

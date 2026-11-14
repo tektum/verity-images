@@ -3,13 +3,16 @@ Upstream: https://github.com/python/cpython/pull/127301
 Copied from Wolfi python-3.11 with one addition taken from the Wolfi
 python-3.12 copy of the same patch: "__openssl_fips_mode = 0" in the
 "except ImportError" branch, so the builtin constructors do not raise
-NameError when _hashlib is unavailable.
+NameError when _hashlib is unavailable. Local fix (not in Wolfi): in FIPS
+mode the partial() wrappers keep the blake2 constants (MAX_DIGEST_SIZE,
+MAX_KEY_SIZE, PERSON_SIZE, SALT_SIZE), so hashlib.blake2b.MAX_DIGEST_SIZE
+does not raise AttributeError; test_blake2_constants covers it.
 
 diff --git a/Lib/hashlib.py b/Lib/hashlib.py
 index b546a3fd795..1dc38d003ed 100644
 --- a/Lib/hashlib.py
 +++ b/Lib/hashlib.py
-@@ -79,6 +79,23 @@
+@@ -79,6 +79,28 @@
      'blake2b', 'blake2s',
  }
  
@@ -27,13 +30,18 @@ index b546a3fd795..1dc38d003ed 100644
 +def __get_wrapped_builtin(md, name):
 +    if __openssl_fips_mode != 0:
 +        from functools import partial
-+        return partial(__usedforsecurity_check, md, name)
++        wrapped = partial(__usedforsecurity_check, md, name)
++        # Keep the constants of the wrapped type, e.g. blake2b.MAX_DIGEST_SIZE.
++        for attr in ('MAX_DIGEST_SIZE', 'MAX_KEY_SIZE', 'PERSON_SIZE', 'SALT_SIZE'):
++            if hasattr(md, attr):
++                setattr(wrapped, attr, getattr(md, attr))
++        return wrapped
 +    return md
 +
  def __get_builtin_constructor(name):
      cache = __builtin_constructor_cache
      constructor = cache.get(name)
-@@ -87,32 +104,32 @@ def __get_builtin_constructor(name):
+@@ -87,32 +109,32 @@ def __get_builtin_constructor(name):
      try:
          if name in {'SHA1', 'sha1'}:
              import _sha1
@@ -80,7 +88,7 @@ index b546a3fd795..1dc38d003ed 100644
      except ImportError:
          pass  # no extension module, this hash is unsupported.
  
-@@ -161,9 +178,8 @@ def __hash_new(name, data=b'', **kwargs):
+@@ -161,9 +183,8 @@ def __hash_new(name, data=b'', **kwargs):
      except ValueError:
          # If the _hashlib module (OpenSSL) doesn't support the named
          # hash, try using our builtin implementations.
@@ -92,7 +100,7 @@ index b546a3fd795..1dc38d003ed 100644
  
  
  try:
-@@ -172,9 +188,14 @@ def __hash_new(name, data=b'', **kwargs):
+@@ -172,10 +193,15 @@ def __hash_new(name, data=b'', **kwargs):
      __get_hash = __get_openssl_constructor
      algorithms_available = algorithms_available.union(
              _hashlib.openssl_md_meth_names)
@@ -107,12 +115,13 @@ index b546a3fd795..1dc38d003ed 100644
 +    __openssl_fips_mode = 0
  
  try:
+     # OpenSSL's PKCS5_PBKDF2_HMAC requires OpenSSL 1.0+ with HMAC and SHA
 diff --git a/Lib/test/_test_hashlib_fips.py b/Lib/test/_test_hashlib_fips.py
 new file mode 100644
 index 00000000000..92537245954
 --- /dev/null
 +++ b/Lib/test/_test_hashlib_fips.py
-@@ -0,0 +1,64 @@
+@@ -0,0 +1,74 @@
 +# Test the hashlib module usedforsecurity wrappers under fips.
 +#
 +#  Copyright (C) 2024   Dimitri John Ledkov (dimitri.ledkov@surgut.co.uk)
@@ -174,6 +183,16 @@ index 00000000000..92537245954
 +            with self.subTest(name):
 +                with self.assertRaises(ValueError):
 +                    digest = hashlib.new(name, usedforsecurity=True)
++
++    def test_blake2_constants(self):
++        import hashlib
++        for name in ('blake2b', 'blake2s'):
++            with self.subTest(name):
++                md = getattr(hashlib, name)
++                for attr in ('MAX_DIGEST_SIZE', 'MAX_KEY_SIZE', 'PERSON_SIZE', 'SALT_SIZE'):
++                    self.assertIsInstance(getattr(md, attr), int)
++                digest = md(b'data', digest_size=md.MAX_DIGEST_SIZE, usedforsecurity=False)
++                self.assertEqual(digest.digest_size, md.MAX_DIGEST_SIZE)
 +
 +if __name__ == "__main__":
 +    unittest.main()
