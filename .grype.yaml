@@ -289,5 +289,7 @@ ignore:
       pending upstream review (gh-157579; the 3.12 fix is commit
       c39b52d00b42200aaadff679e2fe3f1006d57c58, v3.12.16): TemporaryDirectory cleanup
       no longer follows a symlink swapped in during PermissionError recovery. Replace
-      with the merged commit. Scoped to the scan-identity package declared by
+      with the merged commit. CVE-2026-12345-2.patch is a local fix on top of it
+      (recovery keeps the enclosing directory descriptor for root errors and handles
+      bytes names). Scoped to the scan-identity package declared by
       images/python/3.11 (cpe python:python) at 3.11.18.

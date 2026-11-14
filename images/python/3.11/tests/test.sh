@@ -282,6 +282,54 @@ with tempfile.TemporaryDirectory() as target:
 EOF
 user=
 
+# CVE-2026-12345-2.patch: when the nested rmtree() that cleanup() recovers
+# with hits a PermissionError on its own root, recovery stays relative to
+# the enclosing directory and never touches the working directory.
+check "TemporaryDirectory cleanup does not unlink in the working directory" <<'EOF'
+import contextlib, os, tempfile
+from unittest import mock
+work = tempfile.mkdtemp()
+os.chdir(work)
+victim = os.path.join(work, 'sub')
+with open(victim, 'w') as f:
+    f.write('keep')
+d = tempfile.TemporaryDirectory()
+os.mkdir(os.path.join(d.name, 'sub'))
+real_open = os.open
+def hook(path, flags, mode=0o777, *, dir_fd=None):
+    if path == 'sub' and dir_fd is not None and not flags & os.O_NOFOLLOW:
+        raise PermissionError(13, 'Permission denied', path)
+    return real_open(path, flags, mode, dir_fd=dir_fd)
+try:
+    with mock.patch('os.open', hook):
+        with contextlib.suppress(OSError):
+            d.cleanup()
+finally:
+    d.cleanup()
+assert os.path.exists(victim), 'cleanup deleted sub in the working directory'
+EOF
+
+# CVE-2026-12345-2.patch: a bytes-named TemporaryDirectory recovers from a
+# PermissionError during cleanup, as in 3.11.18.
+check "TemporaryDirectory cleanup of a bytes name recovers from PermissionError" <<'EOF'
+import os, tempfile
+from unittest import mock
+d = tempfile.TemporaryDirectory(prefix=b'tmp')
+sub = os.path.join(d.name, b'sub')
+os.mkdir(sub)
+open(os.path.join(sub, b'f'), 'wb').close()
+unlink = os.unlink
+failed = []
+def hook(path, *, dir_fd=None):
+    if not failed:
+        failed.append(path)
+        raise PermissionError(13, 'Permission denied', path)
+    return unlink(path, dir_fd=dir_fd)
+with mock.patch('os.unlink', hook):
+    d.cleanup()
+assert failed and not os.path.exists(d.name), (failed, os.path.exists(d.name))
+EOF
+
 if [ "$failures" -ne 0 ]; then
   echo "$failures check(s) failed" >&2
   exit 1

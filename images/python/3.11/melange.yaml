@@ -56,7 +56,9 @@ pipeline:
   # names the upstream commit, issue and CVE, and how it was backported.
   # CVE-2026-12345.patch is the exception: it is upstream's open 3.11
   # backport python/cpython#161944 at head e6872ab7fbeb, pending upstream
-  # review; replace it with the merged commit.
+  # review; replace it with the merged commit. CVE-2026-12345-2.patch,
+  # CVE-2026-103995-3.patch and CVE-2025-15366-2.patch are local fixes on
+  # top of the upstream patches (not upstream; see their headers).
   - name: Apply upstream security fixes
     uses: patch
     with:
@@ -74,6 +76,7 @@ pipeline:
         CVE-2025-15366-2.patch
         CVE-2026-116566.patch
         CVE-2026-12345.patch
+        CVE-2026-12345-2.patch
 
   - name: Force use of system libraries
     runs: |
@@ -129,15 +132,26 @@ pipeline:
   - uses: autoconf/make
 
   # Upstream regression tests of every patched module, including the tests
-  # each security patch adds, plus ssl for the OpenSSL 4 patches.
-  # test_ssl.test_dh_params is skipped as in Wolfi python-3.11: it calls
-  # set_ciphers("kEDH"), which this OpenSSL rejects.
+  # each security patch adds, plus ssl for the OpenSSL 4 patches and hashlib
+  # for gh-127301.patch. Skipped, as in Wolfi python-3.11:
+  # - test_ssl.test_dh_params calls set_ciphers("kEDH"), which this OpenSSL
+  #   rejects.
+  # - test_hashlib.test_builtins_in_openssl_fips_mode runs
+  #   _test_hashlib_fips.py, whose test_algorithms_available assumes every
+  #   builtin hash is compiled in; this build has only blake2
+  #   (--with-builtin-hashlib-hashes=blake2). Wolfi documents this and
+  #   ignores the test in its regrtest step. The rest of that FIPS test,
+  #   test_usedforsecurity_true, runs on its own below.
   - name: Run the regression tests of the patched modules
     runs: |
-      LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 -i test_dh_params \
+      LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 \
+        -i test_dh_params -i test_builtins_in_openssl_fips_mode \
         test_base64 test_binascii test_http_cookies test_httplib \
         test_imaplib test_poplib test_socket test_pkgutil test_ssl \
-        test_tempfile test_shutil
+        test_tempfile test_shutil test_hashlib
+      OPENSSL_CONF="$PWD/Lib/test/hashlibdata/openssl.cnf" LD_LIBRARY_PATH="$PWD" \
+        ./python -E -u Lib/test/_test_hashlib_fips.py -v \
+        HashLibFIPSTestCase.test_usedforsecurity_true
 
   - uses: autoconf/make-install
 
