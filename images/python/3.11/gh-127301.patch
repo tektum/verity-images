@@ -1,5 +1,10 @@
 Upstream: https://github.com/python/cpython/pull/127301
 
+Copied from Wolfi python-3.11 with one addition taken from the Wolfi
+python-3.12 copy of the same patch: "__openssl_fips_mode = 0" in the
+"except ImportError" branch, so the builtin constructors do not raise
+NameError when _hashlib is unavailable.
+
 diff --git a/Lib/hashlib.py b/Lib/hashlib.py
 index b546a3fd795..1dc38d003ed 100644
 --- a/Lib/hashlib.py
@@ -87,7 +92,7 @@ index b546a3fd795..1dc38d003ed 100644
  
  
  try:
-@@ -172,6 +188,10 @@ def __hash_new(name, data=b'', **kwargs):
+@@ -172,9 +188,14 @@ def __hash_new(name, data=b'', **kwargs):
      __get_hash = __get_openssl_constructor
      algorithms_available = algorithms_available.union(
              _hashlib.openssl_md_meth_names)
@@ -98,6 +103,10 @@ index b546a3fd795..1dc38d003ed 100644
  except ImportError:
      _hashlib = None
      new = __py_new
+     __get_hash = __get_builtin_constructor
++    __openssl_fips_mode = 0
+ 
+ try:
 diff --git a/Lib/test/_test_hashlib_fips.py b/Lib/test/_test_hashlib_fips.py
 new file mode 100644
 index 00000000000..92537245954
