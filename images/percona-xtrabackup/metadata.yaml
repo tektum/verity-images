@@ -1,0 +1,9 @@
+name: percona-xtrabackup
+track: wolfi
+description: Percona XtraBackup hot physical backup and restore tool for MySQL, assembled from Wolfi packages.
+category: Databases & Caching
+upstream: https://github.com/percona/percona-xtrabackup
+versions: [8.4]
+flavors: [plain]
+owner: tektum
+enabled: true
