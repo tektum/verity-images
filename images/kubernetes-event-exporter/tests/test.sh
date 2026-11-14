@@ -214,13 +214,14 @@ done
 grep -E "^event_exporter_build_info\\{.*version=\"v$version\".*\\} 1$" "$work/metrics" >/dev/null ||
   fail "build_info does not report v$version: $(grep build_info "$work/metrics")"
 
-# Events created right after start still arrive through the informer's initial list.
+# Events created right after start still arrive through the informer's initial
+# list, which is in name order: the dropped event sorts and is created first.
 now=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 kubectl apply -f - >"$work/events" 2>&1 <<EOF || fail "could not create events: $(cat "$work/events")"
 apiVersion: v1
 kind: Event
 metadata:
-  name: smoke-noise
+  name: smoke-dropped
   namespace: smoke
 involvedObject:
   apiVersion: v1
