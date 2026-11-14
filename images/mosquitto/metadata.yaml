@@ -5,3 +5,5 @@ upstream: https://mosquitto.org/
 versions: [2.1]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:eclipse:mosquitto]
+scan-package: mosquitto
