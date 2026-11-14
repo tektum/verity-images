@@ -1,0 +1,10 @@
+name: gdal
+track: wolfi
+description: GDAL/OGR geospatial raster and vector tools with PROJ, assembled from Wolfi packages.
+category: Data & ML
+upstream: https://gdal.org/
+versions: [3.13]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:osgeo:gdal]
+scan-package: gdal
