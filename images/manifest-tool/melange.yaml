@@ -1,0 +1,95 @@
+package:
+  name: verity-manifest-tool
+  # yamllint disable-line rule:line-length
+  version: "2.2.2"  # renovate: datasource=github-releases depName=estesp/manifest-tool versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Command line tool to create and query container image manifest lists and indexes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: b2e25427f2d1c4af2c52249eefa1afa58f662487
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/estesp/manifest-tool
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # The Go module lives in the v2/ major-version subdirectory and vendors its
+  # dependencies; go/remediate regenerates v2/vendor for the remediated go.mod.
+  - uses: go/remediate
+    with:
+      modroot: v2
+      packages: ./cmd/manifest-tool
+
+  - working-directory: v2
+    runs: |
+      # Mirrors upstream `make static`: netgo, static, and the main.version
+      # (tag without the v) and main.gitCommit stamps. The v2.x tags are not
+      # prefixed with the module subdirectory, so Go reports the main module as
+      # (devel); metadata.yaml therefore declares the scan identity.
+      go build -mod=vendor -trimpath -buildvcs=true -tags netgo \
+        -ldflags="-s -w -X main.version=${{package.version}} -X main.gitCommit=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/manifest-tool" ./cmd/manifest-tool
+      # The CLI names itself after argv[0].
+      binary="${{targets.destdir}}/usr/bin/manifest-tool"
+      "$binary" --version \
+        | grep -Fx "$binary version ${{package.version}} (commit: ${{vars.source-commit}})"
+      install -Dm644 ../LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the manifest-tool build
+    pipeline:
+      - runs: |
+          install -Dm644 v2/go.mod "${{targets.subpkgdir}}/usr/share/manifest-tool-build/go.mod"
+          install -Dm644 v2/go.sum "${{targets.subpkgdir}}/usr/share/manifest-tool-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /usr/bin/manifest-tool --version \
+          | grep -Fx "/usr/bin/manifest-tool version ${{package.version}} (commit: ${{vars.source-commit}})"
+        apk info --who-owns /usr/bin/manifest-tool \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: estesp/manifest-tool
+    tag-filter-prefix: v2.
+    strip-prefix: v
