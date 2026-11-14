@@ -362,7 +362,8 @@ wait_for() {
   want=$2
   shift 2
   i=0
-  until [ "$(kubectl "$@" 2>/dev/null)" = "$want" ]; do
+  # kubectl must succeed: an error must not pass as an empty expected value.
+  until out=$(kubectl "$@" 2>/dev/null) && [ "$out" = "$want" ]; do
     i=$((i + 1))
     [ "$i" -lt 60 ] || fail "$what: want '$want', got '$(kubectl "$@" 2>&1)'"
     sleep 2
@@ -392,7 +393,7 @@ wait_for 'child ConfigMap was not updated' 'Hello, metacontroller' \
 kubectl patch greeter hello -n default --type json -p '[{"op":"remove","path":"/spec/who"}]' >/dev/null ||
   fail 'could not clear the parent'
 wait_for 'orphaned child was not deleted' '' \
-  get configmaps -n default -l "controller-uid=$parent_uid" --ignore-not-found -o name
+  get configmap hello-greeting -n default --ignore-not-found -o name
 wait_for 'parent status did not drop the child' '/0' \
   get greeter hello -n default -o 'jsonpath={.status.observedWho}/{.status.children}'
 
