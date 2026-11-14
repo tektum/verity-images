@@ -1,0 +1,92 @@
+package:
+  name: verity-kine
+  # yamllint disable-line rule:line-length
+  version: "0.17.5"  # renovate: datasource=github-releases depName=k3s-io/kine extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: etcd API shim backed by SQLite, PostgreSQL, MySQL, or NATS
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: f82bd25164a393b333815f41746ef89de0d5ae20
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - gcc
+      - git
+      - glibc-dev
+      - go-1.27
+      - python3
+  environment:
+    # The SQLite driver (mattn/go-sqlite3) compiles the bundled SQLite with cgo.
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/k3s-io/kine
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Same tags, SQLite options, and version stamping as upstream scripts/build,
+      # linked dynamically against glibc instead of statically.
+      export CGO_CFLAGS="-DSQLITE_DEFAULT_MEMSTATUS=0 -DSQLITE_DISABLE_INTRINSIC \
+        -DSQLITE_ENABLE_COLUMN_METADATA -DSQLITE_ENABLE_DBPAGE_VTAB -DSQLITE_ENABLE_DBSTAT_VTAB \
+        -DSQLITE_ENABLE_MATH_FUNCTIONS -DSQLITE_ENABLE_MEMORY_MANAGEMENT \
+        -DSQLITE_ENABLE_OFFSET_SQL_FUNC -DSQLITE_ENABLE_PREUPDATE_HOOK -DSQLITE_ENABLE_RBU \
+        -DSQLITE_ENABLE_RTREE -DSQLITE_ENABLE_SESSION -DSQLITE_ENABLE_SNAPSHOT \
+        -DSQLITE_ENABLE_STAT4 -DSQLITE_ENABLE_UNLOCK_NOTIFY -DSQLITE_LIKE_DOESNT_MATCH_BLOBS \
+        -DSQLITE_THREADSAFE=1 -DSQLITE_WITHOUT_ZONEMALLOC -O2"
+      tags=nats,sqlite_unlock_notify,sqlite_vtable,sqlite_stat4,sqlite_preupdate_hook
+      tags=$tags,sqlite_math_functions,sqlite_dbstat,sqlite_column_metadata
+      commit=$(git rev-parse --short HEAD)
+      go build -mod=readonly -trimpath -buildvcs=true -tags "$tags" \
+        -ldflags="-s -w \
+          -X github.com/k3s-io/kine/pkg/version.Version=v${{package.version}} \
+          -X github.com/k3s-io/kine/pkg/version.GitCommit=$commit" \
+        -o "${{targets.destdir}}/usr/bin/kine" .
+      # The Go main module is the scan identity; it must carry the release version.
+      go version -m "${{targets.destdir}}/usr/bin/kine" \
+        | awk '$1 == "mod" && $2 == "github.com/k3s-io/kine" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        kine --version | grep -F "kine version v${{package.version}} ("
+        apk info --who-owns /usr/bin/kine | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: k3s-io/kine
+    strip-prefix: v
