@@ -1,0 +1,9 @@
+name: kubeconform
+track: wolfi
+description: kubeconform Kubernetes manifest validator built from pinned upstream source with plain and Go FIPS flavors.
+category: Kubernetes & Orchestration
+upstream: https://github.com/yannh/kubeconform
+versions: [0.8]
+flavors: [plain, fips]
+owner: tektum
+enabled: true

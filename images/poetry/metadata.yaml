@@ -6,3 +6,5 @@ upstream: https://github.com/python-poetry/poetry
 versions: [2.5]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:python-poetry:poetry, pkg:pypi/poetry]
+scan-package: py3.13-poetry-bin

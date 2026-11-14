@@ -164,3 +164,14 @@ ignore:
       the patch carries; pkgutil.py in 3.12.16 equals the fixed releases. Scoped to
       the scan-identity package declared by images/python/3.12 (cpe python:python) at
       3.12.16.
+  - vulnerability: CVE-2022-38725
+    package:
+      name: syslog-ng
+      version: 4.12.0
+      type: UnknownPackage
+    reason: >-
+      NVD's fix version 7.0.32 is syslog-ng Premium Edition numbering. The CVE text
+      limits the open source edition to 3.0 through 3.37, and the fix shipped in
+      3.38.1 (GHSA-7932-4fc6-pvmc), so 4.12.0 is not affected. Scoped to the
+      scan-identity package declared by images/syslog-ng (cpe oneidentity:syslog-ng,
+      balabit:syslog-ng) at 4.12.0.

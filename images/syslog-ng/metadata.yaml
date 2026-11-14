@@ -6,3 +6,5 @@ upstream: https://www.syslog-ng.com/
 versions: [4.12]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:oneidentity:syslog-ng, cpe:2.3:a:balabit:syslog-ng]
+scan-package: syslog-ng

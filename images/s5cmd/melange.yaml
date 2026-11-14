@@ -1,0 +1,88 @@
+package:
+  name: verity-s5cmd
+  # yamllint disable-line rule:line-length
+  version: "2.3.0"  # renovate: datasource=github-releases depName=peak/s5cmd versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Parallel S3 and local filesystem execution tool
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 991c9fbc16709341b4bac04513232a1445941f63
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/peak/s5cmd
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Upstream releases (.goreleaser.yml) stamp the v-prefixed tag and the
+      # short commit; go/remediate regenerated the vendor tree the Makefile uses.
+      version_pkg=github.com/peak/s5cmd/v2/version
+      ldflags="-s -w -X ${version_pkg}.Version=v${{package.version}}"
+      ldflags="${ldflags} -X ${version_pkg}.GitCommit=$(printf '%.7s' '${{vars.source-commit}}')"
+      go build -mod=vendor -trimpath -buildvcs=true -ldflags="${ldflags}" \
+        -o "${{targets.destdir}}/usr/bin/s5cmd" .
+      go version -m "${{targets.destdir}}/usr/bin/s5cmd" \
+        | awk '$1 == "mod" && $2 == "github.com/peak/s5cmd/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the s5cmd build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/s5cmd-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/s5cmd-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        s5cmd version | grep -Ex "v${{package.version}}-[0-9a-f]{7}"
+        apk info --who-owns /usr/bin/s5cmd \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: peak/s5cmd
+    strip-prefix: v
