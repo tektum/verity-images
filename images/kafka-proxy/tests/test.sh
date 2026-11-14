@@ -159,7 +159,8 @@ sleep 3
 if negative_client "$absent:32400" >"$work/absent.log" 2>&1; then
   fail 'client succeeded through a proxy whose broker is absent'
 fi
-docker logs "$absent" 2>&1 | grep -q "no-such-broker-$$:9092" ||
+# Startup already logs the remote address, so match only the failed dial.
+docker logs "$absent" 2>&1 | grep -qF "couldn't connect to no-such-broker-$$:9092" ||
   { dump "$absent"; fail 'proxy did not report the absent broker'; }
 
 # Negative: with dynamic listeners disabled, a broker advertised under an
@@ -173,7 +174,8 @@ sleep 3
 if negative_client "$unmapped:32400" >"$work/unmapped.log" 2>&1; then
   fail 'client succeeded although the broker advertised an unmapped address'
 fi
-docker logs "$unmapped" 2>&1 | grep -qi "$broker:9092" ||
+# Startup already logs the dial mapping to "$broker:9092", so match only the refusal.
+docker logs "$unmapped" 2>&1 | grep -qF "net address mapping for $broker:9092 was not found" ||
   { dump "$unmapped"; fail 'proxy did not report the unmapped broker address'; }
 
 printf 'SMOKE PASS\n'
