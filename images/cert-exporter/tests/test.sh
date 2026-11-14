@@ -110,15 +110,19 @@ remaining=$(awk -v l="{$labels}" '$1 == "cert_exporter_cert_expires_in_seconds" 
 if grep -F 'verity-skip-me' "$work/metrics" >/dev/null; then
   fail 'excluded certificate is reported'
 fi
-grep -E '^cert_exporter_error_total ' "$work/metrics" | grep -Ev ' 0$' >/dev/null &&
-  fail "exporter reported errors: $(grep cert_exporter_error_total "$work/metrics")"
+errors=$(awk '$1 == "cert_exporter_error_total" { print $2 }' "$work/metrics")
+[ "$errors" = 0 ] ||
+  fail "cert_exporter_error_total is '$errors', want 0: $(grep cert_exporter_error_total "$work/metrics")"
 docker logs "$container" 2>&1 | grep -F "Starting cert-exporter" | grep -F "version=$version" >/dev/null ||
   fail "startup log does not carry the version: $(docker logs "$container" 2>&1 | head -5)"
 
-# cert-exporter installs no signal handler, so SIGTERM ends it with the Go
-# runtime's default status 143; 137 would mean docker had to SIGKILL it.
+# cert-exporter installs no signal handler, so SIGTERM ends it through the Go
+# runtime: status 143, or 2 when the kernel ignores the re-raised signal for a
+# PID 1 process. 137 would mean docker had to SIGKILL it.
 docker stop --time 10 "$container" >/dev/null
-test "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 143 ||
-  fail "exporter did not stop on SIGTERM: exit $(docker inspect --format '{{.State.ExitCode}}' "$container")"
+case $(docker inspect --format '{{.State.ExitCode}}' "$container") in
+  2 | 143) ;;
+  *) fail "exporter did not stop on SIGTERM: exit $(docker inspect --format '{{.State.ExitCode}}' "$container")" ;;
+esac
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$version"
