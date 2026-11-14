@@ -175,3 +175,117 @@ ignore:
       3.38.1 (GHSA-7932-4fc6-pvmc), so 4.12.0 is not affected. Scoped to the
       scan-identity package declared by images/syslog-ng (cpe oneidentity:syslog-ng,
       balabit:syslog-ng) at 4.12.0.
+  - vulnerability: CVE-2025-15366
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2025-15366.patch, upstream python/cpython commit
+      71926d943c05bde79bd2a866933103541d91b6a2 (gh-143921, 3.13 branch, v3.13.15):
+      imaplib now rejects NUL, CR and LF in commands. Scoped to the scan-identity
+      package declared by images/python/3.11 (cpe python:python) at 3.11.18.
+  - vulnerability: CVE-2025-15367
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2025-15367.patch, upstream python/cpython commit
+      b234a2b67539f787e191d2ef19a7cbdce32874e7 (gh-143923, 3.15 branch, v3.15.0a6):
+      poplib now rejects control characters in commands. Scoped to the scan-identity
+      package declared by images/python/3.11 (cpe python:python) at 3.11.18.
+  - vulnerability: CVE-2026-6019
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-6019.patch, upstream python/cpython commit
+      3c59b8b53fc75c7f9578d16fb8201ceb43e8f76c (gh-90309, 3.13 branch, v3.13.14):
+      Morsel.js_output() now base64-encodes the cookie. Scoped to the scan-identity
+      package declared by images/python/3.11 (cpe python:python) at 3.11.18.
+  - vulnerability: CVE-2026-103995
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-103995-1.patch and CVE-2026-103995-2.patch, upstream python/cpython
+      commit 2eb2af805c156ca52b316bb4ced5e0ab3971d0ae and
+      9f52b443c002cccfb54bda0706a9276b6b4a109d (gh-150751, main only, no release yet):
+      http.client now validates Content-Length and chunk-size against the RFC 9112
+      grammar. CVE-2026-103995-3.patch is a local follow-up that keeps an oversized
+      Content-Length ignored instead of raising ValueError. Scoped to the
+      scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
+  - vulnerability: CVE-2026-116566
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-116566.patch, upstream python/cpython commit
+      131a3a66c5f400b588f9fd2732a5ed4e89623ee3 (gh-160898, main only, no release yet):
+      socket.getaddrinfo() now rejects an embedded NUL in host and port. Scoped to the
+      scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
+  - vulnerability: CVE-2026-3446
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-3446-1.patch and CVE-2026-3446-2.patch, upstream python/cpython commit
+      56c61cc564eb1d990903cb28a8178674774add2e (prerequisite, gh-118314) and
+      1f9958f909c1b41a4ffc0b613ef8ec8fa5e7c474 (gh-145264, 3.13 branch, v3.13.13): the
+      Base64 decoder no longer drops data after the first padded quad. Scoped to the
+      scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
+  - vulnerability: CVE-2025-12781
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2025-12781.patch, upstream python/cpython commit
+      1be80bec7960f5ccd059e75f3dfbd45fca302947 (gh-125346, 3.13 branch, v3.13.10):
+      upstream resolution is tests only; shipped code equals fixed releases
+      (b64decode() in 3.11.18 matches them, and the patch adds those tests). Scoped to
+      the scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
+  - vulnerability: CVE-2026-3479
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-3479.patch, upstream python/cpython commit
+      5af6ce3e7b643a30a02d22245c1e3f4a8bc0a1fe (gh-146121, 3.13 branch, v3.13.13):
+      upstream resolution is docs only; shipped code equals fixed releases (upstream
+      reverted the code check, the fixed releases change only Doc/library/pkgutil.rst,
+      which the patch carries, and pkgutil.py in 3.11.18 matches them). Scoped to the
+      scan-identity package declared by images/python/3.11 (cpe python:python) at
+      3.11.18.
+  - vulnerability: CVE-2026-12345
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      NVD lists no fixed 3.11 release. The images/python/3.11 build applies
+      CVE-2026-12345.patch, the upstream 3.11 backport python/cpython#161944 by the
+      fix's author, pinned to head e6872ab7fbebbd27185dfe596d82871384d2ab84 and
+      pending upstream review (gh-157579; the 3.12 fix is commit
+      c39b52d00b42200aaadff679e2fe3f1006d57c58, v3.12.16): TemporaryDirectory cleanup
+      no longer follows a symlink swapped in during PermissionError recovery. Replace
+      with the merged commit. Scoped to the scan-identity package declared by
+      images/python/3.11 (cpe python:python) at 3.11.18.
