@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/ansible-core/apko.yaml",
-    "checksum": "sha256-FOd61RA/sY4PpKb9OAxKqMjzfcGrthTBeF7qJP1R4a8="
+    "checksum": "sha256-wcoqpWE35asm29lrXgiVPAd0bGDzeewVSD/okYVHwlw="
   },
   "contents": {
     "keyring": [
@@ -200,22 +200,22 @@
       },
       {
         "name": "libsepol",
-        "url": "https://packages.wolfi.dev/os/x86_64/libsepol-3.11-r3.apk",
-        "version": "3.11-r3",
+        "url": "https://packages.wolfi.dev/os/x86_64/libsepol-3.11-r4.apk",
+        "version": "3.11-r4",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-7861",
-          "checksum": "sha1-T5zgKf3vricxqHlnWi3pCmqmbMI="
+          "range": "bytes=0-15469",
+          "checksum": "sha1-WybMuzHKvuUaDvidFqdRcSKsEfM="
         },
         "data": {
-          "range": "bytes=7862-456000",
-          "checksum": "sha256-zH2vsaahhoqs9cdajzkPgzUAYDgvNBJFk4lLQjvtyPI="
+          "range": "bytes=15470-463529",
+          "checksum": "sha256-N16b5TazMzFQH8K7c1nZk4p9TBIlkU5mcAqN3ouFJB8="
         },
-        "checksum": "Q1T5zgKf3vricxqHlnWi3pCmqmbMI="
+        "checksum": "Q1WybMuzHKvuUaDvidFqdRcSKsEfM="
       },
       {
         "name": "libpcre2-8-0",
@@ -560,25 +560,6 @@
         "checksum": "Q1Xv/AsO+lsjORCxdKxyfkMMLLkO0="
       },
       {
-        "name": "xz",
-        "url": "https://packages.wolfi.dev/os/x86_64/xz-5.8.4-r1.apk",
-        "version": "5.8.4-r1",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-17947",
-          "checksum": "sha1-LyyjHbT9tm1oWo6nH6SZGi+F8jo="
-        },
-        "data": {
-          "range": "bytes=17948-407245",
-          "checksum": "sha256-pwam/EYbhYF+UJtjxwMwVfLgNxwmIwKazUZpJDjSt/g="
-        },
-        "checksum": "Q1LyyjHbT9tm1oWo6nH6SZGi+F8jo="
-      },
-      {
         "name": "openssl-4.0-libssl",
         "url": "https://packages.wolfi.dev/os/x86_64/openssl-4.0-libssl-4.0.3-r8.apk",
         "version": "4.0.3-r8",
@@ -596,6 +577,25 @@
           "checksum": "sha256-xJ/uRx05OTShtIIyZJ/U8b+86nn4IqNyucKOqzIjAEU="
         },
         "checksum": "Q1arwi4n4L3VZ3S8YJ6P4WwY/7JjY="
+      },
+      {
+        "name": "xz",
+        "url": "https://packages.wolfi.dev/os/x86_64/xz-5.8.4-r2.apk",
+        "version": "5.8.4-r2",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-19028",
+          "checksum": "sha1-EeSxd5wMDXLnsHXi897R5cTirAA="
+        },
+        "data": {
+          "range": "bytes=19029-408351",
+          "checksum": "sha256-KF1hwRBfbJ7rl+2Va1KMdX7B3oWBP3ftdl4z3PLiHcU="
+        },
+        "checksum": "Q1EeSxd5wMDXLnsHXi897R5cTirAA="
       },
       {
         "name": "sqlite-libs",
@@ -637,22 +637,22 @@
       },
       {
         "name": "libuuid",
-        "url": "https://packages.wolfi.dev/os/x86_64/libuuid-2.42.4-r2.apk",
-        "version": "2.42.4-r2",
+        "url": "https://packages.wolfi.dev/os/x86_64/libuuid-2.42.4-r3.apk",
+        "version": "2.42.4-r3",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-18726",
-          "checksum": "sha1-RMgxwtEheWi8izRUHv/oGNNwqKA="
+          "range": "bytes=0-19534",
+          "checksum": "sha1-fVqkVtqAWCN1aDn+Av3O1SVcbi4="
         },
         "data": {
-          "range": "bytes=18727-39967",
-          "checksum": "sha256-uGJbNiTtZNSh+oG//yOA+GNGTpfRQkVR8RV2ptFYEds="
+          "range": "bytes=19535-40776",
+          "checksum": "sha256-fBwNUal0/xLNVsumoEFEcX2v859hLmcntHGxv9p9LqY="
         },
-        "checksum": "Q1RMgxwtEheWi8izRUHv/oGNNwqKA="
+        "checksum": "Q1fVqkVtqAWCN1aDn+Av3O1SVcbi4="
       },
       {
         "name": "py3-pip-wheel",
@@ -922,22 +922,22 @@
       },
       {
         "name": "py3.13-ansible-core",
-        "url": "https://packages.wolfi.dev/os/x86_64/py3.13-ansible-core-2.22.0-r0.apk",
-        "version": "2.22.0-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/py3.13-ansible-core-2.22.0-r1.apk",
+        "version": "2.22.0-r1",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13808",
-          "checksum": "sha1-yVh5sYEEMY/pwtlV3Y9Bb6XmENk="
+          "range": "bytes=0-14344",
+          "checksum": "sha1-jvO2K7A6/Y89A8YA64+JC5Jbc48="
         },
         "data": {
-          "range": "bytes=13809-5526655",
-          "checksum": "sha256-whsYPOwtnbpWkEa3M8cZXh1z/mQyfktUjrepcf2BPR8="
+          "range": "bytes=14345-5527210",
+          "checksum": "sha256-EfU84TKPgW83Bnv9BBx5iTu3T0NYkQHHGizjn+G8wAQ="
         },
-        "checksum": "Q1yVh5sYEEMY/pwtlV3Y9Bb6XmENk="
+        "checksum": "Q1jvO2K7A6/Y89A8YA64+JC5Jbc48="
       },
       {
         "name": "wolfi-baselayout",
@@ -1112,22 +1112,22 @@
       },
       {
         "name": "libsepol",
-        "url": "https://packages.wolfi.dev/os/aarch64/libsepol-3.11-r3.apk",
-        "version": "3.11-r3",
+        "url": "https://packages.wolfi.dev/os/aarch64/libsepol-3.11-r4.apk",
+        "version": "3.11-r4",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-7889",
-          "checksum": "sha1-4reSq/YXSV8tYXmDu3D6QhhYn4g="
+          "range": "bytes=0-15501",
+          "checksum": "sha1-SBIkOfLEN2nty52XykSEXW3fEkY="
         },
         "data": {
-          "range": "bytes=7890-436107",
-          "checksum": "sha256-sZOp4K6NZA27GcMI5hnAP2egkV2JQlNzqoFRnjQyy9s="
+          "range": "bytes=15502-443713",
+          "checksum": "sha256-d8VZYwro9g/3G53vXTiYJeXTMkjx/YZLdGjHZbP8JJk="
         },
-        "checksum": "Q14reSq/YXSV8tYXmDu3D6QhhYn4g="
+        "checksum": "Q1SBIkOfLEN2nty52XykSEXW3fEkY="
       },
       {
         "name": "libpcre2-8-0",
@@ -1472,25 +1472,6 @@
         "checksum": "Q1UbTjndZOUgOsmQ7YNqHCilYMoSE="
       },
       {
-        "name": "xz",
-        "url": "https://packages.wolfi.dev/os/aarch64/xz-5.8.4-r1.apk",
-        "version": "5.8.4-r1",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-17968",
-          "checksum": "sha1-jcPlr+Rh2L7VSavIn7gYMM83Vxw="
-        },
-        "data": {
-          "range": "bytes=17969-403282",
-          "checksum": "sha256-91G0VLwx91T0Jfg+ZcsHKQdmM54m9ekel5yu+F0ZWYI="
-        },
-        "checksum": "Q1jcPlr+Rh2L7VSavIn7gYMM83Vxw="
-      },
-      {
         "name": "openssl-4.0-libssl",
         "url": "https://packages.wolfi.dev/os/aarch64/openssl-4.0-libssl-4.0.3-r8.apk",
         "version": "4.0.3-r8",
@@ -1508,6 +1489,25 @@
           "checksum": "sha256-EXg1XExvy312lKLtpid87m/zL+9M+HwqqxiX7FZpXws="
         },
         "checksum": "Q1rI2Y8AG/AEGS8TEy4/LCN6qfsb4="
+      },
+      {
+        "name": "xz",
+        "url": "https://packages.wolfi.dev/os/aarch64/xz-5.8.4-r2.apk",
+        "version": "5.8.4-r2",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-19056",
+          "checksum": "sha1-xqPlCF1pfdNLB4DdYxsoNyLOxSg="
+        },
+        "data": {
+          "range": "bytes=19057-404391",
+          "checksum": "sha256-nTYGLMepjkzfBEMFCDtRkxR7aTwFsCrKsaDjD4sx9Kg="
+        },
+        "checksum": "Q1xqPlCF1pfdNLB4DdYxsoNyLOxSg="
       },
       {
         "name": "sqlite-libs",
@@ -1549,22 +1549,22 @@
       },
       {
         "name": "libuuid",
-        "url": "https://packages.wolfi.dev/os/aarch64/libuuid-2.42.4-r2.apk",
-        "version": "2.42.4-r2",
+        "url": "https://packages.wolfi.dev/os/aarch64/libuuid-2.42.4-r3.apk",
+        "version": "2.42.4-r3",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-18765",
-          "checksum": "sha1-gRKPSbz5jnlOkE5J1kmDIF+6lxA="
+          "range": "bytes=0-19578",
+          "checksum": "sha1-kIt1tZpX3ljrKKXJqHTfp4Jboqk="
         },
         "data": {
-          "range": "bytes=18766-39770",
-          "checksum": "sha256-srd+as1DmbyBwBPD1qvW+CMuFoKGL9w9HOIxH6VFC3Q="
+          "range": "bytes=19579-40585",
+          "checksum": "sha256-RmtW+Dgpv1bktTJ78aQT79A9g2L3yR+MmRkAxRH6F8w="
         },
-        "checksum": "Q1gRKPSbz5jnlOkE5J1kmDIF+6lxA="
+        "checksum": "Q1kIt1tZpX3ljrKKXJqHTfp4Jboqk="
       },
       {
         "name": "py3-pip-wheel",
@@ -1834,22 +1834,22 @@
       },
       {
         "name": "py3.13-ansible-core",
-        "url": "https://packages.wolfi.dev/os/aarch64/py3.13-ansible-core-2.22.0-r0.apk",
-        "version": "2.22.0-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/py3.13-ansible-core-2.22.0-r1.apk",
+        "version": "2.22.0-r1",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-13843",
-          "checksum": "sha1-KKxxyhhGLkb7sC8UC/22bzMUqXA="
+          "range": "bytes=0-14382",
+          "checksum": "sha1-ZdtwyFo6yE17kiAI4PCxGctJYpQ="
         },
         "data": {
-          "range": "bytes=13844-5526692",
-          "checksum": "sha256-G5ejmEsMV3lBT5UaFzz6o7hkPnNC0ukxgWprHaupOW4="
+          "range": "bytes=14383-5527247",
+          "checksum": "sha256-Of41o3CQRzzFgBK4hfAa4BiXKmL6OjifzlBAk/AivYE="
         },
-        "checksum": "Q1KKxxyhhGLkb7sC8UC/22bzMUqXA="
+        "checksum": "Q1ZdtwyFo6yE17kiAI4PCxGctJYpQ="
       }
     ]
   }
