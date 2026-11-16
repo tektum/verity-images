@@ -1,0 +1,52 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-spark-operator@local
+
+# Upstream's image runs as spark (185:185).
+accounts:
+  groups:
+    - groupname: spark
+      gid: 185
+  users:
+    - username: spark
+      uid: 185
+      gid: 185
+      homedir: /home/spark
+  run-as: 185
+
+# Upstream's entrypoint.sh only execs /usr/bin/spark-operator under catatonit;
+# the Helm chart passes `controller start` or `webhook start` as arguments.
+entrypoint:
+  command: /usr/bin/spark-operator
+
+work-dir: /home/spark
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+# The webhook writes its generated serving certificate here, as in upstream's
+# image; the Helm chart mounts an emptyDir over it.
+paths:
+  - path: /home/spark
+    type: directory
+    uid: 185
+    gid: 185
+    permissions: 0o755
+  - path: /etc/k8s-webhook-server/serving-certs
+    type: directory
+    uid: 185
+    gid: 185
+    permissions: 0o775
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
