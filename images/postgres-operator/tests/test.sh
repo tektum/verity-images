@@ -271,10 +271,16 @@ port=$(docker port "$op" 8080/tcp | head -n 1)
 curl -fsS "http://$port/clusters/" >"$work/clusters" || fail 'operator API did not answer'
 grep -F "$cluster" "$work/clusters" >/dev/null || fail "operator API does not list $cluster: $(cat "$work/clusters")"
 
-status_value=$(kubectl get postgresql -n "$ns" "$cluster" -o 'jsonpath={.status.PostgresClusterStatus}')
+# No kubelet runs, so pods never become ready and the sync never finishes: the
+# status stays empty or Creating. Any reported failure fails the test.
+status_value=$(kubectl get postgresql -n "$ns" "$cluster" -o 'jsonpath={.status.PostgresClusterStatus}') ||
+  fail 'could not read the postgresql status'
 case "$status_value" in
-  Creating | Running | *Failed) ;;
+  '' | Creating | Running) ;;
   *) fail "unexpected postgresql status: $status_value" ;;
 esac
+docker logs "$op" >"$work/oplog" 2>&1
+grep -F "created new statefulset \\\"$ns/$cluster" "$work/oplog" >/dev/null ||
+  fail 'operator log does not record the StatefulSet creation'
 
 printf 'SMOKE PASS image=%s\n' "$image"
