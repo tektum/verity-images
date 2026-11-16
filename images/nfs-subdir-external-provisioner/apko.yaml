@@ -1,0 +1,39 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-nfs-subdir-external-provisioner@local
+
+# Like the upstream distroless image, the provisioner runs as root: it creates,
+# chmods, renames and removes directories in an NFS export that is usually
+# root-owned (no_root_squash) and holds data written by pods under other UIDs.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/nfs-subdir-external-provisioner
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  # Upstream mounts the NFS export here.
+  - path: /persistentvolumes
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  # glog writes its log files to /tmp before logtostderr takes effect.
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
