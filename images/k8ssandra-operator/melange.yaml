@@ -1,0 +1,112 @@
+package:
+  name: verity-k8ssandra-operator
+  # yamllint disable-line rule:line-length
+  version: "1.34.0"  # renovate: datasource=github-releases depName=k8ssandra/k8ssandra-operator extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: K8ssandra operator, the Kubernetes control plane for K8ssandra Cassandra clusters
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 9cebb403b1f43c7a8ebfa5f60d0b2826710b8d40
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    # Upstream's Dockerfile builds with CGO_ENABLED=0.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/k8ssandra/k8ssandra-operator
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Upstream's Dockerfile runs `go build -a -o manager main.go` with no
+  # ldflags, so the released image logs empty version, commit and date fields;
+  # only the Makefile's local `build` target stamps them. Building the root
+  # package instead of the file lets Go stamp the main module with the release
+  # tag, which the scan identity relies on.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/manager" .
+      go version -m "${{targets.destdir}}/usr/bin/manager" \
+        | awk '$1 == "mod" && $2 == "github.com/k8ssandra/k8ssandra-operator" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # Upstream's image runs /manager; manifests and charts call that path.
+      ln -s usr/bin/manager "${{targets.destdir}}/manager"
+      # The generated CRDs that match this operator build. The upstream image
+      # does not carry them; they ship here so a consumer can install the exact
+      # schema the binary expects.
+      for crd in config/crd/bases/*.yaml; do
+        install -Dm644 "$crd" \
+          "${{targets.destdir}}/usr/share/k8ssandra-operator/crds/$(basename "$crd")"
+      done
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the k8ssandra-operator manager build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/k8ssandra-operator-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/k8ssandra-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        manager --help 2>&1 | grep -F -- '-health-probe-bind-address'
+        test "$(readlink -f /manager)" = /usr/bin/manager
+        for crd in k8ssandra.io_k8ssandraclusters control.k8ssandra.io_k8ssandratasks \
+          config.k8ssandra.io_clientconfigs replication.k8ssandra.io_replicatedsecrets \
+          reaper.k8ssandra.io_reapers medusa.k8ssandra.io_medusabackupjobs; do
+          grep -Fx 'kind: CustomResourceDefinition' "/usr/share/k8ssandra-operator/crds/$crd.yaml"
+        done
+        apk info --who-owns /usr/bin/manager \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: k8ssandra/k8ssandra-operator
+    strip-prefix: v
+    use-tag: true
