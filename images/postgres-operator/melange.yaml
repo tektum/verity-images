@@ -1,0 +1,62 @@
+package:
+  name: verity-postgres-operator
+  version: "2.0.3"  # renovate: datasource=github-releases depName=zalando/postgres-operator
+  epoch: 0
+  description: Zalando Postgres Operator for Kubernetes
+  copyright:
+    - license: MIT
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/zalando/postgres-operator
+      tag: v${{package.version}}
+      expected-commit: 80b7a074ada5221dc5eeac487c19faf810eb9cfe
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/...
+  - uses: go/build
+    with:
+      packages: ./cmd
+      output: postgres-operator
+      go-package: go-1.26
+      ldflags: -X=main.version=v${{package.version}}
+  - runs: |
+      mv "${{targets.destdir}}/usr/bin/postgres-operator" "${{targets.destdir}}/postgres-operator"
+      install -Dm644 LICENSE "${{targets.destdir}}/licenses/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-postgres-operator-build-metadata
+    description: Resolved Go module metadata for the Postgres Operator build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/postgres-operator-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/postgres-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        test -x /postgres-operator
+        test -s /licenses/LICENSE
