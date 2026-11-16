@@ -418,20 +418,22 @@ class Handler(BaseHTTPRequestHandler):
     do_GET = do_POST = do_PUT = answer
 
 
-def tls_trap():
-    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.bind(("0.0.0.0", 443))
-    server.listen(16)
+def tls_trap(server):
     while True:
         conn, peer = server.accept()
         log("TLS %s" % peer[0])
         conn.close()
 
 
-threading.Thread(target=tls_trap, daemon=True).start()
+# Bind both listeners before READY so the first request cannot be refused.
+trap = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+trap.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+trap.bind(("0.0.0.0", 443))
+trap.listen(16)
+httpd = ThreadingHTTPServer(("0.0.0.0", 80), Handler)
+threading.Thread(target=tls_trap, args=(trap,), daemon=True).start()
 log("READY")
-ThreadingHTTPServer(("0.0.0.0", 80), Handler).serve_forever()
+httpd.serve_forever()
 PY
 chmod -R a+rX "$work"
 
@@ -451,6 +453,10 @@ until docker logs "$fixture" 2>&1 | grep -Fx READY >/dev/null; do
   [ "$attempts" -lt 60 ] || { docker logs "$fixture" >&2; fail 'fixture did not become ready'; }
   sleep 1
 done
+# READY must mean listening: a refused first request would turn the Fulcio 503
+# case into a connection error. A bare connect logs nothing in the fixture.
+docker exec "$fixture" python -c 'import socket; socket.create_connection(("127.0.0.1", 80), 5).close()' ||
+  { docker logs "$fixture" >&2; fail 'fixture reported READY before its HTTP listener accepted'; }
 fixture_log() {
   docker logs "$fixture" >"$work/fixture.log" 2>&1
 }
