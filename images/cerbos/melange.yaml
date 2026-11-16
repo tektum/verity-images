@@ -1,0 +1,98 @@
+package:
+  name: verity-cerbos
+  # yamllint disable-line rule:line-length
+  version: "0.57.0"  # renovate: datasource=github-releases depName=cerbos/cerbos extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Cerbos policy decision point server
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 43125124efe4b50b83d894635fb2f691e980dc62
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    # Upstream goreleaser builds a static binary with CGO_ENABLED=0 from the
+    # repository go.work, which go/remediate also keeps in sync.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cerbos/cerbos
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cerbos
+
+  - runs: |
+      # Same version stamps as the upstream goreleaser build. The build date is
+      # the commit time so the binary does not depend on the build clock. The
+      # telemetry write key and endpoint are left empty, which disables
+      # telemetry in the binary.
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+      util=github.com/cerbos/cerbos/internal/util
+      ldflags="-s -w -X $util.Version=${{package.version}}"
+      ldflags="$ldflags -X $util.Commit=${{vars.source-commit}}"
+      ldflags="$ldflags -X $util.BuildDate=$build_date"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="$ldflags" \
+        -o "${{targets.destdir}}/usr/bin/cerbos" ./cmd/cerbos
+      # The Go main module is the scan identity; it must carry the release version.
+      go version -m "${{targets.destdir}}/usr/bin/cerbos" \
+        | awk '$1 == "mod" && $2 == "github.com/cerbos/cerbos" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/cerbos" --version \
+        | grep -Fx '${{package.version}}'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the cerbos build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/cerbos-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/cerbos-build/go.sum"
+          install -Dm644 go.work "${{targets.subpkgdir}}/usr/share/cerbos-build/go.work"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        cerbos --version | grep -Fx '${{package.version}}'
+        apk info --who-owns /usr/bin/cerbos | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: cerbos/cerbos
+    strip-prefix: v
