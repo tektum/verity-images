@@ -110,13 +110,17 @@ grep -Fx 'pkgver = 1.2.3-r4' "$work/apk/.PKGINFO" >/dev/null ||
 test "$(cat "$work/apk/usr/share/verity-smoke/hello.txt")" = "$marker" ||
   fail 'apk file content does not match the local source file'
 
-# --- rpm: header carries name and version as plain strings. ---
+# --- rpm: the lead carries name-version-release; the header lists the file. ---
 run package -f nfpm.yaml -p rpm -t /out/ >"$work/rpm.log" 2>&1 ||
   { cat "$work/rpm.log" >&2; fail 'rpm build failed'; }
 rpm=$(find "$work/out" -name 'verity-smoke*.rpm' | sed -n 1p)
 test -n "$rpm" && test -s "$rpm" || fail 'rpm file missing'
 test "$(od -An -tx1 -N4 "$rpm" | tr -d ' \n')" = edabeedb || fail 'rpm lead magic is wrong'
-grep -a 'verity-smoke' "$rpm" >/dev/null || fail 'rpm header does not carry the name'
+# RPM lead: 4-byte magic, 2 version bytes, 2-byte type, 2-byte arch, then a
+# 66-byte NUL-padded name-version-release field at offset 10.
+lead_name=$(dd if="$rpm" bs=1 skip=10 count=66 2>/dev/null | tr -d '\000')
+test "$lead_name" = verity-smoke-1.2.3-4 ||
+  fail "rpm lead name-version-release is '$lead_name', expected verity-smoke-1.2.3-4"
 grep -aF '/usr/share/verity-smoke' "$rpm" >/dev/null || fail 'rpm header does not list the file'
 
 # --- negative cases, written to a separate output directory ---
