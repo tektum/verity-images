@@ -1,0 +1,114 @@
+package:
+  name: verity-aws-load-balancer-controller
+  # yamllint disable-line rule:line-length
+  version: "3.6.3"  # renovate: datasource=github-releases depName=kubernetes-sigs/aws-load-balancer-controller extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: AWS Load Balancer Controller for Kubernetes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    # Upstream Dockerfile build tags, here so remediation lists, scans, and
+    # builds the same tagged package graph that ships.
+    GOFLAGS: -p=4 -tags=osusergo,netgo,static_build
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/aws-load-balancer-controller
+      tag: v${{package.version}}
+      expected-commit: e8491dea5e67f678c13347d1a2b46a5afc6dc538
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Same main package, tags, and -X stamps in pkg/version as the upstream
+  # Dockerfile. Upstream links a static PIE with cgo; this build is a pure Go
+  # static binary. BuildDate is the pinned commit time so the build is
+  # reproducible, and GitVersion is the release tag rather than
+  # `git describe --dirty`, which remediation edits would mark dirty.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%S+0000)
+      stamp=sigs.k8s.io/aws-load-balancer-controller/v3/pkg/version
+
+      # Go stamps the main module version only from a semver tag on HEAD;
+      # make sure the pinned commit carries it so scanners see the real version.
+      git tag -f "v${{package.version}}" "$commit"
+
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X $stamp.GitVersion=v${{package.version}} \
+          -X $stamp.GitCommit=$commit \
+          -X $stamp.BuildDate=$build_date" \
+        -o "${{targets.destdir}}/usr/bin/aws-load-balancer-controller" .
+
+      # The Go main module is the scan identity; it must carry the release version.
+      go version -m "${{targets.destdir}}/usr/bin/aws-load-balancer-controller" \
+        | awk '$1 == "mod" && $2 == "sigs.k8s.io/aws-load-balancer-controller/v3" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the AWS Load Balancer Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/aws-load-balancer-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/aws-load-balancer-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        aws-load-balancer-controller --help 2>&1 | grep -F -- '--cluster-name'
+        if out=$(aws-load-balancer-controller 2>&1); then
+          echo 'controller unexpectedly started without a cluster name' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F '"GitVersion":"v${{package.version}}"'
+        printf '%s\n' "$out" | grep -F 'kubernetes cluster name must be specified'
+        apk info --who-owns /usr/bin/aws-load-balancer-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/aws-load-balancer-controller
+    strip-prefix: v
+    use-tag: true
