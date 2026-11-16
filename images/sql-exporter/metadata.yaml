@@ -1,0 +1,9 @@
+name: sql-exporter
+track: wolfi
+description: Prometheus SQL Exporter for configurable database queries built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/burningalchemist/sql_exporter
+versions: [0.24]
+scan-identity: [pkg:golang/github.com/burningalchemist/sql_exporter]
+owner: tektum
+enabled: true
