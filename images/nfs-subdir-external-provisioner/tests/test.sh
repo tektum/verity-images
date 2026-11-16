@@ -36,8 +36,7 @@ fail() {
 cleanup() {
   docker rm -f "$prov" "$kcm" "$api" "$etcd" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
-  # The provisioner creates volume directories as UID 65532; the etcd peer
-  # image carries rm.
+  # The export and the volume data are root-owned; the etcd peer image carries rm.
   if [ -n "$etcd_image" ]; then
     docker run --rm --network none --user 0 --entrypoint /bin/rm -v "$work:/work" \
       "$etcd_image" -rf /work/export >/dev/null 2>&1 || true
@@ -51,11 +50,12 @@ expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' 
   "$here/../melange.yaml")
 [ -n "$expected_version" ] || fail 'could not read the recipe version'
 
-test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
+# Root like the upstream image, so it can manage a root-owned export.
+test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 0 ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/nfs-subdir-external-provisioner"]' || fail 'unexpected entrypoint'
-test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /home/nonroot ||
+test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = / ||
   fail 'unexpected working directory'
 
 run() {
@@ -112,8 +112,10 @@ kubectl_image=$(pull_child "$kubectl_index")
 
 # Control plane: etcd and kube-apiserver with a static admin token.
 mkdir -p "$work/pki" "$work/kube" "$work/export"
-# Stands in for the NFS export the provisioner mounts at /persistentvolumes.
-chmod 0777 "$work/export"
+# Stands in for the NFS export the provisioner mounts at /persistentvolumes:
+# root-owned 0755 as on a typical no_root_squash export.
+docker run --rm --network none --user 0 --entrypoint /bin/sh -v "$work:/work" "$etcd_image" \
+  -c 'chown 0:0 /work/export && chmod 0755 /work/export' || fail 'could not prepare the export'
 openssl genrsa -out "$work/pki/sa.key" 2048 2>/dev/null || fail 'could not generate the service account key'
 token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
 printf '%s,verity-admin,verity-admin,system:masters\n' "$token" >"$work/pki/tokens.csv"
@@ -207,7 +209,9 @@ metadata:
 provisioner: example.com/not-nfs
 EOF
 
-docker run -d --name "$prov" --network "$network" --read-only --tmpfs /tmp --cap-drop=ALL \
+# Only the capabilities a root process needs to manage files owned by others.
+docker run -d --name "$prov" --network "$network" --read-only --tmpfs /tmp \
+  --cap-drop=ALL --cap-add=CHOWN --cap-add=DAC_OVERRIDE --cap-add=FOWNER \
   -v "$work/kube:/kube:ro" -v "$work/export:/persistentvolumes" \
   -e KUBECONFIG=/kube/config -e NFS_SERVER="$nfs_server" -e NFS_PATH="$nfs_path" \
   -e PROVISIONER_NAME="$provisioner_name" \
@@ -255,7 +259,11 @@ check_pv() {
   test -d "$work/export/$3" || fail "volume directory $3 was not created on the export"
   test "$(stat -c %a "$work/export/$3")" = 777 ||
     fail "volume directory $3 has mode $(stat -c %a "$work/export/$3")"
-  printf 'payload %s\n' "$2" >"$work/export/$3/data" || fail "volume directory $3 is not writable"
+  test "$(stat -c %u "$work/export/$3")" = 0 || fail "volume directory $3 is not root-owned"
+  # A pod running as another UID writes into the world-writable volume.
+  docker run --rm --network none --user 2000:2000 --entrypoint /bin/sh -v "$work/export:/export" \
+    "$etcd_image" -c "mkdir /export/$3/sub && printf 'payload %s\\n' '$2' >/export/$3/sub/data" ||
+    fail "volume directory $3 is not writable by a pod"
 }
 
 claim data-archive nfs-archive
@@ -298,13 +306,13 @@ gone "$pv_retain"
 
 # Default class: the directory is renamed to archived-<dir> with its data.
 test ! -e "$work/export/$dir_archive" || fail "archived volume $dir_archive is still in place"
-test "$(cat "$work/export/archived-$dir_archive/data")" = 'payload data-archive' ||
+test "$(cat "$work/export/archived-$dir_archive/sub/data")" = 'payload data-archive' ||
   fail "archived-$dir_archive does not hold the volume data"
 # archiveOnDelete=false removes the directory.
 test ! -e "$work/export/$dir_delete" || fail "volume $dir_delete was not removed"
 test ! -e "$work/export/archived-$dir_delete" || fail "volume $dir_delete was archived"
 # onDelete=retain keeps the directory untouched.
-test "$(cat "$work/export/$dir_retain/data")" = 'payload data-retain' ||
+test "$(cat "$work/export/$dir_retain/sub/data")" = 'payload data-retain' ||
   fail "retained volume $dir_retain lost its data"
 
 # The provisioner keeps running and stops on SIGTERM.
