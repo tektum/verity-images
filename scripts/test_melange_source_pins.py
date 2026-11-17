@@ -222,6 +222,8 @@ def violations(manager: dict, path: str, text: str) -> list[str]:
         if VERSION_REF in tag or any("${{vars.%s}}" % name in tag for name in derived):
             sources.append(checkout)
     if not sources:
+        if extract(manager, text):
+            return [f"{path}: source manager extracted a git-checkout that does not consume package.version"]
         return []
 
     problems = []
@@ -376,6 +378,7 @@ def test_fixtures(manager: dict) -> None:
         "regex affix without extractVersion": VAR_RECIPE.replace("tag: release-", "tag: release.v"),
         "wrong extractVersion": LITERAL_RECIPE.replace("extractVersion=^v(?<version>.+)$", "extractVersion=^(?<version>.+)$"),
         "second checkout": LITERAL_RECIPE + LITERAL_RECIPE[LITERAL_RECIPE.index("  - uses: git-checkout") :],
+        "unrelated var tag": TRANSFORM_RECIPE.replace("    to: release-tag\n", "    to: other-tag\n"),
     }
     for name, text in regressions.items():
         assert violations(manager, name, text), f"fixture {name!r} must be rejected"
