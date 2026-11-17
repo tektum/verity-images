@@ -1,0 +1,125 @@
+package:
+  name: verity-clusterctl
+  # yamllint disable-line rule:line-length
+  version: "1.14.4"  # renovate: datasource=github-releases depName=kubernetes-sigs/cluster-api extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Cluster API command line tool for management clusters and workload cluster templates
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v1.14.4 is an annotated tag that peels to this commit.
+  source-commit: 4356c154f4a76b8939748ef7ebc2d0793ffe47e8
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/cluster-api
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/clusterctl
+
+  # Same build as upstream `make clusterctl` and cmd/clusterctl/Dockerfile:
+  # CGO 0, -trimpath, the main package sigs.k8s.io/cluster-api/cmd/clusterctl,
+  # and the -X stamps from hack/scripts/release/version.sh into
+  # sigs.k8s.io/cluster-api/version, with -s -w. Upstream stamps buildDate from
+  # SOURCE_DATE_EPOCH when set; the pinned commit time is used so the build is
+  # reproducible. gitTreeState reports the real tree after go/remediate.
+  # gitVersion stays the release tag, so the built-in upgrade notice compares
+  # against the published release rather than a -dirty prerelease.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      version='v${{package.version}}'
+      major=$(echo '${{package.version}}' | cut -d. -f1)
+      minor=$(echo '${{package.version}}' | cut -d. -f2)
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+      if [ -z "$(git status --porcelain --untracked-files=no)" ]; then
+        tree_state=clean
+      else
+        tree_state=dirty
+      fi
+      stamp=sigs.k8s.io/cluster-api/version
+      ldflags="-X $stamp.buildDate=$build_date -X $stamp.gitCommit=$commit"
+      ldflags="$ldflags -X $stamp.gitTreeState=$tree_state"
+      ldflags="$ldflags -X $stamp.gitMajor=$major -X $stamp.gitMinor=$minor"
+      ldflags="$ldflags -X $stamp.gitVersion=$version -s -w"
+      go build -trimpath -buildvcs=true -ldflags "$ldflags" \
+        -o "${{targets.destdir}}/usr/bin/clusterctl" sigs.k8s.io/cluster-api/cmd/clusterctl
+      CLUSTERCTL_DISABLE_VERSIONCHECK=true HOME=$(mktemp -d) \
+        "${{targets.destdir}}/usr/bin/clusterctl" version -o short | grep -Fx "$version"
+      CLUSTERCTL_DISABLE_VERSIONCHECK=true HOME=$(mktemp -d) \
+        "${{targets.destdir}}/usr/bin/clusterctl" version -o yaml \
+        | grep -F "gitCommit: $commit"
+      go version -m "${{targets.destdir}}/usr/bin/clusterctl" \
+        | awk '$1 == "mod" && $2 == "sigs.k8s.io/cluster-api" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the clusterctl build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/clusterctl-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/clusterctl-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+    environment:
+      CLUSTERCTL_DISABLE_VERSIONCHECK: "true"
+  pipeline:
+    - runs: |
+        export HOME=$(mktemp -d)
+        clusterctl version -o short | grep -Fx 'v${{package.version}}'
+        clusterctl --help | grep -F 'generate'
+        printf 'name: ${NAME}\n' >"$HOME/t.yaml"
+        NAME=probe clusterctl generate yaml --from "$HOME/t.yaml" | grep -Fx 'name: probe'
+        apk info --who-owns /usr/bin/clusterctl \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/cluster-api
+    strip-prefix: v
+    use-tag: true
