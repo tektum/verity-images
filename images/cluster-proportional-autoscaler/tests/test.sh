@@ -2,8 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-config="$(dirname "$0")/../apko.yaml"
-version=$(sed -n 's/^    - cluster-proportional-autoscaler=\([0-9.]*\)-r[0-9]*$/\1/p' "$config")
+recipe="$(dirname "$0")/../melange.yaml"
+version=$(sed -n 's/^  version: "\([0-9.]*\)".*/\1/p' "$recipe")
 python_index='docker.io/library/python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
 suffix="verity-cpa-$$"
 api="$suffix-api"
@@ -39,7 +39,7 @@ grep -Fx 'SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' "$work/env" >/dev/nu
 test "$(docker image inspect --format '{{json .Config.ExposedPorts}}' "$image")" = null ||
   fail 'unexpected exposed ports'
 
-# The upstream /cluster-proportional-autoscaler path resolves to the packaged binary.
+# The upstream /cluster-proportional-autoscaler path resolves to the built binary.
 docker run --rm --network none --entrypoint /usr/bin/cluster-proportional-autoscaler "$image" \
   --version >"$work/version-direct" 2>&1 || fail "direct binary failed: $(cat "$work/version-direct")"
 
@@ -48,7 +48,7 @@ docker run --rm --network none "$image" --version >"$work/version" 2>&1 ||
 grep -Fx "v$version" "$work/version" >/dev/null ||
   fail "version does not report v$version: $(cat "$work/version")"
 cmp -s "$work/version" "$work/version-direct" ||
-  fail 'the compat path and /usr/bin binary report different versions'
+  fail 'the /cluster-proportional-autoscaler symlink and /usr/bin binary differ'
 
 # Flag validation: every required parameter is reported and the process exits non-zero.
 rc=0

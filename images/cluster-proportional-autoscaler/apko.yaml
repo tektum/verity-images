@@ -1,12 +1,13 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - cluster-proportional-autoscaler=1.10.3-r9
-    - cluster-proportional-autoscaler-compat=1.10.3-r9
+    - verity-cluster-proportional-autoscaler@local
 
 # Mirror registry.k8s.io/cpa/cluster-proportional-autoscaler:v1.10.3, which runs
 # /cluster-proportional-autoscaler as 65535:65535 from /home/nonroot.
@@ -37,3 +38,8 @@ paths:
     uid: 65535
     gid: 65535
     permissions: 0o755
+  - path: /cluster-proportional-autoscaler
+    type: symlink
+    source: /usr/bin/cluster-proportional-autoscaler
+    uid: 0
+    gid: 0
