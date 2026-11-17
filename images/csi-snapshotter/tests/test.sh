@@ -187,7 +187,8 @@ docker logs "$sidecar" 2>&1 | grep -qF '127.0.0.1:6443' ||
 
 # 3. Validation that only runs after a successful CSI handshake.
 run_sidecar "$noprefix" --snapshot-name-prefix=
-status=$(docker wait "$noprefix")
+status=$(timeout 60 docker wait "$noprefix") ||
+  { show_logs "$noprefix"; fail 'empty prefix: sidecar did not exit within 60s'; }
 [ "$status" = 1 ] || { show_logs "$noprefix"; fail "empty prefix: exit status $status, want 1"; }
 docker logs "$noprefix" 2>&1 | grep -qF 'Snapshot name prefix cannot be of length 0' ||
   { show_logs "$noprefix"; fail 'empty prefix error missing'; }
