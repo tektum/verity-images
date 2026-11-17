@@ -1,0 +1,105 @@
+package:
+  name: verity-kube-metrics-adapter
+  # yamllint disable-line rule:line-length
+  version: "0.2.9"  # renovate: datasource=github-releases depName=zalando-incubator/kube-metrics-adapter versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes custom and external metrics API server for HPA autoscaling
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 77733fb03d3fb379abebdca8c7d8a9716392c0a0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/zalando-incubator/kube-metrics-adapter
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      # github.com/argoproj/argo-rollouts requires Kubernetes staging modules
+      # at v0.0.0 and resolves them with replaces that do not apply to
+      # dependents, so the full module graph that go/remediate lists fails with
+      # "unknown revision v0.0.0". Pin each placeholder to the staging release
+      # of the client-go this module selects. Only the v0.0.0 placeholder is
+      # replaced; the selected build list stays unchanged.
+      staging=$(go list -m -f '{{.Version}}' k8s.io/client-go)
+      echo "$staging" | grep -Ex 'v0\.[0-9]+\.[0-9]+'
+      rollouts=$(go list -m -f '{{.Version}}' github.com/argoproj/argo-rollouts)
+      gomod=$(go mod download -json "github.com/argoproj/argo-rollouts@$rollouts" \
+        | sed -n 's/^[[:space:]]*"GoMod": "\(.*\)",$/\1/p')
+      test -s "$gomod"
+      for module in $(awk '$1 ~ /^k8s\.io\// && $2 == "v0.0.0" { print $1 }' "$gomod"); do
+        go mod edit -replace="$module@v0.0.0=$module@$staging"
+      done
+      go list -mod=mod -m all >/dev/null
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  # Same package and flags as the upstream Makefile build.linux target. The
+  # Makefile's -X main.version names no variable, so it is not passed. Go
+  # stamps the main module from the checked-out semver tag, which the scanner
+  # reads as the module version.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/kube-metrics-adapter" .
+      mod=$(go version -m "${{targets.destdir}}/usr/bin/kube-metrics-adapter" \
+        | awk '$1 == "mod" && $2 == "github.com/zalando-incubator/kube-metrics-adapter" { print $3 }')
+      printf '%s\n' "$mod" | grep -Ex 'v${{package.version}}(\+dirty)?' ||
+        { echo "unexpected main module version '$mod'" >&2; exit 1; }
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the kube-metrics-adapter build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/kube-metrics-adapter-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/kube-metrics-adapter-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        kube-metrics-adapter --help 2>&1 | grep -F -- '--lister-kubeconfig'
+        test -f /usr/share/zoneinfo/Europe/Berlin
+        apk info --who-owns /usr/bin/kube-metrics-adapter \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: zalando-incubator/kube-metrics-adapter
+    strip-prefix: v
