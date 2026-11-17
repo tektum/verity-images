@@ -1,0 +1,9 @@
+name: redis-operator
+track: wolfi
+description: OT-Container-Kit Redis operator controller manager assembled from Wolfi packages.
+category: Databases & Caching
+upstream: https://github.com/OT-CONTAINER-KIT/redis-operator
+versions: [0.27]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/OT-CONTAINER-KIT/redis-operator]
