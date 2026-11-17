@@ -1,5 +1,5 @@
 package:
-  name: vexctl
+  name: verity-vexctl
   # yamllint disable-line rule:line-length
   version: "0.4.4"  # renovate: datasource=github-releases depName=openvex/vexctl versioning=regex:^(?<major>0)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
@@ -63,10 +63,21 @@ pipeline:
       binary="${{targets.destdir}}/usr/bin/vexctl"
       "$binary" version 2>&1 | grep -F "v${{package.version}}"
       "$binary" version 2>&1 | grep -F "${{vars.source-commit}}"
+      go version -m "$binary" \
+        | awk '$1 == "mod" && $2 == "github.com/openvex/vexctl" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
   - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the vexctl build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/vexctl-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/vexctl-build/go.sum"
 
 test:
   environment:
