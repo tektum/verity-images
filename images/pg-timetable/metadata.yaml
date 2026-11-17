@@ -1,0 +1,9 @@
+name: pg-timetable
+track: wolfi
+description: pg_timetable PostgreSQL job scheduler built from pinned upstream source.
+category: Databases & Caching
+upstream: https://github.com/cybertec-postgresql/pg_timetable
+versions: [7.1]
+scan-identity: [pkg:golang/github.com/cybertec-postgresql/pg_timetable]
+owner: tektum
+enabled: true
