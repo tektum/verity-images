@@ -39,6 +39,15 @@ expected_commit=$(awk '$1 == "source-commit:" { print $2; exit }' "$here/../mela
 major=${expected_version%%.*}
 minor=${expected_version#*.}
 minor=${minor%%.*}
+patch=${expected_version##*.}
+# The synthetic older provider release must differ from the current one so
+# init/upgrade have something to move between. On an x.y.0 release use the
+# previous minor's .0; otherwise use this minor's .0.
+old_minor=$minor
+if [ "$patch" = 0 ]; then
+  [ "$minor" -gt 0 ] || fail "no synthetic older release below v$expected_version"
+  old_minor=$((minor - 1))
+fi
 
 # OCI contract: upstream distroless nonroot user 65532, WORKDIR /, HOME for
 # $HOME/.config/cluster-api.
@@ -168,11 +177,14 @@ kind: Metadata
 releaseSeries:
   - {major: $major, minor: $minor, contract: v1beta2}
 EOF
+  if [ "$old_minor" != "$minor" ]; then
+    printf '  - {major: %s, minor: %s, contract: v1beta2}\n' "$major" "$old_minor"
+  fi
 }
 
 repo=$work/repo
 v=v$expected_version
-old=v$major.$minor.0
+old=v$major.$old_minor.0
 mkdir -p "$repo/cluster-api/$v" "$repo/bootstrap-kubeadm/$v" "$repo/control-plane-kubeadm/$v" \
   "$repo/infrastructure-verity/$v" "$repo/infrastructure-verity/$old" "$repo/cert-manager/v1.19.1" \
   "$work/cfg" "$work/out" "$work/overrides/infrastructure-verity/$v"

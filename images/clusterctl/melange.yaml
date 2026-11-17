@@ -89,6 +89,14 @@ pipeline:
 
   - uses: strip
 
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the clusterctl build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/clusterctl-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/clusterctl-build/go.sum"
+
 test:
   environment:
     contents:
