@@ -1,0 +1,9 @@
+name: kube-logging-operator
+track: wolfi
+description: Kube Logging operator controller manager assembled from Wolfi packages.
+category: Logging
+upstream: https://github.com/kube-logging/logging-operator
+versions: [6.9]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/kube-logging/logging-operator]
