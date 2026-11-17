@@ -177,19 +177,27 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 4
+    assert len(managers) == 5
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^packages/repository-state\.json$/"],
         [r"/^images/.+$/", r"/^packages/.+$/", r"/^patched/.+$/"],
+        [
+            r"/^images/.+/[^/]*melange\.ya?ml$/",
+            r"/^packages/.+/[^/]*melange\.ya?ml$/",
+            r"/^patched/.+/[^/]*melange\.ya?ml$/",
+        ],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
         "docker",
         "github-releases",
         None,
+        "git-tags",
     ]
+    # The melange source manager (version plus commit) is covered by
+    # scripts/test_melange_source_pins.py.
 
 
     assert renovate["packageRules"] == [
@@ -225,6 +233,17 @@ def test_renovate_configuration() -> None:
             "automerge": True,
             "platformAutomerge": True,
             "labels": ["security-floor", "review-required"],
+        },
+        {
+            "description": (
+                "Melange source version and commit pairs stay disabled by the rule above "
+                "(docs/POLICY.md). Never automerge them or route them through the "
+                "security-floor validator if that policy changes."
+            ),
+            "matchDepTypes": ["source"],
+            "automerge": False,
+            "platformAutomerge": False,
+            "labels": ["review-required"],
         },
     ]
     # packages/** would otherwise also match packages/repository-state.json,

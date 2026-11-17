@@ -42,6 +42,20 @@
       "matchStrings": [
         "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?"
       ]
+    },
+    {
+      "customType": "regex",
+      "description": "Melange source pins: a package.version annotation plus the git-checkout commit that tag resolves to. Both are resolved from the checked-out repository's git tags and rewritten together.",
+      "managerFilePatterns": ["/^images/.+/[^/]*melange\\.ya?ml$/", "/^packages/.+/[^/]*melange\\.ya?ml$/", "/^patched/.+/[^/]*melange\\.ya?ml$/"],
+      "matchStrings": [
+        "(?m)^  version: [\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?:(?<tagPrefix>[^\\s$\"'#]*)\\$\\{\\{package\\.version\\}\\}(?<tagSuffix>[^\\s\"'#]*)|\\$\\{\\{vars\\.[A-Za-z0-9_-]+\\}\\})[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n[\\s\\S]*",
+        "(?m)^  version: [\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:.*\\n)*?  source-commit: [\"']?(?<currentDigest>[0-9a-f]{40})[\"']?[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?:(?<tagPrefix>[^\\s$\"'#]*)\\$\\{\\{package\\.version\\}\\}(?<tagSuffix>[^\\s\"'#]*)|\\$\\{\\{vars\\.[A-Za-z0-9_-]+\\}\\})[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.source-commit\\}\\}[ \\t]*\\n[\\s\\S]*"
+      ],
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "{{{repository}}}",
+      "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^{{{tagPrefix}}}(?<version>.+){{{tagSuffix}}}${{/if}}",
+      "autoReplaceStringTemplate": "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue (replace '^(  version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' (replace currentDigest newDigest replaceString))}}}{{else}}{{{replaceString}}}{{/if}}"
     }
   ],
   "packageRules": [
@@ -72,6 +86,13 @@
       "automerge": true,
       "platformAutomerge": true,
       "labels": ["security-floor", "review-required"]
+    },
+    {
+      "description": "Melange source version and commit pairs stay disabled by the rule above (docs/POLICY.md). Never automerge them or route them through the security-floor validator if that policy changes.",
+      "matchDepTypes": ["source"],
+      "automerge": false,
+      "platformAutomerge": false,
+      "labels": ["review-required"]
     }
   ]
 }
