@@ -1,0 +1,82 @@
+package:
+  name: verity-step-issuer
+  # yamllint disable-line rule:line-length
+  version: "0.12.0"  # renovate: datasource=github-releases depName=smallstep/step-issuer versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: cert-manager external issuer backed by smallstep step-ca
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: dcecc0b32acbbd44a5dd9fb9f69ad4968b3a76c9
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/smallstep/step-issuer
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  # Upstream's Makefile stamps main.Version, which main.go does not declare, so
+  # the binary carries no version string. metadata.yaml declares the module purl,
+  # versioned from package.version, for the scanner.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/step-issuer" .
+      go version -m "${{targets.destdir}}/usr/bin/step-issuer" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/smallstep/step-issuer
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the step-issuer build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/step-issuer-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/step-issuer-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        step-issuer -h 2>&1 | grep -F -- '-disable-approval-check'
+        apk info --who-owns /usr/bin/step-issuer \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: smallstep/step-issuer
+    strip-prefix: v
