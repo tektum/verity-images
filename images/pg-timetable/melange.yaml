@@ -1,0 +1,54 @@
+package:
+  name: pg-timetable
+  # yamllint disable-line rule:line-length
+  version: "7.1.0"  # renovate: datasource=github-releases depName=cybertec-postgresql/pg_timetable versioning=regex:^(?<major>7)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Advanced PostgreSQL job scheduler
+  copyright:
+    - license: PostgreSQL
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cybertec-postgresql/pg_timetable
+      tag: v${{package.version}}
+      expected-commit: d9edaeea51feab59f42a7eb7f32ae86423a13396
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: pg_timetable
+      strip: -s -w
+      ldflags: >-
+        -X main.version=${{package.version}}
+        -X main.commit=d9edaeea51feab59f42a7eb7f32ae86423a13396
+        -X main.date=$(date -u -d@${SOURCE_DATE_EPOCH} +%FT%TZ)
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        pg_timetable --version | grep -F "Version:      ${{package.version}}"
+        pg_timetable --version | grep -F "Git Commit:   d9edaeea51feab59f42a7eb7f32ae86423a13396"
+        grep -F "PostgreSQL License" "/usr/share/licenses/${{package.name}}/LICENSE"
