@@ -200,7 +200,7 @@ def test_renovate_configuration() -> None:
     # scripts/test_melange_source_pins.py.
 
 
-    assert renovate["packageRules"] == [
+    assert renovate["packageRules"][:3] == [
         {
             "matchFileNames": [".github/workflows/*.yaml"],
             "automerge": True,
@@ -234,18 +234,49 @@ def test_renovate_configuration() -> None:
             "platformAutomerge": True,
             "labels": ["security-floor", "review-required"],
         },
-        {
-            "description": (
-                "Melange source version and commit pairs stay disabled by the rule above "
-                "(docs/POLICY.md). Never automerge them or route them through the "
-                "security-floor validator if that policy changes."
-            ),
-            "matchDepTypes": ["source"],
-            "automerge": False,
-            "platformAutomerge": False,
-            "labels": ["review-required"],
-        },
     ]
+    # Melange source rules come after the security-floor rule so their
+    # enabled/automerge/labels win for depType source. Their recipe lists are
+    # derived from metadata.yaml stream widths in
+    # scripts/test_melange_source_pins.py.
+    source_base, major_streams, patch_automerge, minor_automerge = renovate["packageRules"][3:]
+    assert all(rule["matchDepTypes"] == ["source"] for rule in renovate["packageRules"][3:])
+    assert {key: value for key, value in source_base.items() if key != "description"} == {
+        "matchDepTypes": ["source"],
+        "enabled": True,
+        "automerge": False,
+        "platformAutomerge": True,
+        "labels": ["source-update", "review-required"],
+        "groupName": None,
+        "separateMinorPatch": True,
+        "additionalBranchPrefix": "source/{{{packageFileDir}}}/",
+        "commitMessageTopic": "{{{depName}}} source for {{{packageFileDir}}}",
+        "rebaseWhen": "conflicted",
+        "prConcurrentLimit": 5,
+        "prHourlyLimit": 2,
+        "schedule": ["* 19-23 * * *", "* 0-6 * * *"],
+    }
+    # Pre-lookup rule (no update type): only switches minor/patch splitting.
+    assert set(major_streams) == {"description", "matchDepTypes", "matchFileNames", "separateMinorPatch"}
+    assert major_streams["separateMinorPatch"] is False
+    # Only patch, and minor for major-version streams, may automerge; major
+    # updates always fall back to the base rule's automerge=false.
+    in_stream_labels = ["source-update", "in-stream", "review-required"]
+    for rule, update_types in ((patch_automerge, ["patch"]), (minor_automerge, ["minor"])):
+        assert set(rule) == {
+            "description",
+            "matchDepTypes",
+            "matchUpdateTypes",
+            "matchFileNames",
+            "automerge",
+            "labels",
+        }
+        assert rule["matchUpdateTypes"] == update_types
+        assert rule["automerge"] is True
+        assert rule["labels"] == in_stream_labels
+    assert patch_automerge["matchFileNames"][0] == "images/**"
+    assert all(name.startswith("!images/") for name in patch_automerge["matchFileNames"][1:])
+    assert minor_automerge["matchFileNames"] == major_streams["matchFileNames"]
     # packages/** would otherwise also match packages/repository-state.json,
     # silently disabling the apk-repo-state release manager's own
     # automerge=false/review-required rule above (Renovate's negative-match
