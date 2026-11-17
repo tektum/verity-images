@@ -1,0 +1,9 @@
+name: ecr-credential-provider
+track: wolfi
+description: Kubelet credential provider plugin for Amazon ECR registry tokens, built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes/cloud-provider-aws
+versions: [1.37]
+flavors: [plain]
+owner: tektum
+enabled: true
