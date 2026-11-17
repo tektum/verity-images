@@ -1,0 +1,10 @@
+name: csi-attacher
+track: wolfi
+description: Kubernetes CSI external-attacher sidecar for VolumeAttachment objects. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/external-attacher
+versions: [4.13]
+scan-identity: [pkg:golang/github.com/kubernetes-csi/external-attacher/v4]
+flavors: [plain]
+owner: tektum
+enabled: true
