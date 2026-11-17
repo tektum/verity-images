@@ -100,7 +100,7 @@ docker run -d --label "$label" --name "$registry" --network "$network" \
 
 # Build a single-platform OCI layout by hand so the pushed bytes are known.
 layout="$work/data/layout"
-mkdir -p "$work/layer" "$layout/blobs/sha256" "$work/state" "$work/out"
+mkdir -p "$work/layer" "$layout/blobs/sha256" "$work/state"
 printf 'verity regclient smoke\n' >"$work/layer/hello.txt"
 tar -C "$work/layer" --owner=0 --group=0 --numeric-owner --mtime=@0 \
   -cf "$work/layer.tar" hello.txt
@@ -149,13 +149,13 @@ scripts:
 EOF
 chmod -R a+rX "$work/data"
 # ~/.regctl is a writable mount so `regctl registry set` persists between runs
-# while the image root stays read-only.
-chmod 0777 "$work/state" "$work/out"
+# while the image root stays read-only. regctl writes config.json mode 0600 as
+# UID 1000, so the test reads it back through regctl, never from the host.
+chmod 0777 "$work/state"
 
 rc() {
   docker run --rm --label "$label" --network "$network" --read-only --cap-drop ALL \
-    -v "$work/state:/home/appuser/.regctl" -v "$work/data:/data:ro" \
-    -v "$work/out:/out" "$image" "$@"
+    -v "$work/state:/home/appuser/.regctl" -v "$work/data:/data:ro" "$image" "$@"
 }
 
 # Negative: with the default TLS setting regctl refuses the plain HTTP registry.
@@ -171,8 +171,10 @@ grep -F 'HTTP response to HTTPS client' "$work/tls.log" >/dev/null ||
 
 rc registry set registry:5000 --tls disabled >"$work/set.log" 2>&1 ||
   fail "regctl registry set failed: $(cat "$work/set.log")"
-jq -e '.hosts["registry:5000"].tls == "disabled"' "$work/state/config.json" >/dev/null ||
-  fail "registry config was not persisted: $(cat "$work/state/config.json")"
+rc registry config registry:5000 >"$work/hostcfg.json" 2>&1 ||
+  fail "regctl registry config failed: $(cat "$work/hostcfg.json")"
+jq -e '.tls == "disabled" and .hostname == "registry:5000"' "$work/hostcfg.json" >/dev/null ||
+  fail "registry config was not persisted: $(cat "$work/hostcfg.json")"
 
 rc image import registry:5000/smoke/hello:v1 /data/hello.tar >"$work/import.log" 2>&1 ||
   fail "regctl image import failed: $(cat "$work/import.log")"
