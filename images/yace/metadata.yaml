@@ -1,0 +1,9 @@
+name: yace
+track: wolfi
+description: Yet Another CloudWatch Exporter serving AWS CloudWatch metrics to Prometheus. Built from pinned source.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus-community/yet-another-cloudwatch-exporter
+versions: [0.68]
+scan-identity: [pkg:golang/github.com/prometheus-community/yet-another-cloudwatch-exporter]
+owner: tektum
+enabled: true
