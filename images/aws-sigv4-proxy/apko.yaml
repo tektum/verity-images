@@ -1,0 +1,52 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-aws-sigv4-proxy@local
+
+# Upstream Dockerfile: FROM scratch with /etc/ssl/certs/ca-certificates.crt and
+# /aws-sigv4-proxy, ENTRYPOINT ["./aws-sigv4-proxy"], no USER (root), no
+# WORKDIR (/), no CMD and no EXPOSE; the proxy listens on :8080 by default.
+# This image keeps root, /, and the /aws-sigv4-proxy path as a symlink to the
+# packaged /usr/bin/aws-sigv4-proxy entrypoint.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/aws-sigv4-proxy
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /root
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /root
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o700
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /aws-sigv4-proxy
+    type: symlink
+    source: /usr/bin/aws-sigv4-proxy
+    uid: 0
+    gid: 0
+  # apko applies the symlink entry's mode (0) through the link to its target,
+  # so the binary mode is restored explicitly.
+  - path: /usr/bin/aws-sigv4-proxy
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
