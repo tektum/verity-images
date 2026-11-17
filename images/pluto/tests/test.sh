@@ -6,8 +6,8 @@ set -eu
 # exit 0, and a missing path must fail.
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*- pluto=\([0-9][0-9.]*\)-r[0-9][0-9]*$/\1/p' \
-  "$(dirname "$0")/../apko.yaml")
+expected_version=$(sed -n 's/^  version: "\([0-9][0-9.]*\)".*$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 

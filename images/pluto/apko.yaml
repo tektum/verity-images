@@ -1,11 +1,13 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - pluto=5.24.0-r5
+    - verity-pluto@local
 
 accounts:
   groups:
