@@ -1,0 +1,58 @@
+package:
+  name: sql-exporter
+  # yamllint disable-line rule:line-length
+  version: "0.24.13"  # renovate: datasource=github-releases depName=burningalchemist/sql_exporter extractVersion=^(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: Prometheus exporter for metrics derived from configurable SQL queries
+  copyright:
+    - license: MIT
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/burningalchemist/sql_exporter
+      tag: ${{package.version}}
+      expected-commit: 005f9d1db2bc0fc225286f15c0296ffd8447db4d
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/sql_exporter
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/sql_exporter
+      output: sql_exporter
+      tags: netgo
+      strip: -s -w
+      ldflags: >-
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=005f9d1db2bc0fc225286f15c0296ffd8447db4d
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: sql-exporter-build-metadata
+    description: Resolved Go module metadata for the SQL exporter build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/sql-exporter-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/sql-exporter-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        sql_exporter -version 2>&1 | grep -F "sql_exporter, version ${{package.version}} "
+        grep -F "MIT License" "/usr/share/licenses/${{package.name}}/LICENSE"
