@@ -1,0 +1,9 @@
+name: kubernetes-replicator
+track: wolfi
+description: Kubernetes controller replicating Secrets, ConfigMaps, Roles and ServiceAccounts across namespaces.
+category: Kubernetes & Orchestration
+upstream: https://github.com/mittwald/kubernetes-replicator
+versions: [2.12]
+scan-identity: [pkg:golang/github.com/mittwald/kubernetes-replicator]
+owner: tektum
+enabled: true
