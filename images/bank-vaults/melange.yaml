@@ -1,0 +1,124 @@
+package:
+  name: verity-bank-vaults
+  # yamllint disable-line rule:line-length
+  version: "1.33.2"  # renovate: datasource=github-releases depName=bank-vaults/bank-vaults extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Bank-Vaults CLI and Vault config template renderer for HashiCorp Vault
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v1.33.2 is an annotated tag that peels to this commit.
+  source-commit: 92a6863cbfd371702066aeb16ba96e76abc464a0
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    # Upstream builds with CGO_ENABLED=1 (Dockerfile and .goreleaser.yaml):
+    # the hsm and hsm-k8s modes use github.com/miekg/pkcs11, which dlopens the
+    # vendor PKCS#11 module through cgo and does not compile without it.
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/bank-vaults/bank-vaults
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/bank-vaults ./cmd/template
+
+  # Same main packages and -X stamps as upstream .goreleaser.yaml
+  # (main.Version, main.commitHash, main.buildDate, with -s -w), plus -trimpath.
+  # buildDate is the pinned commit time so the build is reproducible. The
+  # binaries live in /usr/bin; upstream installs them in /usr/local/bin, which
+  # keeps compatibility symlinks.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      short=$(git rev-parse --short HEAD)
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+      ldflags="-s -w -X main.Version=${{package.version}}"
+      ldflags="$ldflags -X main.commitHash=$short -X main.buildDate=$build_date"
+      for cmd in bank-vaults template; do
+        go build -mod=readonly -trimpath -buildvcs=true -ldflags "$ldflags" \
+          -o "${{targets.destdir}}/usr/bin/$cmd" "./cmd/$cmd"
+        go version -m "${{targets.destdir}}/usr/bin/$cmd" \
+          | awk '$1 == "mod" && $2 == "github.com/bank-vaults/bank-vaults" { print $3 }' \
+          | grep -Ex 'v${{package.version}}(\+dirty)?'
+        go version -m "${{targets.destdir}}/usr/bin/$cmd" | grep -Fx "	build	vcs.revision=$commit"
+        go version -m "${{targets.destdir}}/usr/bin/$cmd" | grep -Fx '	build	CGO_ENABLED=1'
+        mkdir -p "${{targets.destdir}}/usr/local/bin"
+        ln -s "../../bin/$cmd" "${{targets.destdir}}/usr/local/bin/$cmd"
+      done
+      # A leading --help is consumed by the Go flag package; cobra serves `help`.
+      "${{targets.destdir}}/usr/bin/bank-vaults" help | grep -E '^  configure +Configures a Vault'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the bank-vaults build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/bank-vaults-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/bank-vaults-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        bank-vaults help | grep -F 'Configures a Vault based on a YAML/JSON configuration file'
+        test "$(readlink -f /usr/local/bin/bank-vaults)" = /usr/bin/bank-vaults
+        test "$(readlink -f /usr/local/bin/template)" = /usr/bin/template
+        out=$(mktemp -d)
+        VAULT_LOCAL_CONFIG='{"ui": ${ env "UI" }}' UI=true \
+          template -file "$out/vault.json" -mode 0644
+        grep -Fx '{"ui": true}' "$out/vault.json"
+        if template -delims bad -file "$out/x.json" 2>"$out/err"; then
+          echo 'template accepted invalid delimiters' >&2
+          exit 1
+        fi
+        grep -F 'delims must be two mnemonics' "$out/err"
+        apk info --who-owns /usr/bin/bank-vaults \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: bank-vaults/bank-vaults
+    strip-prefix: v
+    use-tag: true
