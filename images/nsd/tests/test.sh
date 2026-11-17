@@ -129,30 +129,33 @@ test "$rc" -ne 0 || fail 'nsd started with a broken configuration'
 grep -F 'definitely-not-an-option' "$work/bad-start" >/dev/null ||
   fail "nsd broken-configuration diagnostic is missing: $(cat "$work/bad-start")"
 
+# The client is a test tool, not the image under test: it runs on the daemon's
+# native platform even when DOCKER_DEFAULT_PLATFORM selects an emulated server.
+client_platform="linux/$(docker version --format '{{.Server.Arch}}')"
 dig_in() {
   target=$1
   shift
-  docker run --rm --network "container:$target" --cap-drop=ALL \
+  docker run --rm --platform "$client_platform" --network "container:$target" --cap-drop=ALL \
     --entrypoint dig "$client_image" -p 5353 @127.0.0.1 +norec +time=2 +tries=1 "$@"
 }
 
 wait_ready() {
   target=$1
   i=0
-  while [ "$i" -lt 30 ]; do
+  while [ "$i" -lt 60 ]; do
     if [ "$(docker inspect --format '{{.State.Running}}' "$target")" != true ]; then
       docker logs "$target" >&2 || true
       fail "$target exited before serving"
     fi
-    if dig_in "$target" example.test SOA +short 2>/dev/null |
-      grep -F '2026111601' >/dev/null; then
+    if dig_in "$target" example.test SOA >"$work/ready" 2>&1 &&
+      grep -F '2026111601' "$work/ready" >/dev/null; then
       return 0
     fi
     i=$((i + 1))
     sleep 1
   done
   docker logs "$target" >&2 || true
-  fail "$target did not answer the SOA query"
+  fail "$target did not answer the SOA query; last dig: $(cat "$work/ready")"
 }
 
 # Default command, writable image root: zone and config are read-only mounts.
