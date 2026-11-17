@@ -4,16 +4,19 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
 
-# Peers for a real control plane: Verity etcd 3.7, kube-apiserver 1.37 and
-# kubectl 1.35, pinned by digest.
+# Peers for a real control plane: Verity etcd 3.7, kube-apiserver 1.37,
+# kube-controller-manager 1.37 (StatefulSet controller only) and kubectl 1.35,
+# pinned by digest.
 etcd_index=ghcr.io/tektum/etcd@sha256:fc322841b20ac374159333e013fb417aa712e776380c53dc34ab8a1958c07fd2
 api_index=ghcr.io/tektum/kube-apiserver@sha256:b46742424f608bb186b83390c41cbe7f97df411ae3cf8fc3e4578c096a6b57bd
+kcm_index=ghcr.io/tektum/kube-controller-manager@sha256:ec33bd5b9fc4a01f51ddb130154064d867e3966e7f3475154c9ccc302b84a913
 kubectl_index=ghcr.io/tektum/kubectl@sha256:537780af388652be3a0130aacd6d1cfed24704ab6a820c6c7024602ec7777332
 
 id=$$
 network="verity-mdbop-$id"
 etcd="verity-mdbop-etcd-$id"
 api="verity-mdbop-api-$id"
+kcm="verity-mdbop-kcm-$id"
 op="verity-mdbop-op-$id"
 work=$(mktemp -d)
 ns=mariadb-operator
@@ -21,7 +24,7 @@ mariadb_image=docker-registry1.mariadb.com/library/mariadb:12.3.3
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
-  for c in "$op" "$api"; do
+  for c in "$op" "$kcm" "$api"; do
     printf -- '--- %s\n' "$c" >&2
     docker logs "$c" 2>&1 | tail -n 40 >&2 || true
   done
@@ -29,7 +32,7 @@ fail() {
 }
 
 cleanup() {
-  docker rm -f "$op" "$api" "$etcd" >/dev/null 2>&1 || true
+  docker rm -f "$op" "$kcm" "$api" "$etcd" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -116,11 +119,14 @@ pull_child() {
 }
 etcd_image=$(pull_child "$etcd_index")
 api_image=$(pull_child "$api_index")
+kcm_image=$(pull_child "$kcm_index")
 kubectl_image=$(pull_child "$kubectl_index")
 
-# Control plane: etcd and kube-apiserver with a static admin token. No
-# controller manager, scheduler, or kubelet runs, so the operator's objects are
-# created but no MariaDB pod ever starts.
+# Control plane: etcd, kube-apiserver with a static admin token, and the
+# controller manager running only the StatefulSet controller. The operator
+# waits for the StatefulSet status revision before it reconciles Services, as
+# in a real cluster. No scheduler or kubelet runs, so the MariaDB pod is
+# created but never starts.
 mkdir -p "$work/pki" "$work/kube" "$work/sa"
 openssl genrsa -out "$work/pki/sa.key" 2048 2>/dev/null || fail 'could not generate the service account key'
 token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
@@ -175,6 +181,12 @@ until kubectl get --raw /readyz >/dev/null 2>&1; do
   [ "$i" -lt 60 ] || fail 'kube-apiserver did not become ready'
   sleep 2
 done
+
+docker run -d --name "$kcm" --network "$network" --tmpfs /tmp:uid=65532,gid=65532 \
+  -v "$work/kube:/kube:ro" "$kcm_image" \
+  --kubeconfig=/kube/config --authentication-kubeconfig=/kube/config \
+  --authorization-kubeconfig=/kube/config --cert-dir=/tmp --leader-elect=false \
+  --controllers=statefulset >/dev/null
 
 # The MariaDB CRD exceeds the client-side apply annotation limit.
 kubectl create -f /crds >"$work/crd" 2>&1 || fail "could not create the CRDs: $(cat "$work/crd")"
@@ -319,6 +331,11 @@ jq -e --arg img "$mariadb_image" '
   and (.spec.volumeClaimTemplates[0].spec.resources.requests.storage == "1Gi")
 ' "$work/sts.json" >/dev/null ||
   fail "unexpected StatefulSet: $(jq -c '{svc: .spec.serviceName, replicas: .spec.replicas, owner: .metadata.ownerReferences, containers: [.spec.template.spec.containers[] | {name, image}], storage: .spec.volumeClaimTemplates[0].spec.resources.requests}' "$work/sts.json")"
+
+# The StatefulSet controller records the revision the operator's update
+# reconciliation reads and creates the pod from the operator's template.
+wait_for 'the StatefulSet update revision' get statefulset -n "$ns" smoke -o 'jsonpath={.status.updateRevision}'
+wait_for 'the MariaDB pod' get pod -n "$ns" smoke-0 -o name
 
 for svc in smoke smoke-internal; do
   wait_for "service $svc" get service -n "$ns" "$svc" -o 'jsonpath={.spec.ports[*].port}'
