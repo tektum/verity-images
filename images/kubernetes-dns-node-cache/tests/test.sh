@@ -108,14 +108,13 @@ for tool in iptables ip6tables iptables-save iptables-restore ip6tables-save ip6
     fail "$tool is missing"
   [ "$target" = iptables-wrapper ] || fail "$tool points to $target, not iptables-wrapper"
 done
-for tool in iptables-legacy iptables-nft ip6tables-legacy ip6tables-nft iptables-legacy-save iptables-nft-save; do
+# ipset and nft open netlink even for their version output, which fails under qemu-user
+# on the non-native arch, so these are presence checks only (as in images/flannel).
+for tool in iptables-legacy iptables-nft ip6tables-legacy ip6tables-nft iptables-legacy-save iptables-nft-save \
+  ipset nft; do
   docker run --rm --network none --entrypoint /bin/sh "$image" -c "command -v $tool" >/dev/null ||
     fail "$tool is missing"
 done
-docker run --rm --network none --entrypoint ipset "$image" version 2>&1 | grep -q '^ipset v' ||
-  fail 'ipset is missing'
-docker run --rm --network none --entrypoint nft "$image" --version 2>&1 | grep -q '^nftables v' ||
-  fail 'nft is missing'
 docker run --rm --network none --entrypoint kmod "$image" --version 2>&1 | grep -q '^kmod version' ||
   fail 'kmod is missing'
 
