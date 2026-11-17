@@ -200,5 +200,11 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$exporter") in
   0|2) ;;
   *) fail 'SIGTERM did not stop the exporter' ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+if docker logs "$exporter" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  docker logs "$exporter" 2>&1 | tail -n 40 >&2
+  fail 'sql-exporter crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$expected_version"

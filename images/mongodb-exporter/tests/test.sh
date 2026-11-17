@@ -49,6 +49,12 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$container") in
   0 | 2 | 143) ;;
   *) fail 'mongodb_exporter did not stop on SIGTERM' ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+if docker logs "$container" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  docker logs "$container" 2>&1 | tail -n 40 >&2
+  fail 'mongodb-exporter crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 docker rm "$container" >/dev/null
 
 if invalid=$(docker run --rm "$image" --no-such-flag 2>&1); then

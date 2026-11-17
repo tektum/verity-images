@@ -170,5 +170,11 @@ case "$code" in
   2 | 143) ;;
   *) fail "unexpected csi-attacher exit code after SIGTERM: $code" ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+if docker logs "$attacher" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  docker logs "$attacher" 2>&1 | tail -n 40 >&2
+  fail 'csi-attacher crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 printf 'SMOKE PASS version=%s\n' "$expected_version"

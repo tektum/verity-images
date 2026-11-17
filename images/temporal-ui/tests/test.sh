@@ -87,5 +87,11 @@ case "$code" in
   0|2|143) ;;
   *) fail "ui-server exited with $code on SIGTERM" ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+if docker logs "$container" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  docker logs "$container" 2>&1 | tail -n 40 >&2
+  fail 'temporal-ui crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 printf 'SMOKE PASS image=%s\n' "$image"

@@ -58,6 +58,12 @@ grep -i "^X-App-Version: $expected_version" "$tmp/headers.txt" >/dev/null ||
 docker stop -t 10 "$container" >/dev/null
 [ "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 2 ] ||
   fail 'http-echo did not shut down through its SIGTERM handler'
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+if docker logs "$container" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  docker logs "$container" 2>&1 | tail -n 40 >&2
+  fail 'http-echo crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 docker logs "$container" 2>&1 | grep -F 'received interrupt, shutting down' >/dev/null ||
   fail 'http-echo did not log its graceful shutdown'
 docker rm "$container" >/dev/null
