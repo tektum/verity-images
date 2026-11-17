@@ -1,0 +1,109 @@
+package:
+  name: verity-aws-sigv4-proxy
+  # yamllint disable-line rule:line-length
+  version: "1.13.1"  # renovate: datasource=github-releases depName=awslabs/aws-sigv4-proxy extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: HTTP proxy that signs requests with AWS Signature Version 4
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v1.13.1 is a lightweight tag on this commit.
+  source-commit: 67b04a6023e224a2d06c600e0ebcb0866af00f21
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/awslabs/aws-sigv4-proxy
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/aws-sigv4-proxy
+
+  # Same build as the upstream Dockerfile (CGO_ENABLED=0 go build
+  # ./cmd/aws-sigv4-proxy from the vendored tree), plus -trimpath and a
+  # stripped, reproducible binary. VCS stamping keeps the release tag as the
+  # Go main module version, which is the scanner identity of the image.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      [ "$(cat VERSION)" = '${{package.version}}' ]
+      go build -mod=vendor -trimpath -buildvcs=true -ldflags "-s -w -buildid=" \
+        -o "${{targets.destdir}}/usr/bin/aws-sigv4-proxy" ./cmd/aws-sigv4-proxy
+      go version -m "${{targets.destdir}}/usr/bin/aws-sigv4-proxy" \
+        | awk '$1 == "mod" && $2 == "github.com/awslabs/aws-sigv4-proxy" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the aws-sigv4-proxy build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/aws-sigv4-proxy-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/aws-sigv4-proxy-build/go.sum"
+          install -Dm644 vendor/modules.txt \
+            "${{targets.subpkgdir}}/usr/share/aws-sigv4-proxy-build/modules.txt"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        aws-sigv4-proxy --help >help.txt 2>&1
+        for flag in --port --host --sign-host --name --region --role-arn \
+          --upstream-url-scheme --unsigned-payload; do
+          grep -F -- "$flag" help.txt
+        done
+        if aws-sigv4-proxy --definitely-invalid >invalid.txt 2>&1; then
+          exit 1
+        fi
+        grep -F 'unknown long flag' invalid.txt
+        apk info --who-owns /usr/bin/aws-sigv4-proxy \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: awslabs/aws-sigv4-proxy
+    strip-prefix: v
+    use-tag: true

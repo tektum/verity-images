@@ -1,0 +1,8 @@
+name: aws-sigv4-proxy
+track: wolfi
+description: HTTP proxy that signs requests with AWS SigV4 credentials, built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/awslabs/aws-sigv4-proxy
+versions: [1.13]
+owner: tektum
+enabled: true
