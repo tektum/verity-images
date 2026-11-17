@@ -6,11 +6,15 @@
 # How to run:
 #   uv run scripts/test_workflow_policy.py
 
+import errno
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
+import sys
+import tempfile
 from dataclasses import replace
 from pathlib import Path
 from typing import Final
@@ -372,6 +376,169 @@ def check_download_retries() -> None:
     assert "gh release download" in base_download
     assert '[[ "$attempt" -lt 5 ]] || exit 1' in base_download
     assert "sha256sum" not in base_download
+
+
+def check_matrix_file_handoff(workflow: str) -> None:
+    # A full matrix is hundreds of KiB, far past the 128 KiB a single env var or argv string
+    # may carry through execve, so a step that receives it that way never starts (E2BIG).
+    # Expressions (`fromJSON`), job outputs, and reusable-workflow inputs are not process
+    # strings, so they are the only places the matrix JSON may appear.
+    allowed = re.compile(
+        r"^\s+(images|native): \$\{\{ (steps|needs)\.[a-z-]+\.outputs\.images \}\}$|fromJSON\("
+    )
+    for path in sorted([*ROOT.glob(".github/workflows/*.yaml"), *ROOT.glob(".github/actions/*/action.yaml")]):
+        for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            if re.search(r"\b(outputs\.(images|native)|inputs\.images)\b", line):
+                assert allowed.search(line), f"{path.relative_to(ROOT)}:{number}: matrix JSON leaves a file: {line}"
+
+    generate_step = between(
+        workflow, "      - name: Generate matrix\n", "\n\n      - name: Select source-built images\n"
+    )
+    select_step = between(workflow, "      - name: Select source-built images\n", "\n\n  native-arm64:\n")
+    assert "\n        env:\n" not in select_step
+    generate_script = generate_step.split("        run: |\n", maxsplit=1)[1]
+    select_script = select_step.split("        run: |\n", maxsplit=1)[1]
+
+    entry = {
+        "build_name": "image",
+        "category": "tools",
+        "context": "images/image/1.0",
+        "description": "A synthetic image whose description is as long as the real catalog's ones are.",
+        "evidence_file": "dist/image/apko.lock.json",
+        "flavor": "plain",
+        "input_digest": "sha256:" + "0" * 64,
+        "latest": True,
+        "major": "1",
+        "owner": "tektum",
+        "platforms": "linux/amd64,linux/arm64",
+        "track": "wolfi",
+        "upstream": "https://example.com/upstream/image",
+        "version": "1.0",
+        "tag_version": "1.0",
+    }
+    images = 600
+    matrix = {
+        "include": [dict(entry, name=f"image-{index}", source_built=index % 2 == 0) for index in range(images)]
+    }
+    payload = json.dumps(matrix, separators=(",", ":"), sort_keys=True)
+    assert len(payload) > 2 * 128 * 1024
+    if sys.platform == "linux":
+        # Proves the fixture reproduces the production failure when passed through env.
+        try:
+            subprocess.run(["true"], env={**os.environ, "IMAGES": payload}, check=False)
+        except OSError as error:
+            assert error.errno == errno.E2BIG
+        else:
+            raise AssertionError("synthetic matrix is too small to exceed the execve string limit")
+
+    with tempfile.TemporaryDirectory() as directory:
+        work = Path(directory)
+        (work / "bin").mkdir()
+        (work / "scripts").mkdir()
+        (work / "fixture.json").write_text(payload + "\n", encoding="utf-8")
+        python = work / "bin/python3"
+        python.write_text('#!/bin/bash\nprintf \'%s\\n\' "$*" > "$ARGS_LOG"\ncat "$FIXTURE"\n', encoding="utf-8")
+        python.chmod(0o755)
+        trusted_base = work / "scripts/trusted_build_base.sh"
+        trusted_base.write_text("#!/bin/bash\nprintf 'trusted-base\\n'\n", encoding="utf-8")
+        trusted_base.chmod(0o755)
+        for event, ref, base, image, catalog_present, expected in (
+            # A recovery dispatch prunes published-current images exactly like a main push.
+            (
+                "workflow_dispatch",
+                "refs/heads/main",
+                "recovery-base",
+                "",
+                True,
+                "scripts/gen_matrix.py --changed recovery-base --published catalog.json",
+            ),
+            ("workflow_dispatch", "refs/heads/main", "recovery-base", "", False, "scripts/gen_matrix.py --changed recovery-base"),
+            (
+                "workflow_dispatch",
+                "refs/heads/main",
+                "",
+                "",
+                True,
+                "scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24",
+            ),
+            ("workflow_dispatch", "refs/heads/main", "", "", False, "scripts/gen_matrix.py --all"),
+            (
+                "workflow_dispatch",
+                "refs/heads/main",
+                "",
+                "image-1@1.0",
+                True,
+                "scripts/gen_matrix.py --remediate image-1@1.0 --catalog catalog.json --max-age-hours 24",
+            ),
+            (
+                "push",
+                "refs/heads/main",
+                "event-before",
+                "",
+                True,
+                "scripts/gen_matrix.py --changed trusted-base --published catalog.json",
+            ),
+            ("pull_request", "refs/pull/1/merge", "pr-base", "", False, "scripts/gen_matrix.py --changed pr-base"),
+        ):
+            runner_temp = work / "runner-temp"
+            runner_temp.mkdir()
+            output = work / "github-output"
+            output.write_text("", encoding="utf-8")
+            catalog_file = work / "catalog.json"
+            if catalog_present:
+                catalog_file.write_text('{"images":[]}\n', encoding="utf-8")
+            environment = {
+                "PATH": f"{work / 'bin'}:{os.environ['PATH']}",
+                "ARGS_LOG": str(work / "args"),
+                "FIXTURE": str(work / "fixture.json"),
+                "GITHUB_OUTPUT": str(output),
+                "GITHUB_SHA": "head",
+                "RUNNER_TEMP": str(runner_temp),
+            }
+            subprocess.run(
+                ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", generate_script],
+                check=True,
+                cwd=work,
+                env={**environment, "BASE_SHA": base, "EVENT": event, "IMAGE": image, "REF": ref},
+            )
+            assert (work / "args").read_text(encoding="utf-8") == expected + "\n", (event, base, image)
+            subprocess.run(
+                ["bash", "--noprofile", "--norc", "-e", "-o", "pipefail", "-c", select_script],
+                check=True,
+                cwd=work,
+                env=environment,
+            )
+            # Generate writes images and count; Select then appends the native subset.
+            outputs = [line.split("=", maxsplit=1) for line in output.read_text(encoding="utf-8").splitlines()]
+            assert [key for key, _ in outputs] == ["images", "count", "images"]
+            assert json.loads(outputs[0][1]) == matrix
+            assert outputs[1][1] == str(images)
+            native = json.loads(outputs[2][1])
+            assert native == {"include": [item for item in matrix["include"] if item["source_built"]]}
+            shutil.rmtree(runner_temp)
+            catalog_file.unlink(missing_ok=True)
+
+    # build-gate reads only the count; a missing count must fail closed, never pass as empty.
+    build_gate_script = workflow.split("\n  build-gate:\n", maxsplit=1)[1].split(
+        "\n\n      - name:", maxsplit=1
+    )[0].split("        run: |\n", maxsplit=1)[1]
+    for count, expected in (("", 1), ("x", 1), ("0", 0)):
+        result = subprocess.run(
+            ["bash", "-c", build_gate_script],
+            check=False,
+            capture_output=True,
+            env={
+                **os.environ,
+                "EVENT": "push",
+                "GITHUB_REF": "refs/heads/main",
+                "IMAGE_COUNT": count,
+                "MATRIX_RESULT": "success",
+                "VALIDATE_RESULT": "skipped",
+                "PUBLISH_RESULT": "failure",
+                "NATIVE_RESULT": "success",
+            },
+        )
+        assert result.returncode == expected, count
 
 
 def main() -> None:
@@ -763,17 +930,18 @@ def main() -> None:
     assert '            [[ -z "$BASE_SHA" ]] || {\n' in workflow
     assert '            args=(--remediate "$IMAGE")\n' in workflow
     assert '            [[ ! -f catalog.json ]] || args+=(--catalog catalog.json --max-age-hours 24)\n' in workflow
-    assert '            matrix=$(python3 scripts/gen_matrix.py "${args[@]}")\n' in workflow
-    assert '          elif [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then\n' in workflow
-    assert "scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24" in workflow
+    assert '            python3 scripts/gen_matrix.py "${args[@]}" > "$images"\n' in workflow
+    # A base-sha recovery dispatch must not fall into the age-bounded full rebuild.
+    assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" && -f catalog.json ]]; then\n' in workflow
+    assert 'scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24 > "$images"' in workflow
     assert '          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then\n' in workflow
-    assert "            matrix=$(python3 scripts/gen_matrix.py --all)\n" in workflow
-    assert '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")\n' in workflow
+    assert '            python3 scripts/gen_matrix.py --all > "$images"\n' in workflow
+    assert '            python3 scripts/gen_matrix.py --changed "$BASE_SHA" > "$images"\n' in workflow
     # A version-authority change moves a published identity, so main rebuilds any
     # identity the published catalog does not carry yet.
     assert '          elif [[ "$REF" == refs/heads/main && -f catalog.json ]]; then\n' in workflow
     assert (
-        '            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json)\n'
+        '            python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json > "$images"\n'
         in workflow
     )
     assert "        if: github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main'\n" in workflow
@@ -1535,7 +1703,7 @@ def main() -> None:
                 **os.environ,
                 "EVENT": event,
                 "GITHUB_REF": ref,
-                "IMAGES": images,
+                "IMAGE_COUNT": str(len(json.loads(images)["include"])),
                 "MATRIX_RESULT": "success",
                 "VALIDATE_RESULT": validate,
                 "PUBLISH_RESULT": publish,
@@ -1585,6 +1753,7 @@ def main() -> None:
 
     check_lock_refresh_policy(workflow)
     check_download_retries()
+    check_matrix_file_handoff(workflow)
 
 
 if __name__ == "__main__":
