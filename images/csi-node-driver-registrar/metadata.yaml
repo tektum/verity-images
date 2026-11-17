@@ -1,0 +1,10 @@
+name: csi-node-driver-registrar
+track: wolfi
+description: Kubernetes CSI sidecar registering a CSI driver with the kubelet plugin watcher. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/node-driver-registrar
+versions: [2.18]
+scan-identity: [pkg:golang/github.com/kubernetes-csi/node-driver-registrar]
+flavors: [plain]
+owner: tektum
+enabled: true
