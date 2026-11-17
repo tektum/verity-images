@@ -3,8 +3,8 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
-config="$here/../apko.yaml"
-version=$(sed -n 's/^    - kubewatch=\([0-9.]*\)-r[0-9]*$/\1/p' "$config")
+recipe="$here/../melange.yaml"
+version=$(sed -n 's/^  version: "\([0-9.]*\)".*$/\1/p' "$recipe")
 work=$(mktemp -d)
 receiver=
 
@@ -30,14 +30,13 @@ test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = null |
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /work ||
   fail 'unexpected working directory'
 
-# The binary does not stamp its version, so check the package the image records.
-container=$(docker create "$image") || fail 'could not create a container to read the APK database'
-docker cp "$container:/usr/lib/apk/db/installed" - | tar -xO >"$work/installed" ||
-  { docker rm "$container" >/dev/null; fail 'could not read the APK database'; }
-docker rm "$container" >/dev/null
-awk '$0 == "P:kubewatch" { getline; print; exit }' "$work/installed" >"$work/pkgversion"
-grep -E "^V:$version-r[0-9]+$" "$work/pkgversion" >/dev/null ||
-  fail "image ships kubewatch $(cat "$work/pkgversion"), not the pinned $version"
+# The build stamps the release tag the way the upstream Makefile does.
+docker run --rm --network none "$image" version >"$work/version" 2>&1 ||
+  fail "version failed: $(cat "$work/version")"
+grep -F "gitCommit: v$version" "$work/version" >/dev/null ||
+  fail "version does not report kubewatch v$version: $(cat "$work/version")"
+grep -E 'buildDate: [0-9]{4}-[0-9]{2}-[0-9]{2}T' "$work/version" >/dev/null ||
+  fail "version does not report a build date: $(cat "$work/version")"
 
 docker run --rm --network none "$image" --help >"$work/help" 2>&1 || fail 'help failed'
 grep -F 'kubewatch is a Kubernetes watcher' "$work/help" >/dev/null ||
