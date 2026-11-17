@@ -1,0 +1,9 @@
+name: vsphere-cloud-controller-manager
+track: wolfi
+description: Kubernetes cloud controller manager for VMware vSphere. Built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes/cloud-provider-vsphere
+versions: [1.37]
+flavors: [plain]
+owner: tektum
+enabled: true
