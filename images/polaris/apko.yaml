@@ -1,0 +1,45 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-polaris@local
+
+# Upstream runs as USER 1200 (user and group polaris).
+accounts:
+  groups:
+    - groupname: polaris
+      gid: 1200
+  users:
+    - username: polaris
+      uid: 1200
+      gid: 1200
+      homedir: /home/polaris
+  run-as: 1200
+
+# Upstream has no entrypoint and CMD ["polaris"]; its Helm chart runs
+# `polaris dashboard` and `polaris webhook` as the container command.
+cmd: polaris
+
+work-dir: /opt/app
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  HOME: /home/polaris
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/polaris
+    type: directory
+    uid: 1200
+    gid: 1200
+    permissions: 0o755
+  - path: /opt/app
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
