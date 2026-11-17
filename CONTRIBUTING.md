@@ -332,25 +332,50 @@ failing, the native row for that image did not produce its artifact.
 
 ### Renovate coverage
 
-Keep external sources in one of these layouts so Renovate can open update pull
-requests:
+Renovate runs from two configurations. The Renovate GitHub app reads
+`renovate.json`. The hourly self-hosted workflow
+(`.github/workflows/renovate.yaml`) reads only `.github/renovate-apk.json`
+through `.github/renovate-global.json`.
+
+Image inputs are not advanced merely because newer versions exist (see
+`docs/POLICY.md`). `renovate.json` therefore disables every ordinary update
+type under `images/**`, `packages/**`, and `patched/**`. The only Renovate pull
+requests for those paths are OSV vulnerability alerts on annotated security
+floors (Go, npm, crate, Maven, and similar pins). OSV has no advisories for git
+or GitHub tag sources, so Renovate does not open source version bumps; those are
+image-local pull requests. Keep external sources in these layouts:
 
 - A patched image must declare adjacent `image:` and `digest:` lines in
   `patched/<name>/source.yaml`. Keep the intended major version in the image
-  tag; Renovate updates that stream and its digest but does not cross majors.
-  This file is authoritative for the upstream image and published version; do
-  not duplicate either field in `metadata.yaml`.
-- A source-built Wolfi image must keep `package.version`, the HTTPS GitHub
-  `git-checkout.repository`, `tag: v${{package.version}}`, and the full
-  `expected-commit` in `images/<name>/melange.yaml`. Renovate updates the tag
-  version and matching commit together, and for that layout `metadata.yaml`,
+  tag. No Renovate manager reads this file; a new upstream digest is an
+  image-local pull request. This file is authoritative for the upstream image
+  and published version; do not duplicate either field in `metadata.yaml`.
+- A source-built Wolfi image keeps `package.version` with an inline
+  `# renovate: datasource=... depName=...` annotation, and exactly one
+  `git-checkout` step consumes that version: an HTTPS `repository:`, then a
+  `tag:` built from `${{package.version}}` (or from a var-transform of it), then
+  the full peeled commit in one of two forms:
+  `expected-commit: <40 hex>`, or `expected-commit: ${{vars.source-commit}}`
+  with `source-commit: <40 hex>` under `vars:`. The melange source manager in
+  `renovate.json` reads the version and commit as one dependency. It resolves
+  both from the checked-out repository's git tags, using the annotation's
+  `versioning=` and `extractVersion=`; without `extractVersion=` it derives one
+  from the literal text around `${{package.version}}` in the tag. Its single
+  replacement rewrites the version and every copy of the commit below the
+  version line, so an ldflags stamp of the same commit moves with it. If the new
+  tag's commit cannot be resolved, the branch fails rather than producing a
+  version-only change that `expected-commit` would reject.
+  `scripts/test_melange_source_pins.py` rejects a recipe that breaks this
+  layout. A var-transform tag, or a tag prefix or suffix with regex
+  metacharacters, needs an explicit `extractVersion=` on the annotation. When
+  you bump a source version by hand, change the commit in the same edit; read
+  the peeled commit with
+  `git ls-remote <repository> 'refs/tags/<tag>' 'refs/tags/<tag>^{}'` (the
+  `^{}` line wins for an annotated tag). For this layout `metadata.yaml`,
   melange package names, and APKO package references must not need an edit in
   the same pull request. A smoke test needs no edit when it derives its expected
   primary version from the image or the recipe; a test that hardcodes that
   version, or asserts a bundled tool version, still changes with the bump.
-  A recipe that checks out `tag: v${{vars.upstream-version}}` instead has that
-  variable as its version-bearing field, so its manager in `renovate.json`
-  updates `vars.upstream-version` with `expected-commit`.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
   `latest` tag.
@@ -369,17 +394,19 @@ their reviewed `apko.lock.json` remains the update boundary, refreshed by
   unpinned package drift.
 
 Update policy lives in `renovate.json`, not in a second copy of a version
-string. A major upstream transition under `images/**/melange.yaml` opens a pull
-request but never automerges. A nested `images/<name>/<stream>/` directory is
-the structural signal for a parallel stream: patch updates remain automatic,
-while minor and major transitions require review. Renovate still offers those
-transitions instead of silently filtering them through duplicated
-`allowedVersions` strings.
+string. A stream boundary lives in the annotation's `versioning=` regex (for
+example `regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$`), not in duplicated
+`allowedVersions` strings, and a nested `images/<name>/<stream>/` directory is
+the structural signal for a parallel stream. Melange source dependencies carry
+the dependency type `source`, and their own package rule keeps them out of
+automerge and out of the security-floor path. A policy change that lets
+Renovate propose source bumps sets `enabled: true` on that rule and touches
+nothing else.
 
 Versioned `go get` overrides are compatibility constraints rather than upstream
 image versions. A Go module major upgrade changes its import path and requires a
 source migration, so Renovate only updates these overrides within their current
-major version. Source image major releases still open reviewable pull requests.
+major version.
 
 ### Vulnerability remediation rebuild
 
