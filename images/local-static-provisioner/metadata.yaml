@@ -1,0 +1,10 @@
+name: local-static-provisioner
+track: wolfi
+description: Kubernetes provisioner that creates local PersistentVolumes for disks mounted on each node.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner
+versions: [2.10]
+scan-identity: [pkg:golang/sigs.k8s.io/sig-storage-local-static-provisioner]
+flavors: [plain]
+owner: tektum
+enabled: true

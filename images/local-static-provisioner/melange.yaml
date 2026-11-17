@@ -1,0 +1,144 @@
+package:
+  name: verity-local-static-provisioner
+  # yamllint disable-line rule:line-length
+  version: "2.10.0"  # renovate: datasource=github-releases depName=kubernetes-sigs/sig-storage-local-static-provisioner versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Static provisioner for Kubernetes local PersistentVolumes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    # The cleanup scripts under /scripts are the upstream block and job
+    # cleaner commands; they need bash plus the tools the upstream image
+    # installs (util-linux, e2fsprogs) and coreutils/findutils.
+    runtime:
+      - bash
+      - ca-certificates-bundle
+      - coreutils
+      - e2fsprogs
+      - findutils
+      - util-linux-misc
+      - wipefs
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: b3124639aa998cee4a6ed5706c971d6856677812
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  # The v2.10.0 tag is the provisioner release; the chart and node-cleanup
+  # controller are released under their own prefixed tags.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/sig-storage-local-static-provisioner
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Upstream builds from vendor/ only, and its module also holds the e2e
+  # suite (k8s.io/kubernetes/test/e2e, kubelet, runc), the node-cleanup
+  # controller and helm migration utilities, none of which ship here. Drop
+  # those packages first so remediation resolves and rebuilds only the
+  # provisioner's dependency graph; a runc upgrade otherwise breaks the
+  # unshipped e2e imports. k8s.io/kubernetes also requires its staging modules
+  # at v0.0.0 and replaces them only in its own go.mod; upstream replaces each
+  # one it needs except these two, so pin them to the staging release that
+  # matches the required k8s.io/kubernetes.
+  - runs: |
+      export GOFLAGS="$GOFLAGS -mod=mod"
+      rm -rf test hack cmd/node-cleanup cmd/utils pkg/node-cleanup pkg/metrics/node-cleanup
+      kube=$(awk '$1 == "k8s.io/kubernetes" { print $2; exit }' go.mod)
+      staging="v0.${kube#v1.}"
+      printf '%s\n' "$staging" | grep -Ex 'v0\.[0-9]+\.[0-9]+'
+      for module in k8s.io/endpointslice k8s.io/externaljwt; do
+        go mod edit -replace "$module=$module@$staging"
+      done
+      go mod tidy
+      go mod vendor
+      go list ./... | grep -Fx sigs.k8s.io/sig-storage-local-static-provisioner/cmd/local-volume-provisioner
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/local-volume-provisioner
+
+  # Same static binary as the upstream Makefile. The module path has no /v2
+  # suffix, so Go cannot stamp the v2 tag and would report a date
+  # pseudo-version; build without VCS stamping and let metadata.yaml declare
+  # the module purl, versioned from package.version, for the scanner.
+  # Upstream installs the binary at /local-provisioner and its cleanup scripts
+  # at /scripts, which the Helm chart's blockCleanerCommand references.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      dest="${{targets.destdir}}"
+      go build -mod=vendor -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o "$dest/usr/bin/local-volume-provisioner" ./cmd/local-volume-provisioner
+      go version -m "$dest/usr/bin/local-volume-provisioner" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx sigs.k8s.io/sig-storage-local-static-provisioner/cmd/local-volume-provisioner
+      ln -s usr/bin/local-volume-provisioner "$dest/local-provisioner"
+      mkdir -p "$dest/scripts"
+      for script in blkdiscard dd_zero fsclean quick_reset shred; do
+        install -m755 "deployment/docker/scripts/$script.sh" "$dest/scripts/$script.sh"
+      done
+      install -m644 deployment/docker/scripts/common.sh "$dest/scripts/common.sh"
+      install -Dm644 LICENSE \
+        "$dest/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the local-static-provisioner build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/local-static-provisioner-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 vendor/modules.txt "$dir/modules.txt"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test "$(readlink -f /local-provisioner)" = /usr/bin/local-volume-provisioner
+        apk info --who-owns /usr/bin/local-volume-provisioner \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        # Without the mounted ConfigMap directory the provisioner exits before
+        # it contacts a cluster.
+        if local-volume-provisioner >/tmp/out 2>&1; then exit 1; fi
+        grep -F "Error parsing Provisioner's configuration" /tmp/out
+        for script in blkdiscard dd_zero fsclean quick_reset shred; do
+          test -x "/scripts/$script.sh"
+        done
+        LOCAL_PV_BLKDEVICE=/tmp /scripts/quick_reset.sh >/tmp/out 2>&1 && exit 1
+        grep -F '/tmp is not a block device.' /tmp/out
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/sig-storage-local-static-provisioner
+    strip-prefix: v
+    tag-filter-prefix: v

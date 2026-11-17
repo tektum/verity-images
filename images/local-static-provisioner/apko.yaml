@@ -1,0 +1,32 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-local-static-provisioner@local
+
+# Like the upstream image, the provisioner runs as root in a privileged
+# DaemonSet: it reads the node's mount table, removes volume contents written
+# by pods under other UIDs, and runs block cleaners against raw devices.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/local-volume-provisioner
+
+work-dir: /
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  # klog may create log files under /tmp before logtostderr takes effect.
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
