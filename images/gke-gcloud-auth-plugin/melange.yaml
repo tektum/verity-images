@@ -1,0 +1,95 @@
+package:
+  name: verity-gke-gcloud-auth-plugin
+  # yamllint disable-line rule:line-length
+  version: "37.2.9"  # renovate: datasource=github-tags depName=kubernetes/cloud-provider-gcp versioning=regex:^(?<major>37)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^gke-gcloud-auth-plugin/v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes exec credential plugin for GKE clusters
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: edc96e419546f4c7510dc32b11505615f6f36cf3
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/cloud-provider-gcp
+      tag: gke-gcloud-auth-plugin/v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # The repository go.work spans the provider, metis, and e2e modules, whose
+  # unpublished k8s.io staging requirements cannot be resolved outside the
+  # Kubernetes tree, and vendor/ is the workspace vendor directory. The plugin
+  # needs only the root module, so build it in module mode.
+  - runs: |
+      rm -rf go.work go.work.sum vendor
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/gke-gcloud-auth-plugin
+  # The repository root module has no v37 tag of its own (releases use the
+  # gke-gcloud-auth-plugin/ prefix), so Go stamps the main module with a VCS
+  # pseudo-version, which Syft reports natively. The release version is
+  # stamped into the component-base version that --version prints.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      GOWORK=off go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X k8s.io/component-base/version.gitVersion=v${{package.version}} \
+          -X k8s.io/component-base/version.gitCommit=${{vars.source-commit}} \
+          -X k8s.io/component-base/version.gitTreeState=clean" \
+        -o "${{targets.destdir}}/usr/bin/gke-gcloud-auth-plugin" ./cmd/gke-gcloud-auth-plugin
+      go version -m "${{targets.destdir}}/usr/bin/gke-gcloud-auth-plugin" \
+        | awk '$1 == "mod" && $2 == "k8s.io/cloud-provider-gcp" { print $3 }' \
+        | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+-'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the gke-gcloud-auth-plugin build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/gke-gcloud-auth-plugin-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/gke-gcloud-auth-plugin-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        gke-gcloud-auth-plugin --version | grep -F "v${{package.version}}"
+        CLOUDSDK_AUTH_ACCESS_TOKEN=melange-test gke-gcloud-auth-plugin \
+          | grep -F '"token": "melange-test"'
+        apk info --who-owns /usr/bin/gke-gcloud-auth-plugin \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes/cloud-provider-gcp
+    strip-prefix: gke-gcloud-auth-plugin/v
+    tag-filter: gke-gcloud-auth-plugin/v
+    use-tag: true

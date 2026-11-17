@@ -1,0 +1,8 @@
+name: gke-gcloud-auth-plugin
+track: wolfi
+description: GKE exec credential plugin for kubectl, built from pinned source. gcloud is not bundled.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes/cloud-provider-gcp
+versions: [37.2]
+owner: tektum
+enabled: true
