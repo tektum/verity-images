@@ -7,7 +7,7 @@ image=${1:?usage: test.sh IMAGE}
 here=$(cd "$(dirname "$0")" && pwd)
 config="$here/../apko.yaml"
 version=$(sed -n 's/^    - speedtest-go=\([0-9.]*\)-r[0-9]*$/\1/p' "$config")
-stub_image=docker.io/library/python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e
+stub_index='docker.io/library/python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
 id=$$
 network="verity-speedtest-go-$id"
 server="verity-speedtest-go-srv-$id"
@@ -63,12 +63,35 @@ openssl x509 -req -in "$work/certs/server.csr" -CA "$work/certs/ca.pem" \
 chmod 755 "$work/certs"
 chmod 644 "$work/certs"/*
 
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+
+# Pull the pinned stub index by its per-platform child digest. A classic Docker
+# image store cannot bind an index digest to a second platform's image, so the
+# index bytes are verified against the pin before a child is chosen, which keeps
+# the pin authoritative.
+stub_raw=$(docker buildx imagetools inspect --raw "$stub_index") ||
+  fail 'cannot inspect stub image index'
+[ "sha256:$(printf '%s' "$stub_raw" | sha256sum | cut -d' ' -f1)" = "${stub_index#*@}" ] ||
+  fail 'stub image index digest mismatch'
+stub_digest=$(printf '%s' "$stub_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve stub image digest'
+case $stub_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch stub image in $stub_index" ;;
+esac
+stub_image=${stub_index%%:*}@$stub_digest
+docker pull --quiet --platform "linux/$image_arch" "$stub_image" >/dev/null ||
+  fail 'cannot pull stub image'
+
 # --internal: no external route, so nothing can reach the real internet.
 docker network create --internal "$network" >/dev/null
 
 docker run -d --name "$server" --network "$network" --network-alias www.speedtest.net \
   -v "$work/certs:/certs:ro" -v "$here/speedtest_stub.py:/stub.py:ro" \
-  "$stub_image" python -u /stub.py >/dev/null
+  --platform "linux/$image_arch" "$stub_image" python -u /stub.py >/dev/null
 ready=false
 i=0
 while [ "$i" -lt 30 ]; do

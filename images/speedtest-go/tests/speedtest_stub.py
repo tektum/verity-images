@@ -49,7 +49,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 self.send_error(404)
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
-            pass
+            # The client cancels in-flight transfers when its timed test
+            # window ends; a dropped connection is expected, not an error.
+            return
 
     def do_POST(self):
         try:
@@ -61,11 +63,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 remaining -= len(data)
             self.reply(b"size=ok")
         except (BrokenPipeError, ConnectionResetError, ssl.SSLError):
-            pass
+            # The client cancels in-flight transfers when its timed test
+            # window ends; a dropped connection is expected, not an error.
+            return
 
 
 tls = http.server.ThreadingHTTPServer(("", 443), Handler)
 ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+ctx.minimum_version = ssl.TLSVersion.TLSv1_2
 ctx.load_cert_chain("/certs/server.pem", "/certs/server.key")
 tls.socket = ctx.wrap_socket(tls.socket, server_side=True)
 threading.Thread(target=tls.serve_forever, daemon=True).start()
