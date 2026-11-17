@@ -102,4 +102,31 @@ if run -w /work "$image" sync -f badref.yml --lock-file badref.lock.yml >/dev/nu
   fail 'sync of an unknown git ref unexpectedly succeeded'
 fi
 
+# vendir runs git over SSH through GIT_SSH_COMMAND="ssh ...", so the image must ship an
+# ssh client. With no network, an SSH source must fail on the connection, not on a missing ssh.
+cat >"$work/ssh.yml" <<'EOF'
+apiVersion: vendir.k14s.io/v1alpha1
+kind: Config
+directories:
+- path: ssh-out
+  contents:
+  - path: repo
+    git:
+      url: ssh://git@127.0.0.1:1/repo.git
+      ref: main
+EOF
+# ssh needs a passwd entry, so this case runs as the image's own nonroot user in a
+# world-writable directory instead of as the invoking host uid.
+mkdir -p "$work/ssh"
+mv "$work/ssh.yml" "$work/ssh/vendir.yml"
+chmod 0777 "$work/ssh"
+if docker run --rm --network none -v "$work/ssh:/work" -w /work "$image" sync >"$work/ssh.out" 2>&1; then
+  fail 'sync over SSH to a closed port unexpectedly succeeded'
+fi
+if grep -Eq 'ssh: not found|cannot run ssh|No user exists' "$work/ssh.out"; then
+  fail "ssh client is missing from the image: $(cat "$work/ssh.out")"
+fi
+grep -Eqi 'connect to host 127\.0\.0\.1 port 1|Connection refused|Network is unreachable' "$work/ssh.out" ||
+  fail "SSH source did not fail on the connection: $(cat "$work/ssh.out")"
+
 printf 'SMOKE PASS version=%s\n' "$expected_version"
