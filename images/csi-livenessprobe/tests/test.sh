@@ -42,12 +42,35 @@ usage=$(docker run --rm "$image" -h 2>&1 || true)
 printf '%s\n' "$usage" | grep -q -- '-csi-address' || fail 'usage is missing -csi-address'
 printf '%s\n' "$usage" | grep -q -- '-health-port' || fail 'usage is missing -health-port'
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest, verifying the
+# index bytes against the pin first. publish-image runs this test once per platform on one
+# host, and a classic Docker image store cannot bind an index digest to a second platform.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+driver_image=$(pull_child "$driver_index") || exit 1
+curl_image=$(pull_child "$curl_index") || exit 1
+[ -n "$driver_image" ] && [ -n "$curl_image" ] || fail 'cannot resolve helper images'
+
 docker volume create --label "$label" "$volume" >/dev/null
-docker run --rm --label "$label" -u 0 -v "$volume:/csi" --entrypoint chmod "$curl_index" 0777 /csi ||
+docker run --rm --label "$label" -u 0 -v "$volume:/csi" --entrypoint chmod "$curl_image" 0777 /csi ||
   fail 'could not prepare the socket volume'
 
 docker run -d --label "$label" --name "$driver" --network none --user 65532 \
-  -v "$volume:/csi" "$driver_index" \
+  -v "$volume:/csi" "$driver_image" \
   --endpoint=unix:///csi/csi.sock --nodeid=verity --drivername=hostpath.csi.k8s.io \
   --statedir=/csi/state >/dev/null || fail 'CSI driver did not start'
 
@@ -56,7 +79,7 @@ docker run -d --label "$label" --name "$probe" -v "$volume:/csi" "$image" \
   fail 'livenessprobe did not start'
 
 healthz() {
-  docker run --rm --label "$label" --network "container:$probe" "$curl_index" \
+  docker run --rm --label "$label" --network "container:$probe" "$curl_image" \
     -s -o /dev/null -w '%{http_code}' --max-time 10 http://127.0.0.1:9808/healthz 2>/dev/null || true
 }
 
