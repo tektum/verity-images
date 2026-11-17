@@ -1,0 +1,9 @@
+name: bento
+track: wolfi
+description: Bento stream processor assembled from Wolfi packages.
+category: Messaging & Streaming
+upstream: https://github.com/warpstreamlabs/bento
+versions: [1.23]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/warpstreamlabs/bento]
