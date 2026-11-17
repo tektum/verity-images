@@ -43,3 +43,8 @@ paths:
     source: /usr/bin/cluster-proportional-autoscaler
     uid: 0
     gid: 0
+  - path: /usr/bin/cluster-proportional-autoscaler
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755

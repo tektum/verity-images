@@ -49,6 +49,8 @@ pipeline:
       go version -m "${{targets.destdir}}/usr/bin/cluster-proportional-autoscaler" \
         | awk '$1 == "path" { print $2 }' \
         | grep -Fx "${module}/cmd/cluster-proportional-autoscaler"
+      "${{targets.destdir}}/usr/bin/cluster-proportional-autoscaler" --version \
+        | grep -Fx "v${{package.version}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
