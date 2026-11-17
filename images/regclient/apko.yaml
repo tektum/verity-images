@@ -1,0 +1,91 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-regclient@local
+
+# Upstream build/Dockerfile.regctl (release-scratch) runs as appuser
+# UID/GID 1000 with HOME /home/appuser, pre-creating ~/.docker and ~/.regctl
+# (regctl keeps its config in ~/.regctl/config.json), and a 1777 /tmp.
+accounts:
+  groups:
+    - groupname: appuser
+      gid: 1000
+  users:
+    - username: appuser
+      uid: 1000
+      gid: 1000
+      homedir: /home/appuser
+  run-as: 1000
+
+# Upstream uses ENTRYPOINT ["/regctl"] with no WORKDIR. This image installs
+# /usr/bin/regctl as the entrypoint and keeps /regctl, /regsync and /regbot as
+# symlinks so the upstream scratch image paths keep working.
+entrypoint:
+  command: /usr/bin/regctl
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/appuser
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/appuser
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /home/appuser/.docker
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /home/appuser/.regctl
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /regctl
+    type: symlink
+    source: /usr/bin/regctl
+    uid: 0
+    gid: 0
+  - path: /regsync
+    type: symlink
+    source: /usr/bin/regsync
+    uid: 0
+    gid: 0
+  - path: /regbot
+    type: symlink
+    source: /usr/bin/regbot
+    uid: 0
+    gid: 0
+  # apko applies the symlink entry's mode (0) through the link to its target,
+  # so the binary modes are restored explicitly.
+  - path: /usr/bin/regctl
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /usr/bin/regsync
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /usr/bin/regbot
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
