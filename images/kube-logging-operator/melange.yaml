@@ -1,0 +1,60 @@
+package:
+  name: verity-kube-logging-operator
+  version: "6.9.0"  # renovate: datasource=github-releases depName=kube-logging/logging-operator
+  epoch: 0
+  description: Kube Logging operator controller manager
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kube-logging/logging-operator
+      tag: ${{package.version}}
+      expected-commit: 1e3fd1216c8700effc1d92b295273575ad6b1824
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - runs: |
+      go build -trimpath -ldflags "-s -w" -o manager.bin .
+      install -m755 -D manager.bin "${{targets.destdir}}/usr/bin/manager"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-kube-logging-operator-build-metadata
+    description: Resolved Go module metadata for the kube-logging-operator build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/kube-logging-operator-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/kube-logging-operator-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/manager --help 2>&1 | grep -F 'enable-leader-election'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
