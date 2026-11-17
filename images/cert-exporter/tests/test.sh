@@ -124,5 +124,12 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$container") in
   2 | 143) ;;
   *) fail "exporter did not stop on SIGTERM: exit $(docker inspect --format '{{.State.ExitCode}}' "$container")" ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+shutdown_log=$(docker logs "$container" 2>&1) || fail 'could not read the cert-exporter log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
+  fail 'cert-exporter crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$version"

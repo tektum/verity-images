@@ -121,6 +121,13 @@ elapsed=$(($(date +%s) - started))
 # instead of the 137 a SIGKILL after the stop timeout would leave.
 [ "$(docker inspect "$container" --format '{{.State.ExitCode}}')" = 2 ] ||
   fail 'falcosidekick did not exit through the Go runtime SIGTERM path'
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+shutdown_log=$(docker logs "$container" 2>&1) || fail 'could not read the falcosidekick log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
+  fail 'falcosidekick crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 if docker run --rm --network none "$image" -c /nonexistent/config.yaml >"$work/invalid.log" 2>&1; then
   fail 'missing config file unexpectedly succeeded'

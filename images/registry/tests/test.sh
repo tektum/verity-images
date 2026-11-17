@@ -77,6 +77,13 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$container") in
   0|2) ;;
   *) fail 'SIGTERM did not stop the registry' ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+shutdown_log=$(docker logs "$container" 2>&1) || fail 'could not read the registry log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
+  fail 'registry crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 docker rm -f "$container" >/dev/null
 
 printf 'version: 0.1\nstorage: [\n' >"$body"

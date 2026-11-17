@@ -89,5 +89,12 @@ case $exit_code in
   0|2|143) ;;
   *) docker logs "$container" >&2 || true; fail "unexpected exit code after SIGTERM: $exit_code" ;;
 esac
+# Exit 2 is also the Go runtime's status for a panic or fatal error, so only
+# accept it when the log shows no crash.
+shutdown_log=$(docker logs "$container" 2>&1) || fail 'could not read the chartmuseum log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
+  fail 'chartmuseum crashed (Go panic or fatal error) instead of stopping on SIGTERM'
+fi
 
 printf 'SMOKE PASS image=%s\n' "$image"
