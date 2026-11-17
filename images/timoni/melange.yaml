@@ -1,0 +1,61 @@
+package:
+  name: verity-timoni
+  version: "0.37.0"  # renovate: datasource=github-releases depName=stefanprodan/timoni
+  epoch: 0
+  description: Package manager for Kubernetes powered by CUE
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/stefanprodan/timoni
+      tag: v${{package.version}}
+      expected-commit: 40e1054b478fe15a8887fb8f22eb42c4a9da04f8
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/timoni
+  - runs: |
+      flags="-s -w -X main.VERSION=${{package.version}}"
+      go build -trimpath -ldflags "$flags" -o timoni.bin ./cmd/timoni
+      install -m755 -D timoni.bin "${{targets.destdir}}/usr/bin/timoni"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-timoni-build-metadata
+    description: Resolved Go module metadata for the timoni build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/timoni-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/timoni-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/timoni version | grep -F 'client: ${{package.version}}'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
