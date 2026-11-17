@@ -161,9 +161,14 @@ docker logs "$attacher" 2>&1 | grep -F 'type="*v1.VolumeAttachment"' |
 [ "$(docker inspect -f '{{.State.Running}}' "$attacher")" = true ] ||
   fail 'csi-attacher exited while the API server was unreachable'
 
-# SIGTERM must stop PID 1 well inside the grace period instead of waiting for SIGKILL.
+# SIGTERM must stop PID 1 well inside the grace period instead of waiting for
+# SIGKILL (137). The Go runtime exits 143, or 2 when the kernel ignores the
+# re-raised signal for a namespace init; which one depends on the host.
 docker stop -t 30 "$attacher" >/dev/null || fail 'docker stop failed'
 code=$(docker inspect -f '{{.State.ExitCode}}' "$attacher")
-[ "$code" = 143 ] || fail "unexpected csi-attacher exit code after SIGTERM: $code"
+case "$code" in
+  2 | 143) ;;
+  *) fail "unexpected csi-attacher exit code after SIGTERM: $code" ;;
+esac
 
 printf 'SMOKE PASS version=%s\n' "$expected_version"
