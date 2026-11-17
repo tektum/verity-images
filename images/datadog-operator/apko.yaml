@@ -1,11 +1,13 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - datadog-operator=1.27.0-r0
+    - verity-datadog-operator@local
 
 accounts:
   groups:

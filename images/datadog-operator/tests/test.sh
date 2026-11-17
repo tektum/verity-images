@@ -3,8 +3,9 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
-config="$here/../apko.yaml"
-version=$(sed -n 's/^    - datadog-operator=\([0-9.]*\)-r[0-9]*$/\1/p' "$config")
+recipe="$here/../melange.yaml"
+version=$(sed -n 's/^  version: "\([0-9.]*\)".*$/\1/p' "$recipe")
+commit=$(sed -n 's/^  source-commit: \([0-9a-f]\{40\}\)$/\1/p' "$recipe")
 work=$(mktemp -d)
 
 fail() {
@@ -18,6 +19,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 [ -n "$version" ] || fail 'could not read the pinned datadog-operator version'
+[ -n "$commit" ] || fail 'could not read the pinned datadog-operator source commit'
 
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
   fail 'unexpected OCI user'
@@ -33,6 +35,8 @@ docker run --rm --network none "$image" -version >"$work/version" 2>&1 ||
   fail 'version failed'
 grep -Fx -- "- Version: $version" "$work/version" >/dev/null ||
   fail "version does not report datadog-operator $version: $(cat "$work/version")"
+grep -Fx -- "- Git Commit: $commit" "$work/version" >/dev/null ||
+  fail "version does not report source commit $commit: $(cat "$work/version")"
 
 docker run --rm --network none "$image" -help >"$work/help" 2>&1 || true
 grep -F -- '-datadogMonitorEnabled' "$work/help" >/dev/null ||
