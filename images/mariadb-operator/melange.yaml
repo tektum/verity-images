@@ -1,0 +1,117 @@
+package:
+  name: verity-mariadb-operator
+  # yamllint disable-line rule:line-length
+  version: "26.10.2"  # renovate: datasource=github-tags depName=mariadb-operator/mariadb-operator extractVersion=^v(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: MariaDB Operator, the Kubernetes operator for MariaDB and MaxScale
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+# Upstream releases from the bare `X.Y.Z` tag and then pushes the Go-module
+# tag `vX.Y.Z` on its chart version bump commit. The two differ only in
+# deploy/charts, so building from the `v` tag keeps the Go sources of the
+# release and lets Go stamp the main module with a clean release version.
+vars:
+  source-commit: 1480a2a423bbbca86ef413efd995b871a5b2a029
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    # Upstream's Dockerfile builds with CGO_ENABLED=0.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/mariadb-operator/mariadb-operator
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/controller
+
+  # Upstream's Dockerfile runs `go build -o mariadb-operator cmd/controller/*.go`
+  # with no ldflags: the operator has no version variables to stamp. Building
+  # the ./cmd/controller package instead of its files lets Go stamp the main
+  # module with the release tag, which the scan identity relies on.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/bin/mariadb-operator" ./cmd/controller
+      go version -m "${{targets.destdir}}/usr/bin/mariadb-operator" \
+        | awk '$1 == "mod" && $2 == "github.com/mariadb-operator/mariadb-operator/v26" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # The generated CRDs that match this operator build. The upstream image
+      # does not carry them; they ship here so a consumer can install the exact
+      # schema the binary expects.
+      for crd in config/crd/bases/*.yaml; do
+        install -Dm644 "$crd" \
+          "${{targets.destdir}}/usr/share/mariadb-operator/crds/$(basename "$crd")"
+      done
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the mariadb-operator build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/mariadb-operator-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/mariadb-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        mariadb-operator --help >help.txt 2>&1
+        for cmd in agent backup cert-controller init pitr webhook; do
+          grep -Eq "^  $cmd " help.txt
+        done
+        grep -F -- '--health-addr' help.txt
+        for crd in mariadbs maxscales backups restores databases users grants \
+          connections sqljobs physicalbackups pointintimerecoveries externalmariadbs; do
+          grep -Fx 'kind: CustomResourceDefinition' \
+            "/usr/share/mariadb-operator/crds/k8s.mariadb.com_$crd.yaml"
+        done
+        apk info --who-owns /usr/bin/mariadb-operator \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'The MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: mariadb-operator/mariadb-operator
+    strip-prefix: v
+    tag-filter-prefix: v
+    use-tag: true

@@ -1,0 +1,32 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-mariadb-operator@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+  run-as: 65532
+
+# Upstream's image runs /bin/mariadb-operator, and the operator starts its
+# backup, restore, init, and agent containers from this image by subcommand.
+entrypoint:
+  command: /bin/mariadb-operator
+
+# Upstream's image uses WORKDIR / and needs no writable path.
+work-dir: /
+
+environment:
+  PATH: /usr/sbin:/sbin:/usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
