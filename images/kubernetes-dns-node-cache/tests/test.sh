@@ -97,9 +97,11 @@ case "$user" in
   *) fail "image user is $user, upstream runs as root" ;;
 esac
 
-# Runtime tools the upstream distroless-iptables base ships.
-docker run --rm --network none --entrypoint iptables "$image" --version >"$work/ipt" 2>&1 ||
-  fail "iptables --version failed: $(cat "$work/ipt")"
+# Runtime tools the upstream distroless-iptables base ships. The version check uses
+# iptables-legacy: iptables-wrapper probes the host netfilter backend first, and that
+# probe fails without a kernel backend (nft under qemu-user on the non-native arch).
+docker run --rm --network none --entrypoint iptables-legacy "$image" --version >"$work/ipt" 2>&1 ||
+  fail "iptables-legacy --version failed: $(cat "$work/ipt")"
 grep -Eq '^iptables v1\.[0-9]+' "$work/ipt" || fail "unexpected iptables version: $(cat "$work/ipt")"
 for tool in iptables ip6tables iptables-save iptables-restore ip6tables-save ip6tables-restore; do
   target=$(docker run --rm --network none --entrypoint /bin/busybox "$image" readlink "/usr/bin/$tool") ||
