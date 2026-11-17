@@ -1,0 +1,10 @@
+name: step-issuer
+track: wolfi
+description: cert-manager external issuer that signs certificates with a smallstep step-ca. Built from pinned source.
+category: Cert Management
+upstream: https://github.com/smallstep/step-issuer
+versions: [0.12]
+scan-identity: [pkg:golang/github.com/smallstep/step-issuer]
+flavors: [plain]
+owner: tektum
+enabled: true
