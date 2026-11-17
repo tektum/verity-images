@@ -30,6 +30,15 @@ test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = null |
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /work ||
   fail 'unexpected working directory'
 
+# The binary does not stamp its version, so check the package the image records.
+container=$(docker create "$image") || fail 'could not create a container to read the APK database'
+docker cp "$container:/usr/lib/apk/db/installed" - | tar -xO >"$work/installed" ||
+  { docker rm "$container" >/dev/null; fail 'could not read the APK database'; }
+docker rm "$container" >/dev/null
+awk '$0 == "P:kubewatch" { getline; print; exit }' "$work/installed" >"$work/pkgversion"
+grep -E "^V:$version-r[0-9]+$" "$work/pkgversion" >/dev/null ||
+  fail "image ships kubewatch $(cat "$work/pkgversion"), not the pinned $version"
+
 docker run --rm --network none "$image" --help >"$work/help" 2>&1 || fail 'help failed'
 grep -F 'kubewatch is a Kubernetes watcher' "$work/help" >/dev/null ||
   fail "help does not describe kubewatch: $(cat "$work/help")"
@@ -159,6 +168,15 @@ grep -F 'Starting metrics server on port :2112' "$work/daemon.log" >/dev/null ||
 test "$(docker inspect --format '{{.State.Running}}' "$name")" = true ||
   { cleanup_daemon; fail 'daemon exited while watching'; }
 docker stop -t 10 "$name" >/dev/null || { cleanup_daemon; fail 'daemon did not stop on SIGTERM'; }
+rc=$(docker inspect --format '{{.State.ExitCode}}' "$name")
+case $rc in
+  0 | 143) ;;
+  *)
+    docker logs "$name" >&2 || true
+    cleanup_daemon
+    fail "daemon exited $rc after SIGTERM instead of shutting down"
+    ;;
+esac
 cleanup_daemon
 
 echo 'SMOKE PASS'
