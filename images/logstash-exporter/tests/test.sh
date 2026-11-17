@@ -219,10 +219,15 @@ grep -F 'unknown log format' "$tmp/format.log" >/dev/null || {
   fail 'invalid LOG_FORMAT error missing'
 }
 
-# The exporter installs no SIGTERM handler, so it must terminate on the
-# signal itself (128 + 15) instead of waiting for the SIGKILL fallback.
+# The exporter installs no SIGTERM handler, so it must terminate promptly
+# instead of waiting for the SIGKILL fallback (137). As PID 1 the kernel
+# ignores the Go runtime's re-raised SIGTERM, so the runtime exits 2;
+# otherwise the signal itself yields 128 + 15.
 docker stop --timeout 10 "$exporter" >/dev/null
 exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$exporter")
-[ "$exit_code" = 143 ] || fail "exporter exited $exit_code on SIGTERM, expected 143"
+case $exit_code in
+  2 | 143) ;;
+  *) fail "exporter exited $exit_code on SIGTERM, expected 2 or 143 (137 means SIGKILL)" ;;
+esac
 
 printf 'SMOKE PASS image=%s\n' "$image"
