@@ -82,8 +82,9 @@ case "$code" in
 esac
 # Exit 2 is also the Go runtime's status for a panic or fatal error, so only
 # accept it when the log shows no crash.
-if docker logs "$name" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
-  docker logs "$name" 2>&1 | tail -n 40 >&2
+shutdown_log=$(docker logs "$name" 2>&1) || fail 'could not read the dex log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
   fail 'dex crashed (Go panic or fatal error) instead of stopping on SIGTERM'
 fi
 docker logs "$name" 2>&1 | grep -F 'received signal terminated' >/dev/null ||

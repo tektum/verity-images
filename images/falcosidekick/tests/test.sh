@@ -123,8 +123,9 @@ elapsed=$(($(date +%s) - started))
   fail 'falcosidekick did not exit through the Go runtime SIGTERM path'
 # Exit 2 is also the Go runtime's status for a panic or fatal error, so only
 # accept it when the log shows no crash.
-if docker logs "$container" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
-  docker logs "$container" 2>&1 | tail -n 40 >&2
+shutdown_log=$(docker logs "$container" 2>&1) || fail 'could not read the falcosidekick log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
   fail 'falcosidekick crashed (Go panic or fatal error) instead of stopping on SIGTERM'
 fi
 

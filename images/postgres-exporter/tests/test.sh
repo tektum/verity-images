@@ -131,8 +131,9 @@ case $(docker inspect --format '{{.State.ExitCode}}' "$exporter") in
 esac
 # Exit 2 is also the Go runtime's status for a panic or fatal error, so only
 # accept it when the log shows no crash.
-if docker logs "$exporter" 2>&1 | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
-  docker logs "$exporter" 2>&1 | tail -n 40 >&2
+shutdown_log=$(docker logs "$exporter" 2>&1) || fail 'could not read the postgres-exporter log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  printf '%s\n' "$shutdown_log" | tail -n 40 >&2
   fail 'postgres-exporter crashed (Go panic or fatal error) instead of stopping on SIGTERM'
 fi
 
