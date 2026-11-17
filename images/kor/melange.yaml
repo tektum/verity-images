@@ -1,0 +1,88 @@
+package:
+  name: verity-kor
+  # yamllint disable-line rule:line-length
+  version: "0.7.0"  # renovate: datasource=github-releases depName=yonahd/kor extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Discover unused Kubernetes resources
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v0.7.0 is a lightweight tag on this commit.
+  source-commit: 215c1afff7b7e3db54678bc01e52e4f6b822d9f5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/yonahd/kor
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Same build as the upstream GoReleaser release: CGO 0, the root main
+  # package, and -X github.com/yonahd/kor/pkg/utils.Version=<version without v>.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      go build -trimpath -buildvcs=true \
+        -ldflags "-s -w -X github.com/yonahd/kor/pkg/utils.Version=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/kor" .
+      "${{targets.destdir}}/usr/bin/kor" version \
+        | grep -Fx 'kor version: v${{package.version}}'
+      go version -m "${{targets.destdir}}/usr/bin/kor" \
+        | awk '$1 == "build" && $2 ~ /^vcs.revision=/ { print $2 }' \
+        | grep -Fx "vcs.revision=$commit"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        kor version | grep -Fx 'kor version: v${{package.version}}'
+        kor configmap --help | grep -F -- '--kubeconfig'
+        apk info --who-owns /usr/bin/kor \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Permission is hereby granted, free of charge' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: yonahd/kor
+    strip-prefix: v
+    use-tag: true
