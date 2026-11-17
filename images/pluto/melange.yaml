@@ -1,0 +1,79 @@
+package:
+  name: verity-pluto
+  # yamllint disable-line rule:line-length
+  version: "5.24.5"  # renovate: datasource=github-releases depName=FairwindsOps/pluto versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Detects deprecated and removed Kubernetes API versions in manifests and Helm releases
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: d7d4f3f312f5b65c989a5a4eb92eb6b4ef86e29f
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/FairwindsOps/pluto
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/pluto
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.version=${{package.version}} -X main.commit=${{vars.source-commit}}" \
+        -o "${{targets.destdir}}/usr/bin/pluto" ./cmd/pluto
+      go version -m "${{targets.destdir}}/usr/bin/pluto" \
+        | awk '$1 == "mod" && $2 == "github.com/fairwindsops/pluto/v5" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the pluto build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/pluto-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/pluto-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        pluto version | grep -F "Version:${{package.version}} Commit:${{vars.source-commit}}"
+        apk info --who-owns /usr/bin/pluto \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: FairwindsOps/pluto
+    strip-prefix: v
