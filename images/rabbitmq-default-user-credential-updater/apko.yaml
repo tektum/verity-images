@@ -1,0 +1,42 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rabbitmq-default-user-credential-updater@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/default-user-credential-updater
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  # The upstream image installs the binary as /default-user-credential-updater.
+  - path: /default-user-credential-updater
+    type: symlink
+    source: /usr/bin/default-user-credential-updater
+    uid: 0
+    gid: 0
+  # The symlink entry resets the target's mode; restore the executable bits.
+  - path: /usr/bin/default-user-credential-updater
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755

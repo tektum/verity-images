@@ -1,0 +1,8 @@
+name: rabbitmq-default-user-credential-updater
+track: wolfi
+description: Vault sidecar that rotates the RabbitMQ default user password. Built from pinned upstream source.
+category: Messaging & Streaming
+upstream: https://github.com/rabbitmq/default-user-credential-updater
+versions: [1.0]
+owner: tektum
+enabled: true
