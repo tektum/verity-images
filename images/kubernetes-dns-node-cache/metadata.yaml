@@ -1,0 +1,9 @@
+name: kubernetes-dns-node-cache
+track: wolfi
+description: Kubernetes NodeLocal DNSCache agent (k8s-dns-node-cache) with iptables tools. Built from pinned source.
+category: Service Mesh & Networking
+upstream: https://github.com/kubernetes/dns
+versions: [1.26]
+scan-identity: [pkg:golang/k8s.io/dns]
+owner: tektum
+enabled: true

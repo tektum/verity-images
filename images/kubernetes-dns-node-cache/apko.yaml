@@ -1,0 +1,30 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  # Runtime tools of the upstream registry.k8s.io/build-image/distroless-iptables
+  # base: iptables/ip6tables (legacy and nft) behind iptables-wrapper, ipset,
+  # kmod, nft, and a POSIX shell with basic utilities.
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - ipset
+    - iptables
+    - iptables-wrappers
+    - kmod
+    - nftables
+    - verity-kubernetes-dns-node-cache@local
+
+# Upstream runs as root: the default mode creates the nodelocaldns dummy
+# interface and installs iptables rules, which need CAP_NET_ADMIN.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /node-cache
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
