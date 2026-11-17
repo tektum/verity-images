@@ -1,0 +1,10 @@
+name: kubewatch
+track: wolfi
+description: Kubernetes resource watcher that posts change notifications to webhooks, built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/robusta-dev/kubewatch
+versions: [2.16]
+flavors: [plain]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/bitnami-labs/kubewatch]
