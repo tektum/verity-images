@@ -62,9 +62,11 @@ output=$(printf '%s\n' \
   '{"name":"alpha","items":[{"price":2,"qty":3},{"price":1,"qty":1}]}' \
   '{"name":"beta","items":[{"price":5,"qty":4}]}' |
   docker run --rm -i --network none -v "$work:/work:ro" "$image" -c /work/pipeline.yaml)
+# Parallel pipeline threads may emit records in any order, so compare them as a sorted set.
 expected='{"name":"ALPHA","tier":"small","total":7}
 {"name":"BETA","tier":"large","total":20}'
-[ "$output" = "$expected" ] || fail "unexpected pipeline output: $output"
+[ "$(printf '%s\n' "$output" | LC_ALL=C sort)" = "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ] ||
+  fail "unexpected pipeline output: $output"
 
 if printf '%s\n' '{}' | docker run --rm -i --network none -v "$work:/work:ro" "$image" \
   -c /work/invalid.yaml >/dev/null 2>&1; then
