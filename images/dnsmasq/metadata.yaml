@@ -1,0 +1,10 @@
+name: dnsmasq
+track: wolfi
+description: dnsmasq DNS forwarder and cache serving local records, run non-root in the foreground, logging to stderr.
+category: Service Mesh & Networking
+upstream: https://thekelleys.org.uk/dnsmasq/doc.html
+versions: [2.93]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:thekelleys:dnsmasq]
+scan-package: dnsmasq
