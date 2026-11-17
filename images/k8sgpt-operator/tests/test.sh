@@ -166,21 +166,18 @@ crd results result Result
 crd mutations mutation Mutation
 chmod -R a+rX "$work"
 
-# An internal network has no default route, which kube-apiserver needs to pick
-# its advertise address. Let Docker choose a free subnet, then recreate the
-# network with that subnet declared so the API server can take a fixed address.
+# An internal network has no default route, so kube-apiserver gets an explicit
+# loopback advertise address and no endpoint reconciler; the manager reaches it
+# through the kubeconfig, not the in-cluster kubernetes Service.
 docker network create --internal --label "$label" "$network" >/dev/null
-subnet=$(docker network inspect -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}' "$network")
-docker network rm "$network" >/dev/null
-docker network create --internal --subnet "$subnet" --label "$label" "$network" >/dev/null
-api_ip=$(printf '%s' "${subnet%/*}" | awk -F. '{ printf "%s.%s.%s.10", $1, $2, $3 }')
 docker run -d --label "$label" --name "$etcd" --network "$network" \
   --tmpfs /var/lib/etcd:uid=65532,gid=65532 "$etcd_image" --data-dir=/var/lib/etcd/data \
   --listen-client-urls=http://0.0.0.0:2379 --advertise-client-urls="http://$etcd:2379" >/dev/null ||
   fail 'etcd did not start'
-docker run -d --label "$label" --name "$api" --network "$network" --ip "$api_ip" --tmpfs /tmp:uid=65532,gid=65532 \
+docker run -d --label "$label" --name "$api" --network "$network" --tmpfs /tmp:uid=65532,gid=65532 \
   -v "$work/pki:/pki:ro" "$api_image" \
-  --etcd-servers="http://$etcd:2379" --advertise-address="$api_ip" --secure-port=6443 --cert-dir=/tmp \
+  --etcd-servers="http://$etcd:2379" --secure-port=6443 --cert-dir=/tmp \
+  --advertise-address=127.0.0.1 --endpoint-reconciler-type=none \
   --token-auth-file=/pki/tokens.csv --authorization-mode=RBAC \
   --service-account-issuer=https://kubernetes.default.svc \
   --service-account-key-file=/pki/sa.key --service-account-signing-key-file=/pki/sa.key \
