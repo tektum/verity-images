@@ -237,8 +237,11 @@ grep -qF 'Stopped listening on [::]:10258' "$work/shutdown.log" ||
 # Upstream main.go watches the cloud config; when that watcher's channel closes
 # during shutdown it may win the race and exit through klog.Fatal (255). Accept
 # that path only with its exact log line. 137 means it ignored SIGTERM for 20s.
+if grep -qE '^(panic: |fatal error: )' "$work/shutdown.log"; then
+  fail "ccm panicked on SIGTERM: $(grep -E '^(panic: |fatal error: )' "$work/shutdown.log" | head -n 1)"
+fi
 case $code in
-  0 | 2 | 143) ;;
+  0 | 143) ;;
   255)
     grep -qF 'restarting pod because received event' "$work/shutdown.log" ||
       fail 'ccm exited 255 on SIGTERM without the config-watcher shutdown path'

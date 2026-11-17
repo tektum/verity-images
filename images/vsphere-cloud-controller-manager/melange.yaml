@@ -72,7 +72,8 @@ test:
         - busybox
   pipeline:
     - runs: |
-        vsphere-cloud-controller-manager --version | grep -Fx "Kubernetes v${{package.version}}"
+        vsphere-cloud-controller-manager --version \
+          | grep -Fx "vsphere-cloud-controller-manager v${{package.version}}"
         apk info --who-owns /usr/bin/vsphere-cloud-controller-manager \
           | grep -F "${{package.name}}-${{package.full-version}}"
         apk info --license "${{package.name}}" | grep -Fx Apache-2.0
