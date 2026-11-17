@@ -93,6 +93,26 @@ expect_error ecr-no-creds "$(request "$api" CredentialProviderRequest "$ecr_imag
   'operation error ECR: GetAuthorizationToken'
 
 # Full exec protocol against a loopback fake ECR API.
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+python_image=$(pull_child "$python_index")
+
 cat >"$work/fake.py" <<'EOF'
 import base64, http.server, json, re, sys
 
@@ -121,7 +141,7 @@ http.server.HTTPServer(("127.0.0.1", 8080), H).serve_forever()
 EOF
 chmod 644 "$work/fake.py"
 docker run -d --name "$fake" --network none -v "$work/fake.py:/fake.py:ro" \
-  --entrypoint python "$python_index" -u /fake.py >/dev/null || fail 'fake ECR did not start'
+  --entrypoint python "$python_image" -u /fake.py >/dev/null || fail 'fake ECR did not start'
 ready=0
 for _ in $(seq 1 30); do
   if docker exec "$fake" python -c 'import socket; socket.create_connection(("127.0.0.1", 8080), 1)' 2>/dev/null; then
@@ -141,7 +161,7 @@ fake_plugin() {
 
 request "$api" CredentialProviderRequest "$ecr_image" | fake_plugin >"$work/resp" 2>"$work/resp.err" ||
   fail "get-credentials against fake ECR failed: $(cat "$work/resp.err")"
-docker run --rm --network none -v "$work/resp:/resp:ro" --entrypoint python "$python_index" -c '
+docker run --rm --network none -v "$work/resp:/resp:ro" --entrypoint python "$python_image" -c '
 import json, sys
 r = json.load(open("/resp"))
 assert r["apiVersion"] == "credentialprovider.kubelet.k8s.io/v1", r
