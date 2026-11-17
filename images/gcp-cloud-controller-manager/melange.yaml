@@ -1,0 +1,120 @@
+package:
+  name: verity-gcp-cloud-controller-manager
+  # yamllint disable-line rule:line-length
+  version: "37.2.11"  # renovate: datasource=github-tags depName=kubernetes/cloud-provider-gcp versioning=regex:^(?<major>37)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: Kubernetes cloud controller manager for Google Compute Engine
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+vars:
+  source-commit: edc96e419546f4c7510dc32b11505615f6f36cf3
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    # Upstream's Makefile, ko config, and Dockerfile build with CGO_ENABLED=0.
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/cloud-provider-gcp
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # The repository root also holds a go.work that adds the metis and e2e test
+  # modules. Their full module graph does not resolve (it requires k8s.io
+  # staging modules at v0.0.0), which the remediation scan needs. Upstream's
+  # image Dockerfile builds without go.work and the cloud-controller-manager
+  # dependency set is identical either way, so build and remediate the root
+  # module alone.
+  - runs: |
+      rm go.work go.work.sum
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cloud-controller-manager
+  # Upstream release binaries (Makefile `release`) stamp
+  # k8s.io/component-base/version with the release tag, commit, and build date
+  # with -s -w; its ko build additionally sets verflag.programName and the
+  # major, minor, and tree state. The build date is the pinned commit time so the
+  # build is reproducible, and the tree state is what git reports after the
+  # go.work removal and any remediation. Upstream's go.mod has no /v37 suffix,
+  # so Go stamps the main module with a pseudo-version of the pinned commit.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      if [ -z "$(git status --porcelain)" ]; then tree_state=clean; else tree_state=dirty; fi
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ)
+      major=${{package.version}}
+      major=${major%%.*}
+      minor=${{package.version}}
+      minor=${minor#*.}
+      minor=${minor%%.*}
+      stamp=k8s.io/component-base/version
+      ldflags="-s -w -X $stamp/verflag.programName=cloud-controller-manager"
+      ldflags="$ldflags -X $stamp.gitVersion=v${{package.version}} -X $stamp.gitCommit=$commit"
+      ldflags="$ldflags -X $stamp.gitMajor=$major -X $stamp.gitMinor=$minor"
+      ldflags="$ldflags -X $stamp.gitTreeState=$tree_state -X $stamp.buildDate=$build_date"
+      go build -trimpath -buildvcs=true -ldflags "$ldflags" \
+        -o "${{targets.destdir}}/usr/bin/cloud-controller-manager" \
+        ./cmd/cloud-controller-manager
+      "${{targets.destdir}}/usr/bin/cloud-controller-manager" --version \
+        | grep -Fx "cloud-controller-manager v${{package.version}}"
+      "${{targets.destdir}}/usr/bin/cloud-controller-manager" --version=raw \
+        | grep -F "GitCommit:\"$commit\""
+      go version -m "${{targets.destdir}}/usr/bin/cloud-controller-manager" \
+        | awk '$1 == "mod" && $2 == "k8s.io/cloud-provider-gcp" { print $3 }' \
+        | grep -E '^v0\.0\.0-[0-9]{14}-'"$(printf '%s' "$commit" | cut -c1-12)"'(\+dirty)?$'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the gcp-cloud-controller-manager build
+    pipeline:
+      - runs: |
+          for f in go.mod go.sum providers/go.mod providers/go.sum; do
+            install -Dm644 "$f" \
+              "${{targets.subpkgdir}}/usr/share/gcp-cloud-controller-manager-build/$f"
+          done
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        cloud-controller-manager --version \
+          | grep -Fx "cloud-controller-manager v${{package.version}}"
+        apk info --who-owns /usr/bin/cloud-controller-manager \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes/cloud-provider-gcp
+    strip-prefix: v
+    tag-filter-prefix: v37.
+    use-tag: true

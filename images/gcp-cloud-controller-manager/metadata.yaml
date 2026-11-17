@@ -1,0 +1,9 @@
+name: gcp-cloud-controller-manager
+track: wolfi
+description: Kubernetes cloud controller manager for Google Compute Engine. Built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes/cloud-provider-gcp
+versions: [37.2]
+flavors: [plain]
+owner: tektum
+enabled: true
