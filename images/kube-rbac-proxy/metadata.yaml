@@ -1,0 +1,10 @@
+name: kube-rbac-proxy
+track: wolfi
+description: Kubernetes RBAC proxy delegating authn and authz to the API server, built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/brancz/kube-rbac-proxy
+versions: [0.23]
+flavors: [plain]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/brancz/kube-rbac-proxy]
