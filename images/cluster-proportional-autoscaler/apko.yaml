@@ -1,0 +1,39 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - cluster-proportional-autoscaler=1.10.3-r9
+    - cluster-proportional-autoscaler-compat=1.10.3-r9
+
+# Mirror registry.k8s.io/cpa/cluster-proportional-autoscaler:v1.10.3, which runs
+# /cluster-proportional-autoscaler as 65535:65535 from /home/nonroot.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65535
+  users:
+    - username: nonroot
+      uid: 65535
+      gid: 65535
+      homedir: /home/nonroot
+  run-as: "65535:65535"
+
+entrypoint:
+  command: /cluster-proportional-autoscaler
+
+work-dir: /home/nonroot
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  HOME: /
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65535
+    gid: 65535
+    permissions: 0o755
