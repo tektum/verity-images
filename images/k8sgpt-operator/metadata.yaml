@@ -1,0 +1,9 @@
+name: k8sgpt-operator
+track: wolfi
+description: K8sGPT operator controller manager built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/k8sgpt-ai/k8sgpt-operator
+versions: [0.2]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/k8sgpt-ai/k8sgpt-operator]
