@@ -249,7 +249,8 @@ spec:
       value: 4242
 ---
 # A named time zone needs the zone database in the image; the binary does not
-# embed time/tzdata. Every day from midnight Berlin time keeps it active.
+# embed time/tzdata. A 25-hour event every day from midnight Berlin time stays
+# active through the 25-hour daylight saving day.
 apiVersion: zalando.org/v1
 kind: ScalingSchedule
 metadata:
@@ -258,7 +259,7 @@ metadata:
 spec:
   schedules:
     - type: Repeating
-      durationMinutes: 1440
+      durationMinutes: 1500
       value: 2121
       period:
         startTime: "00:00"
