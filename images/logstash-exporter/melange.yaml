@@ -1,0 +1,48 @@
+package:
+  name: logstash-exporter
+  version: "1.9.2"  # renovate: datasource=github-releases depName=kuskoman/logstash-exporter
+  epoch: 3
+  description: Prometheus exporter for the Logstash monitoring API
+  copyright:
+    - license: MIT
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kuskoman/logstash-exporter
+      tag: v${{package.version}}
+      expected-commit: ae7c433df2a80e8a6611f8e83fe4cd50e9e4bd53
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/exporter
+  - uses: go/build/v2
+    with:
+      packages: ./cmd/exporter
+      output: logstash-exporter
+      strip: -s -w
+      ldflags: >-
+        -X github.com/kuskoman/logstash-exporter/config.Version=v${{package.version}}
+        -X github.com/kuskoman/logstash-exporter/config.SemanticVersion=v${{package.version}}
+        -X github.com/kuskoman/logstash-exporter/config.GitCommit=ae7c433df2a80e8a6611f8e83fe4cd50e9e4bd53
+        -X github.com/prometheus/common/version.Version=${{package.version}}
+        -X github.com/prometheus/common/version.Revision=ae7c433df2a80e8a6611f8e83fe4cd50e9e4bd53
+        -X github.com/prometheus/common/version.Branch=HEAD
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: logstash-exporter --version 2>&1 | grep -Fx "v${{package.version}}"
