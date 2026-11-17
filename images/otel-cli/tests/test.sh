@@ -157,7 +157,8 @@ client -e OTEL_EXPORTER_OTLP_ENDPOINT="$grpc:4317" -e OTEL_EXPORTER_OTLP_INSECUR
 child_span=$(sed -n "s/^TRACEPARENT=00-$exec_trace-\([0-9a-f]\{16\}\)-01$/\1/p" "$work/exec")
 [ -n "$child_span" ] || fail "child span did not inherit the exec trace: $(cat "$work/exec")"
 
-status=$(docker wait "$grpc")
+status=$(timeout 60 docker wait "$grpc") ||
+  fail "gRPC receiver did not receive three spans: $(docker logs "$grpc" 2>&1)"
 test "$status" = 0 || fail "gRPC receiver exited $status: $(docker logs "$grpc" 2>&1)"
 docker cp "$grpc:/tmp/." "$work/grpc-out" >/dev/null 2>&1 ||
   fail 'could not copy the gRPC receiver output'
@@ -221,7 +222,8 @@ until client "$image" span \
 done
 # After --max-spans the upstream HTTP receiver reports its own shutdown as a
 # serve error and exits 1; any other exit or diagnostic is a failure.
-status=$(docker wait "$http")
+status=$(timeout 60 docker wait "$http") ||
+  fail "HTTP receiver did not receive its span: $(docker logs "$http" 2>&1)"
 docker logs "$http" 2>"$work/http-stderr" >"$work/http-stdout"
 case "$status" in
   0) ;;
