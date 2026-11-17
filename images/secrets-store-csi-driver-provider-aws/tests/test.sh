@@ -2,7 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-curl_image=docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b
+curl_index=docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b
+curl_image=
 provider=secrets-store-csi-driver-provider-aws
 work=$(mktemp -d)
 container=
@@ -26,6 +27,27 @@ fail() {
   printf 'FAIL: %s\n' "$1" >&2
   exit 1
 }
+
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+# Pulling the index itself for a second platform fails with "cannot overwrite digest".
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+curl_image=$(pull_child "$curl_index")
 
 # Upstream image contract: scratch image without USER (root), working
 # directory /, ENTRYPOINT ["/bin/secrets-store-csi-driver-provider-aws"].
