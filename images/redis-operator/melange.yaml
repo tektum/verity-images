@@ -1,0 +1,60 @@
+package:
+  name: verity-redis-operator
+  version: "0.27.0"  # renovate: datasource=github-releases depName=OT-CONTAINER-KIT/redis-operator
+  epoch: 0
+  description: Kubernetes operator for Redis standalone, cluster, replication and sentinel
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/OT-CONTAINER-KIT/redis-operator
+      tag: v${{package.version}}
+      expected-commit: 71954323c9191e6171f3eb04f80bb46a5f128306
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+  - runs: |
+      go build -trimpath -ldflags "-s -w" -o operator.bin ./cmd
+      install -m755 -D operator.bin "${{targets.destdir}}/usr/bin/operator"
+      install -m644 -D LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+  - uses: strip
+
+subpackages:
+  - name: verity-redis-operator-build-metadata
+    description: Resolved Go module metadata for the redis-operator build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/redis-operator-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/redis-operator-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/operator --help | grep -F 'Start the Redis operator manager'
+        test -s /usr/share/licenses/${{package.name}}/LICENSE

@@ -1,0 +1,34 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-redis-operator@local
+
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/operator
+
+cmd: manager
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /operator
+    type: symlink
+    source: /usr/bin/operator
+    uid: 0
+    gid: 0
+  - path: /usr/bin/operator
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
