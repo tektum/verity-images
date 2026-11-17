@@ -1,0 +1,9 @@
+name: aws-gateway-api-controller
+track: wolfi
+description: AWS Gateway API Controller for Amazon VPC Lattice, built from pinned upstream source.
+category: Service Mesh & Networking
+upstream: https://github.com/aws/aws-application-networking-k8s
+versions: [2.2]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/aws/aws-application-networking-k8s]
