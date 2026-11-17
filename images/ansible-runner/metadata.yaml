@@ -1,0 +1,10 @@
+name: ansible-runner
+track: wolfi
+description: Ansible Runner with ansible-core and OpenSSH client, assembled from Wolfi packages.
+category: CI/CD & GitOps
+upstream: https://github.com/ansible/ansible-runner
+versions: [2.4]
+owner: tektum
+enabled: true
+scan-identity: [pkg:pypi/ansible-runner]
+scan-package: py3.13-ansible-runner
