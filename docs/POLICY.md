@@ -40,8 +40,32 @@ never creates a replacement.
 ## Update cadence
 
 Image sources, image-local Go and Cargo pins, and committed APKO locks are
-reviewed inputs. They are not advanced merely because newer versions exist.
-An APKO lock refresh is explicit and targets exactly one image.
+reviewed inputs. Go, Cargo, and similar pins are not advanced merely because
+newer versions exist; they move only for security floors or an image-local
+pull request. An APKO lock refresh is explicit and targets exactly one image.
+
+A source-built image's upstream source version follows its published stream.
+The stream is the width of `versions:` in `metadata.yaml`: the melange version
+is published truncated to that many components, so `[2]` keeps every 2.x
+release in the `2` stream, `[1.11]` keeps only 1.11.x, and a full version such
+as `[0.27.4]` moves stream on every release. Renovate proposes source bumps
+(version and peeled commit together), one recipe per pull request:
+
+- An in-stream bump (patch for a `X.Y` stream; minor or patch for an `X` stream)
+  automerges through GitHub auto-merge and the merge queue. It still needs the
+  required build (which includes the smoke test and the zero-fixable scan),
+  lint, and APK checks and an approving review; nothing bypasses branch
+  protection.
+- A bump that would cross the stream or a major version, any bump of a
+  full-version, literal, or `vars.upstream-version` stream, and any bump of a
+  disabled image opens a pull request without automerge. Moving a stream is a
+  reviewed decision, like adding one.
+- Source pull requests are throttled to protect the shared runner pool: at most
+  5 open and 2 created per hour, created only off-peak (19:00-07:00 UTC), and
+  rebased only when conflicted.
+
+A stream bound in an annotation's `versioning=` regex is stricter still:
+Renovate never sees releases outside it.
 
 Human-directed vulnerability repairs use a targeted rebuild when the reviewed
 inputs can consume the candidate fix, or an image-local pull request when a

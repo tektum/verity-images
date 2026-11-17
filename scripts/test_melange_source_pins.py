@@ -21,6 +21,8 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+import gen_matrix
+
 ROOT = Path(__file__).resolve().parents[1]
 RENOVATE = ROOT / "renovate.json"
 SHA = re.compile(r"[0-9a-f]{40}")
@@ -407,6 +409,65 @@ def test_repository(manager: dict) -> tuple[int, int]:
     return literal, var
 
 
+def stream_class(path: Path) -> str:
+    """How far an in-stream source bump may go before it moves the published stream.
+
+    gen_matrix publishes the melange version truncated to the width of
+    metadata.yaml `versions:`, so `[2]` keeps every 2.x release in the 2 stream
+    ("major"), `[1.11]` keeps only 1.11.x ("minor"), and a full version such as
+    `[0.27.4]` changes stream on every release. That, a literal or
+    vars.upstream-version channel, or a disabled image the build gate skips is
+    "manual": no source bump may automerge.
+    """
+    metadata_path = path.parent / "metadata.yaml"
+    relative = path.relative_to(ROOT).as_posix()
+    if not relative.startswith("images/") or not metadata_path.is_file():
+        return "manual"
+    metadata = gen_matrix.parse_metadata(metadata_path)
+    text = path.read_text(encoding="utf-8")
+    if not metadata.enabled or gen_matrix.block_scalar(text, "vars", "upstream-version") is not None:
+        return "manual"
+    version = str(metadata.versions[0])
+    if not gen_matrix.NUMERIC_VERSION.fullmatch(version):
+        return "manual"
+    return {1: "major", 2: "minor"}.get(len(version.split(".")), "manual")
+
+
+def test_stream_rules(manager: dict) -> dict[str, int]:
+    rules = [rule for rule in json.loads(RENOVATE.read_text(encoding="utf-8"))["packageRules"]
+             if rule.get("matchDepTypes") == ["source"]]
+    major_streams = next(rule for rule in rules if rule.get("separateMinorPatch") is False)
+    patch_rule = next(rule for rule in rules if rule.get("matchUpdateTypes") == ["patch"])
+    minor_rule = next(rule for rule in rules if rule.get("matchUpdateTypes") == ["minor"])
+    assert not any("major" in rule.get("matchUpdateTypes", []) and rule.get("automerge") for rule in rules), (
+        "major source updates must never automerge"
+    )
+
+    patterns = file_patterns(manager)
+    classes: dict[str, list[str]] = {"major": [], "minor": [], "manual": []}
+    recipes = (path for top in ("images", "packages", "patched") for path in (ROOT / top).rglob("*.y*ml"))
+    for path in sorted(recipes):
+        relative = path.relative_to(ROOT).as_posix()
+        if any(pattern.search(relative) for pattern in patterns) and extract(manager, path.read_text(encoding="utf-8")):
+            classes[stream_class(path)].append(relative)
+
+    expected_major = sorted(classes["major"])
+    assert major_streams["matchFileNames"] == expected_major, (
+        "renovate.json major-version stream list must equal the source recipes whose metadata.yaml "
+        f"versions has one component and that are enabled: {expected_major}"
+    )
+    assert minor_rule["matchFileNames"] == expected_major
+    # Only images/** can automerge a patch; manual recipes there are excluded by name.
+    expected_patch = ["images/**"] + sorted(
+        f"!{relative}" for relative in classes["manual"] if relative.startswith("images/")
+    )
+    assert patch_rule["matchFileNames"] == expected_patch, (
+        "renovate.json in-stream patch exclusions must equal the enabled-image source recipes that "
+        f"cannot take an automatic bump: {expected_patch[1:]}"
+    )
+    return {name: len(paths) for name, paths in classes.items()}
+
+
 def test_manager_shape(manager: dict) -> None:
     assert manager["datasourceTemplate"] == "git-tags"
     assert manager["packageNameTemplate"] == "{{{repository}}}"
@@ -421,7 +482,11 @@ def main() -> None:
     test_manager_shape(manager)
     test_fixtures(manager)
     literal, var = test_repository(manager)
-    print(f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins)")
+    streams = test_stream_rules(manager)
+    print(
+        f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins; "
+        f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams)"
+    )
 
 
 if __name__ == "__main__":

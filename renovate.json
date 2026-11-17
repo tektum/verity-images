@@ -88,11 +88,100 @@
       "labels": ["security-floor", "review-required"]
     },
     {
-      "description": "Melange source version and commit pairs stay disabled by the rule above (docs/POLICY.md). Never automerge them or route them through the security-floor validator if that policy changes.",
+      "description": "Melange source version and commit pairs (docs/POLICY.md#update-cadence). One recipe per pull request, throttled for the runner pool, created off-peak, and never routed through the security-floor validator. Defaults to no automerge; the rules below opt in only updates that stay inside the published stream.",
       "matchDepTypes": ["source"],
+      "enabled": true,
       "automerge": false,
-      "platformAutomerge": false,
-      "labels": ["review-required"]
+      "platformAutomerge": true,
+      "labels": ["source-update", "review-required"],
+      "groupName": null,
+      "separateMinorPatch": true,
+      "additionalBranchPrefix": "source/{{{packageFileDir}}}/",
+      "commitMessageTopic": "{{{depName}}} source for {{{packageFileDir}}}",
+      "rebaseWhen": "conflicted",
+      "prConcurrentLimit": 5,
+      "prHourlyLimit": 2,
+      "schedule": ["* 19-23 * * *", "* 0-6 * * *"]
+    },
+    {
+      "description": "Major-version streams (metadata.yaml versions: [N]) publish minor updates in the same stream, so do not split minor from patch.",
+      "matchDepTypes": ["source"],
+      "matchFileNames": [
+        "images/apko/melange.yaml",
+        "images/chisel/melange.yaml",
+        "images/cosign/melange.yaml",
+        "images/deno/melange.yaml",
+        "images/docker-compose/melange.yaml",
+        "images/gh/melange.yaml",
+        "images/http-echo/melange.yaml",
+        "images/jaeger/melange.yaml",
+        "images/opa/melange.yaml",
+        "images/opensearch/2/melange.yaml",
+        "images/opensearch/3/melange.yaml",
+        "images/proxysql/melange.yaml",
+        "images/ratify/melange.yaml",
+        "images/ripgrep/melange.yaml",
+        "images/solr/melange.yaml",
+        "images/vitess/melange.yaml",
+        "images/x509-certificate-exporter/melange.yaml",
+        "images/yq/melange.yaml"
+      ],
+      "separateMinorPatch": false
+    },
+    {
+      "description": "In-stream patch updates automerge through GitHub auto-merge (merge queue, required checks and review still apply). Excluded recipes publish their full version as the stream (metadata.yaml versions: [X.Y.Z]) or are disabled, so no source bump stays in their stream or passes the build gate.",
+      "matchDepTypes": ["source"],
+      "matchUpdateTypes": ["patch"],
+      "matchFileNames": [
+        "images/**",
+        "!images/caddy/melange.yaml",
+        "!images/clickhouse-operator-metrics-exporter/melange.yaml",
+        "!images/clickhouse-operator/melange.yaml",
+        "!images/cortex/melange.yaml",
+        "!images/eck-operator/melange.yaml",
+        "!images/grafana-image-renderer/melange.yaml",
+        "!images/kaniko/melange.yaml",
+        "!images/ko/melange.yaml",
+        "!images/logstash-exporter/melange.yaml",
+        "!images/metallb-controller/melange.yaml",
+        "!images/mysqld-exporter/melange.yaml",
+        "!images/nginx-prometheus-exporter/melange.yaml",
+        "!images/postgres-exporter/melange.yaml",
+        "!images/postgres-operator/melange.yaml",
+        "!images/qdrant/melange.yaml",
+        "!images/redis-exporter/melange.yaml",
+        "!images/secrets-store-csi-driver/melange.yaml",
+        "!images/statsd-exporter/melange.yaml"
+      ],
+      "automerge": true,
+      "labels": ["source-update", "in-stream", "review-required"]
+    },
+    {
+      "description": "In-stream minor updates automerge only for major-version streams (metadata.yaml versions: [N]).",
+      "matchDepTypes": ["source"],
+      "matchUpdateTypes": ["minor"],
+      "matchFileNames": [
+        "images/apko/melange.yaml",
+        "images/chisel/melange.yaml",
+        "images/cosign/melange.yaml",
+        "images/deno/melange.yaml",
+        "images/docker-compose/melange.yaml",
+        "images/gh/melange.yaml",
+        "images/http-echo/melange.yaml",
+        "images/jaeger/melange.yaml",
+        "images/opa/melange.yaml",
+        "images/opensearch/2/melange.yaml",
+        "images/opensearch/3/melange.yaml",
+        "images/proxysql/melange.yaml",
+        "images/ratify/melange.yaml",
+        "images/ripgrep/melange.yaml",
+        "images/solr/melange.yaml",
+        "images/vitess/melange.yaml",
+        "images/x509-certificate-exporter/melange.yaml",
+        "images/yq/melange.yaml"
+      ],
+      "automerge": true,
+      "labels": ["source-update", "in-stream", "review-required"]
     }
   ]
 }

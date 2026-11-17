@@ -337,13 +337,16 @@ Renovate runs from two configurations. The Renovate GitHub app reads
 (`.github/workflows/renovate.yaml`) reads only `.github/renovate-apk.json`
 through `.github/renovate-global.json`.
 
-Image inputs are not advanced merely because newer versions exist (see
+Image security floors and other pins are not advanced merely because newer
+versions exist, but source-built images follow their published stream (see
 `docs/POLICY.md`). `renovate.json` therefore disables every ordinary update
-type under `images/**`, `packages/**`, and `patched/**`. The only Renovate pull
-requests for those paths are OSV vulnerability alerts on annotated security
-floors (Go, npm, crate, Maven, and similar pins). OSV has no advisories for git
-or GitHub tag sources, so Renovate does not open source version bumps; those are
-image-local pull requests. Keep external sources in these layouts:
+type under `images/**`, `packages/**`, and `patched/**` except melange source
+dependencies (dependency type `source`). Renovate opens two kinds of pull
+requests for those paths: OSV vulnerability alerts on annotated security floors
+(Go, npm, crate, Maven, and similar pins), and source version bumps, one recipe
+per pull request. In-stream source bumps automerge after the required checks and
+review; stream-crossing and major bumps wait for a reviewer to merge them.
+Keep external sources in these layouts:
 
 - A patched image must declare adjacent `image:` and `digest:` lines in
   `patched/<name>/source.yaml`. Keep the intended major version in the image
@@ -394,14 +397,36 @@ their reviewed `apko.lock.json` remains the update boundary, refreshed by
   unpinned package drift.
 
 Update policy lives in `renovate.json`, not in a second copy of a version
-string. A stream boundary lives in the annotation's `versioning=` regex (for
-example `regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$`), not in duplicated
-`allowedVersions` strings, and a nested `images/<name>/<stream>/` directory is
-the structural signal for a parallel stream. Melange source dependencies carry
-the dependency type `source`, and their own package rule keeps them out of
-automerge and out of the security-floor path. A policy change that lets
-Renovate propose source bumps sets `enabled: true` on that rule and touches
-nothing else.
+string. A hard stream boundary lives in the annotation's `versioning=` regex
+(for example `regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$`), not in
+duplicated `allowedVersions` strings; Renovate never sees releases outside it.
+A nested `images/<name>/<stream>/` directory is the structural signal for a
+parallel stream.
+
+Melange source dependencies carry the dependency type `source` and their own
+package rules, which keep them off the security-floor path. The published stream
+is the width of `versions:` in `metadata.yaml`, and it decides what may
+automerge:
+
+- `versions: [X.Y]` (the default): patch bumps automerge; minor and major bumps
+  open a pull request without automerge. Minor and patch are separate pull
+  requests so a patch is never held behind a stream change.
+- `versions: [X]`: patch and minor bumps automerge; major bumps open a pull
+  request without automerge. The recipe must be listed in the major-stream
+  rules of `renovate.json`.
+- `versions: [X.Y.Z]`, a literal or `vars.upstream-version` channel, or
+  `enabled: false`: no bump automerges, because each one moves the published
+  version or skips the build gate. The recipe must be excluded by name from the
+  in-stream patch rule.
+
+`scripts/test_melange_source_pins.py` derives both lists from `metadata.yaml`
+and fails lint when `renovate.json` disagrees, so a new image, a changed
+`versions:` width, or a disabled image needs the matching `renovate.json` edit
+in the same pull request. Automerge means GitHub auto-merge through the merge
+queue: the `lint`, `build-gate` (build, smoke test, zero-fixable scan), and
+`apk-gate` checks and an approving review still apply. To protect the runner
+pool, source pull requests are capped at 5 open and 2 created per hour, are
+created only between 19:00 and 07:00 UTC, and are rebased only on conflict.
 
 Versioned `go get` overrides are compatibility constraints rather than upstream
 image versions. A Go module major upgrade changes its import path and requires a
