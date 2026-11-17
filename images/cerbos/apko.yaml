@@ -1,0 +1,55 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-cerbos@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+# Upstream runs ENTRYPOINT ["/cerbos"] with CMD ["server"] from /, with
+# CERBOS_CONFIG=__default__. The default configuration serves HTTP on :3592 and
+# gRPC on :3593 and reads disk policies from ./policies, so the working
+# directory stays / to keep /policies as the policy mount point.
+entrypoint:
+  command: /usr/bin/cerbos
+
+cmd: server
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/nonroot
+  CERBOS_CONFIG: __default__
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /policies
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
