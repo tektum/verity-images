@@ -8,8 +8,8 @@ set -eu
 # network namespace, so nothing is published on the host.
 
 image=${1:?usage: test.sh IMAGE}
-apko="$(dirname "$0")/../apko.yaml"
-expected_version=$(sed -n 's/^[[:space:]]*- kubernetes-csi-livenessprobe=\([0-9][0-9.]*\)-r[0-9][0-9]*$/\1/p' "$apko")
+recipe="$(dirname "$0")/../melange.yaml"
+expected_version=$(sed -n 's/^  version: "\([0-9][0-9.]*\)".*$/\1/p' "$recipe")
 driver_index='registry.k8s.io/sig-storage/hostpathplugin:v1.17.0@sha256:e20e2681349cb892bc88d8ab23c6785949bdb7e9b518bf3a261b5f13034f8b3b'
 curl_index='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 label="verity-test=csi-livenessprobe-$$"
