@@ -136,8 +136,46 @@ sys.exit(2)
 EOF
 chmod -R a+rX "$work"
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest, verifying the
+# index bytes against the pin first. publish-image runs this test once per platform on one
+# host, and a classic Docker image store cannot bind an index digest to a second platform.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+python_image=$(pull_child "$python_index") || exit 1
+[ -n "$python_image" ] || fail "cannot resolve $python_index"
+
 docker run -d --label "$label" --name "$backend" --network none -v "$work:/tls:ro" \
-  "$python_index" /tls/echo.py >/dev/null || fail 'backend did not start'
+  "$python_image" /tls/echo.py >/dev/null || fail "backend did not start ($python_image)"
+
+# Bounded readiness: the backend must be running and listening on 127.0.0.1:7000.
+ready=
+i=0
+while [ $i -lt 30 ]; do
+  [ "$(docker inspect -f '{{.State.Running}}' "$backend" 2>/dev/null)" = true ] ||
+    fail 'backend exited before it was ready'
+  if docker run --rm --label "$label" --network "container:$backend" "$python_image" \
+    -c 'import socket; socket.create_connection(("127.0.0.1", 7000), timeout=2).close()' >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  i=$((i + 1))
+  sleep 1
+done
+[ -n "$ready" ] || fail 'backend did not listen on 127.0.0.1:7000 within 30s'
 
 for name in server client untrusted; do
   docker run -d --label "$label" --name "verity-stunnel-$name-$$" --network "container:$backend" \
@@ -146,7 +184,7 @@ done
 
 probe() {
   docker run --rm --label "$label" --network "container:$backend" -v "$work:/tls:ro" \
-    "$python_index" /tls/probe.py "$@"
+    "$python_image" /tls/probe.py "$@"
 }
 
 # Direct TLS client verifies the server certificate against the test CA.
