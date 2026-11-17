@@ -1,0 +1,9 @@
+name: csi-snapshotter
+track: wolfi
+description: Kubernetes CSI external-snapshotter sidecar driving CSI snapshot RPCs. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/external-snapshotter
+versions: [8.7]
+flavors: [plain]
+owner: tektum
+enabled: true
