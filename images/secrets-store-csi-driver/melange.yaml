@@ -1,0 +1,80 @@
+package:
+  name: verity-secrets-store-csi-driver
+  # yamllint disable-line rule:line-length
+  version: "1.6.2"  # renovate: datasource=github-releases depName=kubernetes-sigs/secrets-store-csi-driver versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Secrets Store CSI Driver node plugin
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      # Upstream installs util-linux mount for the kubelet mount-utils calls.
+      - mount
+      - umount
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/secrets-store-csi-driver
+      tag: v${{package.version}}
+      # The release tag is annotated; this is the peeled commit it points to.
+      expected-commit: 10cd116be04e012b283c0811618b182b20741e89
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/secrets-store-csi-driver
+
+  - runs: |
+      repo=sigs.k8s.io/secrets-store-csi-driver/pkg/version
+      build_time=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%d-%H:%M)
+      commit=$(git rev-parse HEAD)
+      go build -mod=readonly -trimpath \
+        -ldflags="-s -w -X $repo.BuildTime=$build_time \
+          -X $repo.BuildVersion=v${{package.version}} -X $repo.Vcs=$commit" \
+        -o "${{targets.destdir}}/usr/bin/secrets-store-csi" \
+        ./cmd/secrets-store-csi-driver
+      "${{targets.destdir}}/usr/bin/secrets-store-csi" --version \
+        | grep -F '"BuildVersion":"v${{package.version}}"'
+      # Upstream image contract: ENTRYPOINT ["/secrets-store-csi"].
+      ln -s usr/bin/secrets-store-csi "${{targets.destdir}}/secrets-store-csi"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: verity-secrets-store-csi-driver-build-metadata
+    description: Resolved Go module metadata for the Secrets Store CSI Driver build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        secrets-store-csi --version | grep -F '"BuildVersion":"v${{package.version}}"'
+        /secrets-store-csi --version >/dev/null
+        apk info --who-owns /usr/bin/secrets-store-csi \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -f /usr/share/licenses/${{package.name}}/LICENSE

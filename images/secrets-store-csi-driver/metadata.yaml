@@ -1,0 +1,10 @@
+name: secrets-store-csi-driver
+track: wolfi
+description: Secrets Store CSI Driver node plugin built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/kubernetes-sigs/secrets-store-csi-driver
+versions: [1.6.2]
+owner: tektum
+enabled: true
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:golang/sigs.k8s.io/secrets-store-csi-driver]

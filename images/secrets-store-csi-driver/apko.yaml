@@ -1,0 +1,24 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-secrets-store-csi-driver@local
+
+# Upstream runs the node plugin as root: it bind-mounts secrets into kubelet
+# pod volumes and creates the CSI socket under the kubelet plugin directory.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /secrets-store-csi
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
