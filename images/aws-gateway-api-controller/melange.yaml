@@ -1,0 +1,106 @@
+package:
+  name: verity-aws-gateway-api-controller
+  # yamllint disable-line rule:line-length
+  version: "2.2.0"  # renovate: datasource=github-releases depName=aws/aws-application-networking-k8s extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: AWS Gateway API Controller for Amazon VPC Lattice
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aws/aws-application-networking-k8s
+      tag: v${{package.version}}
+      expected-commit: 41cacd0deb6709e52af20bcbf83d0ba097eaf4a2
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/aws-application-networking-k8s
+
+  # Same main package and -X stamp as the upstream Dockerfile, which builds
+  # cmd/aws-application-networking-k8s/main.go with CGO disabled and sets
+  # pkg/aws.Version (sent in the AWS user agent) to the release tag.
+  # The module path has no /v2 suffix, so Go cannot stamp the v2 tag and would
+  # report a date pseudo-version that matches every GHSA range for the module.
+  # Build without VCS stamping; metadata.yaml declares the module purl,
+  # versioned from package.version, for the scanner.
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -ldflags="-s -w \
+          -X github.com/aws/aws-application-networking-k8s/pkg/aws.Version=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/aws-gateway-api-controller" \
+        ./cmd/aws-application-networking-k8s
+      go version -m "${{targets.destdir}}/usr/bin/aws-gateway-api-controller" \
+        | awk '$1 == "mod" && $2 == "github.com/aws/aws-application-networking-k8s" { print $3 }' \
+        | grep -Fx '(devel)'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the AWS Gateway API Controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/aws-gateway-api-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/aws-gateway-api-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        aws-gateway-api-controller --help 2>&1 | grep -F -- '-health-probe-bind-address'
+        if out=$(CLUSTER_VPC_ID=vpc-1 REGION=us-west-2 AWS_ACCOUNT_ID=123456789012 \
+          CLUSTER_NAME=t RECONCILE_DEFAULT_RESYNC_SECONDS=5 \
+          aws-gateway-api-controller 2>&1); then
+          echo 'controller unexpectedly started with an invalid resync interval' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F 'must be 0 (disabled) or at least 60 seconds'
+        apk info --who-owns /usr/bin/aws-gateway-api-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: aws/aws-application-networking-k8s
+    strip-prefix: v
+    use-tag: true
