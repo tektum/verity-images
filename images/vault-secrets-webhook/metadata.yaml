@@ -1,0 +1,8 @@
+name: vault-secrets-webhook
+track: wolfi
+description: Bank-Vaults admission webhook injecting Vault secrets into Kubernetes workloads, built from pinned source.
+category: Security & Identity
+upstream: https://github.com/bank-vaults/vault-secrets-webhook
+versions: [1.23]
+owner: tektum
+enabled: true
