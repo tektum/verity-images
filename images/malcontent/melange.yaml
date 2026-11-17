@@ -1,0 +1,98 @@
+package:
+  name: verity-malcontent
+  # yamllint disable-line rule:line-length
+  version: "1.28.1"  # renovate: datasource=github-releases depName=chainguard-dev/malcontent versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Malcontent supply-chain malware and capability analyzer
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 4Gi
+
+vars:
+  source-commit: 0753bc57f87e27e2dd5152c6a21da60ca192b4a9
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - pkgconf
+      - python3
+      # YARA-X C API that github.com/VirusTotal/yara-x/go links through cgo.
+      - yara-x
+  environment:
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/chainguard-dev/malcontent
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Wolfi malcontent-1.28.1-r1 carries golang.org/x/crypto v0.58.0
+  # (GO-2026-5932); go/remediate raises it and any other module with a released
+  # fix in this source build.
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/mal
+
+  - runs: |
+      bin="${{targets.destdir}}/usr/bin/mal"
+      stamp="-X main.BuildVersion=v${{package.version}}"
+      stamp="$stamp -X github.com/chainguard-dev/malcontent/pkg/release.BuildCommit=${{vars.source-commit}}"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" -o "$bin" ./cmd/mal
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/chainguard-dev/malcontent" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the malcontent build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/malcontent-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/malcontent-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        mal --version | grep -Fx 'malcontent version v${{package.version}}'
+        apk info --who-owns /usr/bin/mal \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: chainguard-dev/malcontent
+    strip-prefix: v
