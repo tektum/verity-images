@@ -1,0 +1,9 @@
+name: prometheus-adapter
+track: wolfi
+description: Kubernetes custom and external metrics API server backed by Prometheus.
+category: Monitoring & Observability
+upstream: https://github.com/kubernetes-sigs/prometheus-adapter
+versions: [0.12]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/sigs.k8s.io/prometheus-adapter]
