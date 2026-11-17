@@ -1,0 +1,112 @@
+package:
+  name: verity-secrets-store-csi-driver-provider-aws
+  # yamllint disable-line rule:line-length
+  version: "3.1.4"  # renovate: datasource=github-releases depName=aws/secrets-store-csi-driver-provider-aws versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: AWS Secrets Manager and SSM Parameter Store provider for the Secrets Store CSI Driver
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aws/secrets-store-csi-driver-provider-aws
+      tag: ${{package.version}}
+      # The release tag is lightweight; this is the commit it names.
+      expected-commit: a8f9f58f9dc951766134cc60a04c00b2c1a67a6a
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Same main package and -X stamps as the upstream Makefile LDFLAGS: Version is
+  # returned by the Version RPC, ProviderVersion is the AWS SDK user agent.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      stamp=github.com/aws/secrets-store-csi-driver-provider-aws/server
+
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X $stamp.Version=${{package.version}} \
+          -X $stamp.ProviderVersion=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/secrets-store-csi-driver-provider-aws" .
+
+      # Upstream tags carry no v prefix and the module path has no /v3 suffix,
+      # so Go stamps the scanned main module with the pinned commit's
+      # pseudo-version; no advisory feed tracks this module (no GHSA, OSV, or
+      # NVD CPE).
+      short=$(printf '%s' "$commit" | cut -c1-12)
+      go version -m "${{targets.destdir}}/usr/bin/secrets-store-csi-driver-provider-aws" \
+        | awk '$1 == "mod" && $2 == "github.com/aws/secrets-store-csi-driver-provider-aws" { print $3 }' \
+        | grep -E "^v0\.0\.0-[0-9]{14}-$short(\+dirty)?\$"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the AWS Secrets Store CSI provider build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-provider-aws-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-provider-aws-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        bin=/usr/bin/secrets-store-csi-driver-provider-aws
+        $bin --help 2>&1 | grep -F -- '-provider-volume'
+        # The provider logs its stamped version, then must fail closed outside a
+        # cluster after creating its socket.
+        dir=$(mktemp -d)
+        if out=$($bin --provider-volume="$dir" 2>&1); then
+          echo 'provider unexpectedly started without in-cluster config' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F 'version ${{package.version}}'
+        printf '%s\n' "$out" | grep -F 'Can not get cluster config'
+        apk info --who-owns $bin \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: aws/secrets-store-csi-driver-provider-aws
+    use-tag: true

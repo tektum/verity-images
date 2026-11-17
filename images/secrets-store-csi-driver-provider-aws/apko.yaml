@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-secrets-store-csi-driver-provider-aws@local
+
+# Upstream runs the provider as root (scratch image, no USER): it creates its
+# 0700 gRPC socket in the hostPath provider directory shared with the root
+# Secrets Store CSI Driver and writes secrets into kubelet pod volumes.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /bin/secrets-store-csi-driver-provider-aws
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
