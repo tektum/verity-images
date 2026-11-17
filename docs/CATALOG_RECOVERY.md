@@ -32,7 +32,10 @@ the last main commit touching its inputs to find stale records.
 
 When `build-gate` fails on a main push, `catalog-catch-up` dispatches `build.yaml`
 with `base-sha` set to the trusted base above, so every image changed since
-then is rebuilt. A cancelled native-arm64 or publish job on main (for example stall-guard cancelling the
+then is rebuilt. Like a main push, the recovery run generates its matrix with
+`--published catalog.json`, so an image whose published record already matches its
+candidate inputs is skipped rather than rebuilt; only a dispatch without `base-sha`
+runs the age-bounded full rebuild. A cancelled native-arm64 or publish job on main (for example stall-guard cancelling the
 run) fails `build-gate` for this reason. The recovery run is a `workflow_dispatch`
 run and `catalog-catch-up` only runs for `push`, so a cancelled or failed catch-up
 run does not dispatch another one; recover it manually below. If no successful main

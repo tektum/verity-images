@@ -47,6 +47,7 @@ jobs:
       contents: read
     outputs:
       images: ${{ steps.generate.outputs.images }}
+      count: ${{ steps.generate.outputs.count }}
       native: ${{ steps.native.outputs.images }}
     steps:
       - name: Check out repository
@@ -74,7 +75,10 @@ jobs:
           BASE_SHA: >-
             ${{ inputs['base-sha'] || github.event.pull_request.base.sha ||
             github.event.merge_group.base_sha || github.event.before }}
+        # The matrix stays in "$RUNNER_TEMP/images.json": a full matrix exceeds the per-string
+        # execve limit (128 KiB), so passing it through env or argv fails to start the process.
         run: |
+          images="$RUNNER_TEMP/images.json"
           if [[ "$EVENT" == push && "$REF" == refs/heads/main ]]; then
             # github.event.before is not a delta base: GitHub keeps one pending run per
             # concurrency group, so a replaced pending run never builds its commits.
@@ -88,27 +92,32 @@ jobs:
             }
             args=(--remediate "$IMAGE")
             [[ ! -f catalog.json ]] || args+=(--catalog catalog.json --max-age-hours 24)
-            matrix=$(python3 scripts/gen_matrix.py "${args[@]}")
-          elif [[ "$EVENT" == workflow_dispatch && -f catalog.json ]]; then
-            matrix=$(python3 scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24)
+            python3 scripts/gen_matrix.py "${args[@]}" > "$images"
+          elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" && -f catalog.json ]]; then
+            python3 scripts/gen_matrix.py --all --catalog catalog.json --max-age-hours 24 > "$images"
           elif [[ "$EVENT" == workflow_dispatch && -z "$BASE_SHA" ]]; then
-            matrix=$(python3 scripts/gen_matrix.py --all)
+            python3 scripts/gen_matrix.py --all > "$images"
           elif [[ "$REF" == refs/heads/main && -f catalog.json ]]; then
             # A published identity that no longer matches any image is rebuilt here,
             # so a version-authority change cannot wait for an unrelated image push.
-            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json)
+            # A base-sha recovery dispatch prunes the same way, so it never rebuilds
+            # images whose published record already matches the candidate inputs.
+            python3 scripts/gen_matrix.py --changed "$BASE_SHA" --published catalog.json > "$images"
           else
-            matrix=$(python3 scripts/gen_matrix.py --changed "$BASE_SHA")
+            python3 scripts/gen_matrix.py --changed "$BASE_SHA" > "$images"
           fi
-          printf 'images=%s\n' "$matrix" >> "$GITHUB_OUTPUT"
+          count=$(jq '.include | length' "$images")
+          {
+            printf 'images='
+            cat "$images"
+            printf 'count=%s\n' "$count"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Select source-built images
         id: native
         shell: bash
-        env:
-          IMAGES: ${{ steps.generate.outputs.images }}
         run: |
-          native=$(jq -c '{include: [.include[] | select(.source_built)]}' <<<"$IMAGES")
+          native=$(jq -c '{include: [.include[] | select(.source_built)]}' "$RUNNER_TEMP/images.json")
           printf 'images=%s\n' "$native" >> "$GITHUB_OUTPUT"
 
   native-arm64:
@@ -316,7 +325,7 @@ jobs:
         shell: bash
         env:
           EVENT: ${{ github.event_name }}
-          IMAGES: ${{ needs.matrix.outputs.images }}
+          IMAGE_COUNT: ${{ needs.matrix.outputs.count }}
           MATRIX_RESULT: ${{ needs.matrix.result }}
           NATIVE_RESULT: ${{ needs.native-arm64.result }}
           PUBLISH_RESULT: ${{ needs.publish.result }}
@@ -329,7 +338,8 @@ jobs:
             [[ "$PUBLISH_RESULT" == skipped ]]
             exit 0
           fi
-          [[ "$(jq '.include | length' <<<"$IMAGES")" -eq 0 ]] && exit 0
+          [[ "$IMAGE_COUNT" =~ ^[0-9]+$ ]]
+          [[ "$IMAGE_COUNT" -eq 0 ]] && exit 0
           if [[ "$EVENT" == pull_request || "$GITHUB_REF" != refs/heads/main ]]; then
             [[ "$VALIDATE_RESULT" == success ]]
           elif [[ "$NATIVE_RESULT" == cancelled || "$PUBLISH_RESULT" == cancelled ]]; then
