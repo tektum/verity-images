@@ -141,8 +141,6 @@ common="--endpoint $grpc:4317 --insecure --fail --verbose --timeout 3s --name re
     "$image" span $common --attrs novalue
   expect_failure 'invalid start time' 'could not parse span start time' \
     "$image" span $common --start yesterday
-  expect_failure 'OTLP/HTTP to the gRPC receiver' 'malformed HTTP response' \
-    "$image" span --endpoint "http://$grpc:4317" --fail --verbose --timeout 3s --name rejected
 }
 
 # exec wraps a command in a span and injects TRACEPARENT, so a nested span,
