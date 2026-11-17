@@ -37,17 +37,17 @@ pipeline:
     with:
       modroot: .
       packages: ./cmd/livenessprobe
+  # The module path has no /v2 suffix, so Go cannot stamp the v2 tag and would
+  # report a date pseudo-version. Build without VCS stamping; metadata.yaml
+  # declares the module purl, versioned from package.version, for the scanner.
   - runs: |
-      go build -mod=vendor -trimpath -buildvcs=true \
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=vendor -trimpath -buildvcs=false \
         -ldflags="-s -w -X main.version=v${{package.version}}" \
         -o "${{targets.destdir}}/usr/bin/livenessprobe" ./cmd/livenessprobe
-      # The module path has no /v2 suffix, so Go cannot stamp the v2 tag as the
-      # main module version; guard on the pinned source revision instead.
       go version -m "${{targets.destdir}}/usr/bin/livenessprobe" \
-        | awk '$1 == "build" && $2 ~ /^vcs\.revision=/ { sub(/^vcs\.revision=/, "", $2); print $2 }' \
-        | grep -Fx '${{vars.source-commit}}'
-      go version -m "${{targets.destdir}}/usr/bin/livenessprobe" \
-        | awk '$1 == "path" { print $2 }' | grep -Fx github.com/kubernetes-csi/livenessprobe/cmd/livenessprobe
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/kubernetes-csi/livenessprobe/cmd/livenessprobe
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
