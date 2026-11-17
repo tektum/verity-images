@@ -65,8 +65,6 @@ pipeline:
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
-  - uses: strip
-
 test:
   environment:
     contents:
