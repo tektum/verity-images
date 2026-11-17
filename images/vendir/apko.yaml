@@ -1,13 +1,15 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - busybox
     - ca-certificates-bundle
     - git
-    - vendir=0.47.0-r0
+    - verity-vendir@local
 
 accounts:
   groups:

@@ -7,8 +7,8 @@ set -eu
 # Containers run as the invoking user so the host can clean up the work tree.
 
 image=${1:?usage: test.sh IMAGE}
-expected_version=$(sed -n 's/^[[:space:]]*- vendir=\([0-9][0-9.]*\)-r[0-9][0-9]*$/\1/p' \
-  "$(dirname "$0")/../apko.yaml")
+expected_version=$(sed -n 's/^  version: "\([0-9][0-9.]*\)".*$/\1/p' \
+  "$(dirname "$0")/../melange.yaml")
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT
 user="$(id -u):$(id -g)"
