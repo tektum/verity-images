@@ -1,0 +1,115 @@
+package:
+  name: verity-vault-env
+  # yamllint disable-line rule:line-length
+  version: "1.23.0"  # renovate: datasource=github-releases depName=bank-vaults/vault-env versioning=regex:^(?<major>1)\.(?<minor>23)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Bank-Vaults vault-env, which injects Vault secrets into a process environment
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: d7454802bed4e48b1df83071eaf3c6129c1a83b4
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/bank-vaults/vault-env
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Upstream's Dockerfile and GoReleaser build `go build -ldflags "-s -w"` with
+  # CGO_ENABLED=0; releases stamp main.Version with the bare version.
+  # The webhook's copy-vault-env init container runs
+  # `sh -c "cp /usr/local/bin/vault-env /vault/"`, so the binary lives at the
+  # upstream image path.
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.Version=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/local/bin/vault-env" .
+      go version -m "${{targets.destdir}}/usr/local/bin/vault-env" >build-info
+      awk '$1 == "mod" && $2 == "github.com/bank-vaults/vault-env" { print $3 }' build-info \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      grep -F -- '-X main.Version=${{package.version}}' build-info
+      grep -Fx '	build	CGO_ENABLED=0' build-info
+      grep -Fx '	build	vcs.revision=${{vars.source-commit}}' build-info
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the vault-env build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/vault-env-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/vault-env-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        apk info --who-owns /usr/local/bin/vault-env \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        test -s "/usr/share/licenses/${{package.name}}/NOTICE"
+        # Without a command vault-env cannot determine the entrypoint.
+        if /usr/local/bin/vault-env >out 2>&1; then
+          echo 'vault-env without a command unexpectedly succeeded' >&2
+          exit 1
+        fi
+        grep -F 'no command is given' out
+        # Without vault: references the command is exec'd unchanged and the
+        # VAULT_* client settings are removed from its environment. vault-env
+        # also logs to stdout, so match the child's line exactly.
+        env -i PATH=/usr/bin:/bin VAULT_ADDR=http://127.0.0.1:9 \
+          VAULT_TOKEN=unused FOO=plain \
+          /usr/local/bin/vault-env sh -c 'echo "$FOO:${VAULT_TOKEN:-unset}"' >out
+        grep -Fx plain:unset out
+
+update:
+  enabled: true
+  github:
+    identifier: bank-vaults/vault-env
+    strip-prefix: v
+    tag-filter-prefix: v1.23.
+    use-tag: true

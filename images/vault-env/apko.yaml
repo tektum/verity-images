@@ -1,0 +1,28 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    # The vault-secrets-webhook copy-vault-env init container runs
+    # `sh -c "cp /usr/local/bin/vault-env /vault/"` in this image, so it needs
+    # a shell and cp, as upstream's Alpine base provides via busybox.
+    - busybox
+    - ca-certificates-bundle
+    - tzdata
+    - verity-vault-env@local
+
+# Upstream runs as USER 65534 (nobody).
+accounts:
+  run-as: 65534
+
+# Upstream sets no entrypoint and inherits Alpine's CMD ["/bin/sh"]. The webhook
+# always supplies the container command, and the copied /vault/vault-env wraps
+# the application command in the mutated container.
+cmd: /bin/sh
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
