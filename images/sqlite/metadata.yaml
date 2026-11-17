@@ -1,0 +1,10 @@
+name: sqlite
+track: wolfi
+description: SQLite command-line shell with the embedded SQLite C library, assembled from Wolfi packages.
+category: Databases & Caching
+upstream: https://sqlite.org/
+versions: [3.54]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:sqlite:sqlite]
+scan-package: sqlite
