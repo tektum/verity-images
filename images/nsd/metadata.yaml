@@ -1,0 +1,10 @@
+name: nsd
+track: wolfi
+description: NLnet Labs NSD authoritative-only DNS server with nsd-checkconf and nsd-checkzone.
+category: Service Mesh & Networking
+upstream: https://github.com/NLnetLabs/nsd
+versions: [4.15]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:nlnetlabs:nsd]
+scan-package: nsd
