@@ -106,8 +106,30 @@ printf '%s  %s\n' "$opensc_sha256" "$work/opensc.tar.gz" | sha256sum -c - >/dev/
 chmod 0755 "$work"
 chmod 0644 "$work/opensc.tar.gz"
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest. A
+# classic Docker image store cannot bind an index digest to a second platform's
+# image, so the index bytes are verified against the pin before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+builder_image=$(pull_child "$wolfi_base")
+
 docker run -d --name "$builder" -v "$work/opensc.tar.gz:/src/opensc.tar.gz:ro" \
-  -v "$tools:/opt/opensc" --entrypoint sleep "$wolfi_base" infinity >/dev/null ||
+  -v "$tools:/opt/opensc" --entrypoint sleep "$builder_image" infinity >/dev/null ||
   fail 'could not start the Wolfi builder container'
 docker exec "$builder" sh -euc '
   printf "https://packages.wolfi.dev/os\n" >/etc/apk/repositories
