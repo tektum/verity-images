@@ -1,0 +1,89 @@
+package:
+  name: verity-csi-node-driver-registrar
+  # yamllint disable-line rule:line-length
+  version: "2.18.0"  # renovate: datasource=github-releases depName=kubernetes-csi/node-driver-registrar versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: CSI sidecar that registers a CSI driver with the kubelet plugin watcher
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 6f4e96f4222783370e4d2f3e3fc733b49c194a5f
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-csi/node-driver-registrar
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/csi-node-driver-registrar
+  # The module path has no /v2 suffix, so Go cannot stamp the v2 tag and would
+  # report a date pseudo-version. Build without VCS stamping; metadata.yaml
+  # declares the module purl, versioned from package.version, for the scanner.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=vendor -trimpath -buildvcs=false \
+        -ldflags="-s -w -X main.version=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/csi-node-driver-registrar" \
+        ./cmd/csi-node-driver-registrar
+      go version -m "${{targets.destdir}}/usr/bin/csi-node-driver-registrar" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/kubernetes-csi/node-driver-registrar/cmd/csi-node-driver-registrar
+      "${{targets.destdir}}/usr/bin/csi-node-driver-registrar" --version \
+        | grep -Fx "${{targets.destdir}}/usr/bin/csi-node-driver-registrar v${{package.version}}"
+      # Upstream image contract: ENTRYPOINT ["/csi-node-driver-registrar"].
+      ln -s usr/bin/csi-node-driver-registrar \
+        "${{targets.destdir}}/csi-node-driver-registrar"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the node-driver-registrar build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/csi-node-driver-registrar-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 vendor/modules.txt "$dir/modules.txt"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        csi-node-driver-registrar --version | grep -F " v${{package.version}}"
+        /csi-node-driver-registrar --version >/dev/null
+        apk info --who-owns /usr/bin/csi-node-driver-registrar \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-csi/node-driver-registrar
+    strip-prefix: v

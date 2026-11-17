@@ -1,0 +1,23 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-csi-node-driver-registrar@local
+
+# Upstream runs as root (distroless/static): the registrar creates its
+# owner-only registration socket in kubelet's root-owned plugins_registry
+# directory, mounted at /registration.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /csi-node-driver-registrar
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
