@@ -56,7 +56,7 @@ pipeline:
       ldflags: |
         -X sigs.k8s.io/release-utils/version.gitVersion=v${{package.version}}
         -X sigs.k8s.io/release-utils/version.gitCommit=$(git rev-parse HEAD)
-        -X sigs.k8s.io/release-utils/version.gitTreeState=clean
+        -X sigs.k8s.io/release-utils/version.gitTreeState=$(git diff --quiet && echo clean || echo dirty)
         -X sigs.k8s.io/release-utils/version.buildDate=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
 
   - runs: |

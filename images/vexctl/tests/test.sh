@@ -36,6 +36,12 @@ grep -E "^GitVersion: +v$version(\+dirty)?\$" "$work/version" >/dev/null ||
 grep -E "^GitCommit: +$commit\$" "$work/version" >/dev/null ||
   fail 'source commit is not embedded'
 
+# The tree state must agree with the version suffix: +dirty means dirty.
+tree=clean
+grep -E "^GitVersion: +v$version\+dirty\$" "$work/version" >/dev/null && tree=dirty
+grep -E "^GitTreeState: +$tree\$" "$work/version" >/dev/null ||
+  fail "tree state does not match the version, expected $tree"
+
 run --help >"$work/help" 2>&1 || fail 'help failed'
 for sub in create merge filter; do
   grep -E "^  $sub " "$work/help" >/dev/null || fail "help is missing $sub"
