@@ -1,0 +1,115 @@
+package:
+  name: verity-chart-testing
+  # yamllint disable-line rule:line-length
+  version: "3.15.0"  # renovate: datasource=github-releases depName=helm/chart-testing versioning=regex:^(?<major>3)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Lint and test Helm charts with chart-testing (ct)
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    # Mirrors the upstream Dockerfile runtime set: ct executes helm, git,
+    # yamllint, yamale and kubectl as external processes.
+    runtime:
+      - bash
+      - ca-certificates-bundle
+      - git
+      - helm-4
+      - kubectl-1.37-default
+      - openssh-client
+      - py3.13-yamale-bin
+      - wolfi-baselayout
+      - yamllint
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: c65afcebd6649d48179fc8b30db34fa9b1459cce
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - python3
+      - go-1.27
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/helm/chart-testing
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./ct
+
+  - runs: |
+      # Same -X stamps as upstream .goreleaser.yml; the date is the source
+      # commit time so rebuilds stay reproducible.
+      build_date="$(git show -s --format=%cI HEAD)"
+      pkg=github.com/helm/chart-testing/v3/ct/cmd
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X ${pkg}.Version=v${{package.version}} \
+          -X ${pkg}.GitCommit=${{vars.source-commit}} -X ${pkg}.BuildDate=${build_date}" \
+        -o "${{targets.destdir}}/usr/bin/ct" ./ct
+      go version -m "${{targets.destdir}}/usr/bin/ct" \
+        | awk '$1 == "mod" && $2 == "github.com/helm/chart-testing/v3" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/ct" version | grep -E '^Version:[[:space:]]+v${{package.version}}$'
+      install -Dm644 etc/chart_schema.yaml "${{targets.destdir}}/etc/ct/chart_schema.yaml"
+      install -Dm644 etc/lintconf.yaml "${{targets.destdir}}/etc/ct/lintconf.yaml"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the chart-testing build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/chart-testing-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/chart-testing-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        ct version | grep -E '^Version:[[:space:]]+v${{package.version}}$'
+        ct version | grep -E '^Git commit:[[:space:]]+${{vars.source-commit}}$'
+        test -s /etc/ct/chart_schema.yaml
+        test -s /etc/ct/lintconf.yaml
+        helm version --short | grep -E '^v4\.'
+        yamllint --version
+        yamale --help >/dev/null
+        kubectl version --client >/dev/null
+        apk info --who-owns /usr/bin/ct \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+
+update:
+  enabled: true
+  github:
+    identifier: helm/chart-testing
+    strip-prefix: v
+    tag-filter-prefix: v3.15.
+    use-tag: true
