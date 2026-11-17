@@ -1,0 +1,10 @@
+name: csi-livenessprobe
+track: wolfi
+description: Kubernetes CSI livenessprobe sidecar serving /healthz from the driver Probe RPC. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/livenessprobe
+versions: [2.20]
+scan-identity: [pkg:golang/github.com/kubernetes-csi/livenessprobe]
+flavors: [plain]
+owner: tektum
+enabled: true
