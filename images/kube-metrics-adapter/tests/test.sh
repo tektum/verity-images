@@ -248,6 +248,23 @@ spec:
       durationMinutes: 60
       value: 4242
 ---
+# A named time zone needs the zone database in the image; the binary does not
+# embed time/tzdata. Every day from midnight Berlin time keeps it active.
+apiVersion: zalando.org/v1
+kind: ScalingSchedule
+metadata:
+  name: daily
+  namespace: kma
+spec:
+  schedules:
+    - type: Repeating
+      durationMinutes: 1440
+      value: 2121
+      period:
+        startTime: "00:00"
+        timezone: Europe/Berlin
+        days: [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -279,6 +296,11 @@ spec:
       object:
         describedObject: {apiVersion: zalando.org/v1, kind: ScalingSchedule, name: peak}
         metric: {name: peak}
+        target: {type: Value, value: "1000"}
+    - type: Object
+      object:
+        describedObject: {apiVersion: zalando.org/v1, kind: ScalingSchedule, name: daily}
+        metric: {name: daily}
         target: {type: Value, value: "1000"}
 EOF
 
@@ -323,6 +345,20 @@ jq -e '.kind == "MetricValueList" and (.items | length) == 1
   and .items[0].value == "4242"' "$work/body" >/dev/null ||
   fail "unexpected metric value: $(cat "$work/body")"
 
+# The repeating schedule resolves its Europe/Berlin time zone.
+daily_path=/apis/custom.metrics.k8s.io/v1beta2/namespaces/kma/scalingschedules.zalando.org/daily/daily
+i=0
+until [ "$(request "$daily_path" "$token")" = 200 ]; do
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || fail "time zone schedule metric was never served: $(cat "$work/response")"
+  sleep 2
+done
+jq -e '.kind == "MetricValueList" and (.items | length) == 1
+  and .items[0].describedObject.name == "daily"
+  and .items[0].metric.name == "daily"
+  and .items[0].value == "2121"' "$work/body" >/dev/null ||
+  fail "unexpected time zone schedule metric: $(cat "$work/body")"
+
 status=$(request /apis/custom.metrics.k8s.io/v1beta2 "$token")
 [ "$status" = 200 ] || fail "custom metrics discovery returned $status: $(cat "$work/body")"
 jq -e '.kind == "APIResourceList" and .groupVersion == "custom.metrics.k8s.io/v1beta2"
@@ -348,12 +384,14 @@ jq -e '.reason == "NotFound"' "$work/body" >/dev/null ||
   fail "unknown object did not return NotFound: $(cat "$work/body")"
 
 # The scheduled scaling controller writes the active state back to the
-# control plane.
-i=0
-until [ "$(kubectl get scalingschedules.zalando.org peak -n kma -o jsonpath='{.status.active}' 2>/dev/null)" = true ]; do
-  i=$((i + 1))
-  [ "$i" -lt 30 ] || fail 'ScalingSchedule status.active was never set'
-  sleep 2
+# control plane for both schedules.
+for schedule in peak daily; do
+  i=0
+  until [ "$(kubectl get scalingschedules.zalando.org "$schedule" -n kma -o jsonpath='{.status.active}' 2>/dev/null)" = true ]; do
+    i=$((i + 1))
+    [ "$i" -lt 30 ] || fail "ScalingSchedule $schedule status.active was never set"
+    sleep 2
+  done
 done
 
 printf 'SMOKE PASS version=%s\n' "$expected_version"

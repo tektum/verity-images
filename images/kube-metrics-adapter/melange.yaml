@@ -9,6 +9,7 @@ package:
   dependencies:
     runtime:
       - ca-certificates-bundle
+      - tzdata
   resources:
     cpu: "4"
     memory: 8Gi
@@ -91,6 +92,7 @@ test:
   pipeline:
     - runs: |
         kube-metrics-adapter --help 2>&1 | grep -F -- '--lister-kubeconfig'
+        test -f /usr/share/zoneinfo/Europe/Berlin
         apk info --who-owns /usr/bin/kube-metrics-adapter \
           | grep -F "${{package.name}}-${{package.full-version}}"
         apk info --license "${{package.name}}" | grep -Fx MIT
