@@ -4,7 +4,7 @@
 # dependencies = []
 # ///
 # How to run:
-#   uv run scripts/test_sigterm_exit2_panic_check.py
+#   python3 scripts/test_sigterm_exit2_panic_check.py
 #
 # A Go binary with no SIGTERM handler exits 2 when it runs as PID 1, but 2 is
 # also what the Go runtime uses for a panic or fatal error. Any image smoke test
