@@ -1,6 +1,6 @@
 package:
   name: apko
-  version: "1.5.0"  # renovate: datasource=github-releases depName=chainguard-dev/apko
+  version: "1.5.1"  # renovate: datasource=github-releases depName=chainguard-dev/apko
   # Above Wolfi apko-1.5.0-r0, the newest published revision, which still
   # carries golang.org/x/crypto v0.58.0 (GO-2026-5932).
   epoch: 1
@@ -38,7 +38,7 @@ pipeline:
     with:
       repository: https://github.com/chainguard-dev/apko
       tag: v${{package.version}}
-      expected-commit: 54d4fe18f248a43b6f28cc550cfabe489a082d65
+      expected-commit: 2af887e71025923c2c9db14cfa3d0be35946bd1d
 
   - uses: go/remediate
     with:
