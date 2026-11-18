@@ -1,6 +1,6 @@
 package:
   name: verity-argocd
-  version: "3.5.7"  # renovate: datasource=github-releases depName=argoproj/argo-cd
+  version: "3.5.8"  # renovate: datasource=github-releases depName=argoproj/argo-cd
   epoch: 0
   description: Declarative GitOps continuous delivery controller.
   copyright:
@@ -51,7 +51,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj/argo-cd
       tag: v${{package.version}}
-      expected-commit: 6d732962f61a99c2a0f221fd26b9aac7c83bcf18
+      expected-commit: 71576a24e898f50c9bf5e31b6930d81d4ac7717d
 
   - uses: git-checkout
     with:
