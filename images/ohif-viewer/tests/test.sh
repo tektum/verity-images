@@ -94,6 +94,7 @@ grep -Fq "verity-smoke-$$" "$body" || fail 'mounted app-config.js is not served'
 [ "$(curl -s -o /dev/null -w '%{http_code}' -H 'Accept-Encoding: gzip' -D "$headers" "$base$bundle")" = 200 ] ||
   fail 'gzip request for the application bundle failed'
 [ "$(header Content-Encoding)" = gzip ] || fail 'application bundle is not gzip encoded on request'
+[ "$(header Vary)" = Accept-Encoding ] || fail 'compressed response does not send Vary: Accept-Encoding'
 
 wasm=$(docker cp "$container:/usr/share/ohif-viewer" - | tar -t | grep -m 1 '^ohif-viewer/[0-9a-f]*\.wasm$' || true)
 [ -n "$wasm" ] || fail 'the build ships no WebAssembly module'
