@@ -70,11 +70,12 @@ if docker run --rm --network none --read-only "$image" --no-such-flag >/dev/null
 fi
 
 # Negative: without a kubeconfig or in-cluster environment it must exit, not hang.
-if timeout 60 docker run --rm --network none --read-only \
+status=0
+timeout 60 docker run --rm --network none --read-only \
   -e CATTLE_ELECTION_LEASE_DURATION=20s -e CATTLE_ELECTION_RENEW_DEADLINE=10s \
-  -e CATTLE_ELECTION_RETRY_PERIOD=2s "$image" >"$work/noconfig" 2>&1; then
-  fail 'controller started without any cluster configuration'
-fi
+  -e CATTLE_ELECTION_RETRY_PERIOD=2s "$image" >"$work/noconfig" 2>&1 || status=$?
+[ "$status" -ne 0 ] || fail 'controller started without any cluster configuration'
+[ "$status" -ne 124 ] || fail 'controller hung without any cluster configuration instead of exiting'
 grep -F 'unable to load in-cluster configuration' "$work/noconfig" >/dev/null ||
   fail 'missing cluster configuration error is not reported'
 
@@ -231,9 +232,11 @@ test "$(docker inspect --format '{{.State.Running}}' "$container")" = true ||
   fail 'controller exited while waiting for its lease'
 
 docker stop -t 20 "$container" >/dev/null
+code=$(docker inspect --format '{{.State.ExitCode}}' "$container")
 docker logs "$container" >"$work/controller.log" 2>&1 || true
 if grep -E '"level":"(panic|dpanic)"|^panic:' "$work/controller.log" >/dev/null; then
   fail 'controller panicked'
 fi
+[ "$code" -ne 137 ] || fail 'controller ignored SIGTERM for 20s'
 
 printf 'SMOKE PASS image=%s\n' "$image"
