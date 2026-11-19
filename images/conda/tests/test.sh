@@ -93,4 +93,4 @@ fi
 grep -E 'PackagesNotFoundError|not available from current channels' "$work/offline" >/dev/null ||
   fail "unexpected offline install diagnostic: $(tail -n 5 "$work/offline")"
 
-echo "miniconda (conda $expected_version) smoke test passed"
+echo "conda $expected_version smoke test passed"
