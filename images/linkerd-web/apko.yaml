@@ -1,0 +1,38 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-linkerd-web@local
+
+# Mirror cr.l5d.io/linkerd/web:edge-26.11.2 (workdir /linkerd, entrypoint
+# ./web). Upstream sets no user and the linkerd-viz chart runs the dashboard as
+# 2103:2103 with a read-only root filesystem, so run as that identity by default.
+accounts:
+  groups:
+    - groupname: linkerd
+      gid: 2103
+  users:
+    - username: linkerd
+      uid: 2103
+      gid: 2103
+      homedir: /linkerd
+      shell: /sbin/nologin
+  run-as: "2103:2103"
+
+work-dir: /linkerd
+
+entrypoint:
+  command: ./web
+
+# Upstream links no version into the binary and binds it here at image build
+# time. Keep this equal to edge-${package.version} from melange.yaml; the smoke
+# test fails when they differ.
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  LINKERD_CONTAINER_VERSION_OVERRIDE: edge-26.11.2
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
