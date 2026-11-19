@@ -85,6 +85,8 @@ rekor_server_image=$(pull_child "$rekor_server_index") || exit 1
   fail "unexpected cmd: $(docker image inspect -f '{{json .Config.Cmd}}' "$image")"
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532 ] ||
   fail "unexpected user: $(docker image inspect -f '{{.Config.User}}' "$image")"
+docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image" | grep -Fxq HOME=/home/nonroot ||
+  fail 'image does not declare HOME=/home/nonroot'
 
 out=$(docker run --rm "$image" version 2>&1) || fail "version failed: $out"
 printf '%s\n' "$out" | grep -Eq "^GitVersion: +v$expected_version(\+dirty)?\$" ||
@@ -246,6 +248,13 @@ done
 
 # loginfo at size 1 stores the checkpoint in $HOME; after a second entry the
 # next loginfo must prove consistency from it instead of starting over.
+# Without the volume, the image's own $HOME must be writable for checkpoint
+# state.
+out=$(docker run --rm --network "$network" "$image" --rekor_server "$server" loginfo 2>&1) ||
+  fail "loginfo with the image home failed: $out"
+if printf '%s\n' "$out" | grep -Fq 'Unable to store previous state'; then
+  fail "image home is not writable for checkpoint state: $out"
+fi
 out=$(cli loginfo 2>&1) || fail "loginfo after upload failed: $out"
 printf '%s\n' "$out" | grep -Eq '^Active Tree Size: +1$' || fail "log size is not 1: $out"
 out=$(cli upload --type hashedrekord --pki-format x509 --artifact /work/second.txt \
