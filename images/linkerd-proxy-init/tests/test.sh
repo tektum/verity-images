@@ -89,12 +89,18 @@ for tool in iptables iptables-save ip6tables ip6tables-save \
   sh_in "command -v $tool" >/dev/null || fail "$tool is missing"
 done
 for tool in iptables-legacy iptables-nft ip6tables-legacy ip6tables-nft; do
-  run_capable --network none --entrypoint "$tool" "$image" --version >"$work/version" 2>&1 ||
-    fail "$tool --version failed: $(cat "$work/version")"
   case $tool in
     *-legacy) variant=legacy ;;
     *) variant=nf_tables ;;
   esac
+  # The nft backend opens a netlink socket even for --version, which
+  # qemu-user does not emulate ("Protocol not supported").
+  if [ "$emulated" = true ] && [ "$variant" = nf_tables ]; then
+    printf 'SKIP: %s --version under qemu-user (%s image on %s host)\n' "$tool" "$image_arch" "$host_arch"
+    continue
+  fi
+  run_capable --network none --entrypoint "$tool" "$image" --version >"$work/version" 2>&1 ||
+    fail "$tool --version failed: $(cat "$work/version")"
   grep -Eq "^ip6?tables v1\.[0-9.]+ \($variant\)" "$work/version" ||
     fail "unexpected $tool version: $(cat "$work/version")"
 done
