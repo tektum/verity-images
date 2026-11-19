@@ -1,0 +1,9 @@
+name: azure-workload-identity-webhook
+track: wolfi
+description: Azure Workload Identity mutating admission webhook built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/Azure/azure-workload-identity
+versions: [1]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/Azure/azure-workload-identity]
