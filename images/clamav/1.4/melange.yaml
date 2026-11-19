@@ -1,7 +1,7 @@
 package:
   name: verity-clamav-1.4
   # yamllint disable-line rule:line-length
-  version: "1.4.6"  # renovate: datasource=github-tags depName=Cisco-Talos/clamav versioning=regex:^(?<major>1)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^clamav-(?<version>.+)$
+  version: "1.4.7"  # renovate: datasource=github-tags depName=Cisco-Talos/clamav versioning=regex:^(?<major>1)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^clamav-(?<version>.+)$
   epoch: 0
   description: ClamAV 1.4 scanner, daemon and signature updater built from the upstream release
   copyright:
@@ -48,7 +48,7 @@ pipeline:
     with:
       repository: https://github.com/Cisco-Talos/clamav
       tag: clamav-${{package.version}}
-      expected-commit: 5853e1396777bae4d909cd3dd44f58352e7cf9b3
+      expected-commit: 664452aed0a0e53f1c5cd9cdda0f4f4b5714c292
 
   # OpenSSL 4 (the only OpenSSL curl-dev links against in Wolfi) makes ASN1_STRING
   # opaque, and libclamav 1.4 and 1.5 still read its fields directly in
