@@ -101,7 +101,9 @@ scan-identity: [cpe:2.3:a:oracle:mysql, pkg:golang/github.com/coredns/coredns]
 
 Use the flow list form shown: the metadata parser reads no block lists or inline
 comments. A CPE entry is matched through NVD by the stock matcher; a Go purl is
-matched through GHSA, and its version gets a `v` prefix.
+matched through GHSA, and its version gets a `v` prefix. A scoped npm package
+percent-encodes its scope (`pkg:npm/%40scope/name`); the injected package is
+named `@scope/name`, the spelling GHSA uses.
 
 An asserted identity must be correct. A wrong vendor, product, or module path
 scans nothing and silently blinds the gate again, because nothing checks the
