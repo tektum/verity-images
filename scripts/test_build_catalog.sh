@@ -64,6 +64,12 @@ python3 "$root/scripts/build_catalog.py" "$work/categorized-report.json" "$work/
   0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
 jq -e '.images[0].category == "Base & Utilities"' "$work/categorized-catalog.json" >/dev/null
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/categorized-catalog.json"
+sed 's/"Base & Utilities"/"Media"/' "$work/categorized-report.json" > "$work/media-report.json"
+python3 "$root/scripts/build_catalog.py" "$work/media-report.json" "$work/categorized-scan" "" \
+  "$work/media-catalog.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
+  0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
+jq -e '.images[0].category == "Media"' "$work/media-catalog.json" >/dev/null
+check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/media-catalog.json"
 mv "$work/single-scan/scan-single-amd64.json" "$work/single-scan/scan-wrong-amd64.json"
 if python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
   "$work/rejected.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
