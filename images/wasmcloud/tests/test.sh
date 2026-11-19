@@ -20,6 +20,28 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+# Pulling the index itself for a second platform fails with "cannot overwrite digest".
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+nats_image=$(pull_child "$nats_index")
+python_image=$(pull_child "$python_index")
+
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] || fail 'image user is not 65532'
 [ "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = '["/usr/bin/wash"]' ] ||
   fail 'unexpected image entrypoint'
@@ -50,7 +72,7 @@ grep -q 'failed to connect to NATS' "$fixture/nonats.out" || {
   fail 'host without NATS did not report a readable error'
 }
 
-docker run --name "$nats" --cpus 2 -d "$nats_index" >/dev/null
+docker run --name "$nats" --cpus 2 -d "$nats_image" >/dev/null
 docker run --name "$host" --cpus 2 -d --network "container:$nats" "$image" host \
   --host-id "$host_id" --scheduler-nats-url nats://127.0.0.1:4222 \
   --http-addr 127.0.0.1:8000 >/dev/null
@@ -121,7 +143,7 @@ sys.exit("no heartbeat on " + subject)
 EOF
 chmod 0644 "$fixture/probe.py"
 docker run --rm --cpus 2 --network "container:$nats" -v "$fixture/probe.py:/probe.py:ro" \
-  "$python_index" /probe.py "$host_id" "$version" >"$fixture/probe.out" 2>&1 || {
+  "$python_image" /probe.py "$host_id" "$version" >"$fixture/probe.out" 2>&1 || {
   cat "$fixture/probe.out" >&2
   docker logs "$host" >&2
   fail 'host control plane probe failed'
