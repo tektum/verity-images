@@ -1,0 +1,8 @@
+name: memcached-exporter
+track: wolfi
+description: Prometheus exporter for memcached server statistics. Built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus/memcached_exporter
+versions: [0.18]
+owner: tektum
+enabled: true
