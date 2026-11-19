@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-aws-efs-csi-driver@local
+
+# Upstream runs as root: the node plugin mounts EFS through mount.efs, runs
+# stunnel/efs-proxy for TLS, and writes efs-utils state under /var/run/efs.
+accounts:
+  run-as: 0
+
+# Upstream ENTRYPOINT ["/bin/aws-efs-csi-driver"]; /bin is a link to usr/bin.
+entrypoint:
+  command: /bin/aws-efs-csi-driver
+
+work-dir: /
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
