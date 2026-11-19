@@ -1,0 +1,10 @@
+name: guacd
+track: wolfi
+description: Apache Guacamole proxy daemon with RDP, VNC, SSH, and telnet plugins, run non-root in the foreground.
+category: Web Servers & Proxies
+upstream: https://guacamole.apache.org/
+versions: [1.6]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:apache:guacamole]
+scan-package: guacamole-server
