@@ -1,0 +1,48 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-duckdb@local
+
+# Upstream publishes no container image; duckdb/duckdb ships the CLI binary.
+# The entrypoint is the CLI, so `docker run IMAGE` opens an in-memory shell and
+# arguments pass straight through (`IMAGE -c "select 42"`, `IMAGE db.duckdb`).
+# Relative database paths resolve under /data. DuckDB keeps its extension
+# directory and shell history under $HOME/.duckdb.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/duckdb
+
+work-dir: /data
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/nonroot
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /data
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
