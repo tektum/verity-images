@@ -1,0 +1,42 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  # Runtime of the upstream cr.l5d.io/linkerd/proxy-init image: iptables and
+  # ip6tables in both the legacy and nft variants, with
+  # cap_net_raw,cap_net_admin+eip on xtables-legacy-multi and xtables-nft-multi
+  # (iptables-xtables-privileged), and busybox for the sysctl
+  # (--timeout-close-wait-secs) and nsenter (--netns) commands proxy-init runs.
+  packages:
+    - busybox
+    - iptables-xtables-privileged
+    - verity-linkerd-proxy-init@local
+
+accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /
+  run-as: 65534
+
+entrypoint:
+  command: /usr/local/bin/proxy-init
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# iptables-legacy takes /run/xtables.lock; upstream pre-creates it mode 0666 so
+# uid 65534 can open it.
+paths:
+  - path: /run/xtables.lock
+    type: empty-file
+    uid: 0
+    gid: 0
+    permissions: 0o666
