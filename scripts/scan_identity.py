@@ -30,6 +30,7 @@ import re
 import sys
 from pathlib import Path
 from typing import Final
+from urllib.parse import unquote
 
 import gen_matrix
 
@@ -78,6 +79,9 @@ def identity_package(identity: str, version: str, index: int, source: str) -> di
         kind, name = identity[len("pkg:") :].split("/", 1)
         version = f"v{version}" if kind == "golang" else version
         refs = [("PACKAGE-MANAGER", "purl", f"pkg:{kind}/{name}@{version}")]
+        # A purl percent-encodes a scoped npm name (pkg:npm/%40scope/name). Syft takes the SPDX package
+        # name verbatim, and Grype matches GHSA by that name, so it must carry the decoded `@scope/name`.
+        name = unquote(name)
     return {
         "name": name,
         "SPDXID": f"SPDXRef-Package-scan-identity-{index}",
