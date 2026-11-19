@@ -1,0 +1,100 @@
+package:
+  name: verity-linkerd-cli
+  # yamllint disable-line rule:line-length
+  version: "26.11.2"  # renovate: datasource=github-tags depName=linkerd/linkerd2 versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^edge-(?<version>.+)$
+  epoch: 0
+  description: Linkerd service mesh command line utility built from the pinned upstream edge release.
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/linkerd/linkerd2
+      tag: edge-${{package.version}}
+      expected-commit: 76f5e82dff7c0ead5390db7dd00266db9f6f93e1
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cli
+
+  - runs: |
+      # Mirrors upstream bin/build-cli-bin and cli/Dockerfile. Chart templates are
+      # embedded with go:embed and the prod-tagged multicluster templates are
+      # committed, so no go generate step is needed.
+      #
+      # Edge tags are not semver, so Go stamps the main module with a pseudo-version
+      # (v0.0.0-<commit time>-<commit>). GHSA ranges for github.com/linkerd/linkerd2
+      # use the same pseudo-version form, so do not add a local semver tag.
+      go build -mod=readonly -trimpath -buildvcs=true -tags prod \
+        -ldflags="-s -w -X github.com/linkerd/linkerd2/pkg/version.Version=edge-${{package.version}}" \
+        -o linkerd.bin ./cli
+
+      install -Dm755 linkerd.bin "${{targets.destdir}}/usr/bin/linkerd"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+      "${{targets.destdir}}/usr/bin/linkerd" version --client --short \
+        | grep -Fx 'edge-${{package.version}}'
+      go version -m "${{targets.destdir}}/usr/bin/linkerd" \
+        | awk '$1 == "mod" && $2 == "github.com/linkerd/linkerd2" { print $3 }' \
+        | grep -Ex 'v0\.0\.0-[0-9]{14}-76f5e82dff7c(\+dirty)?'
+
+  - uses: strip
+
+subpackages:
+  - name: verity-linkerd-cli-build-metadata
+    description: Resolved Go module metadata for the linkerd CLI build
+    pipeline:
+      - runs: |
+          install -m644 -D go.mod "${{targets.subpkgdir}}/usr/share/linkerd-cli-build/go.mod"
+          install -m644 -D go.sum "${{targets.subpkgdir}}/usr/share/linkerd-cli-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        linkerd version --client --short | grep -Fx 'edge-${{package.version}}'
+        linkerd install --crds --ignore-cluster | grep -Fx 'kind: CustomResourceDefinition'
+        linkerd install --ignore-cluster \
+          | grep -F 'image: cr.l5d.io/linkerd/controller:edge-${{package.version}}'
+        apk info --who-owns /usr/bin/linkerd \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: linkerd/linkerd2
+    strip-prefix: edge-
+    tag-filter-prefix: edge-
+    use-tag: true

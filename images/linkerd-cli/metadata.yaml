@@ -1,0 +1,9 @@
+name: linkerd-cli
+track: wolfi
+description: Linkerd service mesh command line utility built from the pinned upstream edge release.
+category: Service Mesh & Networking
+upstream: https://github.com/linkerd/linkerd2
+versions: [26.11]
+scan-identity: [cpe:2.3:a:linkerd:linkerd]
+owner: tektum
+enabled: true
