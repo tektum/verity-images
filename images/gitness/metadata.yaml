@@ -1,0 +1,9 @@
+name: gitness
+track: wolfi
+description: Gitness (Harness Open Source) code hosting, CI pipelines, and artifact registry from pinned source.
+category: CI/CD & GitOps
+upstream: https://github.com/harness/gitness
+versions: [3.3]
+scan-identity: [pkg:golang/github.com/harness/gitness]
+owner: tektum
+enabled: true
