@@ -1,0 +1,58 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rspamd@local
+
+# UID/GID 11333, the listen-on-all-interfaces default and console logging
+# follow the upstream rspamd/rspamd image.
+accounts:
+  groups:
+    - groupname: _rspamd
+      gid: 11333
+  users:
+    - username: _rspamd
+      uid: 11333
+      gid: 11333
+      homedir: /var/lib/rspamd
+  run-as: 11333
+
+cmd: /usr/bin/rspamd -f
+
+work-dir: /var/lib/rspamd
+
+environment:
+  PATH: /usr/bin:/bin
+  RSPAMD_LOCAL_ADDR: "*"
+  RSPAMD_LOG_TYPE: console
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+volumes:
+  - /var/lib/rspamd
+
+paths:
+  - path: /var/lib/rspamd
+    type: directory
+    uid: 11333
+    gid: 11333
+    permissions: 0o750
+  - path: /run/rspamd
+    type: directory
+    uid: 11333
+    gid: 11333
+    permissions: 0o750
+  - path: /var/log/rspamd
+    type: directory
+    uid: 11333
+    gid: 11333
+    permissions: 0o750
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
