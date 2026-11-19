@@ -1,0 +1,159 @@
+package:
+  name: verity-nifi-registry-2
+  # yamllint disable-line rule:line-length
+  version: "2.9.0"  # renovate: datasource=maven depName=org.apache.nifi.registry:nifi-registry-core versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache NiFi Registry flow versioning service
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - openjdk-21-default-jvm
+      - xmlstarlet
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# Security floors for bundled dependencies NiFi Registry 2.9.0 pins below their fixed releases.
+vars:
+  # yamllint disable rule:line-length
+  bouncycastle: "1.87"  # renovate: datasource=maven depName=org.bouncycastle:bcprov-jdk18on versioning=maven
+  guava: 33.8.0-jre  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>33)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
+  jackson2: 2.21.8  # renovate: datasource=maven depName=com.fasterxml.jackson:jackson-bom versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  jackson3: 3.1.8  # renovate: datasource=maven depName=tools.jackson:jackson-bom versioning=regex:^(?<major>3)\.(?<minor>1)\.(?<patch>\d+)$
+  jetty: 12.1.15  # renovate: datasource=maven depName=org.eclipse.jetty:jetty-server versioning=regex:^(?<major>12)\.(?<minor>1)\.(?<patch>\d+)$
+  log4j: 2.25.5  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-api versioning=regex:^(?<major>2)\.(?<minor>25)\.(?<patch>\d+)$
+  logback: 1.5.38  # renovate: datasource=maven depName=ch.qos.logback:logback-core versioning=regex:^(?<major>1)\.(?<minor>5)\.(?<patch>\d+)$
+  netty: 4.2.21.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=regex:^(?<major>4)\.(?<minor>2)\.(?<patch>\d+)\.Final$
+  spring: 7.0.11  # renovate: datasource=maven depName=org.springframework:spring-core versioning=regex:^(?<major>7)\.(?<minor>0)\.(?<patch>\d+)$
+  spring-boot: 4.0.9  # renovate: datasource=maven depName=org.springframework.boot:spring-boot versioning=regex:^(?<major>4)\.(?<minor>0)\.(?<patch>\d+)$
+  spring-ldap: 4.0.7  # renovate: datasource=maven depName=org.springframework.ldap:spring-ldap-core versioning=regex:^(?<major>4)\.(?<minor>0)\.(?<patch>\d+)$
+  spring-security: 7.0.9  # renovate: datasource=maven depName=org.springframework.security:spring-security-core versioning=regex:^(?<major>7)\.(?<minor>0)\.(?<patch>\d+)$
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      # The web UI npm scripts run under bash.
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      # The web UI build runs the Node.js release that frontend-maven-plugin downloads.
+      - libstdc++
+      - maven-3.10
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+    # Keep the local repository out of the workspace, which melange reads back after the build.
+    MAVEN_OPTS: >-
+      -Dmaven.repo.local=/var/cache/maven
+      -Dmaven.wagon.http.retryHandler.count=5
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/nifi
+      tag: rel/nifi-${{package.version}}
+      expected-commit: 02a8c6e75e7c9835f2afc7cf42c45a6b0478504b
+  - runs: |
+      # Replace the literal version that follows one artifactId in one pom,
+      # and fail when upstream no longer declares it there exactly once.
+      pin() {
+        awk -v artifact="<artifactId>$1</artifactId>" -v version="$2" '
+          index($0, artifact) { found++; print; getline
+            if ($0 !~ /<version>[^<$]+<\/version>/) exit 2
+            sub(/<version>[^<]+<\/version>/, "<version>" version "</version>") }
+          { print }
+          END { if (found != 1) exit 3 }
+        ' "$3" > "$3.new"
+        mv "$3.new" "$3"
+      }
+      pin guava ${{vars.guava}} nifi-registry/nifi-registry-core/pom.xml
+      pin spring-ldap-core ${{vars.spring-ldap}} \
+        nifi-registry/nifi-registry-core/nifi-registry-framework/pom.xml
+      # The registry assembly unpacks the AWS extension bundle with
+      # dependency:unpack, which reads the local repository rather than the
+      # reactor. Install the source-built bundle first, then assemble from it,
+      # so no prebuilt upstream archive is downloaded in its place.
+      set -- -B -ntp -DskipTests -Dcheckstyle.skip -Dpmd.skip -Drat.skip \
+        -Dguava.version=${{vars.guava}} \
+        -Djackson.bom.version=${{vars.jackson2}} \
+        -Djackson3.bom.version=${{vars.jackson3}} \
+        -Djetty.version=${{vars.jetty}} \
+        -Dlog4j2.version=${{vars.log4j}} \
+        -Dlogback.version=${{vars.logback}} \
+        -Dnetty.4.version=${{vars.netty}} \
+        -Dorg.bouncycastle.version=${{vars.bouncycastle}} \
+        -Dspring.boot.version=${{vars.spring-boot}} \
+        -Dspring.security.version=${{vars.spring-security}} \
+        -Dspring.version=${{vars.spring}}
+      aws=nifi-registry/nifi-registry-extensions/nifi-registry-aws/nifi-registry-aws-assembly
+      mvn "$@" -T 4 -pl "$aws" -am install
+      mvn "$@" -T 4 -pl nifi-registry/nifi-registry-assembly -am package
+      dist=nifi-registry/nifi-registry-assembly/target/nifi-registry-${{package.version}}-bin
+      dist=$dist/nifi-registry-${{package.version}}
+      test -x "$dist/bin/nifi-registry.sh"
+      # Fail closed if the AWS bundle or the server libraries miss the floors.
+      test -f "$dist/ext/aws/lib/netty-handler-${{vars.netty}}.jar"
+      test -f "$dist/lib/jetty-server-${{vars.jetty}}.jar"
+      base="${{targets.destdir}}/opt/nifi-registry"
+      install -d "$base"
+      cp -R "$dist" "$base/nifi-registry-current"
+      # The assembly writes 0770/0664 modes and Windows launchers; ship
+      # world-readable files, executable shell launchers, and no .bat files.
+      rm -f "$base"/nifi-registry-current/bin/*.bat
+      chmod -R u=rwX,go=rX "$base/nifi-registry-current"
+      chmod 0755 "$base"/nifi-registry-current/bin/*.sh
+      # The versioned path matches the upstream image layout.
+      ln -s nifi-registry-current "$base/nifi-registry-${{package.version}}"
+      for dir in database extension_bundles flow_storage logs run work; do
+        install -d "$base/nifi-registry-current/$dir"
+      done
+
+      # Upstream container scripts from the same checkout. start.sh is changed
+      # only at its tail so the bootstrap JVM replaces the shell and receives
+      # SIGTERM directly instead of being orphaned by an exiting wrapper.
+      scripts=nifi-registry/nifi-registry-core/nifi-registry-docker/dockerhub/sh
+      install -d "$base/scripts"
+      for script in "$scripts"/*.sh; do
+        install -m755 "$script" "$base/scripts/"
+      done
+      start="$base/scripts/start.sh"
+      tail_line=$(grep -n '^tail -F ' "$start" | cut -d: -f1)
+      test -n "$tail_line"
+      grep -q '^wait \${nifi_registry_pid}$' "$start"
+      head -n "$((tail_line - 1))" "$scripts/start.sh" > "$start"
+      cat >>"$start" <<'EOF'
+      tail -F "${NIFI_REGISTRY_HOME}/logs/nifi-registry-app.log" &
+      exec "${NIFI_REGISTRY_HOME}/bin/nifi-registry.sh" run
+      EOF
+      if grep -q '^wait ' "$start"; then exit 1; fi
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: |
+        test -x /opt/nifi-registry/nifi-registry-current/bin/nifi-registry.sh
+        ls /opt/nifi-registry/nifi-registry-current/lib/nifi-registry-web-api-${{package.version}}.war
+        tail -n 2 /opt/nifi-registry/scripts/start.sh | grep -q '^exec '
+
+update:
+  enabled: true
+  github:
+    identifier: apache/nifi
+    use-tag: true
+    tag-filter-prefix: rel/nifi-2.
+    strip-prefix: rel/nifi-
