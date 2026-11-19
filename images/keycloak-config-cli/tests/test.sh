@@ -34,6 +34,34 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# Resolve each helper index to the child matching the image architecture and
+# pull it explicitly. Running an index digest directly fails on multi-arch
+# runners ("cannot overwrite digest") once another platform was pulled. The
+# index bytes are verified against the pin before a child is chosen.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pin_helper() {
+  raw=$(docker buildx imagetools inspect --raw "$1") ||
+    fail "cannot inspect helper index $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "helper index digest mismatch for $1"
+  child=$(printf '%s' "$raw" |
+    jq -r --arg arch "$image_arch" '
+      [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+      | if length == 1 then .[0] else empty end') ||
+    fail "cannot resolve helper digest for $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch helper image in $1" ;;
+  esac
+  repo=${1%@*}
+  repo=${repo%:*}
+  docker pull --quiet --platform "linux/$image_arch" "$repo@$child" >/dev/null ||
+    fail "cannot pull helper $repo@$child"
+  printf '%s@%s\n' "$repo" "$child"
+}
+keycloak_ref=$(pin_helper "$keycloak_index")
+curl_ref=$(pin_helper "$curl_index")
+
 expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' \
   "$here/../melange.yaml")
 [ -n "$expected_version" ] || fail 'could not read the recipe version'
@@ -97,11 +125,11 @@ docker run -d --name "$keycloak" --label "$label" --network "$network" \
   --network-alias keycloak \
   -e KC_BOOTSTRAP_ADMIN_USERNAME="$admin_user" \
   -e KC_BOOTSTRAP_ADMIN_PASSWORD="$admin_password" \
-  "$keycloak_index" start-dev >/dev/null || fail 'cannot start Keycloak'
+  "$keycloak_ref" start-dev >/dev/null || fail 'cannot start Keycloak'
 
 # HTTP probes run a pinned curl on the internal network.
 http() {
-  docker run --rm --network "$network" "$curl_index" -fsS --max-time 10 "$@"
+  docker run --rm --network "$network" "$curl_ref" -fsS --max-time 10 "$@"
 }
 
 i=0
