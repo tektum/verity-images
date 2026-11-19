@@ -9,7 +9,7 @@ volume=$name-db
 work=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$name" "$name-invalid" "$name-default" >/dev/null 2>&1 || true
+  docker rm -fv "$name" "$name-invalid" "$name-default" >/dev/null 2>&1 || true
   docker volume rm -f "$volume" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
@@ -167,7 +167,7 @@ docker logs "$name-default" 2>&1 | grep -q 'remote access is not allowed' ||
   fail 'default configuration does not restrict the REST API to loopback clients'
 docker logs "$name-default" 2>&1 | grep -q 'Storage directory: /etc/orthanc/OrthancStorage' ||
   fail 'default configuration did not use the OrthancStorage link'
-docker rm -f "$name-default" >/dev/null
+docker rm -fv "$name-default" >/dev/null
 
 start() {
   docker run -d --name "$name" --read-only --cap-drop ALL \
