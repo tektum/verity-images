@@ -93,8 +93,11 @@ printf '%s\n' "$out" | grep -Fq 'Constraint Error' || fail "duplicate key gave a
 count=$(run -v "$volume:/data" "$image" -noheader -csv smoke.duckdb -c 'select count(*) from items;')
 [ "$count" = 3 ] || fail "failed statements changed row count: $count"
 
-if run -v "$volume:/data" "$image" -readonly smoke.duckdb -c "delete from items;" >/dev/null 2>&1; then
+if out=$(run -v "$volume:/data" "$image" -readonly smoke.duckdb -c "delete from items;" 2>&1); then
   fail 'write to a read-only database unexpectedly succeeded'
 fi
+printf '%s\n' "$out" | grep -Fq 'read-only mode' || fail "read-only write gave an unexpected error: $out"
+count=$(run -v "$volume:/data" "$image" -noheader -csv smoke.duckdb -c 'select count(*) from items;')
+[ "$count" = 3 ] || fail "read-only write changed row count: $count"
 
 printf 'SMOKE PASS version=%s\n' "$expected_version"
