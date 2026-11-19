@@ -1,0 +1,119 @@
+package:
+  name: verity-secrets-store-csi-driver-provider-azure
+  # yamllint disable-line rule:line-length
+  version: "1.8.2"  # renovate: datasource=github-releases depName=Azure/secrets-store-csi-driver-provider-azure versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Azure Key Vault provider for the Secrets Store CSI Driver
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Azure/secrets-store-csi-driver-provider-azure
+      tag: v${{package.version}}
+      # The release tag is lightweight; this is the commit it names.
+      expected-commit: 4927a15410506c6a8a52af68db08cf72aa1e10ab
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  # Same main package and -X stamps as the upstream Makefile LDFLAGS:
+  # BuildVersion is printed by --version and returned by the Version RPC;
+  # BuildVersion, Vcs, and BuildDate form the Azure SDK user agent. BuildDate
+  # keeps the upstream format but is taken from the commit for reproducibility.
+  - runs: |
+      bin=secrets-store-csi-driver-provider-azure
+      stamp=github.com/Azure/secrets-store-csi-driver-provider-azure/pkg/version
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%d-%H:%M)
+      vcs=$(git rev-parse --short HEAD)
+
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X $stamp.BuildDate=$build_date \
+          -X $stamp.BuildVersion=v${{package.version}} \
+          -X $stamp.Vcs=$vcs" \
+        -o "${{targets.destdir}}/usr/bin/$bin" ./cmd
+
+      "${{targets.destdir}}/usr/bin/$bin" --version \
+        | grep -Fx "{\"version\":\"v${{package.version}}\",\"buildDate\":\"$build_date\"}"
+      # The v-prefixed release tag names the checked-out commit, so Go stamps
+      # the scanned main module with the release version (+dirty after
+      # go/remediate rewrites go.mod) and GHSA matching covers the module.
+      go version -m "${{targets.destdir}}/usr/bin/$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/Azure/secrets-store-csi-driver-provider-azure" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+
+      # Upstream image contract: the official image entrypoint is
+      # /secrets-store-csi-driver-provider-azure; the upstream Dockerfile copies
+      # the binary to /bin and runs it by name from PATH.
+      ln -s usr/bin/$bin "${{targets.destdir}}/$bin"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Azure Secrets Store CSI provider build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-provider-azure-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/secrets-store-csi-driver-provider-azure-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        bin=/usr/bin/secrets-store-csi-driver-provider-azure
+        $bin --version | grep -F '"version":"v${{package.version}}"'
+        /secrets-store-csi-driver-provider-azure --version >/dev/null
+        # An unknown default cloud must fail closed before serving.
+        if out=$($bin --cloud-name=NoSuchCloud --endpoint=unix:///tmp/t.sock 2>&1); then
+          echo 'provider accepted an unknown cloud name' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F 'failed validating default cloud environment'
+        apk info --who-owns $bin \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'MIT License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: Azure/secrets-store-csi-driver-provider-azure
+    strip-prefix: v
+    use-tag: true
