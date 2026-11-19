@@ -63,7 +63,8 @@ pipeline:
       # Apply the security floors and fail if an upstream pin moved.
       sed -i "s|^\(    jetty *: \)'12\.[0-9.]*',|\1'${{vars.jetty-version}}',|" wiremock-jetty12/build.gradle
       grep -q "^    jetty *: '${{vars.jetty-version}}',$" wiremock-jetty12/build.gradle
-      sed -i 's|"org.apache.httpcomponents.client5:httpclient5:[0-9.]*"|"org.apache.httpcomponents.client5:httpclient5:${{vars.httpclient5-version}}"|' build.gradle
+      hc5=org.apache.httpcomponents.client5:httpclient5
+      sed -i "s|\"$hc5:[0-9.]*\"|\"$hc5:${{vars.httpclient5-version}}\"|" build.gradle
       grep -q '"org.apache.httpcomponents.client5:httpclient5:${{vars.httpclient5-version}}"' build.gradle
       for pin in "jackson:${{vars.jackson-version}}" "guava:${{vars.guava-version}}" \
         "handlebars:${{vars.handlebars-version}}"; do
