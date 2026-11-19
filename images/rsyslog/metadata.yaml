@@ -1,0 +1,10 @@
+name: rsyslog
+track: wolfi
+description: rsyslog with its packaged config (TCP, UDP and RELP syslog to stdout), nonroot, from Wolfi packages.
+category: Logging
+upstream: https://www.rsyslog.com/
+versions: [8.2604]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:rsyslog:rsyslog]
+scan-package: rsyslog
