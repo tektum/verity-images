@@ -1,7 +1,10 @@
 package:
   name: azure-workload-identity-webhook
   version: "1.6.3"  # renovate: datasource=github-releases depName=Azure/azure-workload-identity
-  epoch: 0
+  # Wolfi ships the same package name with secdb fixes up to 1.6.3-r10. The
+  # epoch stays above that revision so this remediated build never sorts below
+  # a Wolfi-published fixed revision of the same upstream version.
+  epoch: 11
   description: Azure Workload Identity mutating admission webhook
   copyright:
     - license: MIT
