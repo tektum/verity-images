@@ -20,6 +20,27 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+# Pulling the index itself for a second platform fails with "cannot overwrite digest".
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+python_image=$(pull_child "$python_index")
+
 dump_logs() {
   docker logs "$container" >&2 2>&1 || true
 }
@@ -29,7 +50,7 @@ dump_logs() {
 smtp() {
   docker run --rm --cpus 2 --network "container:$container" \
     -v "$fixture/smtp_client.py:/smtp_client.py:ro" \
-    "$python_index" /smtp_client.py "$1"
+    "$python_image" /smtp_client.py "$1"
 }
 
 wait_ready() {
