@@ -1,0 +1,9 @@
+name: ffmpeg
+track: wolfi
+description: FFmpeg ffmpeg and ffprobe, LGPL build with LGPL-compatible codec libraries, run as an unprivileged user.
+category: Media
+upstream: https://ffmpeg.org/
+versions: [8.1]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:ffmpeg:ffmpeg]
