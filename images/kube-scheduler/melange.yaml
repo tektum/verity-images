@@ -45,8 +45,8 @@ pipeline:
       export KUBE_GIT_TREE_STATE=clean
       make WHAT=cmd/kube-scheduler
       install -m755 -D _output/bin/kube-scheduler \
-        "${{targets.destdir}}/usr/bin/${{package.name}}"
-      "${{targets.destdir}}/usr/bin/${{package.name}}" --version \
+        "${{targets.destdir}}/usr/bin/kube-scheduler-1.37"
+      "${{targets.destdir}}/usr/bin/kube-scheduler-1.37" --version \
         | grep -Fx "Kubernetes v${{package.version}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
@@ -58,6 +58,6 @@ test:
         - busybox
   pipeline:
     - runs: |
-        ${{package.name}} --version | grep -Fx "Kubernetes v${{package.version}}"
-        ${{package.name}} --help >/dev/null
+        kube-scheduler-1.37 --version | grep -Fx "Kubernetes v${{package.version}}"
+        kube-scheduler-1.37 --help >/dev/null
         test -s /usr/share/licenses/${{package.name}}/LICENSE
