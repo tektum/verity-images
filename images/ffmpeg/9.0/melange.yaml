@@ -99,7 +99,7 @@ test:
         ffmpeg -hide_banner -version | head -n1 | grep -F 'ffmpeg version ${{package.version}} '
         ffprobe -hide_banner -version | head -n1 | grep -F 'ffprobe version ${{package.version}} '
         ffmpeg -hide_banner -buildconf > /tmp/buildconf
-        ! grep -E -- '--enable-(gpl|nonfree|version3)' /tmp/buildconf
+        if grep -E -- '--enable-(gpl|nonfree|version3)' /tmp/buildconf; then exit 1; fi
         ffmpeg -hide_banner -L | grep -F 'GNU Lesser General Public'
         test ! -e /usr/bin/ffplay
         d=$(mktemp -d)
