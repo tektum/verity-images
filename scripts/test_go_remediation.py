@@ -1302,6 +1302,93 @@ def test_package_inputs(module, root: Path) -> None:
         os.environ.update(previous_environ)
 
 
+ISTIO = "istio.io/istio"
+ISTIO_TYPO_ADVISORY = {
+    "osv": {
+        "id": "GHSA-xwx5-5c9g-x68x",
+        "aliases": ["CVE-2022-31045"],
+        "affected": [
+            {"package": {"name": ISTIO, "ecosystem": "Go"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "0"}, {"fixed": "1.12.18"}]}]},
+            {"package": {"name": ISTIO, "ecosystem": "Go"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "1.13.0"}, {"fixed": "1.13.5"}]}]},
+            {"package": {"name": ISTIO, "ecosystem": "Go"}, "ranges": [{"type": "SEMVER", "events": [{"introduced": "1.14.0"}, {"fixed": "1.14.1"}]}]},
+        ],
+    },
+}
+
+
+def test_advisory_fix_correction(module) -> None:
+    def fixes(record, current):
+        identifier = record["osv"]["id"]
+        messages = module.parse_stream(stream(record, finding(identifier, ISTIO, current)))
+        return module.derive_fixes(messages, {ISTIO: current})
+
+    updates, unresolved, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.0")
+    assert updates == {ISTIO: "v1.12.8"} and unresolved == []
+    updates, unresolved, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.8")
+    assert updates == {} and unresolved == [("GHSA-xwx5-5c9g-x68x", ISTIO, "v1.12.8", "no-fix")]
+    updates, _, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.13.2")
+    assert updates == {ISTIO: "v1.13.5"}
+
+    aliased = json.loads(json.dumps(ISTIO_TYPO_ADVISORY))
+    aliased["osv"]["id"] = "GO-ALIAS"
+    aliased["osv"]["aliases"] = ["GHSA-xwx5-5c9g-x68x"]
+    assert fixes(aliased, "v1.12.0")[0] == {ISTIO: "v1.12.8"}
+
+    unrelated = json.loads(json.dumps(ISTIO_TYPO_ADVISORY))
+    unrelated["osv"]["id"] = "GHSA-unrelated"
+    unrelated["osv"]["aliases"] = []
+    assert fixes(unrelated, "v1.12.0")[0] == {ISTIO: "v1.12.18"}
+
+
+def test_untagged_module_uses_release_tag(module, root: Path) -> None:
+    release = "v0.0.0-20220606151702-83a7f5f171c0"
+    record = ISTIO_TYPO_ADVISORY
+    vulnerable = module.parse_stream(stream(record, finding("GHSA-xwx5-5c9g-x68x", ISTIO, "v0.0.0")))
+    module.reconcile = lambda *_args, **_kwargs: None
+
+    def run(current, tags):
+        selected = {ISTIO: current}
+        queries, omnibump = [], []
+        module.scan = lambda *_args, **_kwargs: vulnerable
+        module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+
+        def run_go(arguments, _root, capture=False, workspace=None, report=False):
+            if arguments[0] == "omnibump":
+                request = arguments[arguments.index("--packages") + 1]
+                omnibump.append(request)
+                selected[ISTIO] = request.rsplit("@", 1)[1]
+                return ""
+            if arguments[:3] == ["go", "list", "-mod=mod"] and "-json" in arguments:
+                query = arguments[-1]
+                queries.append(query)
+                version = tags.get(query.rsplit("@", 1)[1])
+                if version is None:
+                    raise module.CommandError(arguments, 1, "", f"go: {query}: invalid version: unknown revision")
+                return json.dumps({"Path": ISTIO, "Version": version, "Query": query})
+            return json.dumps({"Go": "1.25", "Toolchain": None}) if capture else ""
+
+        module.run_go = run_go
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            invoke_main(module, root)
+        return queries, omnibump, output.getvalue()
+
+    queries, omnibump, output = run("v0.0.0-20260528141032-c51394391cf5", {"1.12.8": release})
+    assert queries[:2] == [f"{ISTIO}@v1.12.8", f"{ISTIO}@1.12.8"]
+    assert set(queries) == set(queries[:2])
+    assert omnibump == []
+    assert f"includes fixed release v1.12.8 ({release})" in output
+
+    queries, omnibump, _ = run("v0.0.0-20220101000000-0123456789ab", {"1.12.8": release})
+    assert omnibump == [f"{ISTIO}@{release}"]
+
+    assert_raises(
+        module.RemediationError,
+        f"advisory fix {ISTIO}@v1.12.8 is neither a published module version nor a release tag",
+        lambda: run("v0.0.0-20220101000000-0123456789ab", {}),
+    )
+
+
 def test_pipeline_contract() -> None:
     pipeline = PIPELINE.read_text(encoding="utf-8")
     assert pipeline.count("go install golang.org/x/vuln/cmd/govulncheck@v1.7.0") == 1
@@ -1327,6 +1414,11 @@ def main() -> None:
         test_version_ordering(module)
         test_required_go_upgrade_preserved(module, root)
         test_fix_selection(module)
+        test_advisory_fix_correction(module)
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        module = load_resolver(root)
+        test_untagged_module_uses_release_tag(module, root)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
