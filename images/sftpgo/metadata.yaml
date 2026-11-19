@@ -1,0 +1,9 @@
+name: sftpgo
+track: wolfi
+description: SFTPGo SFTP, HTTP/S, FTP/S and WebDAV file transfer server built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://github.com/drakkan/sftpgo
+versions: [2.7]
+scan-identity: [pkg:golang/github.com/drakkan/sftpgo/v2]
+owner: tektum
+enabled: true

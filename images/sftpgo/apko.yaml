@@ -1,0 +1,75 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - mailcap
+    - tzdata
+    - verity-sftpgo@local
+
+# Same account as the upstream image: sftpgo, UID/GID 1000.
+accounts:
+  groups:
+    - groupname: sftpgo
+      gid: 1000
+  users:
+    - username: sftpgo
+      uid: 1000
+      gid: 1000
+      homedir: /var/lib/sftpgo
+      shell: /usr/sbin/nologin
+  run-as: "1000:1000"
+
+# Upstream ships a command, not an entrypoint, so `docker run IMAGE sftpgo ...`
+# and Compose `command: sftpgo serve ...` keep working unchanged.
+cmd: sftpgo serve
+
+work-dir: /var/lib/sftpgo
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  HOME: /var/lib/sftpgo
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  # Log to stdout so logs are available through the container runtime.
+  SFTPGO_LOG_FILE_PATH: ""
+
+paths:
+  - path: /etc/sftpgo
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /etc/sftpgo/sftpgo.json
+    type: permissions
+    uid: 1000
+    gid: 1000
+    permissions: 0o644
+  - path: /var/lib/sftpgo
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /srv/sftpgo
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /srv/sftpgo/data
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /srv/sftpgo/backups
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o700
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777

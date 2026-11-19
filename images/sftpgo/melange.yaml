@@ -1,0 +1,123 @@
+package:
+  name: verity-sftpgo
+  # yamllint disable-line rule:line-length
+  version: "2.7.6"  # renovate: datasource=github-releases depName=drakkan/sftpgo versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Full-featured SFTP, HTTP/S, FTP/S and WebDAV file transfer server
+  copyright:
+    - license: AGPL-3.0-only
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - mailcap
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 62ae9ba3957e9ed52b44a4f885e805e2d7b35972
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - libxcrypt-dev
+      - python3
+  environment:
+    # The SQLite provider, upstream's default, is behind a cgo build
+    # constraint. Pinning CGO_ENABLED turns a missing compiler into a build
+    # failure instead of a binary that reports "SQLite disabled at build time".
+    CGO_ENABLED: "1"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/drakkan/sftpgo
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - runs: |
+      # Same build tags, flags, and version stamp as the upstream release
+      # workflow passes to its Debian Dockerfile (.github/workflows/docker.yml).
+      # The date is the source commit time, which keeps the build reproducible
+      # without depending on SOURCE_DATE_EPOCH, which can be 0.
+      commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-8)
+      epoch=$(git show -s --format=%ct '${{vars.source-commit}}')
+      date=$(date -u -d "@${epoch}" +%FT%TZ)
+      go build -mod=readonly -trimpath \
+        -tags nopgxregisterdefaulttypes,disable_grpc_modules,unixcrypt \
+        -ldflags "-s -w \
+        -X github.com/drakkan/sftpgo/v2/internal/version.commit=${commit} \
+        -X github.com/drakkan/sftpgo/v2/internal/version.date=${date}" \
+        -o "${{targets.destdir}}/usr/bin/sftpgo" .
+
+      # Upstream installs the binary in /usr/local/bin; keep that path valid.
+      mkdir -p "${{targets.destdir}}/usr/local/bin"
+      ln -s ../../bin/sftpgo "${{targets.destdir}}/usr/local/bin/sftpgo"
+
+      # Same default configuration edits as the upstream Dockerfile.
+      sed -i 's|"users_base_dir": "",|"users_base_dir": "/srv/sftpgo/data",|' sftpgo.json
+      sed -i 's|"backups"|"/srv/sftpgo/backups"|' sftpgo.json
+      grep -F '"users_base_dir": "/srv/sftpgo/data",' sftpgo.json
+      grep -F '"backups_path": "/srv/sftpgo/backups"' sftpgo.json
+      install -Dm644 sftpgo.json "${{targets.destdir}}/etc/sftpgo/sftpgo.json"
+
+      mkdir -p "${{targets.destdir}}/usr/share/sftpgo"
+      cp -R templates static openapi "${{targets.destdir}}/usr/share/sftpgo/"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the sftpgo build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/sftpgo-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/sftpgo-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-8)
+        sftpgo --version | grep -E "^SFTPGo ${{package.version}}-${commit}-20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z "
+        sftpgo --version | grep -F ' +sqlite '
+        sftpgo --version | grep -F ' +bolt '
+        sftpgo --version | grep -F ' +unixcrypt '
+        [ "$(readlink -f /usr/local/bin/sftpgo)" = /usr/bin/sftpgo ]
+        test -f /usr/share/sftpgo/openapi/openapi.yaml
+        test -d /usr/share/sftpgo/templates/webadmin
+        test -d /usr/share/sftpgo/static
+        grep -F '"driver": "sqlite",' /etc/sftpgo/sftpgo.json
+        apk info --license "${{package.name}}" | grep -Fx AGPL-3.0-only
+        grep -F 'GNU AFFERO GENERAL PUBLIC LICENSE' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+        grep -F 'SFTPGo' "/usr/share/licenses/${{package.name}}/NOTICE"
+
+update:
+  enabled: true
+  github:
+    identifier: drakkan/sftpgo
+    strip-prefix: v
