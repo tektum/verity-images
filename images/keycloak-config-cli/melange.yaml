@@ -1,0 +1,149 @@
+package:
+  name: verity-keycloak-config-cli
+  # yamllint disable-line rule:line-length
+  version: "6.5.1"  # renovate: datasource=github-tags depName=adorsys/keycloak-config-cli versioning=regex:^(?<major>6)\.(?<minor>5)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: keycloak-config-cli built from the pinned release tag with the upstream /app jar layout
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - openjdk-21-default-jvm
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# The 6.5.1 release still bundles dependency versions with published
+# advisories. Properties the pom or the Spring Boot parent exposes are passed
+# to Maven; Jackson 3 (pulled in by logstash-logback-encoder) and the log4j
+# API (managed by an imported BOM, not by log4j2.version) are pinned through
+# dependencyManagement. jackson.version is edited in the pom because a -D user
+# property would also override the property inside the Jackson 3 BOM.
+vars:
+  source-commit: 90c97fc0f8968286400be7bcb27f8165581003f2
+  # yamllint disable rule:line-length
+  jackson-version: 2.21.7  # renovate: datasource=maven depName=com.fasterxml.jackson:jackson-bom versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  jackson3-version: 3.1.7  # renovate: datasource=maven depName=tools.jackson:jackson-bom versioning=regex:^(?<major>3)\.(?<minor>1)\.(?<patch>\d+)$
+  spring-version: 6.2.19  # renovate: datasource=maven depName=org.springframework:spring-core versioning=regex:^(?<major>6)\.(?<minor>2)\.(?<patch>\d+)$
+  logback-version: 1.5.34  # renovate: datasource=maven depName=ch.qos.logback:logback-core versioning=regex:^(?<major>1)\.(?<minor>5)\.(?<patch>\d+)$
+  log4j-version: 2.25.5  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-bom versioning=regex:^(?<major>2)\.(?<minor>25)\.(?<patch>\d+)$
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      # The upstream wrapper pins Maven 3.9; 3.10 rejects the pom's duplicate
+      # snakeyaml dependency.
+      - maven-3.9
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/adorsys/keycloak-config-cli
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Raise dependency floors
+    runs: |
+      want='<jackson.version>${{vars.jackson-version}}</jackson.version>'
+      sed -i "s|<jackson.version>[^<]*</jackson.version>|$want|" pom.xml
+      grep -cF "$want" pom.xml | grep -qx 1
+      cat > pins.xml <<'XML'
+                  <dependency>
+                      <groupId>tools.jackson</groupId>
+                      <artifactId>jackson-bom</artifactId>
+                      <version>${{vars.jackson3-version}}</version>
+                      <scope>import</scope>
+                      <type>pom</type>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.apache.logging.log4j</groupId>
+                      <artifactId>log4j-bom</artifactId>
+                      <version>${{vars.log4j-version}}</version>
+                      <scope>import</scope>
+                      <type>pom</type>
+                  </dependency>
+      XML
+      awk '
+        /<dependencyManagement>/ { managed = 1 }
+        { print }
+        managed && !done && /<dependencies>/ {
+          while ((getline line < "pins.xml") > 0) print line
+          done = 1
+        }
+        END { if (!done) exit 1 }
+      ' pom.xml > pom.xml.new
+      mv pom.xml.new pom.xml
+      rm pins.xml
+      grep -c '<groupId>tools.jackson</groupId>' pom.xml | grep -qx 1
+
+  - name: Build the jar
+    runs: |
+      # Same packaging command as the upstream Dockerfile, at the pom's
+      # default Keycloak versions, plus the dependency floors.
+      mvn -ntp -B clean package -DskipTests \
+        -Dlicense.skipCheckLicense -Dcheckstyle.skip -Dmaven.test.skip=true \
+        -Dmaven.site.skip=true -Dmaven.javadoc.skip=true -Dmaven.gitcommitid.skip=true \
+        -Dspring-framework.version=${{vars.spring-version}} \
+        -Dlogback.version=${{vars.logback-version}} \
+        -Dlog4j2.version=${{vars.log4j-version}}
+      jar=target/keycloak-config-cli.jar
+      test -s "$jar"
+      # Every floor must have reached the shipped jar set, or the build fails.
+      libs=$(jar tf "$jar" | sed -n 's|^BOOT-INF/lib/||p')
+      for want in \
+        jackson-databind-${{vars.jackson-version}} \
+        jackson-core-${{vars.jackson-version}} \
+        jackson-databind-${{vars.jackson3-version}} \
+        jackson-core-${{vars.jackson3-version}} \
+        spring-core-${{vars.spring-version}} \
+        spring-expression-${{vars.spring-version}} \
+        logback-core-${{vars.logback-version}} \
+        log4j-api-${{vars.log4j-version}}; do
+        printf '%s\n' "$libs" | grep -Fx "$want.jar" >/dev/null || {
+          echo "missing $want.jar in the jar" >&2
+          exit 1
+        }
+      done
+      install -Dm644 "$jar" "${{targets.destdir}}/app/keycloak-config-cli.jar"
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - name: Install the Temurin-style JAVA_HOME
+    runs: |
+      install -d "${{targets.destdir}}/opt/java"
+      ln -s /usr/lib/jvm/java-21-openjdk "${{targets.destdir}}/opt/java/openjdk"
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: |
+        test -x /opt/java/openjdk/bin/java
+        out=$(java -jar /app/keycloak-config-cli.jar --keycloak.url=http://127.0.0.1:9 2>&1 || true)
+        printf '%s\n' "$out" | grep -F 'Starting KeycloakConfigApplication v${{package.version}} '
+
+update:
+  enabled: true
+  github:
+    identifier: adorsys/keycloak-config-cli
+    use-tag: true
+    strip-prefix: v
+    tag-filter-prefix: v6.5.
