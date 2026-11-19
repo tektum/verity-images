@@ -78,11 +78,11 @@ port=$(docker port "$exporter" 9150/tcp | head -n 1 | sed 's/.*://')
 
 # scrape PATH OUT: fetch PATH from the exporter until it answers.
 scrape() {
-  attempts=0
+  scrape_attempts=0
   until curl --fail --silent --show-error --connect-timeout 1 --max-time 5 \
     "http://127.0.0.1:$port$1" >"$2" 2>"$work/curl.err"; do
-    attempts=$((attempts + 1))
-    [ "$attempts" -lt 30 ] || fail "exporter did not serve $1: $(cat "$work/curl.err")"
+    scrape_attempts=$((scrape_attempts + 1))
+    [ "$scrape_attempts" -lt 30 ] || fail "exporter did not serve $1: $(cat "$work/curl.err")"
     sleep 1
   done
 }
@@ -111,7 +111,13 @@ grep -Fx 'memcached_up 0' "$work/down" >/dev/null ||
   fail 'unreachable target was not reported as down'
 
 docker stop -t 10 "$exporter" >/dev/null
-test "$(docker inspect --format '{{.State.ExitCode}}' "$exporter")" != 137 ||
-  fail 'exporter ignored SIGTERM'
+case $(docker inspect --format '{{.State.ExitCode}}' "$exporter") in
+  0 | 2 | 143) ;;
+  *) fail 'exporter did not stop on SIGTERM' ;;
+esac
+shutdown_log=$(docker logs "$exporter" 2>&1) || fail 'could not read the exporter log after SIGTERM'
+if printf '%s\n' "$shutdown_log" | grep -Eq '^(panic: |fatal error: |goroutine [0-9]+ \[)'; then
+  fail 'exporter crashed instead of stopping on SIGTERM'
+fi
 
 echo "memcached-exporter $expected_version smoke test passed"
