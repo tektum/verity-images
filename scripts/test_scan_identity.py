@@ -40,6 +40,7 @@ FROZEN_NO_FEED: Final = frozenset(
     {
         "images/jupyterhub-k8s-hub",
         "images/kubernetes-reflector",
+        "images/linkerd-proxy",
         "images/opensearch-dashboards",
         "images/sonar-scanner-cli",
     }
