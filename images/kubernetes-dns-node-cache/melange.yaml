@@ -1,0 +1,101 @@
+package:
+  name: verity-kubernetes-dns-node-cache
+  # yamllint disable-line rule:line-length
+  version: "1.26.8"  # renovate: datasource=github-tags depName=kubernetes/dns versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: NodeLocal DNSCache agent (CoreDNS-based node-cache) from kubernetes/dns
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 9aa70b8f97dc751445a7370960cd45e411506003
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/dns
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - runs: |
+      # k8s.io/kubernetes requires its staging modules at v0.0.0 and resolves
+      # them with replaces that do not apply to dependents, so the full module
+      # graph that go/remediate lists fails with "unknown revision v0.0.0".
+      # Pin each of them to the matching staging release. Only the v0.0.0
+      # placeholder is replaced; the selected build list stays unchanged.
+      kubernetes=$(go list -mod=mod -m -f '{{.Version}}' k8s.io/kubernetes)
+      staging="v0.${kubernetes#v1.}"
+      gomod=$(go mod download -json "k8s.io/kubernetes@$kubernetes" \
+        | sed -n 's/^[[:space:]]*"GoMod": "\(.*\)",$/\1/p')
+      test -s "$gomod"
+      for module in $(awk '$1 ~ /^k8s\.io\// && $2 == "v0.0.0" { print $1 }' "$gomod"); do
+        go mod edit -replace="$module@v0.0.0=$module@$staging"
+      done
+      go list -mod=mod -m all >/dev/null
+      # vendor/modules.txt records replacements; resync it so the vendored
+      # build stays consistent with the edited go.mod.
+      go mod vendor
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/node-cache
+  # Upstream tags are not semver (no v prefix), so Go cannot stamp the main
+  # module version. Build without VCS stamping like upstream build/build.sh and
+  # declare the module purl in metadata.yaml, versioned from package.version.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=vendor -trimpath -buildvcs=false \
+        -ldflags="-s -w -X k8s.io/dns/pkg/version.VERSION=${{package.version}}" \
+        -o "${{targets.destdir}}/node-cache" ./cmd/node-cache
+      go version -m "${{targets.destdir}}/node-cache" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx k8s.io/dns/cmd/node-cache
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the node-cache build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/node-cache-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/node-cache-build/go.sum"
+          install -Dm644 vendor/modules.txt "${{targets.subpkgdir}}/usr/share/node-cache-build/modules.txt"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /node-cache -help 2>&1 | grep -F -- '-setupiptables'
+        /node-cache -help 2>&1 | grep -F 'as a nodelocal cache'
+        apk info --who-owns /node-cache \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes/dns
+    use-tag: true
