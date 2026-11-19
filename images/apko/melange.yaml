@@ -1,9 +1,7 @@
 package:
-  name: apko
+  name: verity-apko
   version: "1.5.1"  # renovate: datasource=github-releases depName=chainguard-dev/apko
-  # Above Wolfi apko-1.5.0-r0, the newest published revision, which still
-  # carries golang.org/x/crypto v0.58.0 (GO-2026-5932).
-  epoch: 1
+  epoch: 0
   description: Build OCI images from APK packages without a Dockerfile
   copyright:
     - license: Apache-2.0
