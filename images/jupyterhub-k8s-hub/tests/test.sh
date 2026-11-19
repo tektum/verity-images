@@ -92,8 +92,10 @@ assert have == frozen, sorted(set(have.items()) ^ set(frozen.items()))
 # Overrides only move versions of upstream pins; no package is added or dropped.
 assert frozen.keys() == upstream.keys(), sorted(frozen.keys() ^ upstream.keys())
 assert len(frozen) > 50, len(frozen)
+key = lambda v: tuple(int(part) for part in v.split("."))
 for name in sorted(frozen):
     if frozen[name] != upstream[name]:
+        assert key(frozen[name]) > key(upstream[name]), (name, upstream[name], frozen[name])
         print("override", name, upstream[name], "->", frozen[name])
 
 for module in """jupyterhub jupyterhub.app kubespawner kubernetes_asyncio oauthenticator

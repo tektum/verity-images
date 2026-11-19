@@ -65,9 +65,19 @@ pipeline:
       cat > overrides.txt <<EOF
       tornado==${{vars.tornado-version}}
       EOF
-      # Every override replaces exactly one frozen pin.
-      while IFS='=' read -r name _; do
+      # Every override replaces exactly one frozen pin with a strictly newer
+      # release, so a release that freezes a newer version fails here until the
+      # stale override is removed.
+      while IFS='=' read -r name _ version; do
         test "$(grep -ciE "^${name}==" "$upstream")" = 1
+        pinned=$(grep -iE "^${name}==" "$upstream" | sed 's/^[^=]*==//; s/[[:space:]].*$//')
+        python${{vars.python-version}} - "$name" "$pinned" "$version" <<'PY'
+      import sys
+      name, pinned, override = sys.argv[1:]
+      key = lambda v: tuple(int(part) for part in v.split("."))
+      if key(override) <= key(pinned):
+          sys.exit(f"override {name}=={override} does not raise upstream {name}=={pinned}")
+      PY
       done < overrides.txt
       names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
       { grep -viE "^(${names})==" "$upstream"; cat overrides.txt; } > "$requirements"
