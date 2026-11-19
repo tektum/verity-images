@@ -8,8 +8,8 @@ label="verity-test=shadowsocks-rust-$$"
 network="verity-shadowsocks-rust-$$"
 prefix="verity-ss-$$"
 work=$(mktemp -d)
-python_image='docker.io/library/python:3.13-alpine@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
-curl_image='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
+python_image='docker.io/library/python@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
+curl_image='docker.io/curlimages/curl@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 
 cleanup() {
   docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null 2>&1 || true
