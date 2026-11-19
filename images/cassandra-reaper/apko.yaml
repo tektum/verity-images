@@ -1,0 +1,143 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-cassandra-reaper@local
+
+accounts:
+  groups:
+    - groupname: reaper
+      gid: 1001
+  users:
+    - username: reaper
+      uid: 1001
+      gid: 1001
+      homedir: /home/reaper
+  run-as: 1001
+
+entrypoint:
+  command: /usr/local/bin/entrypoint.sh
+
+cmd: cassandra-reaper
+
+volumes:
+  - /var/lib/cassandra-reaper
+  - /etc/cassandra-reaper/shiro
+  - /etc/cassandra-reaper/config
+
+# Defaults from the upstream Dockerfile (src/server/src/main/docker/Dockerfile).
+environment:
+  JAVA_HOME: /usr/lib/jvm/default-jvm
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/jvm/default-jvm/bin
+  REAPER_SEGMENT_COUNT_PER_NODE: "64"
+  REAPER_REPAIR_PARALELLISM: DATACENTER_AWARE
+  REAPER_REPAIR_INTENSITY: "0.9"
+  REAPER_MAX_PENDING_COMPACTIONS: "20"
+  REAPER_SCHEDULE_DAYS_BETWEEN: "7"
+  REAPER_REPAIR_RUN_THREADS: "15"
+  REAPER_HANGING_REPAIR_TIMEOUT_MINS: "30"
+  REAPER_STORAGE_TYPE: memory
+  REAPER_ENABLE_CROSS_ORIGIN: "true"
+  REAPER_INCREMENTAL_REPAIR: "false"
+  REAPER_SUBRANGE_INCREMENTAL: "false"
+  REAPER_BLACKLIST_TWCS: "false"
+  REAPER_ENABLE_DYNAMIC_SEED_LIST: "true"
+  REAPER_REPAIR_MANAGER_SCHEDULING_INTERVAL_SECONDS: "30"
+  REAPER_JMX_CONNECTION_TIMEOUT_IN_SECONDS: "20"
+  REAPER_USE_ADDRESS_TRANSLATOR: "false"
+  REAPER_DATACENTER_AVAILABILITY: ALL
+  REAPER_AUTO_SCHEDULING_ENABLED: "false"
+  REAPER_AUTO_SCHEDULING_INITIAL_DELAY_PERIOD: PT15S
+  REAPER_AUTO_SCHEDULING_PERIOD_BETWEEN_POLLS: PT10M
+  REAPER_AUTO_SCHEDULING_TIME_BEFORE_FIRST_SCHEDULE: PT5M
+  REAPER_AUTO_SCHEDULING_SCHEDULE_SPREAD_PERIOD: PT6H
+  REAPER_AUTO_SCHEDULING_ADAPTIVE: "true"
+  REAPER_AUTO_SCHEDULING_INCREMENTAL: "false"
+  REAPER_AUTO_SCHEDULING_PERCENT_UNREPAIRED_THRESHOLD: "10"
+  REAPER_AUTO_SCHEDULING_EXCLUDED_CLUSTERS: "[]"
+  REAPER_AUTO_SCHEDULING_EXCLUDED_KEYSPACES: "[]"
+  REAPER_JMX_PORTS: "{}"
+  REAPER_JMX_AUTH_USERNAME: ""
+  REAPER_JMX_AUTH_PASSWORD: ""
+  REAPER_JMX_CREDENTIALS: ""
+  REAPER_LOGGING_ROOT_LEVEL: INFO
+  REAPER_LOGGING_LOGGERS: "{}"
+  REAPER_LOGGING_APPENDERS_CONSOLE_LOG_FORMAT: '"%-6level [%d] [%t] %logger{5} - %msg %n"'
+  REAPER_LOGGING_APPENDERS_CONSOLE_THRESHOLD: INFO
+  REAPER_SERVER_APP_PORT: "8080"
+  REAPER_SERVER_APP_BIND_HOST: 0.0.0.0
+  REAPER_SERVER_ADMIN_PORT: "8081"
+  REAPER_SERVER_ADMIN_BIND_HOST: 0.0.0.0
+  REAPER_CASS_ACTIVATE_QUERY_LOGGER: "false"
+  REAPER_CASS_CLUSTER_NAME: clustername
+  REAPER_CASS_CONTACT_POINTS: ""
+  REAPER_CASS_KEYSPACE: reaper_db
+  REAPER_CASS_LOCAL_DC: ""
+  REAPER_CASS_AUTH_ENABLED: "false"
+  REAPER_CASS_AUTH_USERNAME: cassandra
+  REAPER_CASS_AUTH_PASSWORD: cassandra
+  REAPER_CASS_NATIVE_PROTOCOL_SSL_ENCRYPTION_ENABLED: "false"
+  REAPER_CASS_SCHEMA_AGREEMENT_INTERVAL: "2000"
+  REAPER_CASS_SCHEMA_AGREEMENT_TIMEOUT: "10"
+  REAPER_CASS_REQUEST_TIMEOUT: 10s
+  REAPER_DB_URL: ""
+  REAPER_DB_USERNAME: ""
+  REAPER_DB_PASSWORD: ""
+  REAPER_METRICS_ENABLED: "false"
+  REAPER_METRICS_FREQUENCY: 1 minute
+  REAPER_METRICS_REPORTERS: "[]"
+  REAPER_AUTH_ENABLED: "true"
+  REAPER_AUTH_USER: ""
+  REAPER_AUTH_PASSWORD: ""
+  REAPER_READ_USER: ""
+  REAPER_READ_USER_PASSWORD: ""
+  JAVA_OPTS: ""
+  REAPER_MAX_PARALLEL_REPAIRS: "2"
+  REAPER_MGMT_API_METRICS_PORT: "9000"
+  REAPER_HTTP_MANAGEMENT_PORT: "8080"
+  REAPER_HTTP_MANAGEMENT_ENABLE: "false"
+  REAPER_HTTP_MANAGEMENT_KEYSTORE_PATH: ""
+  REAPER_HTTP_MANAGEMENT_TRUSTSTORE_PATH: ""
+  REAPER_HTTP_MANAGEMENT_TRUSTSTORES_DIR: ""
+  REAPER_MGMT_API_METRICS_TLS: "false"
+  REAPER_TMP_DIRECTORY: /var/tmp/cassandra-reaper
+  REAPER_MEMORY_STORAGE_DIRECTORY: /var/lib/cassandra-reaper/storage
+  REAPER_PURGE_RECORDS_AFTER_IN_DAYS: "30"
+
+# The entrypoint renders /etc/cassandra-reaper/config/cassandra-reaper.yml at every start.
+paths:
+  - path: /var/lib/cassandra-reaper
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
+  - path: /etc/cassandra-reaper/shiro
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
+  - path: /etc/cassandra-reaper/config
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
+  - path: /var/log/cassandra-reaper
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
+  - path: /var/tmp/cassandra-reaper
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
+  # spreaper stores its login token under ~/.reaper (register-clusters command).
+  - path: /home/reaper
+    type: directory
+    uid: 1001
+    gid: 1001
+    permissions: 0o755
