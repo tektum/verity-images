@@ -24,6 +24,7 @@ vars:
   jack-db: "2.21.7"  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=maven
   # yamllint disable-line rule:line-length
   guava: "33.7.2-jre"  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
+  snappy-java: "1.1.10.12"  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
 
 environment:
   contents:
@@ -67,6 +68,7 @@ pipeline:
           ("com.google.guava", "guava"): "${{vars.guava}}",
           ("io.netty", "netty-all"): netty_version,
           ("io.netty", "netty-transport-native-epoll"): netty_version,
+          ("org.xerial.snappy", "snappy-java"): "${{vars.snappy-java}}",
       }
       tree = ElementTree.parse(path)
       updated = set()
