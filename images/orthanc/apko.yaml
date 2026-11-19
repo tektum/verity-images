@@ -1,0 +1,82 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - orthanc=1.13.1-r0
+    - orthanc-dicomweb=1.24-r2
+    - orthanc-explorer2=1.15.1-r1
+    - orthanc-ohif=1.8-r4
+
+# Plugin set: DICOMweb, Orthanc Explorer 2 and OHIF, all at the current
+# upstream release. Not shipped: orthanc-gdcm statically embeds GDCM 3.0.24
+# (CVE-2025-48429, CVE-2025-52582, CVE-2025-53618, CVE-2025-53619), which no
+# scanner sees inside the plugin; orthanc-webviewer embeds jQuery 1.10.2 and
+# jQuery UI 1.11.3 and is superseded by Explorer 2 and OHIF; orthanc-python
+# adds a full CPython runtime; orthanc-postgresql trails upstream (10.1 vs
+# 11.0) and pulls in a PostgreSQL 18 server.
+#
+# Upstream images run Orthanc as root with a generated /etc/orthanc. APKO
+# cannot ship file content, so the default command reads every *.json in
+# /etc/orthanc/ and the image ships no file there: mount orthanc.json at
+# /etc/orthanc/orthanc.json (or pass another path as the command). With no
+# file Orthanc uses its built-in defaults: REST API on 8042 for loopback
+# clients only, DICOM on 4242, no plugins, and storage in OrthancStorage
+# relative to the configuration directory, which this image links to the
+# /var/lib/orthanc/db volume. Plugins load from /usr/share/orthanc/plugins.
+# APKO cannot declare exposed ports, so the smoke test asserts both listeners.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/Orthanc
+
+cmd: /etc/orthanc/
+
+work-dir: /var/lib/orthanc/db
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/orthanc
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/lib/orthanc
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/lib/orthanc/db
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o700
+  # APKO applies a symlink entry's mode and owner through the link, so they
+  # repeat the volume directory's values.
+  - path: /etc/orthanc/OrthancStorage
+    type: symlink
+    source: /var/lib/orthanc/db
+    uid: 65532
+    gid: 65532
+    permissions: 0o700
+
+volumes:
+  - /var/lib/orthanc/db

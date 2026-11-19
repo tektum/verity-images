@@ -1,0 +1,10 @@
+name: orthanc
+track: wolfi
+description: Orthanc DICOM server with the DICOMweb, Orthanc Explorer UI and OHIF viewer plugins from Wolfi packages.
+category: Data & ML
+upstream: https://www.orthanc-server.com/
+versions: [1.13]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:orthanc-server:orthanc]
+scan-package: orthanc
