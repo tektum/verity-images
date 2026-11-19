@@ -1,0 +1,112 @@
+package:
+  name: verity-linkerd-proxy-init
+  # yamllint disable-line rule:line-length
+  version: "2.4.11"  # renovate: datasource=github-releases depName=linkerd/linkerd2-proxy-init versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^proxy-init/v(?<version>.+)$
+  epoch: 0
+  description: Linkerd init container that redirects pod traffic to the proxy with iptables
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 9725ceca1cf8cdd869631f9206e8e3547613f4d2
+  x-sys-floor: v0.49.0  # renovate: datasource=go depName=golang.org/x/sys
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - libcap-utils
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/linkerd/linkerd2-proxy-init
+      tag: proxy-init/v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # x/net's fixed releases require a newer x/sys than the one go/remediate
+  # selects on its own, which leaves go.sum without the entries the build needs.
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' golang.org/x/sys)"
+      if awk -v have="$current" -v want=${{vars.x-sys-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get golang.org/x/sys@${{vars.x-sys-floor}}
+      fi
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./proxy-init
+
+  # The release tag (proxy-init/vX.Y.Z) names a subdirectory, but the module
+  # lives at the repository root, so Go cannot stamp the version and would
+  # report a pseudo-version. Build without VCS stamping like the upstream
+  # Dockerfile; metadata.yaml declares the module purl, versioned from
+  # package.version, for the scanner.
+  # Upstream sets cap_net_raw,cap_net_admin+eip on the binary so that, as uid
+  # 65534 with allowPrivilegeEscalation=false, it keeps both capabilities and
+  # can pass them to the capability-bearing xtables binaries it runs.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o "${{targets.destdir}}/usr/local/bin/proxy-init" ./proxy-init
+      go version -m "${{targets.destdir}}/usr/local/bin/proxy-init" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/linkerd/linkerd2-proxy-init/proxy-init
+      setcap cap_net_raw,cap_net_admin+eip "${{targets.destdir}}/usr/local/bin/proxy-init"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the proxy-init build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/proxy-init-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/proxy-init-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+        - libcap-utils
+  pipeline:
+    - runs: |
+        # The file capabilities make execve fail with EPERM unless the bounding
+        # set holds both, so the binary runs only in the image smoke test.
+        getcap /usr/local/bin/proxy-init | grep -E 'cap_net_admin,cap_net_raw[=+]eip'
+        apk info --who-owns /usr/local/bin/proxy-init \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: linkerd/linkerd2-proxy-init
+    strip-prefix: proxy-init/v
+    tag-filter: proxy-init/v
+    use-tag: true

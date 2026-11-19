@@ -1,0 +1,9 @@
+name: linkerd-proxy-init
+track: wolfi
+description: Linkerd proxy-init, the init container that redirects pod traffic to the proxy. Built from pinned source.
+category: Service Mesh & Networking
+upstream: https://github.com/linkerd/linkerd2-proxy-init
+versions: [2.4]
+scan-identity: [pkg:golang/github.com/linkerd/linkerd2-proxy-init]
+owner: tektum
+enabled: true
