@@ -439,7 +439,8 @@ expect_denied 'an unmatched image was admitted' enforced "registry.example/app@$
 expect_admitted 'an opted-out namespace was intercepted' ignored "registry.example/app@$digest"
 
 # A ClusterImagePolicy is defaulted and validated by the policy webhooks;
-# an unsupported static action is rejected.
+# an unsupported static action is rejected. A server-side dry run never stores
+# the policy, so retrying until the API server routes to the webhook is safe.
 cat >"$work/bad-cip.yaml" <<EOF
 apiVersion: policy.sigstore.dev/v1alpha1
 kind: ClusterImagePolicy
@@ -448,13 +449,19 @@ spec:
   images: [{glob: "registry.example/**"}]
   authorities: [{static: {action: maybe}}]
 EOF
-if kubectl apply -f - <"$work/bad-cip.yaml" >"$work/bad-cip" 2>&1; then
-  fail 'an invalid ClusterImagePolicy was admitted'
-fi
-grep -F 'admission webhook "validating.clusterimagepolicy.sigstore.dev" denied the request' \
-  "$work/bad-cip" >/dev/null || fail "invalid policy not denied by the policy webhook: $(cat "$work/bad-cip")"
+i=0
+until ! kubectl apply --dry-run=server -f - <"$work/bad-cip.yaml" >"$work/bad-cip" 2>&1 &&
+  grep -F 'admission webhook "validating.clusterimagepolicy.sigstore.dev" denied the request' \
+    "$work/bad-cip" >/dev/null; do
+  i=$((i + 1))
+  [ "$i" -le 30 ] || fail "invalid policy not denied by the policy webhook: $(cat "$work/bad-cip")"
+  sleep 2
+done
 grep -F 'invalid value: maybe: spec.authorities[0].static.action' "$work/bad-cip" >/dev/null ||
   fail "invalid policy diagnostic is absent: $(cat "$work/bad-cip")"
+if kubectl get clusterimagepolicy verity-invalid >/dev/null 2>&1; then
+  fail 'the invalid ClusterImagePolicy was stored'
+fi
 
 # Static authorities are evaluated without any remote lookup.
 cat >"$work/cips.yaml" <<EOF
