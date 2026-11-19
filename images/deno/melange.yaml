@@ -47,6 +47,7 @@ pipeline:
       cargo update -p quinn-proto --precise 0.11.18 # renovate: datasource=crate depName=quinn-proto versioning=semver
       cargo update -p hickory-resolver \
         --precise 0.26.3 # renovate: datasource=crate depName=hickory-resolver versioning=semver
+      cargo update -p xxhash-rust --precise 0.8.16 # renovate: datasource=crate depName=xxhash-rust versioning=semver
   - uses: cargo/build
     with:
       output: deno
