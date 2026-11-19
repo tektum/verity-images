@@ -181,12 +181,12 @@ docker run --name "$container" --cpus 2 -d \
 wait_ready
 
 docker exec "$container" ps -o user,args >"$fixture/ps.out"
-# Under emulation (arm64 on amd64 CI) args are prefixed with the qemu binary.
-grep -Eq '^root +(\S*qemu-\S+ +)?/usr/libexec/postfix/master' "$fixture/ps.out" || {
+# Under emulation (arm64 on amd64 CI) BusyBox ps prints "{comm} /usr/bin/qemu-aarch64 <argv>".
+grep -Eq '^root +(\{[^}]*\} +)?(\S*qemu-\S+ +)?/usr/libexec/postfix/master' "$fixture/ps.out" || {
   cat "$fixture/ps.out" >&2
   fail 'postfix master is not running'
 }
-grep -Eq '^postfix +(\S*qemu-\S+ +/usr/libexec/postfix/qmgr +)?qmgr' "$fixture/ps.out" || {
+grep -Eq '^postfix +(\{[^}]*\} +)?(\S*qemu-\S+ +/usr/libexec/postfix/qmgr +)?qmgr' "$fixture/ps.out" || {
   cat "$fixture/ps.out" >&2
   fail 'queue manager does not run as the unprivileged postfix user'
 }
