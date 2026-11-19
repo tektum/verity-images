@@ -39,6 +39,7 @@ FROZEN_BASELINE: Final = frozenset(
 FROZEN_NO_FEED: Final = frozenset(
     {
         "images/jupyterhub-k8s-hub",
+        "images/keycloak-config-cli",
         "images/kubernetes-reflector",
         "images/linkerd-proxy",
         "images/opensearch-dashboards",
