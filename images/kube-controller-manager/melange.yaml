@@ -45,9 +45,9 @@ pipeline:
       export KUBE_GIT_TREE_STATE=clean
       make WHAT=cmd/kube-controller-manager
       install -m755 -D _output/bin/kube-controller-manager \
-        "${{targets.destdir}}/usr/bin/${{package.name}}"
-      ln -s ${{package.name}} "${{targets.destdir}}/usr/bin/kube-controller-manager"
-      "${{targets.destdir}}/usr/bin/${{package.name}}" --version \
+        "${{targets.destdir}}/usr/bin/kube-controller-manager-1.37"
+      ln -s kube-controller-manager-1.37 "${{targets.destdir}}/usr/bin/kube-controller-manager"
+      "${{targets.destdir}}/usr/bin/kube-controller-manager-1.37" --version \
         | grep -Fx "Kubernetes v${{package.version}}"
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
@@ -59,8 +59,8 @@ test:
         - busybox
   pipeline:
     - runs: |
-        ${{package.name}} --version | grep -Fx "Kubernetes v${{package.version}}"
-        test "$(readlink /usr/bin/kube-controller-manager)" = ${{package.name}}
+        kube-controller-manager-1.37 --version | grep -Fx "Kubernetes v${{package.version}}"
+        test "$(readlink /usr/bin/kube-controller-manager)" = kube-controller-manager-1.37
         kube-controller-manager --version | grep -Fx "Kubernetes v${{package.version}}"
-        ${{package.name}} --help >/dev/null
+        kube-controller-manager-1.37 --help >/dev/null
         test -s /usr/share/licenses/${{package.name}}/LICENSE
