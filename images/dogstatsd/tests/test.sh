@@ -64,6 +64,29 @@ printf '%s\n' "$missing_key" | grep -F 'Error: no API key configured, exiting' >
   fail "missing API key did not report the documented error (exit $status)"
 printf 'missing API key exits %s\n' "$status"
 
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+
+# Pull the pinned helper index by its per-platform child digest. A classic
+# Docker image store cannot bind an index digest to a second platform's image,
+# so the index bytes are verified against the pin before a child is chosen,
+# which keeps the pin authoritative.
+python_raw=$(docker buildx imagetools inspect --raw "$python_index") ||
+  fail 'cannot inspect helper image index'
+[ "sha256:$(printf '%s' "$python_raw" | sha256sum | cut -d' ' -f1)" = "${python_index#*@}" ] ||
+  fail 'helper image index digest mismatch'
+python_digest=$(printf '%s' "$python_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve helper image digest'
+case $python_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch helper image in $python_index" ;;
+esac
+python=${python_index%%:*}@$python_digest
+docker pull --quiet --platform "linux/$image_arch" "$python" >/dev/null ||
+  fail 'cannot pull helper image'
+
 # Positive case: an isolated server receives StatsD traffic over UDP and UDS.
 docker volume create "$socket_volume" >/dev/null || fail 'cannot create socket volume'
 docker run -d --name "$server" --network none \
@@ -75,7 +98,7 @@ docker run -d --name "$server" --network none \
   "$image" >/dev/null || fail 'cannot start dogstatsd'
 
 result=$(docker run --rm --network "container:$server" --pid "container:$server" \
-  -v "$socket_volume:/var/run/datadog" "$python_index" python3 -c '
+  -v "$socket_volume:/var/run/datadog" "$python" python3 -c '
 import json
 import os
 import socket
@@ -137,7 +160,7 @@ print(json.dumps({
 printf 'STATS %s\n' "$result"
 
 field() {
-  printf '%s\n' "$result" | docker run --rm -i --network none "$python_index" python3 -c '
+  printf '%s\n' "$result" | docker run --rm -i --network none "$python" python3 -c '
 import json, sys
 value = json.load(sys.stdin)
 for key in sys.argv[1].split("."):
