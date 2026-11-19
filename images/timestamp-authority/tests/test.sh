@@ -6,8 +6,8 @@ expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' \
   "$(dirname "$0")/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 
-curl_image=docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b
-openssl_image=docker.io/alpine/openssl:3.5.9@sha256:c92fcbb1da06f6e22bf842833e4713df02a382116d8a40312546b599ec19ca30
+curl_index=docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b
+openssl_index=docker.io/alpine/openssl:3.5.9@sha256:c92fcbb1da06f6e22bf842833e4713df02a382116d8a40312546b599ec19ca30
 
 suffix=$$
 network="verity-tsa-test-$suffix"
@@ -29,6 +29,28 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
+# image_arch, pull_child: resolve each pinned helper index to the candidate's
+# platform child, verifying the index bytes against the pin. A classic Docker
+# store cannot bind one index digest to a second platform's image.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+curl_image=$(pull_child "$curl_index") || exit 1
+openssl_image=$(pull_child "$openssl_index") || exit 1
+
 # Internal network: no route out, so NTP monitoring can only log errors and the
 # test never depends on external services.
 docker network create --internal "$network" >/dev/null
@@ -45,11 +67,11 @@ curl_run() {
 # /ping is the chi Heartbeat middleware: HTTP 200 with body ".".
 wait_ready() {
   i=0
-  until [ "$(curl_run -f "http://$1:3000/ping" 2>/dev/null)" = . ]; do
+  until out=$(curl_run -f "http://$1:3000/ping" 2>&1) && [ "$out" = . ]; do
     i=$((i + 1))
     if [ "$i" -ge 60 ] || [ "$(docker inspect -f '{{.State.Running}}' "$1")" != true ]; then
-      docker logs "$1" >&2 || true
-      fail "$1: /ping did not answer"
+      docker logs "$1" 2>&1 | grep -v ntp >&2 || true
+      fail "$1: /ping did not answer: $out"
     fi
     sleep 1
   done
