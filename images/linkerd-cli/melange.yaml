@@ -63,7 +63,7 @@ pipeline:
         | grep -Fx 'edge-${{package.version}}'
       go version -m "${{targets.destdir}}/usr/bin/linkerd" \
         | awk '$1 == "mod" && $2 == "github.com/linkerd/linkerd2" { print $3 }' \
-        | grep -Ex 'v0\.0\.0-[0-9]{14}-76f5e82dff7c(\+dirty)?'
+        | grep -Ex "v0\.0\.0-[0-9]{14}-$(git rev-parse --short=12 HEAD)(\+dirty)?"
 
   - uses: strip
 
