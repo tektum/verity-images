@@ -73,7 +73,7 @@ pipeline:
       packages: .
 
   - runs: |
-      release_date=$(git show -s --format=%cd --date=format:'%Y-%m-%d %H:%M UTC' HEAD)
+      release_date=$(TZ=UTC git show -s --format=%cd --date=format-local:'%Y-%m-%d %H:%M UTC' HEAD)
       cmd=github.com/smallstep/step-kms-plugin/cmd
       go build -mod=readonly -trimpath -buildvcs=true \
         -ldflags="-s -w -X '$cmd.Version=${{package.version}}' -X '$cmd.ReleaseDate=$release_date'" \
