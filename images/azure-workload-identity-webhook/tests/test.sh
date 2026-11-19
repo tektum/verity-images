@@ -107,11 +107,33 @@ fi
 grep -F 'required key AZURE_TENANT_ID missing value' "$work/notenant" >/dev/null ||
   fail 'missing tenant diagnostic is missing'
 
+# A classic Docker image store cannot bind the index digest to a second
+# platform's image, so pull the helper by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is
+# chosen, which keeps the pin authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+helper_raw=$(docker buildx imagetools inspect --raw "$helper_index") ||
+  fail 'cannot inspect helper image index'
+[ "sha256:$(printf '%s' "$helper_raw" | sha256sum | cut -d' ' -f1)" = "${helper_index#*@}" ] ||
+  fail 'helper image index digest mismatch'
+helper_digest=$(printf '%s' "$helper_raw" |
+  jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') ||
+  fail 'cannot resolve helper image digest'
+case $helper_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch helper image in $helper_index" ;;
+esac
+helper=docker.io/library/busybox@$helper_digest
+docker pull --quiet --platform "linux/$image_arch" "$helper" >/dev/null ||
+  fail 'cannot pull helper image'
+
 # Deterministic offline serving check. A pinned busybox holder owns an
 # isolated network namespace (no external network) and accepts API server
 # connections on 127.0.0.1:6443 without replying, so the webhook's Kubernetes
 # version check blocks instead of racing server start-up.
-holder=$(docker run -d --network none "$helper_index" \
+holder=$(docker run -d --network none "$helper" \
   sh -c 'while true; do nc -l -p 6443 >/dev/null; done')
 sed 's|https://127.0.0.1:1|https://127.0.0.1:6443|' "$work/kubeconfig" >"$work/kubeconfig-hold"
 chmod 0644 "$work/kubeconfig-hold"
@@ -121,10 +143,10 @@ webhook=$(docker run -d --network "container:$holder" --read-only \
   --webhook-cert-dir=/config --disable-cert-rotation --log-level=debug)
 
 probe() {
-  docker run --rm --network "container:$holder" "$helper_index" "$@"
+  docker run --rm --network "container:$holder" "$helper" "$@"
 }
 ready=
-for _ in $(seq 1 30); do
+for _ in $(seq 1 90); do
   if probe wget -qO- http://127.0.0.1:9440/healthz >"$work/healthz" 2>/dev/null; then
     ready=1
     break
