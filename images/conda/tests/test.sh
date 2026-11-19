@@ -21,6 +21,13 @@ expected_version=$(jq -r '[.contents.packages[] | select(.name == "py3.12-conda"
   | unique | if length == 1 then .[0] | sub("-r[0-9]+$"; "") else empty end' \
   "$here/../apko.lock.json")
 [ -n "$expected_version" ] || fail 'could not read the locked py3.12-conda version'
+# The published tag is the metadata stream, so a pin that leaves it must fail here.
+stream=$(sed -n 's/^versions:[[:space:]]*\[\([^]]*\)\][[:space:]]*$/\1/p' "$here/../metadata.yaml")
+[ -n "$stream" ] || fail 'could not read the metadata version stream'
+case "$expected_version" in
+  "$stream".*) ;;
+  *) fail "locked conda $expected_version is outside the published $stream stream" ;;
+esac
 
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
   fail 'unexpected OCI user'
