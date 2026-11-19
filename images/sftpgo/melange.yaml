@@ -54,10 +54,12 @@ pipeline:
 
   - runs: |
       # Same build tags, flags, and version stamp as the upstream release
-      # workflow passes to its Debian Dockerfile (.github/workflows/docker.yml);
-      # the date comes from SOURCE_DATE_EPOCH for reproducibility.
+      # workflow passes to its Debian Dockerfile (.github/workflows/docker.yml).
+      # The date is the source commit time, which keeps the build reproducible
+      # without depending on SOURCE_DATE_EPOCH, which can be 0.
       commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-8)
-      date=$(date -u -d "@${SOURCE_DATE_EPOCH}" +%FT%TZ)
+      epoch=$(git show -s --format=%ct '${{vars.source-commit}}')
+      date=$(date -u -d "@${epoch}" +%FT%TZ)
       go build -mod=readonly -trimpath \
         -tags nopgxregisterdefaulttypes,disable_grpc_modules,unixcrypt \
         -ldflags "-s -w \
@@ -100,7 +102,7 @@ test:
   pipeline:
     - runs: |
         commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-8)
-        sftpgo --version | grep -E "^SFTPGo ${{package.version}}-${commit}-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z "
+        sftpgo --version | grep -E "^SFTPGo ${{package.version}}-${commit}-20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z "
         sftpgo --version | grep -F ' +sqlite '
         sftpgo --version | grep -F ' +bolt '
         sftpgo --version | grep -F ' +unixcrypt '

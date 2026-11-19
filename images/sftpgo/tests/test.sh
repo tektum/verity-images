@@ -59,7 +59,7 @@ inspect '{{json .Config.Env}}' | grep -F '"SFTPGO_LOG_FILE_PATH="' >/dev/null ||
 version=$(docker run --rm --network none "$image" sftpgo --version) ||
   fail 'sftpgo --version exited non-zero'
 printf '%s\n' "$version" |
-  grep -E "^SFTPGo ${expected_version}-${short_commit}-[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z " >/dev/null ||
+  grep -E "^SFTPGo ${expected_version}-${short_commit}-20[0-9]{2}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z " >/dev/null ||
   fail "unexpected version: $version"
 for feature in +sqlite +bolt +mysql +pgsql +s3 +gcs +azblob +unixcrypt; do
   case " $version " in
@@ -126,12 +126,24 @@ start_server() {
   attempts=0
   until health=$(curl --fail --silent --max-time 5 "$base/healthz") && [ "$health" = ok ]; do
     attempts=$((attempts + 1))
-    [ "$attempts" -lt 60 ] || fail '/healthz never returned ok'
+    [ "$attempts" -lt 120 ] || fail '/healthz never returned ok'
     [ "$(docker inspect -f '{{.State.Running}}' "$server")" = true ] ||
       fail 'sftpgo exited before readiness'
     sleep 1
   done
   printf 'HEALTHZ %s/healthz -> %s\n' "$base" "$health"
+  # HTTP can be ready before SFTP: host keys are generated first, which is
+  # slow under emulation. Logs go to stdout because SFTPGO_LOG_FILE_PATH is
+  # empty, so readiness is read from the container log.
+  attempts=0
+  until docker logs "$server" 2>&1 | grep -F '"sender":"sftpd"' |
+    grep -F 'server listener registered, address: [::]:2022' >/dev/null; do
+    attempts=$((attempts + 1))
+    [ "$attempts" -lt 180 ] || fail 'SFTP listener on 2022 was never logged to stdout'
+    [ "$(docker inspect -f '{{.State.Running}}' "$server")" = true ] ||
+      fail 'sftpgo exited before the SFTP listener started'
+    sleep 1
+  done
 }
 
 # The default admin is created from the environment at first start.
@@ -139,10 +151,6 @@ start_server \
   -e SFTPGO_DATA_PROVIDER__CREATE_DEFAULT_ADMIN=true \
   -e SFTPGO_DEFAULT_ADMIN_USERNAME=admin \
   -e SFTPGO_DEFAULT_ADMIN_PASSWORD="$admin_password"
-
-# Logs go to stdout because SFTPGO_LOG_FILE_PATH is empty.
-docker logs "$server" 2>&1 | grep -F '"sender":"sftpd"' >/dev/null ||
-  fail 'SFTP service did not log to stdout'
 
 # The web UI and OpenAPI document are served from /usr/share/sftpgo.
 curl --fail --silent --max-time 10 "$base/web/admin/login" | grep -F '<form' >/dev/null ||
