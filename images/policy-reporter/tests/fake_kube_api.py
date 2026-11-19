@@ -190,6 +190,8 @@ class Handler(BaseHTTPRequestHandler):
                 time.sleep(0.5)
             self.wfile.write(b"0\r\n\r\n")
         except OSError:
+            # The client closed the watch (policy-reporter stopped or
+            # restarted the informer); there is nobody left to answer.
             pass
         self.close_connection = True
 

@@ -8,6 +8,7 @@ version=$(sed -n 's/^  version: "\([0-9.]*\)".*$/\1/p' "$recipe")
 work=$(mktemp -d)
 stub=
 container=
+probe=
 
 fail() {
   printf 'FAIL: %s\n' "$*" >&2
@@ -24,6 +25,7 @@ fail() {
 
 cleanup() {
   [ -z "$container" ] || docker rm -f "$container" >/dev/null 2>&1 || true
+  [ -z "$probe" ] || docker rm -f "$probe" >/dev/null 2>&1 || true
   [ -z "$stub" ] || kill "$stub" 2>/dev/null || true
   rm -rf "$work"
 }
@@ -82,6 +84,7 @@ docker cp "$probe:/app/templates" "$work/app/templates" >/dev/null ||
 docker cp "$probe:/app/LICENSE.md" "$work/app/LICENSE.md" >/dev/null ||
   fail '/app/LICENSE.md is missing'
 docker rm "$probe" >/dev/null
+probe=
 for template in summary.html violations.html; do
   grep -F '{{' "$work/app/templates/$template" >/dev/null ||
     fail "/app/templates/$template is not a Go template"
@@ -170,17 +173,21 @@ test "$(cat "$work/ready")" = '{}' || fail "unexpected readiness body: $(cat "$w
 curl -fsS "$url/healthz" >"$work/healthz" || fail 'healthz failed'
 test "$(cat "$work/healthz")" = '{}' || fail "unexpected healthz body: $(cat "$work/healthz")"
 
-# Reports reach the REST API through the informers and the SQLite store.
-found=0
-for _ in $(seq 1 60); do
-  curl -fsS "$url/v1/policy-reports" >"$work/polr.json" || fail 'policy-reports request failed'
-  if grep -F '"count":1' "$work/polr.json" >/dev/null; then
-    found=1
-    break
-  fi
-  sleep 0.5
-done
-test "$found" -eq 1 || fail "PolicyReport was not persisted: $(cat "$work/polr.json")"
+# Each report reaches the REST API and the metrics through its own informer,
+# queue worker, and listener, so poll for every one of them.
+poll_until() {
+  path=$1 out=$2 pattern=$3
+  for _ in $(seq 1 60); do
+    curl -fsS "$url$path" >"$out" || fail "$path request failed"
+    if grep -E "$pattern" "$out" >/dev/null; then
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "$path never matched $pattern: $(cat "$out")"
+}
+
+poll_until /v1/policy-reports "$work/polr.json" '"count":1'
 python3 - "$work/polr.json" <<'EOF' || fail "unexpected policy-reports body: $(cat "$work/polr.json")"
 import json
 import sys
@@ -192,10 +199,7 @@ assert report["name"] == "smoke-polr", report
 assert report["namespace"] == "smoke", report
 assert (report["pass"], report["fail"]) == (1, 1), report
 EOF
-curl -fsS "$url/v1/cluster-policy-reports" >"$work/cpolr.json" ||
-  fail 'cluster-policy-reports request failed'
-grep -F '"name":"smoke-cpolr"' "$work/cpolr.json" >/dev/null ||
-  fail "ClusterPolicyReport missing: $(cat "$work/cpolr.json")"
+poll_until /v1/cluster-policy-reports "$work/cpolr.json" '"name":"smoke-cpolr"'
 curl -fsS "$url/v2/policies" >"$work/policies.json" || fail 'v2 policies request failed'
 grep -F '"policy":"require-run-as-non-root","severity":"high","results":{"fail":1}' \
   "$work/policies.json" >/dev/null || fail "v2 policies missing failure: $(cat "$work/policies.json")"
@@ -208,11 +212,10 @@ grep -F 'PolicyReport Summary' "$work/violations.html" >/dev/null ||
 grep -F 'smoke-pod' "$work/violations.html" >/dev/null ||
   fail 'violations report is missing the failing resource'
 
-curl -fsS "$url/metrics" >"$work/metrics" || fail 'metrics request failed'
-grep -E '^policy_report_result\{.*policy="require-run-as-non-root".*status="fail".*\} 1$' \
-  "$work/metrics" >/dev/null || fail 'policy_report_result metric for the failure is missing'
-grep -E '^cluster_policy_report_result\{.*policy="require-namespace-labels".*status="warn".*\} 1$' \
-  "$work/metrics" >/dev/null || fail 'cluster_policy_report_result metric is missing'
+poll_until /metrics "$work/metrics" \
+  '^policy_report_result\{.*policy="require-run-as-non-root".*status="fail".*\} 1$'
+poll_until /metrics "$work/metrics" \
+  '^cluster_policy_report_result\{.*policy="require-namespace-labels".*status="warn".*\} 1$'
 
 # The SQLite database is written by uid 1234 with gid 0, as with the upstream
 # image, which has no passwd entry for that user.
