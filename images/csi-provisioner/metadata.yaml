@@ -1,0 +1,9 @@
+name: csi-provisioner
+track: wolfi
+description: Kubernetes CSI external-provisioner sidecar provisioning volumes for PVCs. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/external-provisioner
+versions: [6.4]
+flavors: [plain]
+owner: tektum
+enabled: true

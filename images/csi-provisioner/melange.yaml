@@ -1,0 +1,101 @@
+package:
+  name: verity-csi-provisioner
+  # yamllint disable-line rule:line-length
+  version: "6.4.0"  # renovate: datasource=github-releases depName=kubernetes-csi/external-provisioner versioning=regex:^(?<major>6)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: CSI external-provisioner sidecar that creates and deletes volumes through CSI controller RPCs
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v6.4.0 peels to this commit.
+  source-commit: 72f13ee46fb93c11a72ef91549e70158283c03af
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-csi/external-provisioner
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/csi-provisioner
+
+  # Same build as upstream release-tools build.make: CGO 0, vendored modules,
+  # -X main.version=<tag> and a static link. The module path carries the /v6
+  # suffix, so Go stamps the main module version from the v6 tag for the
+  # scanner; a `+dirty` suffix only records go/remediate edits.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      version='v${{package.version}}'
+      go build -mod=vendor -trimpath -buildvcs=true \
+        -ldflags="-s -w -X main.version=$version -extldflags -static -buildid=" \
+        -o "${{targets.destdir}}/usr/bin/csi-provisioner" ./cmd/csi-provisioner
+      go version -m "${{targets.destdir}}/usr/bin/csi-provisioner" \
+        | awk '$1 == "mod" && $2 == "github.com/kubernetes-csi/external-provisioner/v6" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      "${{targets.destdir}}/usr/bin/csi-provisioner" --version \
+        | awk '{ print $2 }' | grep -Fx "$version"
+      # Upstream image contract: ENTRYPOINT ["/csi-provisioner"].
+      ln -s usr/bin/csi-provisioner "${{targets.destdir}}/csi-provisioner"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the csi-provisioner build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/csi-provisioner-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/csi-provisioner-build/go.sum"
+          install -Dm644 vendor/modules.txt "${{targets.subpkgdir}}/usr/share/csi-provisioner-build/modules.txt"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /csi-provisioner --version | grep -Fx '/csi-provisioner v${{package.version}}'
+        csi-provisioner -h 2>&1 | grep -F -- '-csi-address'
+        apk info --who-owns /usr/bin/csi-provisioner \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-csi/external-provisioner
+    strip-prefix: v
