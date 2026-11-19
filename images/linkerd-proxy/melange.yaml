@@ -184,6 +184,12 @@ pipeline:
       setcap cap_net_raw,cap_net_admin+eip "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-init"
       getcap "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-init" | grep -F 'cap_net_admin,cap_net_raw=eip'
 
+  # The root-owned checkouts are not readable by the host user that reads back
+  # workspace xattrs after the build (as in images/envoy); everything shipped is
+  # already in the destdir.
+  - runs: |
+      rm -rf proxy linkerd2 proxy-init validator await
+
 test:
   environment:
     contents:
