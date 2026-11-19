@@ -56,6 +56,18 @@ Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
+### Package names
+
+An image-local package must not reuse a Wolfi package name. Wolfi's security
+data is keyed by package name and version, so Grype would apply Wolfi's
+advisories to the local build, and an epoch raised above Wolfi's fixed revision
+hides Wolfi's real future fixes along with the false matches. Name the package
+`verity-<name>` (as `images/vexctl` does) with an ordinary epoch, and let the
+scanner see the main software natively or through `scan-identity`.
+`scripts/test_package_names.py` enforces this against the Wolfi index and
+security database; its allowlist holds the images that predate the rule and may
+only shrink.
+
 ### Scan identity
 
 Melange stamps every binary it builds with a package note, so Syft reports the
