@@ -8,8 +8,14 @@ recipe="$recipe_dir/melange.yaml"
 version=$(sed -n 's/^  version: "\([^"]*\)".*$/\1/p' "$recipe")
 commit=$(sed -n 's/^  source-commit: \([0-9a-f]\{40\}\)$/\1/p' "$recipe")
 test -n "$version" && test -n "$commit"
+helper_index=docker.io/library/busybox:1.37.0@sha256:9db7b59979c38555a39def84a31fb98b5296952f9e3afd4f6f11f05b07adfab0
+
+holder=
+webhook=
 
 cleanup() {
+  [ -z "$webhook" ] || docker rm -f "$webhook" >/dev/null 2>&1 || true
+  [ -z "$holder" ] || docker rm -f "$holder" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -101,21 +107,44 @@ fi
 grep -F 'required key AZURE_TENANT_ID missing value' "$work/notenant" >/dev/null ||
   fail 'missing tenant diagnostic is missing'
 
-# With tenant config and the mounted self-signed serving cert, the webhook
-# loads the cert, serves on :9443, then fails predictably on the unreachable
-# API server version check.
-if run_offline -e AZURE_TENANT_ID=00000000-0000-0000-0000-000000000000 "$image" \
-  --webhook-cert-dir=/config --disable-cert-rotation --log-level=debug \
-  >"$work/startup" 2>&1; then
-  fail 'offline startup unexpectedly succeeded'
-fi
+# Deterministic offline serving check. A pinned busybox holder owns an
+# isolated network namespace (no external network) and accepts API server
+# connections on 127.0.0.1:6443 without replying, so the webhook's Kubernetes
+# version check blocks instead of racing server start-up.
+holder=$(docker run -d --network none "$helper_index" \
+  sh -c 'while true; do nc -l -p 6443 >/dev/null; done')
+sed 's|https://127.0.0.1:1|https://127.0.0.1:6443|' "$work/kubeconfig" >"$work/kubeconfig-hold"
+chmod 0644 "$work/kubeconfig-hold"
+webhook=$(docker run -d --network "container:$holder" --read-only \
+  -v "$work:/config:ro" -e KUBECONFIG=/config/kubeconfig-hold \
+  -e AZURE_TENANT_ID=00000000-0000-0000-0000-000000000000 "$image" \
+  --webhook-cert-dir=/config --disable-cert-rotation --log-level=debug)
+
+probe() {
+  docker run --rm --network "container:$holder" "$helper_index" "$@"
+}
+ready=
+for _ in $(seq 1 30); do
+  if probe wget -qO- http://127.0.0.1:9440/healthz >"$work/healthz" 2>/dev/null; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+test -n "$ready" || { docker logs "$webhook" >&2 || true; fail 'healthz never became ready'; }
+grep -Fx ok "$work/healthz" >/dev/null || fail 'unexpected healthz body'
+probe wget -qO- http://127.0.0.1:9440/readyz | grep -Fx ok >/dev/null ||
+  fail 'readyz is not ok'
+# The webhook serves TLS on 9443 with the mounted self-signed certificate.
+probe sh -c 'echo | nc -w 3 127.0.0.1 9443 >/dev/null' ||
+  fail 'webhook TLS port 9443 is not listening'
+probe wget -qO- http://127.0.0.1:8095/metrics | grep -F '# TYPE' >/dev/null ||
+  fail 'metrics endpoint is not serving'
+
+docker logs "$webhook" >"$work/startup" 2>&1
 grep -F "\"userAgent\":\"azure-workload-identity/webhook/v${version} (linux/" "$work/startup" |
   grep -F "${commit}/" >/dev/null || fail 'startup user agent with version is missing'
 grep -F '"message":"Serving webhook server"' "$work/startup" | grep -F '"port":9443' \
   >/dev/null || fail 'webhook server did not start with the mounted certificate'
-grep -F '"message":"starting server","name":"health probe","addr":"[::]:9440"' \
-  "$work/startup" >/dev/null || fail 'health probe server did not start'
-grep -F 'failed to check kubernetes version' "$work/startup" | grep -F '127.0.0.1:1' \
-  >/dev/null || fail 'unreachable API server diagnostic is missing'
 
 printf 'SMOKE PASS image=%s\n' "$image"
