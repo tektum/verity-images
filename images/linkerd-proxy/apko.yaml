@@ -1,0 +1,53 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  # Upstream's proxy-runtime.yml package set, plus coreutils for /bin/sleep
+  # (the chart's waitBeforeExitSeconds preStop hook runs it).
+  # iptables-xtables-privileged replaces iptables' xtables-legacy-multi and
+  # xtables-nft-multi with copies carrying cap_net_raw,cap_net_admin+eip, the
+  # capabilities upstream's Dockerfile.proxy sets on them with setcap.
+  packages:
+    - ca-certificates-bundle
+    - coreutils
+    - glibc
+    - ip6tables
+    - iptables
+    - iptables-xtables-privileged
+    - libcap-utils
+    - libgcc
+    - libmnl
+    - libnetfilter_conntrack
+    - libnfnetlink
+    - nftables-slim
+    - verity-linkerd-proxy@local
+
+paths:
+  - path: /run
+    type: directory
+    permissions: 0o755
+
+accounts:
+  users:
+    - username: nonroot
+      uid: 65532
+    - username: nobody
+      uid: 65534
+  run-as: 65534
+
+entrypoint:
+  command: /usr/lib/linkerd/linkerd2-proxy-identity
+
+work-dir: /home/nonroot
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  # Upstream sets this to the linkerd2 release; the smoke test checks it
+  # against vars.linkerd2-version in melange.yaml.
+  LINKERD_CONTAINER_VERSION_OVERRIDE: edge-26.11.2
+  LINKERD2_PROXY_LOG: warn,linkerd=info
+  LINKERD2_PROXY_LOG_FORMAT: plain
