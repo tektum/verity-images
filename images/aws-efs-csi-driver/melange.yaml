@@ -1,0 +1,133 @@
+package:
+  name: verity-aws-efs-csi-driver
+  # The GitHub "latest release" of this repository is a Helm chart tag, so track
+  # the driver vX.Y.Z tags instead of releases.
+  # yamllint disable-line rule:line-length
+  version: "3.6.0"  # renovate: datasource=github-tags depName=kubernetes-sigs/aws-efs-csi-driver versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Amazon EFS CSI driver with the efs-utils mount helpers
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # amazon-efs-utils built for the CSI driver: mount.efs, mount.s3files,
+      # efs-proxy, amazon-efs-mount-watchdog and the efs-utils/s3files-utils
+      # configs and CA under /etc/amazon/efs-static-files, which the driver
+      # copies into its config directory at startup. It pulls in stunnel,
+      # stunnel-compat (/usr/bin/stunnel5), nfs-utils (mount.nfs4), openssl,
+      # python and botocore, matching the upstream image.
+      - efs-utils-for-aws-csi-driver
+      - mount
+      - umount
+      # Upstream installs tcpdump in the node image for debugging.
+      - tcpdump
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v3.6.0 is a lightweight tag on this commit.
+  source-commit: d3c946d5e4b27293aaf70ab1a810ccc08ff916d8
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/aws-efs-csi-driver
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # k8s.io/kubernetes requires its staging modules at v0.0.0 and replaces them
+  # only in its own go.mod. Upstream's pruned build never loads these, but
+  # remediation resolves the full module graph, so pin the ones upstream does
+  # not replace to the staging release matching the required k8s.io/kubernetes.
+  - runs: |
+      export GOFLAGS="$GOFLAGS -mod=mod"
+      kube=$(awk '$1 == "k8s.io/kubernetes" { print $2; exit }' go.mod)
+      staging="v0.${kube#v1.}"
+      printf '%s\n' "$staging" | grep -Ex 'v0\.[0-9]+\.[0-9]+'
+      for module in k8s.io/cluster-bootstrap k8s.io/endpointslice k8s.io/externaljwt \
+        k8s.io/kube-aggregator k8s.io/kube-controller-manager k8s.io/kube-proxy \
+        k8s.io/sample-apiserver; do
+        go mod edit -replace "$module=$module@$staging"
+      done
+      go mod tidy
+      go list -m all >/dev/null
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  # Same flags as upstream Makefile bin/aws-efs-csi-driver with the default
+  # EFS_CLIENT_SOURCE=k8s; the build date is the commit time for reproducibility.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      pkg=github.com/kubernetes-sigs/aws-efs-csi-driver/pkg/driver
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      go build -mod=readonly -trimpath \
+        -ldflags="-s -w -X $pkg.driverVersion=v${{package.version}} \
+          -X $pkg.gitCommit=${{vars.source-commit}} -X $pkg.buildDate=$build_date \
+          -X $pkg.efsClientSource=k8s" \
+        -o "${{targets.destdir}}/usr/bin/aws-efs-csi-driver" ./cmd
+      "${{targets.destdir}}/usr/bin/aws-efs-csi-driver" --version \
+        | grep -F '"driverVersion": "v${{package.version}}"'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 THIRD-PARTY \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/THIRD-PARTY"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Amazon EFS CSI driver build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/aws-efs-csi-driver-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/aws-efs-csi-driver-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        aws-efs-csi-driver --version | grep -F '"driverVersion": "v${{package.version}}"'
+        aws-efs-csi-driver --version | grep -F '"gitCommit": "${{vars.source-commit}}"'
+        apk info --who-owns /usr/bin/aws-efs-csi-driver \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        test -x /usr/bin/mount.efs
+        test -x /usr/bin/amazon-efs-mount-watchdog
+        test -f /etc/amazon/efs-static-files/efs-utils.conf
+        test -f /etc/amazon/efs-static-files/s3files-utils.conf
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/aws-efs-csi-driver
+    strip-prefix: v
+    use-tag: true
