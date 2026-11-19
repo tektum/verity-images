@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-secrets-store-csi-driver-provider-azure@local
+
+# The official image (mcr.microsoft.com/oss/v2/azure/secrets-store/provider-azure)
+# runs as root without USER: the provider creates its 0700 gRPC socket in the
+# hostPath provider directory shared with the root Secrets Store CSI Driver.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /secrets-store-csi-driver-provider-azure
+
+work-dir: /
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
