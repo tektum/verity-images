@@ -50,7 +50,8 @@ python_image=$(pull_child "$python_index")
 
 version=$(docker run --rm --cpus 2 "$image" --version)
 case "$version" in
-  'wash '[0-9]*.[0-9]*.[0-9]*) version=${version#wash } ;;
+  # The image is published as the 2.12 stream (metadata.yaml versions).
+  'wash 2.12.'[0-9]*) version=${version#wash } ;;
   *) fail "unexpected version output: $version" ;;
 esac
 
