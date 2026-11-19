@@ -1,0 +1,31 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - linkerd-controller@local
+
+# Upstream sets no user and relies on the pod securityContext; the Linkerd
+# chart runs every controller container as controllerUID 2103. Default to that
+# UID so the image is non-root standalone and matches the chart.
+accounts:
+  groups:
+    - groupname: linkerd
+      gid: 2103
+  users:
+    - username: linkerd
+      uid: 2103
+      gid: 2103
+  run-as: 2103
+
+entrypoint:
+  command: /controller
+
+work-dir: /
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
