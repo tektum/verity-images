@@ -1,0 +1,9 @@
+name: linkerd-web
+track: wolfi
+description: Linkerd viz dashboard web server and bundled UI built from pinned upstream edge source.
+category: Service Mesh & Networking
+upstream: https://github.com/linkerd/linkerd2
+versions: [26.11.2]
+scan-identity: [pkg:golang/github.com/linkerd/linkerd2, cpe:2.3:a:linkerd:linkerd]
+owner: tektum
+enabled: true
