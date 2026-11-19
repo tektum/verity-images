@@ -25,6 +25,9 @@ entrypoint:
 
 work-dir: /
 
+volumes:
+  - /state
+
 environment:
   PATH: /usr/bin:/bin
   FERRETDB_LISTEN_ADDR: ":27017"

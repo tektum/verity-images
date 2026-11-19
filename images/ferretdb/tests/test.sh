@@ -83,6 +83,8 @@ user=$(docker image inspect -f '{{.Config.User}}' "$image")
 [ "$user" = 1000 ] || fail "image user is $user, want 1000"
 workdir=$(docker image inspect -f '{{.Config.WorkingDir}}' "$image")
 [ "$workdir" = / ] || fail "unexpected working directory: $workdir"
+volumes=$(docker image inspect -f '{{json .Config.Volumes}}' "$image")
+[ "$volumes" = '{"/state":{}}' ] || fail "unexpected volumes: $volumes"
 env=$(docker image inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$image")
 for want in FERRETDB_LISTEN_ADDR=:27017 FERRETDB_DEBUG_ADDR=:8088 FERRETDB_STATE_DIR=/state; do
   printf '%s\n' "$env" | grep -Fxq "$want" || fail "image environment lacks $want"
