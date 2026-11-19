@@ -108,10 +108,21 @@ done
 expect_failure 'unknown flag' 1 'unknown flag: --no-such-flag' "$image" --no-such-flag
 
 # initialize creates the pod-id-link0 interface; without NET_ADMIN (the chart
-# runs it privileged) it must fail at once instead of half-configuring.
-expect_failure 'initialize without NET_ADMIN' 1 \
-  'Unable to initalize agent: unable to create interface pod-id-link0: operation not permitted' \
+# runs it privileged) it must fail at once instead of half-configuring. Where
+# the kernel offers every netlink family it fails creating the link (EPERM);
+# on kernels without NETLINK_XFRM (the arm64 runners) the netlink handle
+# itself fails with EPROTONOSUPPORT first. Both are upstream's fatal
+# "Unable to initalize" (sic) path.
+expect_failure 'initialize without NET_ADMIN' 1 'Unable to initalize' \
   --cap-drop ALL "$image" initialize
+case $output in
+  *'unable to create interface pod-id-link0: operation not permitted'* | \
+    *'Unable to initalize executor protocol not supported'*) ;;
+  *)
+    printf '%s\n' "$output" >&2
+    fail 'initialize without NET_ADMIN failed for an unexpected reason'
+    ;;
+esac
 
 # Without the link-local addresses that initialize creates, the server must
 # exit instead of serving on some other address.
