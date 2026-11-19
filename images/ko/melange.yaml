@@ -55,7 +55,7 @@ pipeline:
   - uses: strip
 
 subpackages:
-  - name: ko-build-metadata
+  - name: ${{package.name}}-build-metadata
     description: Resolved Go module metadata for the ko build
     pipeline:
       - runs: |
