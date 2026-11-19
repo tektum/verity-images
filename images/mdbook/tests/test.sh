@@ -16,8 +16,10 @@ fail() {
   exit 1
 }
 
+# Run as the host user so files created in the bind mount stay removable.
+run_as=$(id -u):$(id -g)
+[ "$(id -u)" != 0 ] || fail 'run the smoke test as a non-root host user'
 mkdir -p "$work/book" "$work/empty"
-chmod 777 "$work/book" "$work/empty"
 
 [ "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ] \
   || fail 'image does not run as 65532'
@@ -27,7 +29,7 @@ chmod 777 "$work/book" "$work/empty"
 docker run --rm --network none "$image" --version | grep -Eq '^mdbook v0\.5\.' \
   || fail 'unexpected version'
 
-docker run --rm --network none -v "$work/book:/book" "$image" \
+docker run --rm --network none --user "$run_as" -v "$work/book:/book" "$image" \
   init --force --title 'Verity Smoke' --ignore none /book >/dev/null
 [ -f "$work/book/book.toml" ] || fail 'init did not write book.toml'
 [ -f "$work/book/src/SUMMARY.md" ] || fail 'init did not write SUMMARY.md'
@@ -38,7 +40,7 @@ cat >"$work/book/src/chapter_1.md" <<'MD'
 Marker text verity-mdbook-smoke.
 MD
 
-docker run --rm --network none -v "$work/book:/book" "$image" build /book >/dev/null
+docker run --rm --network none --user "$run_as" -v "$work/book:/book" "$image" build /book >/dev/null
 [ -f "$work/book/book/index.html" ] || fail 'build did not write index.html'
 grep -F 'verity-mdbook-smoke' "$work/book/book/chapter_1.html" >/dev/null \
   || fail 'chapter content missing from HTML'
@@ -47,9 +49,9 @@ grep -F '<title>' "$work/book/book/chapter_1.html" | grep -F 'Verity Smoke' >/de
 set -- "$work"/book/book/searchindex*.js
 [ -f "$1" ] || fail 'search index missing'
 
-# Optional readiness check for the built-in server.
-docker run -d --name "$name" -v "$work/book:/book" "$image" \
-  serve -n 0.0.0.0 -p 3000 /book >/dev/null
+# Serve as the default nonroot user from a read-only mount into /tmp.
+docker run -d --name "$name" -v "$work/book:/book:ro" "$image" \
+  serve -n 0.0.0.0 -p 3000 -d /tmp/out /book >/dev/null
 ready=0
 for _ in $(seq 1 30); do
   if docker logs "$name" 2>&1 | grep -F 'Serving on' >/dev/null; then
@@ -62,7 +64,7 @@ done
 docker rm -f "$name" >/dev/null
 
 # A directory without book.toml has no src and must fail to build.
-if out=$(docker run --rm --network none -v "$work/empty:/book" "$image" build /book 2>&1); then
+if out=$(docker run --rm --network none --user "$run_as" -v "$work/empty:/book" "$image" build /book 2>&1); then
   fail 'build succeeded without a book'
 fi
 printf '%s\n' "$out" | grep -F 'SUMMARY.md' >/dev/null \
