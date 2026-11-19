@@ -80,10 +80,22 @@ pipeline:
       # commons-lang3 arrives transitively; raise its floor for every configuration.
       cat >> build.gradle <<'GRADLE'
 
+      // Raise a requested version to the floor, never lower it.
+      def parts = { String v -> v.tokenize('.-').collect { it.isInteger() ? it.toInteger() : 0 } }
+      def lower = { String a, String b ->
+        def x = parts(a), y = parts(b)
+        for (i in 0..<Math.max(x.size(), y.size())) {
+          def l = i < x.size() ? x[i] : 0, r = i < y.size() ? y[i] : 0
+          if (l != r) return l < r
+        }
+        false
+      }
       allprojects {
         configurations.configureEach {
           resolutionStrategy.eachDependency { details ->
-            if (details.requested.group == 'org.apache.commons' && details.requested.name == 'commons-lang3') {
+            def requested = details.requested.version
+            if (details.requested.group == 'org.apache.commons' && details.requested.name == 'commons-lang3' &&
+                requested && lower(requested, '${{vars.commons-lang3-version}}')) {
               details.useVersion '${{vars.commons-lang3-version}}'
             }
           }
@@ -111,14 +123,26 @@ pipeline:
       test -f "$lib/jackson-databind-${{vars.jackson-version}}.jar"
       test -f "$lib/guava-${{vars.guava-version}}.jar"
       test -f "$lib/handlebars-${{vars.handlebars-version}}.jar"
-      test -f "$lib/commons-lang3-${{vars.commons-lang3-version}}.jar"
+      # commons-lang3 must resolve at or above its floor.
+      lang3=$(ls "$lib" | sed -n 's/^commons-lang3-\([0-9.]*\)\.jar$/\1/p')
+      test -n "$lang3"
+      awk -v have="$lang3" -v want=${{vars.commons-lang3-version}} 'BEGIN {
+        n = split(have, h, "."); m = split(want, w, ".")
+        for (i = 1; i <= (n > m ? n : m); i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 > w[i] + 0) ? 0 : 1
+        }
+        exit 0
+      }'
       if ls "$lib" | grep -E -e '-11\.[0-9.]+\.jar$' | grep -E '^(jetty|http2|websocket)'; then
         echo "Jetty 11 leaked onto the runtime classpath" >&2
         exit 1
       fi
-      install -d "${{targets.destdir}}/var/wiremock/lib" "${{targets.destdir}}/var/wiremock/extensions" \
+      # Jars live under /usr/share: melange writes its SBOM under var/lib, and a /var
+      # tree created inside the build container is not writable by melange.
+      # The image adds /var/wiremock/extensions for user extensions.
+      install -d "${{targets.destdir}}/usr/share/wiremock/lib" \
         "${{targets.destdir}}/usr/share/licenses/verity-wiremock"
-      install -m644 "$lib"/*.jar "${{targets.destdir}}/var/wiremock/lib/"
+      install -m644 "$lib"/*.jar "${{targets.destdir}}/usr/share/wiremock/lib/"
       install -m644 LICENSE.txt NOTICE.txt "${{targets.destdir}}/usr/share/licenses/verity-wiremock/"
       find . -name .gradle -type d -prune -exec rm -rf {} +
 
@@ -129,7 +153,7 @@ test:
         - openjdk-21-default-jvm
   pipeline:
     - runs: |
-        java -cp '/var/wiremock/lib/*' wiremock.Run --version | grep -Fx "${{package.version}}"
+        java -cp '/usr/share/wiremock/lib/*' wiremock.Run --version | grep -Fx "${{package.version}}"
 
 update:
   enabled: true
