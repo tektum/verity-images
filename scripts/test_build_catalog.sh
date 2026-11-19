@@ -70,6 +70,11 @@ python3 "$root/scripts/build_catalog.py" "$work/media-report.json" "$work/catego
   0000000000000000000000000000000000000000 2026-07-29T00:00:00Z
 jq -e '.images[0].category == "Media"' "$work/media-catalog.json" >/dev/null
 check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/media-catalog.json"
+jq '.images[0].category = "Not A Real Category"' "$work/media-catalog.json" > "$work/unknown-category-catalog.json"
+if check-jsonschema --schemafile "$root/docs/catalog.schema.json" "$work/unknown-category-catalog.json" >/dev/null 2>&1; then
+  printf 'catalog schema accepted an unknown category\n' >&2
+  exit 1
+fi
 mv "$work/single-scan/scan-single-amd64.json" "$work/single-scan/scan-wrong-amd64.json"
 if python3 "$root/scripts/build_catalog.py" "$work/single-report.json" "$work/single-scan" "" \
   "$work/rejected.json" 0 https://github.com/tektum/verity-images/actions/runs/0 \
