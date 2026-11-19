@@ -1,19 +1,16 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - rsyslog
-    # /etc/rsyslog.conf: imptcp and imudp on 514, imrelp on 1601, facility
-    # syslog to stdout.
-    - rsyslog-config
-    # Modules the shipped config loads that are not in the base package.
-    - rsyslog-elasticsearch
-    - rsyslog-mmjsonparse
-    - rsyslog-mmutf8fix
-    - rsyslog-relp
+    # rsyslogd, the modules /etc/rsyslog.conf loads (imptcp and imudp on 514,
+    # imrelp on 1601, omstdout, omelasticsearch, mmjsonparse, mmutf8fix,
+    # impstats) and that config.
+    - verity-rsyslog@local
 
 accounts:
   groups:

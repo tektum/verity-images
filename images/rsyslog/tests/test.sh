@@ -4,6 +4,13 @@ set -eu
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
 container="rsyslog-smoke-$$"
+here=$(cd "$(dirname "$0")" && pwd)
+version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' "$here/../melange.yaml")
+[ -n "$version" ] || {
+  printf 'FAIL: could not read the version from melange.yaml\n' >&2
+  exit 1
+}
+version_re=$(printf '%s' "$version" | sed 's/\./\\./g')
 
 cleanup() {
   docker rm -f "$container" >/dev/null 2>&1 || true
@@ -37,7 +44,7 @@ done
 
 # Version.
 docker run --rm --network none "$image" -v >"$work/version" 2>&1 || fail 'rsyslogd -v failed'
-grep -E '^rsyslogd +8\.2604\.[0-9]+ ' "$work/version" >/dev/null || fail 'unexpected rsyslogd version'
+grep -E "^rsyslogd +$version_re " "$work/version" >/dev/null || fail 'unexpected rsyslogd version'
 grep -E 'Config file:[[:space:]]+/etc/rsyslog\.conf$' "$work/version" >/dev/null || fail 'unexpected default config path'
 
 # The shipped config, with its module loads and CNF_* includes, validates as nonroot.
@@ -66,7 +73,7 @@ docker run -d --name "$container" --cap-drop ALL --security-opt no-new-privilege
   fail 'container did not start'
 
 attempt=0
-until docker logs "$container" 2>&1 | grep -F 'swVersion="8.2604' | grep -F '] start' >/dev/null; do
+until docker logs "$container" 2>&1 | grep -F "swVersion=\"$version\"" | grep -F '] start' >/dev/null; do
   attempt=$((attempt + 1))
   [ "$attempt" -lt 30 ] || fail 'rsyslogd did not log its start message'
   [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] || fail 'rsyslogd exited'
