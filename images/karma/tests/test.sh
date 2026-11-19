@@ -92,11 +92,31 @@ receivers:
 EOF
 chmod 644 "$work/alertmanager.yml"
 
+# pull_child INDEX: pull the pinned index by its per-platform child digest,
+# verifying the index bytes against the pin first so the pin stays authoritative.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+alertmanager_image=$(pull_child "$alertmanager_index")
+
 docker network create "$net" >/dev/null
 docker run --name "$alertmanager" -d --network "$net" --read-only \
   --tmpfs /alertmanager:uid=65532,gid=65532 -p 127.0.0.1::9093 \
   -v "$work/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro" \
-  "$alertmanager_index" --config.file=/etc/alertmanager/alertmanager.yml \
+  "$alertmanager_image" --config.file=/etc/alertmanager/alertmanager.yml \
   --storage.path=/alertmanager >/dev/null
 am_port=$(docker port "$alertmanager" 9093/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$am_port" ] || fail 'alertmanager port was not published'
