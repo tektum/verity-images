@@ -51,9 +51,6 @@ pipeline:
       }'; then
         GOTOOLCHAIN=local go get google.golang.org/grpc@${{vars.grpc-floor}}
       fi
-      GOTOOLCHAIN=local go get \
-        go.opentelemetry.io/otel/sdk@${{vars.otel-floor}} \
-        go.opentelemetry.io/otel/trace@${{vars.otel-floor}}
   - uses: go/build
     with:
       packages: ./cmd/velero
@@ -80,7 +77,6 @@ pipeline:
 
 vars:
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
-  otel-floor: v1.47.0  # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
 
 test:
   environment:
