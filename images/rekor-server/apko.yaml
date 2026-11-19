@@ -1,0 +1,40 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rekor-server@local
+
+# Upstream `deploy` image: distroless static nonroot (uid 65532), the server
+# binary only, ENTRYPOINT rekor-server, CMD `serve`. Upstream's server binds
+# 127.0.0.1:3000 by default, so every upstream deployment (docker-compose, the
+# sigstore Helm chart) passes --rekor_server.address=0.0.0.0. This image bakes
+# that in; Prometheus metrics stay on upstream's fixed :2112. A working log
+# still needs a Trillian log server (--trillian_log_server.address/port) and a
+# search index backend (Redis by default, or --search_index.storage_provider=
+# mysql). The signer keeps upstream's default `memory`, an ephemeral key for
+# testing only. The server reads an optional rekor-server.yaml from $HOME or
+# the working directory.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/rekor-server
+
+cmd: serve --rekor_server.address=0.0.0.0
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
