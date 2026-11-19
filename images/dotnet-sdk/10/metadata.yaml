@@ -1,0 +1,14 @@
+name: dotnet-sdk
+track: wolfi
+# yamllint disable-line rule:line-length
+description: .NET SDK (CLI, MSBuild, NuGet, and the bundled .NET and ASP.NET Core runtimes) built from the pinned official Microsoft release binaries with per-architecture checksums. Upstream support for this stream is still active.
+category: Languages & Build Tools
+upstream: https://dotnet.microsoft.com/
+versions: [10.0]
+owner: tektum
+enabled: true
+# The SDK archive bundles Microsoft.NETCore.App and Microsoft.AspNetCore.App at vars.upstream-version. Both RIDs
+# are declared on purpose, as in dotnet-runtime and aspnet-runtime: scan_identity.py injects every declared
+# identity into every SBOM, and Grype's GHSA data is keyed by the RID package names.
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.AspNetCore.App.Runtime.linux-arm64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-x64, pkg:nuget/Microsoft.NETCore.App.Runtime.linux-arm64]
