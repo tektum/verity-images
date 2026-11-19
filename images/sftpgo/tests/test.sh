@@ -15,10 +15,11 @@ server="verity-sftpgo-$suffix"
 network="verity-sftpgo-net-$suffix"
 data_volume="verity-sftpgo-data-$suffix"
 state_volume="verity-sftpgo-state-$suffix"
+probe="verity-sftpgo-probe-$suffix"
 tmp=$(mktemp -d)
 
 cleanup() {
-  docker rm -f "$server" >/dev/null 2>&1 || true
+  docker rm -f "$server" "$probe" >/dev/null 2>&1 || true
   docker volume rm "$data_volume" "$state_volume" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$tmp"
@@ -74,7 +75,7 @@ compat=$(docker run --rm --network none "$image" /usr/local/bin/sftpgo --version
 [ "$compat" = "$version" ] || fail "/usr/local/bin/sftpgo reports $compat"
 
 # Account and packaged files.
-probe=$(docker create "$image")
+docker create --name "$probe" "$image" >/dev/null || fail 'cannot create probe container'
 docker cp "$probe:/etc/passwd" "$tmp/passwd" >/dev/null
 docker cp "$probe:/etc/sftpgo/sftpgo.json" "$tmp/sftpgo.json" >/dev/null
 docker cp "$probe:/usr/share/sftpgo/openapi/openapi.yaml" "$tmp/openapi.yaml" >/dev/null
