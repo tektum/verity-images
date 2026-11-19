@@ -1,0 +1,29 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-csi-resizer@local
+
+# Upstream ships on distroless/static as root: the sidecar must open the CSI
+# driver socket, which drivers commonly create as root with mode 0755.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /csi-resizer
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
