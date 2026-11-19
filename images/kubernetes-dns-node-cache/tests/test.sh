@@ -55,6 +55,16 @@ fail() {
 # bind-tools dig), pinned by index digest and pulled by its per-platform child.
 coredns_index=ghcr.io/tektum/coredns@sha256:efa6111f5e1daabd2c273812638c4ea6a3dbfc2466c76ec31d915e0d94541b1e
 image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+# On the non-native arch the image runs under qemu-user, where iptables cannot
+# talk to netfilter: it exits 1 without printing anything, so permission and
+# rule-installation checks only hold on the native arch.
+case "$(uname -m)" in
+  x86_64) host_arch=amd64 ;;
+  aarch64 | arm64) host_arch=arm64 ;;
+  *) host_arch=$(uname -m) ;;
+esac
+emulated=false
+[ "$image_arch" = "$host_arch" ] || emulated=true
 pull_child() {
   raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
   [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
@@ -369,8 +379,14 @@ done
 docker logs "$priv" >"$work/priv.log" 2>&1
 grep -Eq 'Failed to add non-existent interface nodelocaldns: operation not permitted' "$work/priv.log" ||
   fail 'unprivileged default mode did not report EPERM for the dummy interface'
-grep -Eq 'Permission denied|you must be root' "$work/priv.log" ||
-  fail 'iptables failure was not a permission error'
+if [ "$emulated" = true ]; then
+  # qemu-user: iptables exits 1 silently, so node-cache only reports the status.
+  grep -Eq 'Permission denied|you must be root|error checking rule: exit status 1' "$work/priv.log" ||
+    fail 'iptables failure was neither a permission error nor the qemu-user exit status'
+else
+  grep -Eq 'Permission denied|you must be root' "$work/priv.log" ||
+    fail 'iptables failure was not a permission error'
+fi
 
 docker rm -f "$priv" >/dev/null
 
@@ -400,26 +416,36 @@ rules() {
   docker exec "$holder" iptables-save | grep -c 'NodeLocal DNS Cache' || true
 }
 i=0
-until [ "$(rules)" -ge 12 ]; do
+# Under qemu-user iptables cannot install rules (see emulated above); the
+# interface, serving and teardown checks still run there.
+until [ "$emulated" = true ] || [ "$(rules)" -ge 12 ]; do
   i=$((i + 1))
   [ "$i" -lt 30 ] || fail "node-cache installed $(rules) iptables rules, want 12"
   [ "$(docker inspect --format '{{.State.Running}}' "$full")" = true ] || fail 'privileged node-cache exited'
   sleep 1
 done
-docker exec "$holder" /bin/busybox test -e /sys/class/net/nodelocaldns ||
-  fail 'nodelocaldns interface was not created'
-docker exec "$holder" iptables-save -t raw >"$work/raw"
-grep -Eq -- '-A PREROUTING -d 169.254.20.10/32 -p udp .*--dport 53 .*-j NOTRACK' "$work/raw" ||
-  fail "raw PREROUTING NOTRACK rule missing: $(cat "$work/raw")"
+i=0
+until docker exec "$holder" /bin/busybox test -e /sys/class/net/nodelocaldns; do
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || fail 'nodelocaldns interface was not created'
+  sleep 1
+done
+if [ "$emulated" = false ]; then
+  docker exec "$holder" iptables-save -t raw >"$work/raw"
+  grep -Eq -- '-A PREROUTING -d 169.254.20.10/32 -p udp .*--dport 53 .*-j NOTRACK' "$work/raw" ||
+    fail "raw PREROUTING NOTRACK rule missing: $(cat "$work/raw")"
+fi
 answer=$(docker run --rm --network "container:$holder" --user 65532:65532 --cap-drop=ALL --read-only \
   --entrypoint dig "$coredns_image" @169.254.20.10 +time=2 +tries=3 +short probe.test A 2>&1) || true
 [ "$answer" = 192.0.2.99 ] || fail "privileged node-cache answer was '$answer'"
 docker logs "$full" >"$work/full.log" 2>&1
-if grep -E 'iptables|dummy device|interface nodelocaldns' "$work/full.log" | grep -q ERROR; then
+setup_errors='iptables|dummy device|interface nodelocaldns'
+[ "$emulated" = false ] || setup_errors='dummy device|interface nodelocaldns'
+if grep -E "$setup_errors" "$work/full.log" | grep -q ERROR; then
   fail "privileged node-cache reported setup errors: $(grep ERROR "$work/full.log")"
 fi
 docker stop "$full" >/dev/null
-[ "$(rules)" = 0 ] || fail "$(rules) iptables rules left after teardown"
+[ "$emulated" = true ] || [ "$(rules)" = 0 ] || fail "$(rules) iptables rules left after teardown"
 if docker exec "$holder" /bin/busybox test -e /sys/class/net/nodelocaldns; then
   fail 'nodelocaldns interface left after teardown'
 fi
