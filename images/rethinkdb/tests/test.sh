@@ -113,11 +113,17 @@ def run(sock, term):
     sock.sendall(struct.pack("<QI", token, len(body)) + body)
     header = b""
     while len(header) < 12:
-        header += sock.recv(12 - len(header))
+        chunk = sock.recv(12 - len(header))
+        if not chunk:
+            raise SystemExit("connection closed while reading a response header")
+        header += chunk
     got, size = struct.unpack("<QI", header)
     payload = b""
     while len(payload) < size:
-        payload += sock.recv(size - len(payload))
+        chunk = sock.recv(size - len(payload))
+        if not chunk:
+            raise SystemExit("connection closed while reading a response body")
+        payload += chunk
     response = json.loads(payload)
     if got != token:
         raise SystemExit(f"token mismatch {got} != {token}")
