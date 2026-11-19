@@ -1,0 +1,9 @@
+name: wiremock
+track: wolfi
+description: WireMock HTTP mock server for API testing, built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://wiremock.org/
+versions: [3.13]
+scan-identity: [cpe:2.3:a:wiremock:wiremock, pkg:maven/org.wiremock/wiremock]
+owner: tektum
+enabled: true
