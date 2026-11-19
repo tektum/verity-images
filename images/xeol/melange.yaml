@@ -45,11 +45,26 @@ pipeline:
       modroot: .
       packages: ./cmd/xeol
   # CVE-2026-19585, CVE-2026-88922 (go-getter) and GHSA-pjcq-xvwq-hhpj
-  # (go-ntlmssp) are not in the feeds go/remediate reads.
+  # (go-ntlmssp) are not in the feeds go/remediate reads. Raise each module
+  # only when the selected version is below its floor, never downgrade.
   - runs: |
-      GOTOOLCHAIN=local go get \
-        github.com/hashicorp/go-getter@${{vars.go-getter-floor}} \
-        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}
+      below() {
+        awk -v have="$1" -v want="$2" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'
+      }
+      for pin in github.com/hashicorp/go-getter@${{vars.go-getter-floor}} \
+        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}; do
+        current="$(GOTOOLCHAIN=local go list -m -f '{{.Version}}' "${pin%@*}")"
+        if below "$current" "${pin#*@}"; then
+          GOTOOLCHAIN=local go get "$pin"
+        fi
+      done
   - runs: |
       go build -mod=readonly -trimpath -buildvcs=true -tags netgo \
         -ldflags="-s -w \
@@ -62,12 +77,25 @@ pipeline:
       printf '%s\n' "$modules" \
         | awk '$1 == "mod" && $2 == "github.com/xeol-io/xeol" { print $3 }' \
         | grep -Ex 'v${{package.version}}(\+dirty)?'
-      test "$(printf '%s\n' "$modules" \
-        | awk '$1 == "dep" && $2 == "github.com/hashicorp/go-getter" { print $3 }')" \
-        = "${{vars.go-getter-floor}}"
-      test "$(printf '%s\n' "$modules" \
-        | awk '$1 == "dep" && $2 == "github.com/Azure/go-ntlmssp" { print $3 }')" \
-        = "${{vars.ntlmssp-floor}}"
+      below() {
+        awk -v have="$1" -v want="$2" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'
+      }
+      for pin in github.com/hashicorp/go-getter@${{vars.go-getter-floor}} \
+        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}; do
+        actual="$(printf '%s\n' "$modules" \
+          | awk -v m="${pin%@*}" '$1 == "dep" && $2 == m { print $3 }')"
+        if [ -z "$actual" ] || below "$actual" "${pin#*@}"; then
+          echo "${pin%@*} version '$actual' is below required floor ${pin#*@}" >&2
+          exit 1
+        fi
+      done
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
