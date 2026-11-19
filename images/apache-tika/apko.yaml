@@ -1,0 +1,37 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-apache-tika@local
+
+accounts:
+  groups:
+    - groupname: tika
+      gid: 35002
+  users:
+    - username: tika
+      uid: 35002
+      gid: 35002
+      homedir: /home/tika
+  run-as: 35002
+
+entrypoint:
+  command: /usr/bin/tika-server
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+  LANG: en_US.UTF-8
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /home/tika
+    type: directory
+    uid: 35002
+    gid: 35002
+    permissions: 0o755
+
+work-dir: /home/tika
