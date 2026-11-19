@@ -1,0 +1,32 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-rekor-cli@local
+
+# Upstream `deploy-cli` image: distroless static nonroot (uid 65532), the client
+# binary only, ENTRYPOINT rekor-cli and no default arguments. The client talks
+# to https://rekor.sigstore.dev unless --rekor_server is given, reads an
+# optional $HOME/.rekor.yaml, and stores verified checkpoints in $HOME/.rekor.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/rekor-cli
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
