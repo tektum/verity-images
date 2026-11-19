@@ -1,0 +1,95 @@
+package:
+  name: verity-portieris
+  # yamllint disable-line rule:line-length
+  version: "0.16.2"  # renovate: datasource=github-releases depName=IBM/portieris versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubernetes admission controller that enforces image signature and trust policies
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  # v0.16.2 peels to this commit.
+  source-commit: 8ceb6b631d723bfdf2a9de97ffe4ecd14bfe8507
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    # Upstream builds with the pure Go OpenPGP backend; go/remediate validates
+    # the same tag set.
+    GOFLAGS: -tags=containers_image_openpgp
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/IBM/portieris
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/portieris
+
+  # Same build as the upstream Dockerfile: CGO 0, the containers_image_openpgp
+  # tag (GOFLAGS) and the info.Version stamp. The checkout keeps .git, so Go stamps the
+  # main module version from the v tag for the scanner; a `+dirty` suffix only
+  # records go/remediate edits.
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/IBM/portieris/internal/info.Version=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/portieris" ./cmd/portieris
+      go version -m "${{targets.destdir}}/usr/bin/portieris" \
+        | awk '$1 == "mod" && $2 == "github.com/IBM/portieris" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # Upstream image contract: the binary lives at /portieris.
+      ln -s usr/bin/portieris "${{targets.destdir}}/portieris"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the portieris build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/portieris-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/portieris-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        portieris --help 2>&1 | grep -F -- '-kubeconfig'
+        [ "$(readlink /portieris)" = usr/bin/portieris ]
+        apk info --who-owns /usr/bin/portieris \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: IBM/portieris
+    strip-prefix: v
