@@ -97,6 +97,7 @@ pipeline:
       import sys
       import tomllib
       from pathlib import Path
+      from urllib.parse import unquote_plus
 
       TOOL_NAME = "cargo-audit"
       TOOL_VERSION = "0.22.2"
@@ -112,6 +113,11 @@ pipeline:
           "informational_warnings": ["unmaintained", "unsound", "notice"],
       }
       REGISTRY = "registry+"
+      GIT = "git+"
+      GIT_REFERENCE = re.compile(
+          r"(?P<base>git\+[^?#]+)\?(?P<kind>branch|tag|rev)=(?P<value>[^?#&=]*)(?P<precise>#[^#]*)?"
+      )
+      FORM_SAFE = frozenset(b"*-._0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
       MAX_OUTPUT_BYTES = 32 * 1024 * 1024
       MAX_REMEDIATION_PASSES = 8
       BLOCKING_REASONS = {
@@ -597,6 +603,29 @@ pipeline:
                   updates[key] = fixed
           return updates, sorted(unresolved), detected, fixable, excluded
 
+      def form_urlencode(value):
+          """Cargo's lockfile encoding of a git reference (url::form_urlencoded::byte_serialize)."""
+          return "".join(
+              chr(byte) if byte in FORM_SAFE else "+" if byte == 0x20 else f"%{byte:02X}"
+              for byte in value.encode("utf-8")
+          )
+
+      def decode_locked_source(source):
+          """Lockfile v4 form-urlencodes a git reference value (tag=a%2Fb); cargo metadata and
+          cargo-audit report it decoded. Decode only that value, and only if it round-trips."""
+          if not source.startswith(GIT) or "?" not in source:
+              return source
+          match = GIT_REFERENCE.fullmatch(source)
+          if match is None:
+              raise RemediationError(f"unrecognized git source in Cargo.lock: {source}")
+          try:
+              value = unquote_plus(match.group("value"), errors="strict")
+          except UnicodeDecodeError as error:
+              raise RemediationError(f"invalid git reference encoding in Cargo.lock: {source}") from error
+          if form_urlencode(value) != match.group("value"):
+              raise RemediationError(f"git reference in Cargo.lock is not Cargo-encoded: {source}")
+          return f"{match.group('base')}?{match.group('kind')}={value}{match.group('precise') or ''}"
+
       def locked_instances(lockfile):
           """Every locked crate instance as (version, source), keeping sources distinct."""
           try:
@@ -606,6 +635,8 @@ pipeline:
           packages = document.get("package")
           if not isinstance(packages, list) or not packages:
               raise RemediationError("Cargo.lock locks no packages")
+          lock_version = document.get("version")
+          encoded = isinstance(lock_version, int) and not isinstance(lock_version, bool) and lock_version >= 4
           locked = {}
           for entry in packages:
               if not isinstance(entry, dict):
@@ -621,7 +652,7 @@ pipeline:
                   raise RemediationError(f"invalid locked crate source for {crate}@{version}")
               if entry.get("replace") is not None:
                   raise RemediationError(f"Cargo.lock replaces {crate}@{version}; identity is ambiguous")
-              locked.setdefault(crate, set()).add((version, source))
+              locked.setdefault(crate, set()).add((version, decode_locked_source(source) if encoded else source))
           return {
               crate: tuple(sorted(instances, key=lambda instance: (version_key(instance[0]), instance[1])))
               for crate, instances in locked.items()
