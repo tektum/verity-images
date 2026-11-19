@@ -85,6 +85,11 @@ case "$version" in
 esac
 docker run --rm --cpus 2 --entrypoint /usr/sbin/postconf "$image" -m | grep -qx lmdb ||
   fail 'lmdb lookup table support is missing'
+# Local submission needs setgid postdrop on postdrop and postqueue.
+for tool in postdrop postqueue; do
+  mode=$(docker run --rm --cpus 2 --entrypoint /bin/stat "$image" -c '%a %U %G' "/usr/sbin/$tool")
+  [ "$mode" = '2755 root postdrop' ] || fail "/usr/sbin/$tool is $mode, not 2755 root postdrop"
+done
 
 # Negative: an unknown postfix command is rejected with a usage error.
 if docker run --rm --cpus 2 "$image" no-such-command >"$fixture/bad.out" 2>&1; then
@@ -101,6 +106,8 @@ docker run --rm --cpus 2 --entrypoint /bin/cat "$image" /etc/passwd >"$fixture/p
 docker run --rm --cpus 2 --entrypoint /bin/cat "$image" /etc/group >"$fixture/group"
 printf 'smoke:x:1500:1500:Smoke test mailbox:/home/smoke:/sbin/nologin\n' >>"$fixture/passwd"
 printf 'smoke:x:1500:\n' >>"$fixture/group"
+# mynetworks is TEST-NET-1, so the 127.0.0.1 test client is untrusted and the
+# relay check exercises reject_unauth_destination rather than permit_mynetworks.
 cat >"$fixture/main.cf" <<'EOF'
 compatibility_level = 3.11
 maillog_file = /dev/stdout
@@ -110,7 +117,7 @@ myorigin = $mydomain
 mydestination = $myhostname, $mydomain, localhost
 inet_interfaces = all
 inet_protocols = ipv4
-mynetworks = 127.0.0.0/8
+mynetworks = 192.0.2.0/24
 alias_maps =
 alias_database =
 local_recipient_maps = unix:passwd.byname
@@ -174,11 +181,12 @@ docker run --name "$container" --cpus 2 -d \
 wait_ready
 
 docker exec "$container" ps -o user,args >"$fixture/ps.out"
-grep -Eq '^root +/usr/libexec/postfix/master' "$fixture/ps.out" || {
+# Under emulation (arm64 on amd64 CI) args are prefixed with the qemu binary.
+grep -Eq '^root +(\S*qemu-\S+ +)?/usr/libexec/postfix/master' "$fixture/ps.out" || {
   cat "$fixture/ps.out" >&2
   fail 'postfix master is not running'
 }
-grep -Eq '^postfix +qmgr' "$fixture/ps.out" || {
+grep -Eq '^postfix +(\S*qemu-\S+ +/usr/libexec/postfix/qmgr +)?qmgr' "$fixture/ps.out" || {
   cat "$fixture/ps.out" >&2
   fail 'queue manager does not run as the unprivileged postfix user'
 }
@@ -203,6 +211,8 @@ until docker exec "$container" /bin/sh -c 'grep -rl verity-postfix-delivery-toke
   }
   sleep 1
 done
+# mail_spool_directory ends in "/", which Postfix local(8) treats as Maildir.
+[ "$(wc -l <"$fixture/delivered")" -eq 1 ] || fail 'message was not delivered exactly once'
 delivered=$(head -n 1 "$fixture/delivered")
 docker exec "$container" /bin/sh -c "stat -c '%u' '$delivered'" | grep -qx 1500 ||
   fail 'delivered message is not owned by the recipient'
