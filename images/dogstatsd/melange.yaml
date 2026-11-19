@@ -1,0 +1,149 @@
+package:
+  name: verity-dogstatsd
+  # yamllint disable-line rule:line-length
+  version: "7.85.5"  # renovate: datasource=github-releases depName=DataDog/datadog-agent versioning=regex:^(?<major>7)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: DogStatsD, the Datadog Agent StatsD metrics aggregation server
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: d836a175cccb038642d3143e6905cf349bc05b4a
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+      - py3-pyyaml
+  environment:
+    # Upstream links dogstatsd statically; pkg/zstd has a pure Go !cgo path.
+    # The repository go.work (root module plus every pkg/comp submodule) is the
+    # build context, and go/remediate keeps it in sync.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/DataDog/datadog-agent
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # pkg/config/setup registers its settings from generated, git-ignored files.
+  # Upstream's go_build runs `dda inv schema.codegen` first; run the same
+  # generator modules directly instead of installing the invoke task tree.
+  - runs: |
+      cat >"${HOME}/schema_codegen.py" <<'PYTHON'
+      import os
+      import sys
+      import types
+
+      for name, path in (("tasks", "tasks"), ("tasks.schema", "tasks/schema")):
+          module = types.ModuleType(name)
+          module.__path__ = [os.path.abspath(path)]
+          sys.modules[name] = module
+
+      from tasks.schema.codegen_init_settings import (
+          run_codegen,
+          run_constants_codegen,
+          run_core_constant_codegen,
+      )
+      from tasks.schema.merge_schema import resolve_schema
+
+      schema_dir = "pkg/config/schema/yaml"
+      setup_dir = "pkg/config/setup"
+      core = resolve_schema(f"{schema_dir}/core_schema.yaml")
+      system_probe = resolve_schema(f"{schema_dir}/system-probe_schema.yaml")
+      run_codegen(core, setup_dir)
+      run_codegen(system_probe, setup_dir, sysprobe=True)
+      run_core_constant_codegen(core, setup_dir)
+      run_constants_codegen(core, system_probe, f"{setup_dir}/constants")
+      PYTHON
+      python3 "${HOME}/schema_codegen.py"
+      for file in all_settings.go system_probe_settings.go generated.go constants/generated.go; do
+        [ -s "pkg/config/setup/$file" ]
+      done
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/dogstatsd
+
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      # Same build tags and version stamps as `dda inv dogstatsd.build`
+      # (tasks/dogstatsd.py, tasks/build_tags.bzl DOGSTATSD_TAGS,
+      # get_version_ldflags). The tag has no v prefix and the root module has
+      # no /v7 suffix, so Go could only stamp a v0.0.0 pseudo-version; VCS
+      # stamping is off and metadata.yaml declares the scan identity instead.
+      module=github.com/DataDog/datadog-agent
+      payload=$(awk '$1 == "github.com/DataDog/agent-payload/v5" { split($2, v, /[-+]/); print v[1]; exit }' go.mod)
+      printf '%s\n' "$payload" | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+'
+      ldflags="-s -w -X $module/pkg/version.AgentVersion=${{package.version}}"
+      ldflags="$ldflags -X $module/pkg/version.Commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-7)"
+      ldflags="$ldflags -X $module/pkg/version.FullCommit=${{vars.source-commit}}"
+      ldflags="$ldflags -X $module/pkg/version.AgentPayloadVersion=$payload"
+      bin="${{targets.destdir}}/usr/bin/dogstatsd"
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -tags "containerd docker kubelet no_gogo podman zlib" \
+        -ldflags="$ldflags" -o "$bin" ./cmd/dogstatsd
+      # Guard the binary identity: the dogstatsd main package of the root
+      # module, with no pseudo-version that would mis-version the scan.
+      go version -m "$bin" | awk '$1 == "path" { print $2 }' | grep -Fx "$module/cmd/dogstatsd"
+      go version -m "$bin" | awk -v m="$module" '$1 == "mod" && $2 == m { print $3 }' | grep -Fx '(devel)'
+      "$bin" version | grep -F "DogStatsD ${{package.version}} - Commit: "
+      # The upstream image runs /dogstatsd and ships these defaults.
+      ln -s /usr/bin/dogstatsd "${{targets.destdir}}/dogstatsd"
+      install -Dm644 Dockerfiles/dogstatsd/alpine/dogstatsd.yaml \
+        "${{targets.destdir}}/etc/datadog-agent/dogstatsd.yaml"
+      install -Dm644 Dockerfiles/dogstatsd/alpine/install_info \
+        "${{targets.destdir}}/etc/datadog-agent/install_info"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the dogstatsd build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/dogstatsd-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 go.work "$dir/go.work"
+          install -Dm644 go.work.sum "$dir/go.work.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        dogstatsd version | grep -F "DogStatsD ${{package.version}} - Commit: "
+        [ "$(readlink /dogstatsd)" = /usr/bin/dogstatsd ]
+        grep -Fx 'health_port: 5555' /etc/datadog-agent/dogstatsd.yaml
+        apk info --who-owns /usr/bin/dogstatsd | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: DataDog/datadog-agent
