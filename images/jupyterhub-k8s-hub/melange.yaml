@@ -1,0 +1,131 @@
+package:
+  name: verity-jupyterhub-k8s-hub
+  # yamllint disable-line rule:line-length
+  version: "4.4.5"  # renovate: datasource=github-tags depName=jupyterhub/zero-to-jupyterhub-k8s versioning=regex:^(?<major>4)\.(?<minor>4)\.(?<patch>\d+)$
+  epoch: 0
+  description: Zero to JupyterHub hub runtime, installed from the upstream release's frozen images/hub/requirements.txt
+  copyright:
+    - license: BSD-3-Clause
+  options:
+    # The virtual environment's wheels carry their own shared objects; do not
+    # advertise them as system library providers.
+    no-provides: true
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - python-3.12-base
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 954429bca81391cffe24203004704f3c333422ab
+  # Upstream images/hub/Dockerfile builds on python:3.12.
+  python-version: "3.12"
+  venv: /opt/jupyterhub
+  # Overrides on top of upstream images/hub/requirements.txt. Each one raises a
+  # frozen pin to the release that fixes advisories in it; everything else
+  # installs exactly as upstream freezes it.
+  # tornado 6.6.1 fixes GHSA-5cjw-f85j-cv6r.
+  tornado-version: "6.6.1"  # renovate: datasource=pypi depName=tornado
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - curl-dev
+      - openssl-dev
+      - postgresql-18-dev
+      - python-${{vars.python-version}}
+      - python-${{vars.python-version}}-dev
+      - uv
+      - wolfi-baselayout
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jupyterhub/zero-to-jupyterhub-k8s
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Install the frozen hub requirements
+    environment:
+      UV_PYTHON: python${{vars.python-version}}
+      UV_NO_CACHE: "1"
+    runs: |
+      upstream=images/hub/requirements.txt
+      requirements=frozen.txt
+      cat > overrides.txt <<EOF
+      tornado==${{vars.tornado-version}}
+      EOF
+      # Every override replaces exactly one frozen pin.
+      while IFS='=' read -r name _; do
+        test "$(grep -ciE "^${name}==" "$upstream")" = 1
+      done < overrides.txt
+      names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
+      { grep -viE "^(${names})==" "$upstream"; cat overrides.txt; } > "$requirements"
+      echo "Python dependency changes against upstream images/hub/requirements.txt:"
+      diff "$upstream" "$requirements" || true
+
+      uv venv "${{vars.venv}}"
+      # requirements.txt is upstream's complete frozen set: install exactly it,
+      # with the overrides, and let `uv pip check` prove it resolves together.
+      # Like upstream, pycurl builds from source against the system libcurl;
+      # psycopg2 is source-only and links the system libpq.
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode --no-deps \
+        --no-binary pycurl --no-binary psycopg2 -r "$requirements"
+      uv pip check --python "${{vars.venv}}/bin/python"
+
+      # The installed set must equal the frozen set: names compare in PEP 503
+      # normalized form, versions verbatim.
+      normalize() {
+        sed 's/[[:space:]]*#.*$//; /^$/d' |
+          awk -F'==' '{ name = tolower($1); gsub(/[-_.]+/, "-", name); print name "==" $2 }' | sort
+      }
+      grep -E '^[A-Za-z0-9]' "$requirements" | normalize > expected.txt
+      uv pip freeze --python "${{vars.venv}}/bin/python" | normalize > installed.txt
+      diff expected.txt installed.txt
+      grep -x 'jupyterhub==[0-9.]*' expected.txt
+
+      mkdir -p "${{targets.destdir}}/opt" "${{targets.destdir}}/usr/bin"
+      cp -a "${{vars.venv}}" "${{targets.destdir}}/opt/"
+      rm -f "${{targets.destdir}}${{vars.venv}}/.lock"
+      for command in jupyterhub jupyterhub-singleuser; do
+        test -x "${{targets.destdir}}${{vars.venv}}/bin/$command"
+        ln -s "${{vars.venv}}/bin/$command" "${{targets.destdir}}/usr/bin/$command"
+      done
+      install -Dm644 "$requirements" "${{targets.destdir}}/usr/share/${{package.name}}/requirements.txt"
+      install -Dm644 "$upstream" "${{targets.destdir}}/usr/share/${{package.name}}/upstream-requirements.txt"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        expected=$(sed -n 's/^jupyterhub==//p' /usr/share/${{package.name}}/requirements.txt)
+        test -n "$expected"
+        jupyterhub --version | grep -x "$expected"
+        ${{vars.venv}}/bin/python -c 'import kubespawner, oauthenticator, ldapauthenticator, pycurl, psycopg2'
+        apk info --who-owns ${{vars.venv}}/bin/jupyterhub | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx BSD-3-Clause
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: jupyterhub/zero-to-jupyterhub-k8s
+    tag-filter-prefix: "4.4."
+    use-tag: true
