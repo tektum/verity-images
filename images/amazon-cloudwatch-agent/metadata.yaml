@@ -1,0 +1,9 @@
+name: amazon-cloudwatch-agent
+track: wolfi
+description: Amazon CloudWatch agent that collects metrics, logs, and traces for CloudWatch. Built from pinned source.
+category: Monitoring & Observability
+upstream: https://github.com/aws/amazon-cloudwatch-agent
+versions: [1.300075]
+scan-identity: [pkg:golang/github.com/aws/amazon-cloudwatch-agent]
+owner: tektum
+enabled: true
