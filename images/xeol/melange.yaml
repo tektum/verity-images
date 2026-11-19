@@ -1,0 +1,130 @@
+package:
+  name: xeol-0.10
+  # yamllint disable-line rule:line-length
+  version: "0.10.8"  # renovate: datasource=github-releases depName=xeol-io/xeol versioning=regex:^(?<major>0)\.(?<minor>10)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: End-of-life software scanner for images, filesystems, and SBOMs
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: ff0412908debe70980a59dd89faf86c9d403b6c8
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
+  ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/xeol-io/xeol
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # Fixing GHSA-rjcw-vg7j-m9rc needs Syft 1.42.3, which go/remediate selects; it
+  # pulls in clio and tablewriter v1 APIs that xeol 0.10 predates. Port the UI
+  # constructor and table presenter to them.
+  - uses: patch
+    with:
+      patches: syft-1.42-api.patch
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/xeol
+  # CVE-2026-19585, CVE-2026-88922 (go-getter) and GHSA-pjcq-xvwq-hhpj
+  # (go-ntlmssp) are not in the feeds go/remediate reads. Raise each module
+  # only when the selected version is below its floor, never downgrade.
+  - runs: |
+      below() {
+        awk -v have="$1" -v want="$2" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'
+      }
+      for pin in github.com/hashicorp/go-getter@${{vars.go-getter-floor}} \
+        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}; do
+        current="$(GOTOOLCHAIN=local go list -m -f '{{.Version}}' "${pin%@*}")"
+        if below "$current" "${pin#*@}"; then
+          GOTOOLCHAIN=local go get "$pin"
+        fi
+      done
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true -tags netgo \
+        -ldflags="-s -w \
+          -X main.version=${{package.version}} \
+          -X main.gitCommit=${{vars.source-commit}} \
+          -X main.buildDate=$(git log -1 --format=%cI) \
+          -X main.gitDescription=v${{package.version}}" \
+        -o "${{targets.destdir}}/usr/bin/xeol" ./cmd/xeol
+      modules="$(go version -m "${{targets.destdir}}/usr/bin/xeol")"
+      printf '%s\n' "$modules" \
+        | awk '$1 == "mod" && $2 == "github.com/xeol-io/xeol" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      below() {
+        awk -v have="$1" -v want="$2" 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'
+      }
+      for pin in github.com/hashicorp/go-getter@${{vars.go-getter-floor}} \
+        github.com/Azure/go-ntlmssp@${{vars.ntlmssp-floor}}; do
+        actual="$(printf '%s\n' "$modules" \
+          | awk -v m="${pin%@*}" '$1 == "dep" && $2 == m { print $3 }')"
+        if [ -z "$actual" ] || below "$actual" "${pin#*@}"; then
+          echo "${pin%@*} version '$actual' is below required floor ${pin#*@}" >&2
+          exit 1
+        fi
+      done
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the xeol build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/xeol-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/xeol-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        xeol version | grep -F "${{package.version}}"
+        xeol --help | grep -F 'Usage:'
+        apk info --who-owns /usr/bin/xeol \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: xeol-io/xeol
+    strip-prefix: v
