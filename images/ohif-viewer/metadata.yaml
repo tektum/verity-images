@@ -1,0 +1,10 @@
+name: ohif-viewer
+track: wolfi
+description: OHIF Viewer DICOM web viewer from the pinned upstream npm build, served by unprivileged nginx.
+category: Data & ML
+upstream: https://github.com/OHIF/Viewers
+versions: [3.13]
+owner: tektum
+enabled: true
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:npm/%40ohif/app, pkg:npm/%40ohif/core, pkg:npm/%40ohif/i18n, pkg:npm/%40ohif/ui, pkg:npm/%40ohif/ui-next, pkg:npm/%40ohif/extension-default, pkg:npm/%40ohif/extension-cornerstone, pkg:npm/%40ohif/extension-measurement-tracking, pkg:npm/%40ohif/extension-cornerstone-dicom-sr, pkg:npm/%40ohif/extension-cornerstone-dicom-seg, pkg:npm/%40ohif/extension-cornerstone-dicom-pmap, pkg:npm/%40ohif/extension-cornerstone-dynamic-volume, pkg:npm/%40ohif/extension-dicom-microscopy, pkg:npm/%40ohif/extension-dicom-pdf, pkg:npm/%40ohif/extension-dicom-video, pkg:npm/%40ohif/extension-tmtv, pkg:npm/%40ohif/extension-test, pkg:npm/%40ohif/extension-cornerstone-dicom-rt, pkg:npm/%40ohif/extension-ultrasound-pleura-bline, pkg:npm/%40ohif/mode-longitudinal, pkg:npm/%40ohif/mode-basic, pkg:npm/%40ohif/mode-segmentation, pkg:npm/%40ohif/mode-tmtv, pkg:npm/%40ohif/mode-microscopy, pkg:npm/%40ohif/mode-preclinical-4d, pkg:npm/%40ohif/mode-test, pkg:npm/%40ohif/mode-basic-dev-mode, pkg:npm/%40ohif/mode-ultrasound-pleura-bline]
