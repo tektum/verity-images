@@ -1,0 +1,60 @@
+package:
+  name: verity-hurl
+  # yamllint disable-line rule:line-length
+  version: "8.1.0"  # renovate: datasource=github-releases depName=Orange-OpenSource/hurl
+  epoch: 0
+  description: Run and test HTTP requests defined in a plain text format
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 12Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - clang-23
+      - curl-dev
+      - glibc-2.44-dev
+      - libxml2-dev
+      - pkgconf
+      - rust-1.99
+  environment:
+    # bindgen generates the libxml2 bindings at build time.
+    LIBCLANG_PATH: /usr/lib
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Orange-OpenSource/hurl
+      tag: ${{package.version}}
+      expected-commit: 2641800501e077c835cc4059e39e5a251e8b1ccb
+
+  - uses: cargo/remediate
+
+  - runs: |
+      cargo auditable build --release --locked -p hurl
+      install -Dm755 target/release/hurl "${{targets.destdir}}/usr/bin/hurl"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf .cargo
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        hurl --version | sed -n 1p | grep -F 'hurl ${{package.version}} ('
