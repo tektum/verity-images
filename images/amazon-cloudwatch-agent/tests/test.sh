@@ -19,7 +19,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 fail() {
-  docker logs "$container" >&2 2>/dev/null || true
+  docker logs "$container" >&2 || true
   printf 'FAIL: %s\n' "$1" >&2
   exit 1
 }
@@ -155,14 +155,18 @@ i=0
 while [ "$i" -lt 180 ]; do
   [ "$(docker inspect --format '{{.State.Running}}' "$container")" = true ] ||
     fail 'the agent exited during startup'
-  if docker logs "$container" 2>&1 | grep -F 'Statsd listener listening on:' >/dev/null; then
+  docker logs "$container" >"$work/poll.log" 2>&1
+  # The collector logs readiness after all pipelines start, which can follow
+  # the listener line, so wait for both before asserting either.
+  if grep -F 'Statsd listener listening on:' "$work/poll.log" >/dev/null &&
+    grep -F 'Everything is ready. Begin running and processing data.' "$work/poll.log" >/dev/null; then
     ready=1
     break
   fi
   i=$((i + 1))
   sleep 1
 done
-[ -n "$ready" ] || fail 'the agent did not report a StatsD listener'
+[ -n "$ready" ] || fail 'the agent did not report readiness and a StatsD listener'
 docker logs "$container" >"$work/start.log" 2>&1
 expect "$work/start.log" 'I! Detected the instance is OnPremise'
 expect "$work/start.log" "I! Config has been translated into TOML $agent_dir/etc/amazon-cloudwatch-agent.toml"
