@@ -8,8 +8,8 @@ label="verity-test=shadowsocks-rust-$$"
 network="verity-shadowsocks-rust-$$"
 prefix="verity-ss-$$"
 work=$(mktemp -d)
-python_image='docker.io/library/python@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
-curl_image='docker.io/curlimages/curl@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
+python_index='docker.io/library/python@sha256:9ef1a599f863231c3d91e941389bfdc4a2d6070557243d54df1a4e57015b960e'
+curl_index='docker.io/curlimages/curl@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 
 cleanup() {
   docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null 2>&1 || true
@@ -32,6 +32,28 @@ test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/usr/bin/ssserver"]' || fail 'unexpected entrypoint'
+
+# A classic Docker image store cannot bind an index digest to a second platform's image (the amd64 and arm64
+# candidates are tested on one runner), so each fixture image is pulled by its own per-platform child digest.
+# The index bytes are verified against the pinned digest before a child is chosen, which keeps the pin
+# authoritative (same pattern as images/cerbos).
+image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+platform_image() {
+  index=$1
+  raw=$(docker buildx imagetools inspect --raw "$index") || fail "cannot inspect $index"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${index#*@}" ] || fail "index digest mismatch: $index"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve the linux/$image_arch child of $index"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch image in $index" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${index%@*}@$child" >/dev/null || fail "cannot pull ${index%@*}@$child"
+  printf '%s@%s\n' "${index%@*}" "$child"
+}
+python_image=$(platform_image "$python_index")
+curl_image=$(platform_image "$curl_index")
 
 hardened() {
   docker run --label "$label" --read-only --cap-drop ALL --security-opt no-new-privileges "$@"
