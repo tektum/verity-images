@@ -1,0 +1,57 @@
+# Upstream electricsql/electric: ENTRYPOINT ["/app/bin/entrypoint"],
+# CMD ["start"], WORKDIR /app, HTTP on ELECTRIC_PORT (default 3000) and
+# storage under ELECTRIC_STORAGE_DIR (default ./persistent, /app/persistent).
+# This image runs as non-root 65532, so /app/persistent is owned by 65532.
+# APKO cannot declare HEALTHCHECK; probe GET /v1/health from the orchestrator.
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - ca-certificates-bundle
+    - electric=1.6.9-r0
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /app/bin/entrypoint
+
+cmd: start
+
+work-dir: /app
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/nonroot
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  LANG: C.UTF-8
+  LC_ALL: C.UTF-8
+  MIX_ENV: prod
+  MIX_TARGET: application
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /app/persistent
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
