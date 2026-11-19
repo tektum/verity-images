@@ -82,11 +82,14 @@ pipeline:
 
   # Same flags as upstream Makefile bin/aws-efs-csi-driver with the default
   # EFS_CLIENT_SOURCE=k8s; the build date is the commit time for reproducibility.
+  # The module path has no /v3 suffix, so VCS stamping would record a date
+  # pseudo-version that scanners match against pre-1.x advisories. Build without
+  # it and let metadata.yaml declare the module purl at package.version.
   - runs: |
       [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
       pkg=github.com/kubernetes-sigs/aws-efs-csi-driver/pkg/driver
       build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
-      go build -mod=readonly -trimpath \
+      go build -mod=readonly -trimpath -buildvcs=false \
         -ldflags="-s -w -X $pkg.driverVersion=v${{package.version}} \
           -X $pkg.gitCommit=${{vars.source-commit}} -X $pkg.buildDate=$build_date \
           -X $pkg.efsClientSource=k8s" \

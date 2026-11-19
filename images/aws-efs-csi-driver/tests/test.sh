@@ -178,6 +178,15 @@ class H(http.server.BaseHTTPRequestHandler):
             self.wfile.write(body)
 http.server.HTTPServer(("127.0.0.1", 51679), H).serve_forever()
 ' >/dev/null || fail 'fake task metadata server did not start'
+i=0
+until docker exec "$tmds" python3 -c '
+import urllib.request
+urllib.request.urlopen("http://127.0.0.1:51679/v4/task", timeout=2)
+' >/dev/null 2>&1; do
+  i=$((i + 1))
+  [ "$i" -lt 30 ] || { show_logs "$tmds"; fail 'fake task metadata server not ready after 30s'; }
+  sleep 1
+done
 
 # /var/amazon/efs stands in for the chart's efs-utils-config hostPath mount.
 docker run -d --label "$label" --name "$driver" --network "container:$tmds" \
@@ -214,6 +223,7 @@ printf '%s\n' "$out" | grep -qF 'Usage: mount.efs' || { printf '%s\n' "$out" >&2
 status=0
 out=$(timeout 120 docker exec "$driver" mount.efs fs-12345678 /tmp 2>&1) || status=$?
 [ "$status" != 0 ] || fail 'offline mount.efs unexpectedly succeeded'
+[ "$status" != 124 ] || fail 'offline mount.efs timed out'
 if printf '%s\n' "$out" | grep -q Traceback; then
   printf '%s\n' "$out" >&2
   fail 'mount.efs crashed'
@@ -250,6 +260,10 @@ docker logs "$probe" 2>&1 | grep -qF "$driver_name" ||
 docker rm -f "$driver" >/dev/null
 sleep 2
 status=$(healthz)
-[ "$status" != 200 ] || fail 'healthz still reported 200 after the driver stopped'
+case "$status" in
+  200) fail 'healthz still reported 200 after the driver stopped' ;;
+  5??) ;;
+  *) fail "unexpected healthz status after the driver stopped: $status" ;;
+esac
 
 printf 'SMOKE PASS version=%s\n' "$expected_version"
