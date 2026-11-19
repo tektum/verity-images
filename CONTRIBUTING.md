@@ -64,9 +64,12 @@ advisories to the local build, and an epoch raised above Wolfi's fixed revision
 hides Wolfi's real future fixes along with the false matches. Name the package
 `verity-<name>` (as `images/vexctl` does) with an ordinary epoch, and let the
 scanner see the main software natively or through `scan-identity`.
-`scripts/test_package_names.py` enforces this against the Wolfi index and
-security database; its allowlist holds the images that predate the rule and may
-only shrink.
+`scripts/test_package_names.py` enforces this against
+`scripts/wolfi_package_names.txt`, a committed snapshot of the Wolfi index and
+security database names, so lint does not change with Wolfi's state. Refresh it
+with `uv run scripts/test_package_names.py --refresh` in its own pull request;
+a recipe that a new Wolfi name collides with fails there. The allowlist holds
+the package names that predate the rule, per image, and may only shrink.
 
 ### Scan identity
 
