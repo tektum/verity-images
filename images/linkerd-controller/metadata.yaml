@@ -1,0 +1,9 @@
+name: linkerd-controller
+track: wolfi
+description: Linkerd control plane controllers, including destination, identity, proxy injector, and policy.
+category: Service Mesh & Networking
+upstream: https://linkerd.io/
+versions: [26.11]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/linkerd/linkerd2, cpe:2.3:a:linkerd:linkerd]
