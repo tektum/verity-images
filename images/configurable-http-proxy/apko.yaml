@@ -1,0 +1,37 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-configurable-http-proxy@local
+
+# Upstream Dockerfile (quay.io/jupyterhub/configurable-http-proxy): USER 65534,
+# WORKDIR /srv/configurable-http-proxy, the proxy on 8000 and its REST API on
+# 8001, and ENTRYPOINT chp-docker-entrypoint, which reads
+# CONFIGPROXY_AUTH_TOKEN_FILE, defaults --api-ip to 0.0.0.0 unless --api-ip or
+# --api-socket is given, and execs configurable-http-proxy with the arguments.
+# The Zero to JupyterHub chart overrides the command with
+# `configurable-http-proxy ...`, resolved from PATH.
+accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /
+  run-as: 65534
+
+entrypoint:
+  command: /srv/configurable-http-proxy/chp-docker-entrypoint
+
+work-dir: /srv/configurable-http-proxy
+
+environment:
+  PATH: /srv/configurable-http-proxy/bin:/usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
