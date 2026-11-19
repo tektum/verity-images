@@ -44,7 +44,7 @@ printf '%s\n' "$out" | grep -q 'Restore succeeded' || fail "template restore did
 
 # The remaining steps write to a bind mount, so they run as the caller's uid with HOME inside the mount.
 run() {
-  docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/src/.home -v "$work:/src" -w /src "$image" "$@"
+  docker run --rm --network none --user "$(id -u):$(id -g)" -e HOME=/src/.home -e DOTNET_CLI_HOME=/src/.home -v "$work:/src" -w /src "$image" "$@"
 }
 
 # Create, restore, build and run the console template with no network: everything comes from the SDK itself.
