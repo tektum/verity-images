@@ -14,7 +14,7 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 fail() {
-  docker logs "$server" >&2 2>/dev/null || true
+  docker logs "$server" >&2 2>&1 || true
   printf '%s\n' "$1" >&2
   exit 1
 }
@@ -48,7 +48,7 @@ awk '$1 == "path" { print $2 }' "$work/buildinfo" | grep -Fx github.com/octo-sts
   >/dev/null || fail 'binary is not the octo-sts app command'
 
 # Negative: without a GitHub App the service refuses to start.
-if docker run --rm --label "$label" --network none --read-only "$image" \
+if timeout 60 docker run --rm --label "$label" --network none --read-only "$image" \
   >"$work/no-app" 2>&1; then
   fail 'service started without a GitHub App'
 fi
@@ -56,7 +56,7 @@ grep -F 'GITHUB_APP_IDS is required when APP_CONFIG_FILE is not set' "$work/no-a
   >/dev/null || fail 'missing GitHub App diagnostic is absent'
 
 # Negative: STS_DOMAIN is required even with an App configured.
-if docker run --rm --label "$label" --network none --read-only -e GITHUB_APP_IDS=1 \
+if timeout 60 docker run --rm --label "$label" --network none --read-only -e GITHUB_APP_IDS=1 \
   "$image" >"$work/no-domain" 2>&1; then
   fail 'service started without STS_DOMAIN'
 fi
@@ -93,7 +93,8 @@ exchange() {
   out=$1
   shift
   curl --silent --max-time 60 -o "$out" -w '%{http_code}' -X POST "$@" \
-    "http://127.0.0.1:$port/sts/exchange?scope=octo-sts/app&identity=ci"
+    "http://127.0.0.1:$port/sts/exchange?scope=octo-sts/app&identity=ci" ||
+    fail "exchange request for $out did not complete"
 }
 
 status=$(exchange "$work/no-auth")
