@@ -149,6 +149,10 @@ with open("/proc/1/status") as status:
     uid = next(line.split()[1] for line in status if line.startswith("Uid:"))
 with open("/proc/1/cmdline", "rb") as cmdline:
     argv = cmdline.read().rstrip(b"\0").split(b"\0")
+# On the non-native arch CI runs the image under qemu-user (binfmt with
+# preserved argv[0]): /proc/1/cmdline is [qemu, executable path, argv...].
+if argv[0].rsplit(b"/", 1)[-1].startswith(b"qemu-") and len(argv) > 2:
+    argv = argv[2:]
 print(json.dumps({
     "uid": uid,
     "argv": [arg.decode() for arg in argv],
