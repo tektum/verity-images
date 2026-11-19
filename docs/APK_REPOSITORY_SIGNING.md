@@ -86,6 +86,11 @@ build inputs. After final verification, that marker is replaced by an
 origins, and archive digest. Every release scan is paginated. Published complete
 markers are authoritative, and any other draft reservation blocks publication.
 
+Push runs on `main` build changed packages but never sign them. Their
+`apk-publication-drift` job compares every `packages/*/melange.yaml`
+version-release with the pinned `packages/repository-state.json` and fails,
+naming each package, until that version is dispatched, released, and pinned.
+
 Unmarked `apk-repo-v0001` and `apk-repo-v0002` are the only legacy exceptions.
 They are accepted only after their fixed release, asset, API digest, archive,
 manifest, package, index, and signature bindings verify. Reusing a package

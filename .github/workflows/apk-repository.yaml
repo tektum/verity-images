@@ -81,6 +81,38 @@ jobs:
             printf '%s=%s\n' "$architecture" "$value" >> "$GITHUB_OUTPUT"
           done
 
+  apk-publication-drift:
+    # Signing stays manual-dispatch only; this makes a main recipe that is ahead of the
+    # pinned published index fail loudly instead of silently never reaching Pages.
+    if: github.event_name == 'push'
+    runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-publication-drift/runner=4cpu-linux-x64  # yamllint disable-line rule:line-length
+    permissions:
+      contents: read
+    steps:
+      - name: Check out immutable source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+
+      - name: Require every main package to be in the published index
+        run: |
+          set -euo pipefail
+          release_tag=$(jq -er '.release.tag' packages/repository-state.json)
+          unpublished=$(
+            python3 scripts/gen_apk_matrix.py --unpublished packages/repository-state.json |
+              jq -r '[.include[].package] | unique | .[]'
+          )
+          [[ -z "$unpublished" ]] && exit 0
+          while IFS= read -r package; do
+            printf '::error title=APK package not published::%s on main is not in pinned %s. ' \
+              "$package" "$release_tag"
+            printf 'Dispatch Build APK repository with mode=replacement package=%s source-sha=<main HEAD>, ' \
+              "$package"
+            printf 'then pin the new apk-repo-vNNNN release in packages/repository-state*.json.\n'
+          done <<<"$unpublished"
+          exit 1
+
   build-x86_64:
     if: >-
       github.event_name != 'merge_group' &&
