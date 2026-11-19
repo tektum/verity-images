@@ -51,7 +51,7 @@ start_cluster() {
   base=http://127.0.0.1:$port
   ready=false
   for _ in $(seq 1 60); do
-    if curl -fsS "$base/health" 2>/dev/null | grep -q '"status":"healthy"'; then
+    if curl -fsS --connect-timeout 1 --max-time 5 "$base/health" 2>/dev/null | grep -q '"status":"healthy"'; then
       ready=true
       break
     fi
@@ -77,17 +77,17 @@ stop_cluster() {
 }
 
 query() {
-  curl -fsS -H 'Content-Type: application/dql' -X POST "$base/query" \
+  curl -fsS --connect-timeout 5 --max-time 30 -H 'Content-Type: application/dql' -X POST "$base/query" \
     -d '{ q(func: eq(name, "verity-smoke")) { name verity.count } }'
 }
 
 start_cluster
 
-alter=$(curl -fsS -X POST "$base/alter" -d 'name: string @index(exact) .
+alter=$(curl -fsS --connect-timeout 5 --max-time 30 -X POST "$base/alter" -d 'name: string @index(exact) .
 verity.count: int .')
 printf '%s\n' "$alter" | grep -q '"code":"Success"' || fail "schema alter failed: $alter"
 
-mutation=$(curl -fsS -H 'Content-Type: application/rdf' -X POST "$base/mutate?commitNow=true" \
+mutation=$(curl -fsS --connect-timeout 5 --max-time 30 -H 'Content-Type: application/rdf' -X POST "$base/mutate?commitNow=true" \
   -d '{ set {
 _:node <name> "verity-smoke" .
 _:node <verity.count> "42" .
@@ -99,10 +99,10 @@ result=$(query)
 printf '%s\n' "$result" | grep -q '"q":\[{"name":"verity-smoke","verity.count":42}\]' ||
   fail "query did not return the mutated node: $result"
 
-malformed=$(curl -sS -H 'Content-Type: application/dql' -X POST "$base/query" -d '{ q(func: eq(name, ')
+malformed=$(curl -sS --connect-timeout 5 --max-time 30 -H 'Content-Type: application/dql' -X POST "$base/query" -d '{ q(func: eq(name, ')
 printf '%s\n' "$malformed" | grep -q 'Unclosed Brackets' || fail "malformed query was not rejected: $malformed"
 
-bad_mutation=$(curl -sS -H 'Content-Type: application/rdf' -X POST "$base/mutate?commitNow=true" \
+bad_mutation=$(curl -sS --connect-timeout 5 --max-time 30 -H 'Content-Type: application/rdf' -X POST "$base/mutate?commitNow=true" \
   -d '{ set { _:node <verity.count> "not-an-int" . } }')
 printf '%s\n' "$bad_mutation" | grep -q '"errors"' || fail "type-violating mutation was accepted: $bad_mutation"
 
