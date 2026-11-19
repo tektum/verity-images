@@ -88,10 +88,11 @@ for tool in iptables iptables-save ip6tables ip6tables-save \
   iptables-nft iptables-nft-save ip6tables-nft ip6tables-nft-save sysctl nsenter; do
   sh_in "command -v $tool" >/dev/null || fail "$tool is missing"
 done
-for tool in iptables-legacy iptables-nft ip6tables-legacy ip6tables-nft; do
+# Plain mode runs the unversioned names, which resolve to legacy in Wolfi.
+for tool in iptables-legacy iptables-nft ip6tables-legacy ip6tables-nft iptables ip6tables; do
   case $tool in
-    *-legacy) variant=legacy ;;
-    *) variant=nf_tables ;;
+    *-nft) variant=nf_tables ;;
+    *) variant=legacy ;;
   esac
   # The nft backend opens a netlink socket even for --version, which
   # qemu-user does not emulate ("Protocol not supported").
@@ -305,9 +306,17 @@ setup_in nft '' iptables-nft-save ip6tables-nft-save
 check_nat iptables-nft-save
 check_nat ip6tables-nft-save
 # The legacy tables of that namespace stay empty.
-docker exec "$holder" iptables-legacy-save -t nat >"$work/legacy-after-nft" 2>&1 || true
+docker exec "$holder" iptables-legacy-save -t nat >"$work/legacy-after-nft" 2>&1 ||
+  fail "iptables-legacy-save failed after the nft run: $(cat "$work/legacy-after-nft")"
 if grep -Fq PROXY_INIT "$work/legacy-after-nft"; then
   fail "--iptables-mode nft wrote legacy rules: $(cat "$work/legacy-after-nft")"
+fi
+
+# plain runs the unversioned iptables names; in this image they are legacy.
+setup_in plain '--ipv6=false' iptables-legacy-save iptables-nft-save
+check_nat iptables-legacy-save
+if grep -Fq PROXY_INIT "$work/iptables-nft-save"; then
+  fail "--iptables-mode plain wrote nft rules: $(cat "$work/iptables-nft-save")"
 fi
 
 printf 'SMOKE PASS image=%s version=%s\n' "$image" "$expected_version"
