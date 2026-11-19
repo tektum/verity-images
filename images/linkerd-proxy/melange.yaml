@@ -186,9 +186,31 @@ pipeline:
 
   # The root-owned checkouts are not readable by the host user that reads back
   # workspace xattrs after the build (as in images/envoy); everything shipped is
-  # already in the destdir.
+  # already in the destdir. Keep the resolved module and lock files for the
+  # build-metadata subpackage first, as images/atlantis does.
   - runs: |
+      for src in linkerd2 proxy-init; do
+        install -Dm644 "$src/go.mod" ".verity-$src/go.mod"
+        install -Dm644 "$src/go.sum" ".verity-$src/go.sum"
+      done
+      for src in proxy validator await; do
+        install -Dm644 "$src/Cargo.lock" ".verity-$src/Cargo.lock"
+      done
       rm -rf proxy linkerd2 proxy-init validator await
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module and Cargo metadata for the Linkerd proxy build
+    pipeline:
+      - runs: |
+          dest="${{targets.subpkgdir}}/usr/share/linkerd-proxy-build"
+          for src in linkerd2 proxy-init; do
+            install -Dm644 ".verity-$src/go.mod" "$dest/$src/go.mod"
+            install -Dm644 ".verity-$src/go.sum" "$dest/$src/go.sum"
+          done
+          for src in proxy validator await; do
+            install -Dm644 ".verity-$src/Cargo.lock" "$dest/$src/Cargo.lock"
+          done
 
 test:
   environment:

@@ -243,9 +243,17 @@ privileged_version=$(awk -F: '$1 == "P" { p = $2 } $1 == "V" && p == "iptables-x
   sub(/-r[0-9]+$/, "", $2); print $2 }' "$work/installed")
 [ "$privileged_version" = "$iptables_version" ] ||
   fail "iptables-xtables-privileged '$privileged_version' does not match iptables $iptables_version"
+image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
+host_arch=$(docker version --format '{{.Server.Arch}}')
 for mode in legacy:legacy nft:nf_tables; do
   backend=${mode#*:}
   mode=${mode%%:*}
+  # The nft backend opens a netlink socket even for --version, which qemu-user
+  # does not emulate ("Protocol not supported"), as in images/linkerd-proxy-init.
+  if [ "$mode" = nft ] && [ "$image_arch" != "$host_arch" ]; then
+    printf 'SKIP: iptables-nft --version on non-native %s (host %s)\n' "$image_arch" "$host_arch"
+    continue
+  fi
   # A bare entrypoint resolves through the image PATH, as proxy-init's lookup does.
   init --network none --entrypoint "iptables-$mode" "$image" --version \
     >"$work/iptables" 2>&1 || fail "iptables-$mode --version failed: $(cat "$work/iptables")"
@@ -258,8 +266,6 @@ grep -Fq -- '--firewall-bin-path' "$work/init" || fail 'proxy-init help lacks --
 
 # qemu-user neither applies file capabilities nor runs iptables, so exercise
 # them only on the native architecture; the other row checks the xattrs above.
-image_arch=$(docker image inspect --format '{{.Architecture}}' "$image")
-host_arch=$(docker version --format '{{.Server.Arch}}')
 if [ "$image_arch" = "$host_arch" ]; then
   # Without NET_ADMIN in the bounding set the kernel refuses the capability exec.
   if run --entrypoint "$lib/linkerd2-proxy-init" "$image" --help >"$work/neg" 2>&1; then
