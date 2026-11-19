@@ -90,7 +90,8 @@ def main() -> None:
     repository_verify = REPOSITORY_VERIFY.read_text(encoding="utf-8")
     reserver = RESERVER.read_text(encoding="utf-8")
     signing_doc = SIGNING_DOC.read_text(encoding="utf-8")
-    matrix = job(workflow, "apk-matrix", "build-x86_64")
+    matrix = job(workflow, "apk-matrix", "apk-publication-drift")
+    drift = job(workflow, "apk-publication-drift", "build-x86_64")
     x86_64 = job(workflow, "build-x86_64", "build-aarch64")
     aarch64 = job(workflow, "build-aarch64", "apk-gate")
     gate = job(workflow, "apk-gate", "apk-signing")
@@ -109,6 +110,14 @@ def main() -> None:
     assert "aarch64: ${{ steps.matrix.outputs.aarch64 }}" in matrix
     assert "x86_64: ${{ steps.matrix.outputs.x86_64 }}" in matrix
     assert runner(matrix) == f"{RUNS_ON_PREFIX}apk-matrix/runner=4cpu-linux-x64"
+    assert "    if: github.event_name == 'push'\n" in drift
+    assert "python3 scripts/gen_apk_matrix.py --unpublished packages/repository-state.json" in drift
+    assert "::error title=APK package not published::" in drift
+    assert "    permissions:\n      contents: read\n    steps:\n" in drift
+    assert "needs:" not in drift
+    assert "environment:" not in drift
+    assert "secrets." not in drift
+    assert "persist-credentials: false" in drift
     assert runner(x86_64) == (
         f"{RUNS_ON_PREFIX}build-x86_64-${{{{ strategy.job-index }}}}/runner=4cpu-linux-x64"
     )
