@@ -90,7 +90,7 @@ expect() {
 start
 ready
 docker top "$container" -eo pid,uid,comm |
-  awk '$3 == "postgres" { found = 1; if ($2 != 999) exit 1 } END { exit !found }' ||
+  awk '$3 == "postgres" { found = 1; if ($2 != 999) bad = 1 } END { exit bad || !found }' ||
   fail 'postgres does not run as UID 999'
 sql 'SHOW server_version_num' | grep -q '^18' || fail 'server is not PostgreSQL 18'
 
