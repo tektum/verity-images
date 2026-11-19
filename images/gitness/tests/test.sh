@@ -198,14 +198,23 @@ chmod 0644 "$work/ssh/id_ed25519"
 pubkey=$(cat "$work/ssh/id_ed25519.pub")
 expect 201 POST /user/keys \
   "{\"identifier\":\"verity\",\"usage\":\"auth\",\"scheme\":\"ssh\",\"content\":\"$pubkey\"}"
-git_client "
+# The SSH listener starts after HTTP; under emulation it can lag, so retry
+# only while the connection is refused.
+i=0
+until git_client "
 set -eu
 cp /ssh/id_ed25519 /tmp/key
 chmod 0600 /tmp/key
 export GIT_SSH_COMMAND='ssh -i /tmp/key -o IdentitiesOnly=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
 git clone -q 'ssh://git@127.0.0.1:3022/$space/$repo.git' /tmp/ssh-repo
 cat /tmp/ssh-repo/marker.txt
-" >"$work/ssh-clone" 2>&1 || fail "ssh clone failed: $(cat "$work/ssh-clone")"
+" >"$work/ssh-clone" 2>&1; do
+  i=$((i + 1))
+  if [ "$i" -ge 90 ] || ! grep -F 'Connection refused' "$work/ssh-clone" >/dev/null; then
+    fail "ssh clone failed: $(cat "$work/ssh-clone")"
+  fi
+  sleep 2
+done
 grep -Fx "$marker" "$work/ssh-clone" >/dev/null ||
   fail "ssh clone returned the wrong content: $(cat "$work/ssh-clone")"
 
