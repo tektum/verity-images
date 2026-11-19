@@ -43,7 +43,17 @@ reported=$(docker run --rm "$image" -version) || fail 'web -version failed'
 # Upstream layout: binary, LICENSE, built assets and templates under /linkerd,
 # CA bundle in place, and no node_modules shipped.
 docker create --name "$copy" "$image" >/dev/null
-docker export "$copy" | tar -tf - | sed 's|^\./||; s|/$||' >"$tmp/files"
+docker export "$copy" >"$tmp/rootfs.tar"
+tar -tf "$tmp/rootfs.tar" | sed 's|^\./||; s|/$||' >"$tmp/files"
+# The runtime user must not be able to replace the binary, assets or templates:
+# everything under /linkerd is root-owned and not group or world writable.
+tar --numeric-owner -tvf "$tmp/rootfs.tar" \
+  | awk '{ name = $6; sub(/^\.\//, "", name) } name ~ /^linkerd(\/|$)/' >"$tmp/owners"
+[ -s "$tmp/owners" ] || fail 'could not list /linkerd ownership'
+if awk '$2 != "0/0" || substr($1, 6, 1) == "w" || substr($1, 9, 1) == "w"' "$tmp/owners" \
+  | grep . >&2; then
+  fail '/linkerd has entries not root-owned or writable by group or others'
+fi
 for path in linkerd/web linkerd/LICENSE linkerd/app/dist/index_bundle.js \
   linkerd/templates/app.tmpl.html linkerd/templates/includes/base.tmpl.html \
   etc/ssl/certs/ca-certificates.crt; do

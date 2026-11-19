@@ -62,16 +62,23 @@ pipeline:
       packages: ./web
 
   # Upstream links no version; LINKERD_CONTAINER_VERSION_OVERRIDE in the image
-  # supplies it. metadata.yaml declares the module purl, versioned from
-  # package.version.
+  # supplies it. The edge tag is not semver, so -buildvcs stamps the main
+  # module with a pseudo-version of the pinned commit, the form Linkerd's GHSA
+  # ranges use. metadata.yaml also declares the module purl and the NVD CPE,
+  # versioned from package.version.
   - name: Build server and install upstream layout
     runs: |
       [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
       root="${{targets.destdir}}/linkerd"
-      go build -mod=readonly -trimpath -buildvcs=false -ldflags "-s -w" \
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags "-s -w" \
         -o "$root/web" ./web
       go version -m "$root/web" | awk '$1 == "path" { print $2 }' \
         | grep -Fx github.com/linkerd/linkerd2/web
+      short=$(printf '%s' '${{vars.source-commit}}' | cut -c1-12)
+      mod=$(go version -m "$root/web" \
+        | awk '$1 == "mod" && $2 == "github.com/linkerd/linkerd2" { print $3 }')
+      printf '%s\n' "$mod" | grep -Ex "v[0-9]+\.[0-9]+\.[0-9]+-(0\.)?[0-9]{14}-$short(\+dirty)?" ||
+        { echo "web: unexpected main module version '$mod'" >&2; exit 1; }
       LINKERD_CONTAINER_VERSION_OVERRIDE=edge-${{package.version}} \
         "$root/web" -version | grep -Fx edge-${{package.version}}
       install -d "$root/app"
