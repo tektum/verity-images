@@ -69,7 +69,8 @@ except urllib.error.HTTPError as error:
 
 ready=false
 for _ in $(seq 1 30); do
-  if body=$(client "http://origin:8000/hello.txt" 2>"$work/client.err"); then
+  if body=$(client "http://origin:8000/hello.txt" 2>"$work/client.err") &&
+    [ "$(printf '%s\n' "$body" | head -n1)" = 200 ]; then
     ready=true
     break
   fi
