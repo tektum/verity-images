@@ -300,7 +300,8 @@ done
 # SpiceDB image to run.
 status_matches 'any(.status.conditions[]?; .type == "ValidatingFailed" and .reason == "InvalidConfig"
   and (.message | contains("no base image specified")))'
-[ "$(kube "https://$api:6443/apis/apps/v1/namespaces/default/deployments" | jq '.items | length')" = 0 ] ||
+kube "https://$api:6443/apis/apps/v1/namespaces/default/deployments" |
+  jq -e '.kind == "DeploymentList" and (.items | length) == 0' >/dev/null ||
   fail 'a Deployment was created without an image'
 stop_op run-default
 
