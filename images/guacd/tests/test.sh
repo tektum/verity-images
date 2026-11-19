@@ -2,8 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-config="$(dirname "$0")/../apko.yaml"
-version=$(sed -n 's/^    - guacamole-server=\([0-9.]*\)-r[0-9]*$/\1/p' "$config")
+config="$(dirname "$0")/../melange.yaml"
+version=$(sed -n 's/^  version: "\([0-9.]*\)".*$/\1/p' "$config")
 server="verity-guacd-server-$$"
 work=$(mktemp -d)
 
@@ -18,13 +18,13 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-[ -n "$version" ] || fail 'could not read the pinned guacamole-server version'
+[ -n "$version" ] || fail 'could not read the pinned guacd version'
 
 # OCI contract: non-root, foreground, all interfaces, IANA port 4822.
 test "$(docker image inspect --format '{{.Config.User}}' "$image")" = 65532 ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
-  '["/usr/sbin/guacd","-f","-b","0.0.0.0"]' || fail 'unexpected entrypoint'
+  '["/usr/bin/guacd","-f","-b","0.0.0.0"]' || fail 'unexpected entrypoint'
 test "$(docker image inspect --format '{{json .Config.Cmd}}' "$image")" = \
   '["-l","4822","-L","info"]' || fail 'unexpected command'
 test "$(docker image inspect --format '{{.Config.WorkingDir}}' "$image")" = /home/nonroot ||

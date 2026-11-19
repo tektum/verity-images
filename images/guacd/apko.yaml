@@ -1,14 +1,14 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
-    - guacamole-server=1.6.0-r5
-    - libguac-client-rdp=1.6.0-r5
-    - libguac-client-ssh=1.6.0-r5
-    - libguac-client-telnet=1.6.0-r5
-    - libguac-client-vnc=1.6.0-r5
+    # Built locally without guacenc, so no ffmpeg 8.1. Wolfi FreeRDP 3 still
+    # links ffmpeg 9.0 libavutil and libswscale.
+    - guacd-1.6@local
     # Fonts the upstream guacamole/guacd image adds for SSH and telnet terminal
     # rendering. Upstream terminus-font has no Wolfi package. Upstream also adds
     # ghostscript for RDP printing; the Wolfi build pulls in GTK 3 and 45 more
@@ -36,12 +36,12 @@ accounts:
 # LOG_LEVEL and GUACD_LOG_LEVEL variables need a shell wrapper; pass -L instead.
 # The Wolfi build has no kubernetes protocol plugin.
 entrypoint:
-  command: /usr/sbin/guacd -f -b 0.0.0.0
+  command: /usr/bin/guacd -f -b 0.0.0.0
 
 cmd: -l 4822 -L info
 
 environment:
-  PATH: /usr/sbin:/usr/bin:/bin
+  PATH: /usr/bin:/bin
   HOME: /home/nonroot
   LC_ALL: C.UTF-8
 

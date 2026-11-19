@@ -1,0 +1,100 @@
+package:
+  name: guacd-1.6
+  # yamllint disable-line rule:line-length
+  version: "1.6.0"  # renovate: datasource=github-tags depName=apache/guacamole-server versioning=regex:^(?<major>1)\.(?<minor>6)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Guacamole proxy daemon with RDP, VNC, SSH, and telnet plugins, built without guacenc
+  copyright:
+    - license: Apache-2.0
+
+vars:
+  source-commit: 1f664e08feae6e7d15d8146b78acab2e6fb470ae
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - build-base
+      - busybox
+      - cairo-dev
+      - freerdp-3-dev
+      - libjpeg-turbo-dev
+      - libpng-dev
+      - libssh2-dev
+      - libtelnet
+      - libtool
+      - libvncserver-dev
+      - libwebp-dev
+      - openssl-dev
+      - pango-dev
+      - pkgconf
+      - pkgconf-dev
+      - pulseaudio-dev
+      - util-linux-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/guacamole-server
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - runs: |
+      # guacenc (recording to video converter) is the only ffmpeg consumer;
+      # disabling it keeps ffmpeg 8.1 out of the image. Recordings are still
+      # written by guacd. Kubernetes needs libwebsockets and stays off, as in
+      # the Wolfi build.
+      autoreconf -fi
+      # Upstream builds with -Werror; current GCC and glibc add warnings
+      # (_XOPEN_SOURCE redefinition, discarded const) that 1.6.0 predates.
+      # Configure feature probes for the FreeRDP 3 API rely on -Werror, so they
+      # only ignore the deprecations current FreeRDP 3 headers emit; make
+      # relaxes -Werror fully.
+      CFLAGS="${CFLAGS:-} -Wno-error=deprecated-declarations" ./configure \
+        --prefix=/usr \
+        --sbindir=/usr/bin \
+        --sysconfdir=/etc \
+        --disable-static \
+        --disable-guacenc \
+        --disable-kubernetes \
+        --with-rdp \
+        --with-ssh \
+        --with-telnet \
+        --with-vnc
+      make -j$(nproc) CFLAGS="${CFLAGS:-} -Wno-error"
+      make install DESTDIR="${{targets.destdir}}"
+      find "${{targets.destdir}}" -name "*.la" -delete
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        guacd -v 2>&1 | grep -F "${{package.version}}"
+        for protocol in rdp ssh telnet vnc; do
+          test -e "/usr/lib/libguac-client-${protocol}.so"
+        done
+        test ! -e /usr/bin/guacenc
+        apk info --who-owns /usr/bin/guacd \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: apache/guacamole-server
+    tag-filter-prefix: "1.6."
+    use-tag: true
