@@ -104,7 +104,7 @@ docker run --name "$backend" -d --network "$network" --network-alias postgres \
   "$postgres" >/dev/null
 
 attempts=0
-until docker exec "$backend" pg_isready -U mmuser -d mattermost >/dev/null 2>&1; do
+until docker exec "$backend" pg_isready -h 127.0.0.1 -U mmuser -d mattermost >/dev/null 2>&1; do
   attempts=$((attempts + 1))
   [ "$attempts" -lt 60 ] || {
     docker logs "$backend" >&2
