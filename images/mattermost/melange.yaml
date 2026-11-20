@@ -53,6 +53,9 @@ environment:
     GOTOOLCHAIN: local
     HOME: /home/build
     NODE_OPTIONS: --max-old-space-size=12288
+    # platform/shared builds with Parcel; its worker farm hung with no output
+    # on a 32-vCPU arm64 runner. The package is tiny, so build in-process.
+    PARCEL_WORKERS: "0"
     # webapp/.npmrc pins the exact upstream node/npm with engine-strict; build
     # with Wolfi's nodejs-24 and npm instead. Dependency lifecycle scripts are
     # skipped; the root postinstall is replayed explicitly below. npm 12
