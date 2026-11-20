@@ -47,17 +47,20 @@ pipeline:
   # Same build as the upstream Containerfile: CGO 0, `-tags build`, and the
   # release tag stamped into common.OperatorVersion, which the controllers
   # write to each resource's status.operatorVersion. The package path instead
-  # of the upstream file argument keeps the main module version stamped.
+  # of the upstream file argument keeps the main module version stamped; Go
+  # stamps it only from a semver vX.Y.Z tag on HEAD and upstream tags lack the
+  # v, so the pinned commit gets one locally.
   # The CRDs ship with the binary so the CRDs match the controller.
   - runs: |
       test "$(git rev-parse HEAD)" = '${{vars.source-commit}}'
+      git tag -f v${{package.version}} '${{vars.source-commit}}'
       stamp=github.com/db-operator/db-operator/v2/internal/helpers/common.OperatorVersion
       go build -mod=readonly -trimpath -buildvcs=true -tags build \
         -ldflags="-X $stamp=${{package.version}}" \
         -o "${{targets.destdir}}/usr/local/bin/db-operator" ./cmd
-      go version -m "${{targets.destdir}}/usr/local/bin/db-operator" | awk '
-        $1 == "mod" && $2 == "github.com/db-operator/db-operator/v2" && $3 ~ /^v[0-9]/ { ok = 1 }
-        END { exit !ok }'
+      go version -m "${{targets.destdir}}/usr/local/bin/db-operator" \
+        | awk '$1 == "mod" && $2 == "github.com/db-operator/db-operator/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
       for crd in config/crd/bases/kinda.rocks_*.yaml; do
         install -Dm644 "$crd" "${{targets.destdir}}/usr/share/db-operator/crd/$(basename "$crd")"
       done
