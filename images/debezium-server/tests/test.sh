@@ -52,6 +52,13 @@ grep -q "debezium-server-dist-${expected_version}.Final-runner.jar" "$work/layou
 grep -q "debezium-server-core-${expected_version}.Final.jar" "$work/layout.log" ||
   fail "debezium-server-core is not ${expected_version}.Final"
 
+# The RocketMQ sink is not built: fastjson (GHSA-crf3-v9rr-v7hj, critical, no fixed release) and
+# the RocketMQ client must not ship anywhere in the image.
+docker run --rm --entrypoint sh "$image" -c '
+  find / -xdev \( -iname "fastjson*.jar" -o -name "rocketmq-*.jar" -o -name "debezium-server-rocketmq-*.jar" \) 2>/dev/null
+' >"$work/excluded.log" 2>&1 || true
+[ ! -s "$work/excluded.log" ] || { cat "$work/excluded.log" >&2; fail 'fastjson or RocketMQ jars are present'; }
+
 # JRE runtime only: java 21 is present, the compiler is not.
 docker run --rm --entrypoint java "$image" -version >"$work/java.log" 2>&1 || fail 'Java failed'
 grep -q 'version "21' "$work/java.log" || { cat "$work/java.log" >&2; fail 'Java 21 is missing'; }
