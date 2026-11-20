@@ -188,7 +188,20 @@ def test_renovate_configuration() -> None:
             r"/^packages/.+/[^/]*melange\.ya?ml$/",
             r"/^patched/.+/[^/]*melange\.ya?ml$/",
         ],
-        [r"/^images/jellyfin/melange\.yaml$/"],
+        [
+            r"/^images/argo-events/melange\.yaml$/",
+            r"/^images/atlantis/melange\.yaml$/",
+            r"/^images/emissary/melange\.yaml$/",
+            r"/^images/flannel/melange\.yaml$/",
+            r"/^images/gitlab-runner-helper/melange\.yaml$/",
+            r"/^images/harbor-scanner-trivy/melange\.yaml$/",
+            r"/^images/helmfile/melange\.yaml$/",
+            r"/^images/jellyfin/melange\.yaml$/",
+            r"/^images/jenkins-inbound-agent/melange\.yaml$/",
+            r"/^images/pypy/melange\.yaml$/",
+            r"/^images/step-ca/melange\.yaml$/",
+            r"/^images/temporal-admin-tools/melange\.yaml$/",
+        ],
         [r"/^images/datadog-cluster-agent/tests/test\.sh$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
@@ -389,7 +402,7 @@ def test_renovate_configuration() -> None:
 
 
 def test_peer_digests(renovate: dict) -> None:
-    """Smoke-test peer pins: only the digest moves, within the pinned tag."""
+    """Smoke-test peer pins: only the digest moves, within the pinned tag, review-only (no automerge)."""
     managers = renovate["customManagers"]
     peer_manager = managers[6]
     assert peer_manager["depTypeTemplate"] == "test-peer"
@@ -402,7 +415,7 @@ def test_peer_digests(renovate: dict) -> None:
             "matchDepTypes": ["test-peer"],
             "matchUpdateTypes": ["digest"],
             "enabled": True,
-            "automerge": True,
+            "automerge": False,
             "platformAutomerge": True,
             "labels": ["test-peer-digest", "review-required"],
             "schedule": ["* 0-6 * * 1"],
