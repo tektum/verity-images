@@ -1,0 +1,58 @@
+package:
+  name: verity-cert-manager-webhook-pdns
+  # yamllint disable-line rule:line-length
+  version: "2.5.6"  # renovate: datasource=github-tags depName=zachomedia/cert-manager-webhook-pdns versioning=regex:^v(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: cert-manager ACME DNS01 webhook solver for PowerDNS
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+
+vars:
+  source-commit: 218ec53ab486db57818c9696091bcf158f8a75bc
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/zachomedia/cert-manager-webhook-pdns
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+  - uses: go/build/v2
+    with:
+      packages: .
+      output: webhook
+      strip: -s -w
+  - runs: |
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        test -x /usr/bin/webhook
+        test -f /usr/share/licenses/verity-cert-manager-webhook-pdns/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: zachomedia/cert-manager-webhook-pdns
+    use-tag: true
+    strip-prefix: v
+    tag-filter-prefix: v2.
