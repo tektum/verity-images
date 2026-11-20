@@ -97,7 +97,7 @@ grep -E '^drwxrwxrwt .* tmp/?$' "$work/layout" >/dev/null || fail '/tmp is not 1
 # through the flag package, so only the output is asserted.
 docker run --rm --network none "$image" --help >"$work/version" 2>&1 || true
 expect "$work/version" "ADOT Collector version: v$expected_version"
-expect "$work/version" '-config value'
+expect "$work/version" '-config --config=file:'
 printf 'version: %s\n' "$(grep -F 'ADOT Collector version' "$work/version")"
 
 # (1) The bundled default config (OTLP, X-Ray, EMF) starts offline once a region
