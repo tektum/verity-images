@@ -46,8 +46,10 @@ work-dir: /home/nonroot
 environment:
   PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
-  # Upstream sets this to the linkerd2 release; the smoke test checks it
-  # against vars.linkerd2-version in melange.yaml.
-  LINKERD_CONTAINER_VERSION_OVERRIDE: edge-26.11.2
+  # Upstream sets this to the linkerd2 release. It carries the annotation of
+  # vars.linkerd2-version in melange.yaml so both move together; the smoke
+  # test checks that they match.
+  # yamllint disable-line rule:line-length
+  LINKERD_CONTAINER_VERSION_OVERRIDE: edge-26.11.2  # renovate: datasource=github-tags depName=linkerd/linkerd2 extractVersion=^edge-(?<version>.+)$
   LINKERD2_PROXY_LOG: warn,linkerd=info
   LINKERD2_PROXY_LOG_FORMAT: plain

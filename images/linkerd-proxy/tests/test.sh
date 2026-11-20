@@ -228,6 +228,9 @@ for name in iptables-legacy iptables-legacy-save iptables-legacy-restore iptable
   esac
 done
 
+# linkerd-init's /run is the chart's proxyInit.xtMountPath emptyDir
+# (linkerd-proxy-init-xtables-lock), where iptables-legacy creates its
+# xtables.lock; upstream's proxy-runtime image ships a root-owned /run too.
 init() {
   docker run --rm --read-only --tmpfs /run --cap-drop=ALL --cap-add=NET_ADMIN --cap-add=NET_RAW \
     --security-opt no-new-privileges "$@"
