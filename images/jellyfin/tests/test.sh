@@ -146,17 +146,27 @@ code=$(curl --silent --output /dev/null --write-out '%{http_code}' -H "Authoriza
   "http://127.0.0.1:$port/Users/AuthenticateByName")
 [ "$code" = 401 ] || fail "wrong password returned $code, expected 401"
 
-# A library scan probes the clip with the bundled ffprobe.
+# A library scan probes the clip with the bundled ffprobe. Completing the
+# wizard starts a scan of its own, which can swallow the refresh that adding a
+# library queues, so request library refreshes explicitly until the clip shows.
 api -X POST -H 'Content-Type: application/json' \
   -d '{"LibraryOptions":{}}' \
-  "http://127.0.0.1:$port/Library/VirtualFolders?name=Verity&collectionType=homevideos&paths=%2Fmedia&refreshLibrary=true" \
+  "http://127.0.0.1:$port/Library/VirtualFolders?name=Verity&collectionType=homevideos&paths=%2Fmedia&refreshLibrary=false" \
   >/dev/null || fail "could not add the library"
+api "http://127.0.0.1:$port/Library/VirtualFolders" | jq -e 'any(.[]; .Locations | index("/media"))' >/dev/null ||
+  fail "library Verity does not list /media"
+items="http://127.0.0.1:$port/Items?Recursive=true&Fields=MediaStreams,Path"
 i=0
-until api \
-  "http://127.0.0.1:$port/Items?Recursive=true&IncludeItemTypes=Video&Fields=MediaStreams" |
+until api "$items" |
   jq -e '[.Items[].MediaStreams[]?.Codec] | index("vp9") and index("opus")' >/dev/null 2>&1; do
+  [ $((i % 30)) -ne 0 ] || api -X POST "http://127.0.0.1:$port/Library/Refresh" >/dev/null ||
+    fail "Library/Refresh failed"
   i=$((i + 1))
-  [ "$i" -lt 180 ] || fail "library scan did not report the vp9/opus clip"
+  if [ "$i" -ge 240 ]; then
+    api "http://127.0.0.1:$port/Library/VirtualFolders" >&2 || true
+    api "$items" >&2 || true
+    fail "library scan did not report the vp9/opus clip"
+  fi
   sleep 1
 done
 
