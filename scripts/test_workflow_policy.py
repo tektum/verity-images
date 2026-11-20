@@ -586,6 +586,7 @@ def main() -> None:
     }
     # The scan gate reads the same allowlist as go/remediate.
     assert "pipelines/go/untagged-release-modules.json" in gen_matrix.GLOBAL_PATHS
+    assert "scripts/untagged_go_modules.py" in gen_matrix.GLOBAL_PATHS
     assert gen_matrix.COREPACK_INSTALL_PATHS == {
         "pipelines/corepack/install.yaml",
         "scripts/build_candidate.sh",
@@ -1287,7 +1288,8 @@ def main() -> None:
 
     assert "# Parity with scripts/evaluate_scan_gate.sh: a named fix version" in monitor_sarif
     assert 'fix.get("versions") or [] if version' in monitor_sarif
-    assert "if not finding.fixed:\n                    continue" in monitor_sarif
+    assert "if not finding.fixed or untagged.included(match):\n                    continue" in monitor_sarif
+    assert "from untagged_go_modules import PolicyError, UntaggedFixes" in monitor_sarif
     assert "if len(identities) != 1:" in monitor_sarif
     assert "monitor shard mixed vulnerability databases" in monitor_sarif
     assert '"findings": [finding.report_record() for finding in ordered]' in monitor_sarif

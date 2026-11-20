@@ -27,6 +27,7 @@ GLOBAL_PATHS: Final = {
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
     "pipelines/go/untagged-release-modules.json",
+    "scripts/untagged_go_modules.py",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
     "scripts/runner_environment.sh",
