@@ -101,7 +101,14 @@ try:
     body = urllib.request.urlopen(request, timeout=10).read().decode()
 except urllib.error.HTTPError as error:
     body = f"{error.code} {error.read().decode()}"
-ui = urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[2]}/", timeout=10).read().decode()
+except OSError as error:
+    print(f"ERROR scan worker request failed: {error}")
+    sys.exit(0)
+try:
+    ui = urllib.request.urlopen(f"http://127.0.0.1:{sys.argv[2]}/", timeout=10).read().decode()
+except OSError as error:
+    print(f"ERROR controller request failed: {error}")
+    sys.exit(0)
 if "Rspamd Web Interface" not in ui:
     print("NOUI " + ui[:200])
     sys.exit(0)
@@ -112,7 +119,9 @@ docker rm -f "$probe" >/dev/null
 case $file_probe in
   IGNORED*) ;;
   NOUI*) printf '%s\n' "$file_probe" >&2; fail 'controller does not serve the web interface' ;;
-  *) printf '%s\n' "$file_probe" >&2; fail 'scan worker read a client-named local file over TCP' ;;
+  OPENED*) printf '%s\n' "$file_probe" >&2; fail 'scan worker read a client-named local file over TCP' ;;
+  ERROR*) fail "probe container did not answer: ${file_probe#ERROR }" ;;
+  *) fail 'file probe produced no result' ;;
 esac
 printf '%s\n' "$logs" | grep -F 'accepts privileged File/Path/Shm' >/dev/null &&
   fail 'rspamd warns that a worker accepts File/Path/Shm inputs'
