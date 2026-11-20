@@ -53,12 +53,16 @@ PRIMARY_DESCRIPTION = "Melange source pins:"
 SECONDARY_DESCRIPTION = "Melange secondary source pins:"
 EXPECTED_SECONDARY_TEMPLATE = (
     "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue "
-    "(replace '^(  [a-z0-9-]+-version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' "
+    "(replace '^(  [a-z0-9-]+-(?:version|tag): \\W?)v?[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' "
     "(replace currentDigest newDigest replaceString))}}}"
     "{{else}}{{{replaceString}}}{{/if}}"
 )
 SECONDARY_COMMIT_REF = re.compile(r"\$\{\{vars\.(?P<name>[A-Za-z0-9_-]+)-commit\}\}")
-SECONDARY_NAME = re.compile(r"^\(\?m\)\^  (?P<name>[a-z0-9-]+)-version: ")
+SECONDARY_NAME = re.compile(r"^\(\?m\)\^  (?P<name>[a-z0-9-]+)-(?P<kind>version|tag): ")
+# Secondary pins deliberately left without an annotation: trino's airlift
+# launcher must match the airlift version the Trino release was built with,
+# so it moves with the Trino bump by hand rather than with launcher tags.
+UNTRACKED_SECONDARY = {"images/trino/melange.yaml": {"launcher"}}
 
 
 def source_managers() -> list[dict]:
@@ -505,7 +509,7 @@ def apply_secondary_upgrade(match: re.Match[str], text: str, new_value: str, new
     """Mirror EXPECTED_SECONDARY_TEMPLATE: every commit copy, then the leading var version."""
     region = match[0].replace(match["currentDigest"], new_digest)
     region = re.sub(
-        r"^(  [a-z0-9-]+-version: \W?)[0-9][0-9A-Za-z.+_-]*",
+        r"^(  [a-z0-9-]+-(?:version|tag): \W?)v?[0-9][0-9A-Za-z.+_-]*",
         lambda prefix: prefix[1] + new_value,
         region,
         count=1,
@@ -537,10 +541,12 @@ def test_secondary(manager: dict, primary: dict) -> int:
     assert manager["extractVersionTemplate"] == EXPECTED_EXTRACT_VERSION_TEMPLATE
     assert manager["autoReplaceStringTemplate"] == EXPECTED_SECONDARY_TEMPLATE
     names = []
+    kinds = {}
     for raw in manager["matchStrings"]:
         name = SECONDARY_NAME.match(raw)
-        assert name, f"secondary match string must start at a vars <name>-version line: {raw[:60]}"
+        assert name, f"secondary match string must start at a vars <name>-version or <name>-tag line: {raw[:60]}"
         names.append(name["name"])
+        kinds[name["name"]] = name["kind"]
     assert len(names) == len(set(names)), names
 
     patterns = file_patterns(manager)
@@ -549,10 +555,16 @@ def test_secondary(manager: dict, primary: dict) -> int:
     recipes = (path for top in ("images", "packages", "patched") for path in (ROOT / top).rglob("*.y*ml"))
     for path in sorted(recipes):
         relative = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8")
         if not any(pattern.search(relative) for pattern in patterns):
+            # Every recipe with a secondary pin must be covered, so a new one
+            # cannot silently fall back to the security-floor manager.
+            pinned = {ref["name"] for ref in SECONDARY_COMMIT_REF.finditer(text) if ref["name"] != "source"}
+            pinned -= UNTRACKED_SECONDARY.get(relative, set())
+            if pinned:
+                problems.append(f"{relative}: secondary pins {sorted(pinned)} not covered by the secondary manager")
             continue
         covered += 1
-        text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
         variables = var_scalars(lines)
         checkouts = {}
@@ -560,7 +572,7 @@ def test_secondary(manager: dict, primary: dict) -> int:
             ref = SECONDARY_COMMIT_REF.fullmatch(checkout.fields.get("expected-commit", ""))
             if ref and ref["name"] != "source":
                 checkouts[ref["name"]] = checkout
-        file_names = [name for name in names if f"  {name}-version:" in text]
+        file_names = [name for name in names if f"\n  {name}-{kinds[name]}:" in text]
         if sorted(file_names) != sorted(checkouts):
             problems.append(f"{relative}: secondary pins {sorted(checkouts)} but match strings {sorted(file_names)}")
             continue
@@ -574,7 +586,7 @@ def test_secondary(manager: dict, primary: dict) -> int:
                 continue
             match = matches[0]
             checkout = checkouts[name]
-            version = variables.get(f"{name}-version", "")
+            version = variables.get(f"{name}-{kinds[name]}", "")
             commit = variables.get(f"{name}-commit", "")
             if not SHA.fullmatch(commit):
                 problems.append(f"{relative}: vars.{name}-commit must be a full 40-hex commit")
@@ -586,7 +598,7 @@ def test_secondary(manager: dict, primary: dict) -> int:
             got = {key: match[key] for key in expected}
             if got != expected:
                 problems.append(f"{relative}: {name} extracted {got}, expected {expected}")
-            tag = match["tagPrefix"] + "${{vars.%s-version}}" % name + match["tagSuffix"]
+            tag = match["tagPrefix"] + "${{vars.%s-%s}}" % (name, kinds[name]) + match["tagSuffix"]
             if tag != checkout.fields.get("tag"):
                 problems.append(f"{relative}: {name} tag {tag!r} is not the checkout tag")
             if not match["extractVersion"] and not (
@@ -601,7 +613,7 @@ def test_secondary(manager: dict, primary: dict) -> int:
             new_vars = var_scalars(new_lines)
             if (
                 len(new_lines) != len(lines)
-                or new_vars.get(f"{name}-version") != new_version
+                or new_vars.get(f"{name}-{kinds[name]}") != new_version
                 or new_vars.get(f"{name}-commit") != new_digest
                 or len(changed) != 2
             ):
@@ -625,7 +637,7 @@ def main() -> None:
     print(
         f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins; "
         f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams; "
-        f"{secondary} recipe with secondary pins)"
+        f"{secondary} recipes with secondary pins)"
     )
 
 

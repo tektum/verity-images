@@ -398,19 +398,22 @@ Keep external sources in these layouts:
   the same pull request. A smoke test needs no edit when it derives its expected
   primary version from the image or the recipe; a test that hardcodes that
   version, or asserts a bundled tool version, still changes with the bump.
-- A second source checked out next to the main one (jellyfin-web and FFmpeg in
-  `images/jellyfin`) keeps `<name>-version` with an inline annotation and
-  `<name>-commit: <40 hex>` on the next line under `vars:`, and its
-  `git-checkout` uses `tag: ...${{vars.<name>-version}}...` and
-  `expected-commit: ${{vars.<name>-commit}}`. The secondary source manager in
-  `renovate.json` lists each recipe and var name explicitly (Renovate's regex
-  engine has no backreferences to pair them) and rewrites the version and
-  commit together, as a `source` dependency. Add the recipe and name there when
-  you add such a pin; `scripts/test_melange_source_pins.py` fails a covered
-  recipe whose secondary pins and match strings disagree.
+- A second source checked out next to the main one (for example envoy in
+  `images/emissary`, step-cli in `images/step-ca`, jellyfin-web and FFmpeg in
+  `images/jellyfin`) keeps `<name>-version` (or `<name>-tag`) with an inline
+  annotation and `<name>-commit: <40 hex>` after it under `vars:` (comment lines
+  may sit between them), and its `git-checkout` uses
+  `tag: ...${{vars.<name>-version}}...` and `expected-commit: ${{vars.<name>-commit}}`.
+  The secondary source manager in `renovate.json` lists each recipe and var name
+  explicitly (Renovate's regex engine has no backreferences to pair them) and
+  rewrites the version and commit together, as a `source` dependency. Add the
+  recipe and name there when you add such a pin; `scripts/test_melange_source_pins.py`
+  fails a recipe with an uncovered secondary pin, and a covered recipe whose
+  secondary pins and match strings disagree.
 - A smoke-test peer image in `images/datadog-cluster-agent/tests/test.sh` uses
   `registry/repository:tag@sha256:...`. The tag names the stream; Renovate
-  moves only the digest within it, weekly. Extend the manager's file pattern to
+  moves only the digest within it, weekly, as a review-required pull request
+  that never automerges. Extend the manager's file pattern to
   cover another test script.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
