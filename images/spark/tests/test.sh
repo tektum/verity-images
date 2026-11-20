@@ -65,16 +65,18 @@ docker run --rm "$image" /opt/spark/bin/spark-submit --master 'local[2]' \
 check_pi "$work/pi.log" SparkPi
 
 # The driver mode the Spark Kubernetes backend (and the Spark operator) invokes:
-# spark-submit in client mode under tini, bound to the pod address.
+# spark-submit in client mode under tini, bound to the pod address. The backend
+# also sets spark.driver.host (the driver service); here both are loopback.
 docker run --rm -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[2]' \
+  --conf spark.driver.host=127.0.0.1 \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 10 \
   >"$work/driver.log" 2>&1 || show_fail "$work/driver.log" 'driver-mode SparkPi failed'
 check_pi "$work/driver.log" 'driver-mode SparkPi'
 
 # PySpark: the bundled pi.py, then a DataFrame round trip through Parquet and JSON
-# (Hadoop file system, parquet-jackson and Jackson), as an arbitrary non-root UID
-# in group 0, from the default working directory.
-docker run --rm -u 1000770000:0 -e HOME=/tmp "$image" sh -c '
+# (Hadoop file system, parquet-jackson and Jackson) and a managed table in the
+# default spark-warehouse, from the default working directory.
+docker run --rm "$image" sh -c '
   set -e
   [ "$(pwd)" = /opt/spark/work-dir ]
   spark-submit --master "local[2]" /opt/spark/examples/src/main/python/pi.py 10
@@ -98,7 +100,9 @@ check_pi "$work/pyspark.log" 'PySpark pi.py'
 grep -qx 'ROUNDTRIP buckets=7 rows=1000 table=1000' "$work/pyspark.log" ||
   show_fail "$work/pyspark.log" 'PySpark Parquet/JSON/table round trip returned the wrong result'
 
-# Negative cases: a missing main class fails, and the Hive SQL CLI is not built in.
+# Negative cases: a missing main class fails, the Hive SQL CLI is not built in, and
+# a UID without a passwd entry is rejected by Hadoop's login (Wolfi has no
+# nss_wrapper for the entrypoint's fake-passwd fallback).
 if docker run --rm "$image" spark-submit --master 'local[1]' --class org.example.Missing \
   /opt/spark/examples/jars/spark-examples.jar >"$work/missing.log" 2>&1; then
   fail 'spark-submit with a missing class succeeded'
@@ -109,5 +113,12 @@ if docker run --rm "$image" spark-sql -e 'SELECT 1' >"$work/hive.log" 2>&1; then
   fail 'spark-sql (Hive) unexpectedly available'
 fi
 grep -q 'You need to build Spark with -Phive' "$work/hive.log" || show_fail "$work/hive.log" 'spark-sql did not fail clearly'
+if docker run --rm -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
+  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 1 \
+  >"$work/uid.log" 2>&1; then
+  fail 'a UID without a passwd entry unexpectedly ran Spark'
+fi
+grep -q 'Invalid UID, could not determine effective user' "$work/uid.log" ||
+  show_fail "$work/uid.log" 'unknown UID did not fail clearly'
 
 printf 'SMOKE PASS image=%s\n' "$image"
