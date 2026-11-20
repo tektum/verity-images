@@ -124,7 +124,8 @@ docker network create "$network" >/dev/null
 docker run -d --name "$backend" --network "$network" --network-alias postgres \
   -e POSTGRES_PASSWORD=smoke "$postgres" -c wal_level=logical >/dev/null
 attempts=0
-until docker exec "$backend" psql -X -U postgres -At -c 'SELECT 1' >/dev/null 2>&1; do
+# Probe over TCP: the image's first-run init server listens only on the Unix socket.
+until docker exec "$backend" psql -X -h 127.0.0.1 -U postgres -At -c 'SELECT 1' >/dev/null 2>&1; do
   attempts=$((attempts + 1))
   [ "$attempts" -lt 60 ] || { docker logs "$backend" >&2; fail 'postgres did not become ready'; }
   sleep 2
