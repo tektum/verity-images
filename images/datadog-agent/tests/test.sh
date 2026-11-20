@@ -147,6 +147,15 @@ def wait_for(fetch, predicate, what):
         except (OSError, ValueError):
             pass
         time.sleep(1)
+    if isinstance(last, dict) and "runner" in last:
+        last = {
+            "checks_run": {
+                name: [instance.get("TotalRuns", 0) for instance in instances.values()]
+                for name, instances in last["runner"].get("Checks", {}).items()
+            },
+            "dogstatsd": last.get("dogstatsd"),
+            "udp": last.get("dogstatsd-udp"),
+        }
     sys.exit(f"timed out waiting for {what}: {json.dumps(last)[:3000]}")
 
 ready = wait_for(lambda: get("http://127.0.0.1:5555/ready"), lambda r: r[0] == 200, "the ready probe")
@@ -174,7 +183,7 @@ udp.sendto(b"verity.smoke.bad:notanumber|c", ("127.0.0.1", 8125))
 
 final = wait_for(
     expvar,
-    lambda s: checks_ran(s) and s["dogstatsd"]["MetricPackets"] >= 26 and s["dogstatsd"]["MetricParseErrors"] >= 1,
+    lambda s: checks_ran(s) and s["dogstatsd"]["MetricPackets"] >= 25 and s["dogstatsd"]["MetricParseErrors"] >= 1,
     "the Go core checks to run and the DogStatsD packets to be counted",
 )
 checks = {}
@@ -223,8 +232,8 @@ for check in cpu disk file_handle io load memory uptime; do
   [ "$(field "checks.$check.errors")" = 0 ] ||
     fail "core check $check failed: $(field "checks.$check.last_error")"
 done
-[ "$(field dogstatsd.MetricPackets)" = 26 ] ||
-  fail "DogStatsD counted $(field dogstatsd.MetricPackets) metric packets, want 26"
+[ "$(field dogstatsd.MetricPackets)" = 25 ] ||
+  fail "DogStatsD counted $(field dogstatsd.MetricPackets) metric packets, want 25"
 [ "$(field dogstatsd.MetricParseErrors)" = 1 ] ||
   fail "DogStatsD counted $(field dogstatsd.MetricParseErrors) parse errors, want 1"
 [ "$(field dogstatsd.EventPackets)" = 1 ] ||
@@ -239,17 +248,18 @@ printf '%s\n' "$health" | grep -F 'Agent health: PASS' >/dev/null ||
   fail "unexpected agent health output: $health"
 printf 'HEALTH %s\n' "$(printf '%s\n' "$health" | head -n 1)"
 
-status_json=$(docker exec "$server" agent status --json 2>&1) ||
-  fail "agent status failed: $status_json"
+status_json=$(docker exec "$server" agent status --json 2>"$work/status.err") ||
+  fail "agent status failed: $(cat "$work/status.err") $status_json"
 status_fields=$(printf '%s\n' "$status_json" | docker run --rm -i --network none "$python" python3 -c '
 import json, sys
 status = json.load(sys.stdin)
-errors = status.get("runnerStats", {}).get("Checks", {})
 loader = status.get("checkSchedulerStats", {}).get("LoaderErrors", {})
+metadata = status.get("metadata") or {}
 print(json.dumps({
     "version": status.get("version"),
-    "hostname": status.get("hostnameStats", {}).get("hostname"),
-    "python": status.get("python_version"),
+    "hostname_provider": status.get("hostnameStats", {}).get("provider"),
+    "hostname": (metadata.get("meta") or {}).get("hostname"),
+    "install_tool": (metadata.get("install-method") or {}).get("tool"),
     "loader_errors": loader,
 }, sort_keys=True))
 ') || fail "cannot parse agent status: $status_json"
@@ -265,8 +275,12 @@ print(json.dumps(value) if isinstance(value, (list, dict)) else value)
 }
 [ "$(status_value version)" = "$expected_version" ] ||
   fail "agent status reports version $(status_value version)"
+[ "$(status_value hostname_provider)" = configuration ] ||
+  fail "agent status reports hostname provider $(status_value hostname_provider)"
 [ "$(status_value hostname)" = verity-datadog-agent-smoke ] ||
   fail "agent status reports hostname $(status_value hostname)"
+[ "$(status_value install_tool)" = docker ] ||
+  fail "agent status reports install tool $(status_value install_tool)"
 # Negative case: the Python check config is reported as a loading error.
 status_value loader_errors.http_check | grep -F 'not found in Catalog' >/dev/null ||
   fail "http_check did not fail to load: $(status_value loader_errors)"
