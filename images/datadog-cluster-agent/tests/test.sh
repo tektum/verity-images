@@ -11,10 +11,11 @@ source_commit=$(sed -n 's/^[[:space:]]*source-commit: \([0-9a-f]\{40\}\)$/\1/p' 
 short_commit=$(printf '%s' "$source_commit" | cut -c1-7)
 
 # Peers for a real control plane: Verity etcd 3.7, kube-apiserver 1.37 and
-# kubectl 1.35, pinned by digest.
-etcd_index=ghcr.io/tektum/etcd@sha256:fc322841b20ac374159333e013fb417aa712e776380c53dc34ab8a1958c07fd2
-api_index=ghcr.io/tektum/kube-apiserver@sha256:b46742424f608bb186b83390c41cbe7f97df411ae3cf8fc3e4578c096a6b57bd
-kubectl_index=ghcr.io/tektum/kubectl@sha256:537780af388652be3a0130aacd6d1cfed24704ab6a820c6c7024602ec7777332
+# kubectl 1.35, pinned by digest. The tag names the stream; Renovate moves the
+# digest within it.
+etcd_index=ghcr.io/tektum/etcd:3.7@sha256:fc322841b20ac374159333e013fb417aa712e776380c53dc34ab8a1958c07fd2
+api_index=ghcr.io/tektum/kube-apiserver:1.37@sha256:b46742424f608bb186b83390c41cbe7f97df411ae3cf8fc3e4578c096a6b57bd
+kubectl_index=ghcr.io/tektum/kubectl:1.35@sha256:537780af388652be3a0130aacd6d1cfed24704ab6a820c6c7024602ec7777332
 # Placeholder key: the cluster agent only needs one to be configured. The
 # test network is internal, so nothing can reach Datadog.
 fake_api_key=00000000000000000000000000000000
