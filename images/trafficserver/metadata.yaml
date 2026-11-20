@@ -1,0 +1,9 @@
+name: trafficserver
+track: wolfi
+description: Apache Traffic Server caching HTTP/HTTPS reverse and forward proxy built from pinned upstream source.
+category: Web Servers & Proxies
+upstream: https://trafficserver.apache.org/
+versions: [10.2]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:apache:traffic_server]
