@@ -111,6 +111,14 @@ pipeline:
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/trivy/LICENSE"
 
+  - runs: |
+      # The root-owned checkout is not readable by the host user that reads
+      # back workspace xattrs after the build. Keep only the resolved module
+      # files for the build-metadata subpackage.
+      install -Dm644 third_party/trivy/go.mod trivy-build/go.mod
+      install -Dm644 third_party/trivy/go.sum trivy-build/go.sum
+      rm -rf third_party/trivy
+
   - uses: strip
 
 subpackages:
@@ -121,8 +129,8 @@ subpackages:
           dest="${{targets.subpkgdir}}/usr/share/harbor-scanner-trivy-build"
           install -Dm644 go.mod "$dest/go.mod"
           install -Dm644 go.sum "$dest/go.sum"
-          install -Dm644 third_party/trivy/go.mod "$dest/trivy/go.mod"
-          install -Dm644 third_party/trivy/go.sum "$dest/trivy/go.sum"
+          install -Dm644 trivy-build/go.mod "$dest/trivy/go.mod"
+          install -Dm644 trivy-build/go.sum "$dest/trivy/go.sum"
 
 test:
   environment:
