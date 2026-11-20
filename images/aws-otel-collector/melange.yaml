@@ -59,6 +59,13 @@ pipeline:
       sed -i '\#^github.com/prometheus/alertmanager v[^ ]* h1:#d' go.sum
       GOFLAGS=-mod=mod go mod download github.com/prometheus/alertmanager
       grep -E '^github.com/prometheus/alertmanager v[^ ]+ h1:' go.sum
+  # A datadog-agent devel dependency requires configstreamconsumer/def at the
+  # zero pseudo-version and relies on its own (non-inherited) replace, so
+  # `go list -m all` in -mod=mod fails upstream. No built package imports it;
+  # pin the graph node to the first tagged release so remediation can resolve.
+  - runs: |
+      def=github.com/DataDog/datadog-agent/comp/core/configstreamconsumer/def
+      go mod edit -replace="$def@v0.0.0-00010101000000-000000000000=$def@v0.82.0"
   # Security floors, raised before remediation so it builds against them. The
   # vendor tree is resynced so govulncheck can load packages in vendor mode.
   - runs: |
