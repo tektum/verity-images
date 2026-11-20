@@ -1,0 +1,211 @@
+package:
+  name: verity-emissary
+  # yamllint disable-line rule:line-length
+  version: "4.2.0"  # renovate: datasource=github-releases depName=emissary-ingress/emissary versioning=regex:^(?<major>4)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Emissary-ingress Kubernetes API gateway with its Envoy data plane, built from upstream source
+  copyright:
+    - license: Apache-2.0
+  options:
+    # The diagd virtual environment's wheels carry their own shared objects;
+    # do not advertise them as system library providers.
+    no-provides: true
+  dependencies:
+    runtime:
+      # diagd runs its reconfiguration kick through /bin/sh.
+      - busybox
+      - ca-certificates-bundle
+      - python-${{vars.python-version}}-base
+      - wolfi-baselayout
+  resources:
+    cpu: "30"
+    memory: 56Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+vars:
+  source-commit: 7e5c0d492f143bce6609708e6dd0392d59b1a33f
+  # Emissary 4.2 is released against Envoy 1.40 (upstream Makefile
+  # ENVOY_IMAGE envoyproxy/envoy:distroless-v1.40.2).
+  # yamllint disable-line rule:line-length
+  envoy-version: "1.40.2"  # renovate: datasource=github-releases depName=envoyproxy/envoy versioning=regex:^(?<major>1)\.(?<minor>40)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  envoy-commit: b2d89e0ae53916f28770771fbdd49c5c99c5c5a2
+  llvm-version: "22"
+  python-version: "3.13"
+  venv: /opt/ambassador/emissary
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - bazel-8
+      - binutils
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - clang-${{vars.llvm-version}}
+      - cmake
+      - compiler-rt-${{vars.llvm-version}}
+      - coreutils
+      - git
+      - go-1.27
+      - libcxx1-${{vars.llvm-version}}
+      - libcxx1-${{vars.llvm-version}}-dev
+      - libcxx1-${{vars.llvm-version}}-static
+      - libcxxabi1-${{vars.llvm-version}}
+      - libtool
+      - linux-headers
+      - lld-${{vars.llvm-version}}
+      - llvm-${{vars.llvm-version}}
+      - llvm-${{vars.llvm-version}}-dev
+      - llvm-libunwind1-${{vars.llvm-version}}-static
+      - openjdk-21-default-jdk
+      - patch
+      - python-${{vars.python-version}}
+      - python-${{vars.python-version}}-dev
+      - samurai
+      - uv
+      - wolfi-baselayout
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/emissary-ingress/emissary
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/busyambassador
+
+  - name: Build busyambassador
+    runs: |
+      go build -mod=readonly -trimpath -ldflags="-s -w" \
+        -o "${{targets.destdir}}/opt/ambassador/bin/busyambassador" ./cmd/busyambassador
+
+      # Same command layout as the upstream image (docker/emissary/Dockerfile).
+      cd "${{targets.destdir}}/opt/ambassador/bin"
+      for name in entrypoint kubestatus; do
+        ln -s busyambassador "$name"
+      done
+      ln -s ../emissary/bin/diagd diagd
+      install -d "${{targets.destdir}}/usr/local/bin"
+      for name in busyambassador diagd entrypoint kubestatus; do
+        ln -s "../../../opt/ambassador/bin/$name" "${{targets.destdir}}/usr/local/bin/$name"
+      done
+
+  - name: Install diagd into a virtual environment
+    environment:
+      UV_NO_CACHE: "1"
+      UV_PYTHON_DOWNLOADS: never
+    runs: |
+      # The root pyproject.toml asks uv for a managed CPython 3.13.5; --no-config
+      # keeps the build on Wolfi's Python. Runtime pins come from upstream's
+      # own [dependency-groups] runtime table.
+      python${{vars.python-version}} - <<'PY' >/tmp/runtime-requirements.txt
+      import tomllib
+      with open("pyproject.toml", "rb") as f:
+          print("\n".join(tomllib.load(f)["dependency-groups"]["runtime"]))
+      PY
+      test -s /tmp/runtime-requirements.txt
+      for member in ambassador ambassador-diag; do
+        (cd "python/$member" && uv build --no-config --wheel \
+          --python "python${{vars.python-version}}" --out-dir /tmp/emissary-wheels)
+      done
+
+      uv venv --no-config --python "python${{vars.python-version}}" "${{vars.venv}}"
+      (cd /tmp && uv pip install --no-config --python "${{vars.venv}}/bin/python" --compile-bytecode \
+        -r /tmp/runtime-requirements.txt /tmp/emissary-wheels/*.whl)
+      uv pip check --no-config --python "${{vars.venv}}/bin/python"
+      rm -rf /tmp/emissary-wheels /tmp/runtime-requirements.txt
+
+      install -d "${{targets.destdir}}/opt/ambassador"
+      cp -a "${{vars.venv}}" "${{targets.destdir}}/opt/ambassador/"
+      rm -f "${{targets.destdir}}${{vars.venv}}/.lock"
+
+      # busyambassador and diagd read the release version from this path.
+      install -d "${{targets.destdir}}/buildroot/ambassador/python"
+      printf '%s\n%s\n' "${{package.version}}" "${{vars.source-commit}}" \
+        >"${{targets.destdir}}/buildroot/ambassador/python/ambassador.version"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/envoyproxy/envoy
+      tag: v${{vars.envoy-version}}
+      expected-commit: ${{vars.envoy-commit}}
+      destination: envoy
+
+  - working-directory: envoy
+    uses: patch
+    with:
+      patches: ../envoy-host-llvm.patch
+
+  - name: Build Envoy
+    runs: |
+      # Envoy's host-toolchain mode expects one LLVM root; Wolfi installs lld
+      # and libc++ outside /usr/lib/llvm-22, so link them in.
+      llvm_root=/usr/lib/llvm-${{vars.llvm-version}}
+      ln -sf /usr/bin/ld.lld "$llvm_root/bin/ld.lld"
+      ln -sf /usr/bin/lld "$llvm_root/bin/lld"
+      for lib in libc++.a libc++abi.a libc++experimental.a libunwind.a; do
+        ln -sf "/usr/lib/$lib" "$llvm_root/lib/$lib"
+      done
+      [ -e "$llvm_root/include/c++" ] || ln -s /usr/include/c++ "$llvm_root/include/c++"
+
+      cd envoy
+      bazel --output_user_root="$HOME/.cache/bazel" build \
+        --verbose_failures \
+        -c opt \
+        //source/exe:envoy-static
+
+      # binutils strip cannot parse the attribute sections lld writes on
+      # aarch64, so strip with LLVM as images/envoy does.
+      install -d "${{targets.destdir}}/usr/local/bin"
+      "$llvm_root/bin/llvm-strip" --strip-unneeded -o "${{targets.destdir}}/usr/local/bin/envoy" \
+        bazel-bin/source/exe/envoy-static
+      chmod 755 "${{targets.destdir}}/usr/local/bin/envoy"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/envoy/LICENSE"
+      bazel --output_user_root="$HOME/.cache/bazel" shutdown
+      rm -rf "$HOME/.cache/bazel"
+
+      # The root-owned checkout is not readable by the host user that reads
+      # back workspace xattrs after the build.
+      cd ..
+      rm -rf envoy
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        busyambassador version | grep -Fx "Version ${{package.version}}"
+        envoy --version | grep -F "/${{vars.envoy-version}}/"
+        diagd --help | grep -F 'Run the diagnostic daemon.'
+        "${{vars.venv}}/bin/python" -c 'import ambassador, ambassador_diag.diagd'
+        printf '%s\n' 'not: [valid' > /tmp/invalid.yaml
+        if envoy --mode validate -c /tmp/invalid.yaml; then
+          echo 'invalid configuration unexpectedly validated' >&2
+          exit 1
+        fi
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+        test -s /usr/share/licenses/${{package.name}}/envoy/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: emissary-ingress/emissary
+    strip-prefix: v
+    use-tag: true
+    tag-filter-prefix: v4.
