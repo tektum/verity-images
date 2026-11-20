@@ -100,9 +100,17 @@ code=$(curl --silent --output "$work/delete.out" --write-out '%{http_code}' --ma
 }
 [ ! -e "$blob_dir/data" ] || fail 'authorized blob delete left the blob in storage'
 
-# Graceful stop on SIGTERM.
+# Graceful stop on SIGTERM. Upstream drains the server, logs the line below,
+# then passes http.ErrServerClosed to log.Fatal, so a clean stop exits 1; a
+# SIGKILL after the timeout would exit 137 without the line.
 docker stop -t 20 "$ctl" >/dev/null
 docker logs "$ctl" >"$work/ctl.log" 2>&1
+code=$(docker inspect -f '{{.State.ExitCode}}' "$ctl")
+if ! grep -F 'Registry controller is shut down properly' "$work/ctl.log" >/dev/null ||
+  [ "$code" != 1 ]; then
+  cat "$work/ctl.log" >&2
+  fail "registryctl did not stop gracefully on SIGTERM (exit $code)"
+fi
 
 # Negative: a missing registry configuration fails startup.
 if docker run --rm --label "$label" --read-only \

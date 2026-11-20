@@ -55,6 +55,10 @@ script=$(grep -o 'src="main[^"]*\.js"' "$work/index.html" | head -1 | sed 's/^sr
 curl --fail --silent --max-time 5 "http://127.0.0.1:$port/$script" >"$work/main.js" ||
   fail "main bundle $script is not served"
 [ -s "$work/main.js" ] || fail 'main bundle is empty'
+# nginx answers a missing path with the index.html shell and status 200.
+if grep -F '<title>Harbor</title>' "$work/main.js" >/dev/null; then
+  fail "main bundle $script fell back to index.html"
+fi
 
 # index.html must never be cached; a client-side route loads the app shell.
 curl --fail --silent --max-time 5 -D "$work/index.headers" -o /dev/null \
@@ -85,7 +89,8 @@ docker stop -t 20 "$portal" >/dev/null
   fail 'nginx did not exit 0 on SIGQUIT'
 }
 
-# Harbor deployments mount their own /etc/nginx/nginx.conf.
+# Harbor deployments mount their own /etc/nginx/nginx.conf. Like Harbor's, it
+# sets no error_log or access_log, so nginx opens its compiled-in log paths.
 cat >"$work/nginx.conf" <<'EOF'
 worker_processes 1;
 pid /tmp/nginx.pid;
@@ -103,6 +108,7 @@ http {
         root /usr/share/nginx/html;
         include /etc/nginx/mime.types;
         location = /mounted { return 200 "mounted config\n"; }
+        location = /missing { }
         location / { try_files $uri $uri/ /index.html; }
     }
 }
@@ -113,6 +119,24 @@ start "$portal-mounted" -v "$work/nginx.conf:/etc/nginx/nginx.conf:ro"
   fail 'mounted nginx.conf was not used'
 curl --fail --silent --max-time 5 -o /dev/null -w '%{content_type}' "http://127.0.0.1:$port/$script" |
   grep -E '^(application|text)/javascript' >/dev/null || fail 'mime.types is missing'
+
+# The compiled-in log files must stream to stdout and stderr.
+code=$(curl --silent --max-time 5 -o /dev/null -w '%{http_code}' "http://127.0.0.1:$port/missing")
+[ "$code" = 404 ] || fail "missing file returned $code, expected 404"
+attempts=0
+until docker logs "$portal-mounted" >"$work/mounted.out" 2>"$work/mounted.err" &&
+  grep -F 'open() "/usr/share/nginx/html/missing" failed' "$work/mounted.err" >/dev/null; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 10 ] || {
+    cat "$work/mounted.err" >&2
+    fail 'compiled-in error log does not reach stderr'
+  }
+  sleep 1
+done
+grep -F '"GET /mounted HTTP/1.1" 200' "$work/mounted.out" >/dev/null || {
+  cat "$work/mounted.out" >&2
+  fail 'compiled-in access log does not reach stdout'
+}
 
 # Negative: an invalid mounted configuration fails nginx startup.
 printf 'events {}\nhttp { server { listen 8080; bogus_directive on; } }\n' >"$work/bad.conf"
