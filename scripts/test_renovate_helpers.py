@@ -177,7 +177,7 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 7
+    assert len(managers) == 8
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
@@ -203,6 +203,7 @@ def test_renovate_configuration() -> None:
             r"/^images/temporal-admin-tools/melange\.yaml$/",
         ],
         [r"/^images/datadog-cluster-agent/tests/test\.sh$/"],
+        [r"/^images/harbor-scanner-trivy/apko\.yaml$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
@@ -212,9 +213,11 @@ def test_renovate_configuration() -> None:
         "git-tags",
         "git-tags",
         "docker",
+        "git-tags",
     ]
-    # The melange source managers (package.version plus commit, and the
-    # secondary vars pins) are covered by scripts/test_melange_source_pins.py.
+    # The melange source managers (package.version plus commit, the secondary
+    # vars pins, and their apko.yaml companions) are covered by
+    # scripts/test_melange_source_pins.py.
 
 
     assert renovate["packageRules"][:3] == [
