@@ -7,7 +7,23 @@ recipe="$(dirname "$0")/../melange.yaml"
 expected_version=$(sed -n 's/^  version: "\([^"]*\)".*$/\1/p' "$recipe")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 work=$(mktemp -d)
-trap 'rm -rf "$work"' EXIT INT TERM
+label="verity-test=spark-$$"
+start=$(date +%s)
+
+cleanup() {
+  docker ps -aq --filter "label=$label" | xargs -r docker rm -f >/dev/null 2>&1 || true
+  rm -rf "$work"
+}
+trap cleanup EXIT INT TERM
+
+# Every container gets a deadline, so a stall fails at the step that stalled.
+run() {
+  timeout "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --label "$label" "$@"
+}
+
+step() {
+  printf '== %s (+%ss)\n' "$1" "$(($(date +%s) - start))" >&2
+}
 
 fail() {
   printf 'FAIL: %s\n' "$1" >&2
@@ -31,10 +47,11 @@ docker image inspect -f '{{json .Config.Env}}' "$image" | grep -q '"SPARK_HOME=/
 docker image inspect -f '{{json .Config.Env}}' "$image" | grep -q '"JAVA_HOME=/usr/lib/jvm/java-21-openjdk"' ||
   fail 'JAVA_HOME is not the Java 21 runtime'
 
+step 'image layout'
 # Pass-through mode: anything other than driver or executor is exec'd as given.
-[ "$(docker run --rm "$image" id -u)" = 185 ] || fail 'runtime user is not 185'
-[ "$(docker run --rm "$image" id -g)" = 185 ] || fail 'runtime group is not 185'
-docker run --rm "$image" sh -c '
+[ "$(run "$image" id -u)" = 185 ] || fail 'runtime user is not 185'
+[ "$(run "$image" id -g)" = 185 ] || fail 'runtime group is not 185'
+run "$image" sh -c '
   set -e
   [ -x /opt/decom.sh ] && [ -x /usr/bin/tini ] && [ -x /usr/bin/python3 ]
   [ -f /opt/spark/RELEASE ] && [ -d /opt/spark/python/pyspark ]
@@ -44,10 +61,12 @@ docker run --rm "$image" sh -c '
   ls /opt/spark/jars/spark-kubernetes_*.jar >/dev/null
 ' || fail 'unexpected image layout'
 
-docker run --rm "$image" java -version >"$work/java.log" 2>&1 || show_fail "$work/java.log" 'java -version failed'
+step 'java -version'
+run "$image" java -version >"$work/java.log" 2>&1 || show_fail "$work/java.log" 'java -version failed'
 grep -q 'version "21' "$work/java.log" || show_fail "$work/java.log" 'Java 21 is missing'
 
-docker run --rm "$image" spark-submit --version >"$work/version.log" 2>&1 ||
+step 'spark-submit --version'
+run "$image" spark-submit --version >"$work/version.log" 2>&1 ||
   show_fail "$work/version.log" 'spark-submit --version failed'
 grep -q "version $expected_version\$" "$work/version.log" ||
   show_fail "$work/version.log" "spark-submit does not report version $expected_version"
@@ -58,25 +77,29 @@ check_pi() {
   awk -v pi="$value" 'BEGIN { exit !(pi > 3.13 && pi < 3.15) }' || show_fail "$1" "$2: Pi estimate $value is off"
 }
 
+step 'SparkPi local mode'
 # SparkPi in local mode, through the pass-through entrypoint.
-docker run --rm "$image" /opt/spark/bin/spark-submit --master 'local[2]' \
+run "$image" /opt/spark/bin/spark-submit --master 'local[2]' \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 20 \
   >"$work/pi.log" 2>&1 || show_fail "$work/pi.log" 'SparkPi failed'
 check_pi "$work/pi.log" SparkPi
 
+step 'driver mode'
 # The driver mode the Spark Kubernetes backend (and the Spark operator) invokes:
 # spark-submit in client mode under tini, bound to the pod address. The backend
 # also sets spark.driver.host (the driver service); here both are loopback.
-docker run --rm -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[2]' \
+run -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[2]' \
   --conf spark.driver.host=127.0.0.1 \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 10 \
   >"$work/driver.log" 2>&1 || show_fail "$work/driver.log" 'driver-mode SparkPi failed'
 check_pi "$work/driver.log" 'driver-mode SparkPi'
 
+step 'PySpark'
 # PySpark: the bundled pi.py, then a DataFrame round trip through Parquet and JSON
 # (Hadoop file system, parquet-jackson and Jackson) and a managed table in the
 # default spark-warehouse, from the default working directory.
-docker run --rm "$image" sh -c '
+# shellcheck disable=SC2016 # expanded by the container shell
+run "$image" sh -c '
   set -e
   [ "$(pwd)" = /opt/spark/work-dir ]
   spark-submit --master "local[2]" /opt/spark/examples/src/main/python/pi.py 10
@@ -100,20 +123,21 @@ check_pi "$work/pyspark.log" 'PySpark pi.py'
 grep -qx 'ROUNDTRIP buckets=7 rows=1000 table=1000' "$work/pyspark.log" ||
   show_fail "$work/pyspark.log" 'PySpark Parquet/JSON/table round trip returned the wrong result'
 
+step 'negative cases'
 # Negative cases: a missing main class fails, the Hive SQL CLI is not built in, and
 # a UID without a passwd entry is rejected by Hadoop's login (Wolfi has no
 # nss_wrapper for the entrypoint's fake-passwd fallback).
-if docker run --rm "$image" spark-submit --master 'local[1]' --class org.example.Missing \
+if run "$image" spark-submit --master 'local[1]' --class org.example.Missing \
   /opt/spark/examples/jars/spark-examples.jar >"$work/missing.log" 2>&1; then
   fail 'spark-submit with a missing class succeeded'
 fi
 grep -q 'Failed to load class org.example.Missing' "$work/missing.log" ||
   show_fail "$work/missing.log" 'missing class did not fail clearly'
-if docker run --rm "$image" spark-sql -e 'SELECT 1' >"$work/hive.log" 2>&1; then
+if run "$image" spark-sql -e 'SELECT 1' >"$work/hive.log" 2>&1; then
   fail 'spark-sql (Hive) unexpectedly available'
 fi
 grep -q 'You need to build Spark with -Phive' "$work/hive.log" || show_fail "$work/hive.log" 'spark-sql did not fail clearly'
-if docker run --rm -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
+if run -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 1 \
   >"$work/uid.log" 2>&1; then
   fail 'a UID without a passwd entry unexpectedly ran Spark'
