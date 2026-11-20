@@ -232,7 +232,9 @@ case $(field ready.Unhealthy) in
   None | '[]') ;;
   *) fail "unhealthy components: $(field ready.Unhealthy)" ;;
 esac
-[ "$(field ready.Healthy)" != None ] || fail 'the ready probe lists no healthy components'
+case $(field ready.Healthy) in
+  '' | None | '[]') fail 'the ready probe lists no healthy components' ;;
+esac
 for check in cpu disk file_handle io load memory uptime; do
   [ "$(field "checks.$check.errors")" = 0 ] ||
     fail "core check $check failed: $(field "checks.$check.last_error")"
