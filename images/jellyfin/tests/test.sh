@@ -157,10 +157,14 @@ api -X POST -H 'Content-Type: application/json' \
   >/dev/null || fail "could not add the library"
 api "http://127.0.0.1:$port/Library/VirtualFolders" | jq -e 'any(.[]; .Locations | index("/media"))' >/dev/null ||
   fail "library Verity does not list /media"
+assert_running() {
+  [ "$(docker inspect "$container" --format '{{.State.Running}}')" = true ] || fail "server exited $1"
+}
 items="http://127.0.0.1:$port/Items?Recursive=true&Fields=MediaStreams,Path"
 i=0
 until api "$items" |
   jq -e '[.Items[].MediaStreams[]?.Codec] | index("vp9") and index("opus")' >/dev/null 2>&1; do
+  assert_running "during the library scan"
   [ $((i % 30)) -ne 0 ] || api -X POST "http://127.0.0.1:$port/Library/Refresh" >/dev/null ||
     fail "Library/Refresh failed"
   i=$((i + 1))
@@ -169,6 +173,22 @@ until api "$items" |
     api "$items" >&2 || true
     fail "library scan did not report the vp9/opus clip"
   fi
+  sleep 1
+done
+
+# Regression: a post-scan task renders the library poster in-process with
+# SkiaSharp and shapes its title through HarfBuzzSharp. Two HarfBuzz copies in
+# one process aborted the server there, so require the poster and a live server.
+library_id=$(api "http://127.0.0.1:$port/Library/VirtualFolders" |
+  jq -er '.[] | select(.Name == "Verity") | .ItemId') || fail "cannot read the Verity library id"
+i=0
+until api "http://127.0.0.1:$port/Items/$library_id/Images" |
+  jq -e 'any(.[]; .ImageType == "Primary")' >/dev/null 2>&1; do
+  assert_running "while rendering the library poster"
+  i=$((i + 1))
+  [ $((i % 30)) -ne 0 ] || api -X POST "http://127.0.0.1:$port/Library/Refresh" >/dev/null ||
+    fail "Library/Refresh failed"
+  [ "$i" -lt 240 ] || fail "library Verity did not get a rendered poster"
   sleep 1
 done
 

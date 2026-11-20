@@ -16,6 +16,8 @@ package:
       # SkiaSharp and libass resolve fonts through fontconfig.
       - fontconfig
       - ttf-dejavu
+      # HarfBuzzSharp resolves to the system HarfBuzz; see the Server step.
+      - harfbuzz
       - icu
       - tzdata
   resources:
@@ -180,6 +182,17 @@ pipeline:
       find "${{targets.destdir}}/usr/lib/jellyfin" -type d -exec chmod 0755 {} +
       find "${{targets.destdir}}/usr/lib/jellyfin" -type f -exec chmod 0644 {} +
       find "${{targets.destdir}}/usr/lib/jellyfin" -type f -name '*.so' -exec chmod 0755 {} +
+      # HarfBuzzSharp.NativeAssets.Linux ships its own HarfBuzz build as
+      # libHarfBuzzSharp.so, exporting hb_* symbols that it also calls
+      # internally through the PLT. Wolfi's FreeType loads the system
+      # libharfbuzz.so.0 into the global symbol scope when fontconfig
+      # initialises it, after which those internal calls bind to the system
+      # copy and mix objects from two HarfBuzz versions. glibc aborts with heap
+      # corruption ("free(): invalid size") the first time Jellyfin shapes the
+      # title of a library poster. Point HarfBuzzSharp at the system HarfBuzz
+      # so the process holds a single copy.
+      test -f "${{targets.destdir}}/usr/lib/jellyfin/libHarfBuzzSharp.so"
+      ln -sf ../libharfbuzz.so.0 "${{targets.destdir}}/usr/lib/jellyfin/libHarfBuzzSharp.so"
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/jellyfin/LICENSE"
 
   # Drop the secondary build trees (node_modules, FFmpeg objects) so the
@@ -199,6 +212,8 @@ test:
     - runs: |
         test -s /usr/lib/jellyfin/jellyfin.dll
         grep -F '"Microsoft.AspNetCore.App"' /usr/lib/jellyfin/jellyfin.runtimeconfig.json
+        test "$(readlink /usr/lib/jellyfin/libHarfBuzzSharp.so)" = ../libharfbuzz.so.0
+        test -f /usr/lib/jellyfin/libHarfBuzzSharp.so
         if find /usr/lib/jellyfin -name 'System.Private.CoreLib.dll' | grep .; then
           echo 'a bundled .NET runtime leaked into the application directory' >&2
           exit 1
