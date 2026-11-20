@@ -1,0 +1,29 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-k8s-gateway@local
+
+# Upstream quay.io/oriedge/k8s_gateway is FROM scratch with ENTRYPOINT
+# ["/coredns"], no CMD, and root; its Helm chart passes
+# `-conf /etc/coredns/Corefile` and listens on 1053 (runAsUser 1000 when
+# `secure`). This image runs as 65532 with the same entrypoint and defaults to
+# the chart's Corefile path. Like upstream, /coredns carries no file
+# capability, so it still starts under `capabilities: drop: [ALL]`; listen on an
+# unprivileged port such as the chart's 1053.
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /coredns
+
+cmd: -conf /etc/coredns/Corefile
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt

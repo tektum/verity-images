@@ -1,0 +1,68 @@
+package:
+  name: verity-k8s-gateway
+  # yamllint disable-line rule:line-length
+  version: "0.4.0"  # renovate: datasource=github-releases depName=ori-edge/k8s_gateway extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: CoreDNS build with the k8s_gateway plugin for Kubernetes Ingress, Service, and Gateway API hosts
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  # v0.4.0 is a lightweight tag on this commit.
+  source-commit: 22e389cb86ac31ebd49493a04bae4d69e275fdce
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ori-edge/k8s_gateway
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  # Same build as upstream `make build` and the release Dockerfile: CGO 0, the
+  # cmd main package (CoreDNS with the kubernetes and k8s_external directives
+  # replaced by k8s_gateway), and `-s -w -X coremain.GitCommit=<git describe>`,
+  # which is the release tag for the upstream image. The package path instead
+  # of the upstream file argument keeps the main module version stamped.
+  - runs: |
+      test "$(git rev-parse HEAD)" = '${{vars.source-commit}}'
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/coredns/coredns/coremain.GitCommit=v${{package.version}}" \
+        -o "${{targets.destdir}}/coredns" ./cmd
+      go version -m "${{targets.destdir}}/coredns" | awk -v v="v${{package.version}}" '
+        $1 == "mod" && $2 == "github.com/ori-edge/k8s_gateway" && index($3, v) == 1 { ok = 1 }
+        END { exit !ok }'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        /coredns -version | grep -F "+k8s_gateway-${{package.version}}"
+        /coredns -plugins | grep -Ex '(  dns\.)?k8s_gateway'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
