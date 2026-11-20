@@ -86,11 +86,14 @@ subpackages:
   # here is the non-TLS rendering of upstream's
   # make/photon/prepare/templates/portal/nginx.conf.jinja, with logs on the
   # container streams, so the image serves the portal on 8080 unprivileged.
+  # It replaces nginx-mainline-config's nginx.conf rather than providing
+  # nginx-config: a provider from the @local repository cannot satisfy
+  # nginx-mainline's unpinned nginx-config dependency in apko.
   - name: ${{package.name}}-nginx-config
     description: Default nginx configuration for the Harbor portal
     dependencies:
-      provides:
-        - nginx-config=${{package.full-version}}
+      replaces:
+        - nginx-mainline-config
     pipeline:
       - runs: |
           set -eu
