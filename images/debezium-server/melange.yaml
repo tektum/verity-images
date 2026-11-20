@@ -1,0 +1,242 @@
+package:
+  name: verity-debezium-server
+  # yamllint disable-line rule:line-length
+  version: "3.7.1"  # renovate: datasource=github-tags depName=debezium/debezium-server versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+)\.Final$
+  epoch: 0
+  description: Debezium Server (debezium-server-dist) built from the pinned release tag
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      # run.sh is a bash script that also uses ls and find.
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - openjdk-21-default-jvm
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# The 3.7.1.Final distribution still bundles dependency versions with
+# published advisories. Quarkus, RabbitMQ, lz4-java, and the OpenTelemetry
+# agent are raised through the properties the poms expose; the rest are pinned
+# at the top of the Debezium Server BOM dependencyManagement, so they win over
+# the imported Quarkus platform versions. Pravega's bcprov-ext-jdk15on has no
+# fixed release and is excluded; bcprov-jdk18on supplies Bouncy Castle.
+vars:
+  # yamllint disable rule:line-length
+  quarkus-version: 3.33.4.2  # renovate: datasource=maven depName=io.quarkus:quarkus-bom versioning=regex:^(?<major>3)\.(?<minor>33)\.(?<patch>\d+)(\.(?<build>\d+))?$
+  netty-version: 4.1.141.Final  # renovate: datasource=maven depName=io.netty:netty-bom versioning=regex:^(?<major>4)\.(?<minor>1)\.(?<patch>\d+)\.Final$
+  jackson-version: 2.21.8  # renovate: datasource=maven depName=com.fasterxml.jackson:jackson-bom versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  guava-version: 33.8.0-jre  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>33)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
+  json-version: "20260814"  # renovate: datasource=maven depName=org.json:json versioning=regex:^(?<major>\d{8})$
+  lz4-version: 1.14.1  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  snappy-version: 1.1.10.12  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
+  mariadb-version: 3.5.11  # renovate: datasource=maven depName=org.mariadb.jdbc:mariadb-java-client versioning=regex:^(?<major>3)\.(?<minor>5)\.(?<patch>\d+)$
+  bouncycastle-version: "1.87"  # renovate: datasource=maven depName=org.bouncycastle:bcprov-jdk18on versioning=regex:^(?<major>1)\.(?<minor>\d+)$
+  httpclient5-version: 5.6.5  # renovate: datasource=maven depName=org.apache.httpcomponents.client5:httpclient5 versioning=regex:^(?<major>5)\.(?<minor>6)\.(?<patch>\d+)$
+  httpcore5-version: 5.4.4  # renovate: datasource=maven depName=org.apache.httpcomponents.core5:httpcore5 versioning=regex:^(?<major>5)\.(?<minor>4)\.(?<patch>\d+)$
+  okhttp-version: 4.12.1  # renovate: datasource=maven depName=com.squareup.okhttp3:okhttp versioning=regex:^(?<major>4)\.(?<minor>\d+)\.(?<patch>\d+)$
+  beanutils-version: 1.11.0  # renovate: datasource=maven depName=commons-beanutils:commons-beanutils versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  kiota-version: 1.9.3  # renovate: datasource=maven depName=com.microsoft.kiota:microsoft-kiota-abstractions versioning=regex:^(?<major>1)\.(?<minor>9)\.(?<patch>\d+)$
+  proton-j-version: 0.35.0  # renovate: datasource=maven depName=org.apache.qpid:proton-j versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$
+  rabbitmq-version: 5.38.0  # renovate: datasource=maven depName=com.rabbitmq:amqp-client versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$
+  otel-agent-version: 2.34.0  # renovate: datasource=maven depName=io.opentelemetry.javaagent:opentelemetry-javaagent versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - git
+      # Upstream builds with Maven 3.9 (.mvn/wrapper); Maven 3.10 rejects the
+      # duplicate debezium-util test-jar declaration in debezium-server-http.
+      - maven-3.9
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/debezium/debezium-server
+      tag: v${{package.version}}.Final
+      expected-commit: f43ca650af16dceabe4622c88b9a3eaa19b149df
+
+  - name: Pin patched dependency versions
+    runs: |
+      cat > pins.xml <<'XML'
+                  <dependency>
+                      <groupId>io.netty</groupId>
+                      <artifactId>netty-bom</artifactId>
+                      <version>${{vars.netty-version}}</version>
+                      <type>pom</type>
+                      <scope>import</scope>
+                  </dependency>
+                  <dependency>
+                      <groupId>com.fasterxml.jackson</groupId>
+                      <artifactId>jackson-bom</artifactId>
+                      <version>${{vars.jackson-version}}</version>
+                      <type>pom</type>
+                      <scope>import</scope>
+                  </dependency>
+                  <dependency>
+                      <groupId>com.google.guava</groupId>
+                      <artifactId>guava</artifactId>
+                      <version>${{vars.guava-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.json</groupId>
+                      <artifactId>json</artifactId>
+                      <version>${{vars.json-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.xerial.snappy</groupId>
+                      <artifactId>snappy-java</artifactId>
+                      <version>${{vars.snappy-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.mariadb.jdbc</groupId>
+                      <artifactId>mariadb-java-client</artifactId>
+                      <version>${{vars.mariadb-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.bouncycastle</groupId>
+                      <artifactId>bcprov-jdk18on</artifactId>
+                      <version>${{vars.bouncycastle-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.bouncycastle</groupId>
+                      <artifactId>bcpkix-jdk18on</artifactId>
+                      <version>${{vars.bouncycastle-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.bouncycastle</groupId>
+                      <artifactId>bcutil-jdk18on</artifactId>
+                      <version>${{vars.bouncycastle-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.apache.httpcomponents.client5</groupId>
+                      <artifactId>httpclient5</artifactId>
+                      <version>${{vars.httpclient5-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.apache.httpcomponents.core5</groupId>
+                      <artifactId>httpcore5</artifactId>
+                      <version>${{vars.httpcore5-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.apache.httpcomponents.core5</groupId>
+                      <artifactId>httpcore5-h2</artifactId>
+                      <version>${{vars.httpcore5-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>com.squareup.okhttp3</groupId>
+                      <artifactId>okhttp</artifactId>
+                      <version>${{vars.okhttp-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>commons-beanutils</groupId>
+                      <artifactId>commons-beanutils</artifactId>
+                      <version>${{vars.beanutils-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>com.microsoft.kiota</groupId>
+                      <artifactId>microsoft-kiota-abstractions</artifactId>
+                      <version>${{vars.kiota-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>org.apache.qpid</groupId>
+                      <artifactId>proton-j</artifactId>
+                      <version>${{vars.proton-j-version}}</version>
+                  </dependency>
+                  <dependency>
+                      <groupId>io.pravega</groupId>
+                      <artifactId>pravega-shared-security</artifactId>
+                      <version>${version.pravega}</version>
+                      <exclusions>
+                          <exclusion>
+                              <groupId>org.bouncycastle</groupId>
+                              <artifactId>bcprov-ext-jdk15on</artifactId>
+                          </exclusion>
+                      </exclusions>
+                  </dependency>
+      XML
+      # Insert the pins first in the Debezium Server BOM dependencyManagement,
+      # ahead of its Infinispan, Quarkus, and Google Cloud BOM imports.
+      bom=debezium-server-bom/pom.xml
+      awk '
+        /<dependencyManagement>/ { managed = 1 }
+        { print }
+        managed && !done && /<dependencies>/ {
+          while ((getline line < "pins.xml") > 0) print line
+          done = 1
+        }
+        END { if (!done) exit 1 }
+      ' "$bom" > "$bom.new"
+      mv "$bom.new" "$bom"
+      grep -c '<artifactId>netty-bom</artifactId>' "$bom" | grep -qx 1
+
+  - name: Build debezium-server-dist
+    runs: |
+      # Same profile as the upstream release distribution. skipNonCore drops the
+      # Cassandra and DSE connector plugins, which bundle their own outdated
+      # Cassandra, Netty, Jackson, and Guava trees.
+      mvn -B --no-transfer-progress -DskipTests -DskipITs \
+        -Passembly -DskipNonCore \
+        -Dquarkus.version.runtime=${{vars.quarkus-version}} \
+        -Dversion.rabbitmq=${{vars.rabbitmq-version}} \
+        -Dversion.lz4=${{vars.lz4-version}} \
+        -Dversion.otel.agent=${{vars.otel-agent-version}} \
+        -pl debezium-server-dist -am package
+      dist=debezium-server-dist/target/debezium-server-dist-${{package.version}}.Final.tar.gz
+      test -s "$dist"
+      install -d "${{targets.destdir}}/debezium"
+      tar -xzf "$dist" -C "${{targets.destdir}}/debezium" --strip-components 1
+      cd "${{targets.destdir}}/debezium"
+      # Windows launcher and Cassandra helper scripts whose plugins are not built.
+      rm -rf run.bat connectors config/lib/cassandra config/application.properties.cassandra.redis.example
+      # RocketMQ's shaded Logback 1.3.5 binding has no fixed release. Without it
+      # rocketmq-slf4j-api logs through its no-op provider; no RocketMQ client
+      # class links against the shaded Logback.
+      rm lib/rocketmq-logback-classic-*.jar
+      install -d -m755 config data
+      test -x run.sh
+      ls debezium-server-dist-*-runner.jar >/dev/null
+      cd -
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - bash
+        - busybox
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: |
+        cd /debezium
+        test -x run.sh
+        ls lib/debezium-server-core-*.jar >/dev/null
+        for excluded in bcprov-ext-jdk15on rocketmq-logback-classic; do
+          if ls lib/"$excluded"-*.jar 2>/dev/null; then exit 1; fi
+        done
+
+update:
+  enabled: true
+  github:
+    identifier: debezium/debezium-server
+    use-tag: true
+    strip-prefix: v
+    strip-suffix: .Final
+    tag-filter-prefix: v3.
