@@ -7,11 +7,15 @@ here=$(cd "$(dirname "$0")" && pwd)
 expected_version=$(sed -n 's/^[[:space:]]*version: "\([^"]*\)".*$/\1/p' "$here/../melange.yaml")
 [ -n "$expected_version" ] || { printf 'package version not found\n' >&2; exit 1; }
 name=verity-debezium-server-$$
+backend=verity-debezium-postgres-$$
+network=verity-debezium-network-$$
+postgres_index='docker.io/library/postgres:17-alpine@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193'
 work=$(mktemp -d)
 chmod 755 "$work"
 
 cleanup() {
-  docker rm -f "$name" "$name-noconf" "$name-invalid" >/dev/null 2>&1 || true
+  docker rm -f "$name" "$name-noconf" "$name-invalid" "$backend" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -62,7 +66,6 @@ run_with_props() {
   timeout 180 docker run "$@" --entrypoint sh "$image" -c '
     set -e
     printf "%s\n" "$PROPS" >/debezium/config/application.properties
-    if [ -n "${STUB_PORT:-}" ]; then nc -l -p "$STUB_PORT" >/dev/null 2>&1 & fi
     exec /debezium/run.sh
   '
 }
@@ -99,34 +102,72 @@ fi
 grep -q "Connector configuration is not valid. The 'database.hostname' value is invalid: A value is required" \
   "$work/invalid.log" || { cat "$work/invalid.log" >&2; fail 'connector validation error does not name database.hostname'; }
 
-# Positive: with a TCP stub that accepts the Postgres connection and never answers, the server stays
-# up, Quarkus reports startup and listens on 8080, and health reports the connector as not live.
-PROPS="$base_props
-debezium.source.database.hostname=127.0.0.1"
-run_with_props -d --name "$name" -e PROPS -e STUB_PORT=5432 \
-  -p 127.0.0.1::8080 >/dev/null
+# Positive: against a logical-replication Postgres the server starts Quarkus on 8080, the connector
+# creates its replication slot and streams, and every health check reports UP.
+# A classic Docker image store cannot bind the index digest to a second platform's image, so pull the
+# helper by its per-platform child digest after verifying the index bytes against the pin.
+image_arch=$(docker image inspect -f '{{.Architecture}}' "$image")
+postgres_raw=$(docker buildx imagetools inspect --raw "$postgres_index") || fail 'cannot inspect helper image index'
+[ "sha256:$(printf '%s' "$postgres_raw" | sha256sum | cut -d' ' -f1)" = "${postgres_index#*@}" ] ||
+  fail 'helper image index digest mismatch'
+postgres_digest=$(printf '%s' "$postgres_raw" | jq -r --arg arch "$image_arch" '
+  [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+  | if length == 1 then .[0] else empty end') || fail 'cannot resolve helper image digest'
+case $postgres_digest in
+  sha256:*) ;;
+  *) fail "no unique linux/$image_arch helper image in $postgres_index" ;;
+esac
+postgres=docker.io/library/postgres@$postgres_digest
+docker pull --quiet --platform "linux/$image_arch" "$postgres" >/dev/null || fail 'cannot pull helper image'
+
+docker network create "$network" >/dev/null
+docker run -d --name "$backend" --network "$network" --network-alias postgres \
+  -e POSTGRES_PASSWORD=smoke "$postgres" -c wal_level=logical >/dev/null
+attempts=0
+until docker exec "$backend" psql -X -U postgres -At -c 'SELECT 1' >/dev/null 2>&1; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 60 ] || { docker logs "$backend" >&2; fail 'postgres did not become ready'; }
+  sleep 2
+done
+docker exec "$backend" psql -X -v ON_ERROR_STOP=1 -U postgres -c 'CREATE TABLE smoke (id int PRIMARY KEY)' \
+  >/dev/null || fail 'cannot create smoke table'
+
+PROPS=$(printf '%s\n' "$base_props" | sed 's/^debezium.source.database.password=.*/debezium.source.database.password=smoke/')
+PROPS="$PROPS
+debezium.source.database.hostname=postgres
+debezium.source.plugin.name=pgoutput
+debezium.source.slot.name=verity_smoke
+debezium.source.snapshot.mode=no_data"
+run_with_props -d --name "$name" --network "$network" -e PROPS -p 127.0.0.1::8080 >/dev/null
 port=$(docker port "$name" 8080/tcp | awk -F: 'NR == 1 { print $2 }')
 [ -n "$port" ] || fail 'port 8080 is not published'
-started=
+ready=
 for _ in $(seq 1 90); do
-  [ "$(docker inspect -f '{{.State.Running}}' "$name")" = true ] || fail 'server exited before startup'
-  if curl -fsS "http://127.0.0.1:$port/q/health/started" >"$work/started.json" 2>/dev/null; then
-    started=1
+  [ "$(docker inspect -f '{{.State.Running}}' "$name")" = true ] || fail 'server exited before it was healthy'
+  if curl -fsS "http://127.0.0.1:$port/q/health" >"$work/health.json" 2>/dev/null; then
+    ready=1
     break
   fi
   sleep 2
 done
-[ -n "$started" ] || fail 'startup health endpoint never answered'
-grep -q '"status": *"UP"' "$work/started.json" || { cat "$work/started.json" >&2; fail 'startup check is not UP'; }
+[ -n "$ready" ] || { cat "$work/health.json" >&2 2>/dev/null || true; fail '/q/health never reported UP'; }
+grep -q '"status": *"UP"' "$work/health.json" || { cat "$work/health.json" >&2; fail 'health is not UP'; }
+grep -q '"name": *"debezium"' "$work/health.json" || { cat "$work/health.json" >&2; fail 'debezium check missing'; }
+if grep -q '"status": *"DOWN"' "$work/health.json"; then
+  cat "$work/health.json" >&2
+  fail 'a health check is DOWN'
+fi
 docker logs "$name" >"$work/server.log" 2>&1
 grep -q "debezium-server-dist ${expected_version}.Final on JVM (powered by Quarkus [0-9.]*) started in" "$work/server.log" ||
   fail 'Quarkus startup line is missing'
 grep -q 'Listening on: http://0.0.0.0:8080' "$work/server.log" || fail 'server is not listening on 8080'
-code=$(curl -sS -o "$work/live.json" -w '%{http_code}' "http://127.0.0.1:$port/q/health/live")
-[ "$code" = 503 ] || { cat "$work/live.json" >&2; fail "liveness returned $code while the source is unreachable"; }
-if ! grep -q '"name": *"debezium"' "$work/live.json" || ! grep -q '"status": *"DOWN"' "$work/live.json"; then
-  cat "$work/live.json" >&2
-  fail 'liveness does not report the debezium check DOWN'
-fi
+slot_active=
+for _ in $(seq 1 30); do
+  slot_active=$(docker exec "$backend" psql -X -U postgres -At -c \
+    "SELECT active FROM pg_replication_slots WHERE slot_name = 'verity_smoke' AND plugin = 'pgoutput'")
+  [ "$slot_active" = t ] && break
+  sleep 2
+done
+[ "$slot_active" = t ] || fail 'connector did not open the pgoutput replication slot'
 
 printf 'debezium-server %s smoke test passed\n' "$expected_version"
