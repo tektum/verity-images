@@ -197,10 +197,13 @@ grep -F 'GET /api/v2.0/internalconfig' "$work/requests" >/dev/null ||
 grep -iF "Authorization: Harbor-Secret $secret" "$work/requests" >/dev/null ||
   fail 'jobservice did not authenticate to core with its secret'
 
-# Negative: the job API rejects a wrong secret.
-if http_get --header 'Authorization: Harbor-Secret wrong' http://"$js":8080/api/v1/stats \
-  >/dev/null 2>&1; then
-  fail 'stats accepted a wrong secret'
+# Negative: job submission rejects a wrong secret (stats is the unauthenticated
+# upstream health check).
+if docker exec "$cache" wget -q -T 5 -O - --header 'Authorization: Harbor-Secret wrong' \
+  --header 'Content-Type: application/json' \
+  --post-data '{"job":{"name":"DEMO","metadata":{"kind":"Generic"}}}' \
+  http://"$js":8080/api/v1/jobs >/dev/null 2>&1; then
+  fail 'job submission accepted a wrong secret'
 fi
 
 # Negative: an unknown job kind is rejected.
