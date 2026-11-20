@@ -175,6 +175,7 @@ docker run -d --name "$dca" --network "$network" --read-only \
   -e DD_CLUSTER_NAME=verity-smoke \
   -e DD_HOSTNAME=verity-smoke \
   -e DD_LEADER_ELECTION=true \
+  -e DD_CLUSTER_CHECKS_ENABLED=true \
   -e DD_LOG_TO_CONSOLE=true \
   "$image" >/dev/null || fail 'cannot start the cluster agent'
 
@@ -190,9 +191,9 @@ grep -F 'Agent health: PASS' "$work/health" >/dev/null ||
   fail "unexpected health output: $(cat "$work/health")"
 
 # Leader election writes its lease to the API server with this pod as holder.
-# The cluster agent starts campaigning only after its other start-up work,
-# which can take minutes on a loaded runner.
-deadline=$(($(date +%s) + 300))
+# The cluster agent campaigns once a leader-only feature needs it; cluster
+# checks (enabled by the Helm chart and operator defaults) start it at boot.
+deadline=$(($(date +%s) + 180))
 until holder=$(kubectl -n default get lease datadog-leader-election \
   -o jsonpath='{.spec.holderIdentity}' 2>&1) && [ "$holder" = "$pod_name" ]; do
   [ "$(date +%s)" -lt "$deadline" ] ||
