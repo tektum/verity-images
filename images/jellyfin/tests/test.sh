@@ -117,10 +117,6 @@ docker logs "$container" 2>&1 | grep -F 'FFmpeg: /usr/lib/jellyfin-ffmpeg/ffmpeg
 docker logs "$container" 2>&1 | grep -F "Found ffmpeg version $ffmpeg_version" >/dev/null ||
   fail "server did not validate ffmpeg $ffmpeg_version"
 
-# Negative: an authenticated endpoint rejects anonymous requests.
-code=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/System/Info")
-[ "$code" = 401 ] || fail "anonymous System/Info returned $code, expected 401"
-
 # Complete the startup wizard.
 api "http://127.0.0.1:$port/Startup/Configuration" -H 'Content-Type: application/json' \
   -d '{"UICulture":"en-US","MetadataCountryCode":"US","PreferredMetadataLanguage":"en"}' >/dev/null ||
@@ -129,6 +125,14 @@ api "http://127.0.0.1:$port/Startup/User" >/dev/null || fail "GET Startup/User f
 api "http://127.0.0.1:$port/Startup/User" -H 'Content-Type: application/json' \
   -d "{\"Name\":\"verity\",\"Password\":\"$password\"}" >/dev/null || fail "POST Startup/User failed"
 api -X POST "http://127.0.0.1:$port/Startup/Complete" >/dev/null || fail "Startup/Complete failed"
+
+# Negative: once the wizard is complete, an authenticated endpoint rejects
+# anonymous requests (the first-time-setup policy admits them until then).
+anonymous_system_info() {
+  code=$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:$port/System/Info")
+  [ "$code" = 401 ] || fail "anonymous System/Info returned $code $1, expected 401"
+}
+anonymous_system_info "after Startup/Complete"
 
 login() {
   api "http://127.0.0.1:$port/Users/AuthenticateByName" -H 'Content-Type: application/json' \
@@ -161,6 +165,7 @@ docker rm -f "$container" >/dev/null
 start_server
 api "http://127.0.0.1:$port/System/Info/Public" | jq -e '.StartupWizardCompleted == true' >/dev/null ||
   fail "startup wizard state did not survive restart"
+anonymous_system_info "after restart"
 token=
 token=$(login) || fail "login failed after restart"
 api "http://127.0.0.1:$port/System/Info" |
