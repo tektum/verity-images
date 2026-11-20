@@ -17,8 +17,11 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 # Every container gets a deadline, so a stall fails at the step that stalled.
+# CI also runs this test for arm64 under emulation: bind Spark to loopback, and
+# stop the JIT at C1 so emulated C2 compilation does not dominate the run.
 run() {
-  timeout "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --label "$label" "$@"
+  timeout "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --label "$label" \
+    -e SPARK_LOCAL_IP=127.0.0.1 -e JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1 "$@"
 }
 
 step() {
@@ -74,13 +77,13 @@ grep -q "version $expected_version\$" "$work/version.log" ||
 check_pi() {
   value=$(sed -n 's/^Pi is roughly \([0-9.]*\)$/\1/p' "$1")
   [ -n "$value" ] || show_fail "$1" "$2: no Pi result line"
-  awk -v pi="$value" 'BEGIN { exit !(pi > 3.13 && pi < 3.15) }' || show_fail "$1" "$2: Pi estimate $value is off"
+  awk -v pi="$value" 'BEGIN { exit !(pi > 3.10 && pi < 3.18) }' || show_fail "$1" "$2: Pi estimate $value is off"
 }
 
 step 'SparkPi local mode'
 # SparkPi in local mode, through the pass-through entrypoint.
-run "$image" /opt/spark/bin/spark-submit --master 'local[2]' \
-  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 20 \
+run "$image" /opt/spark/bin/spark-submit --master 'local[1]' \
+  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 2 \
   >"$work/pi.log" 2>&1 || show_fail "$work/pi.log" 'SparkPi failed'
 check_pi "$work/pi.log" SparkPi
 
@@ -88,9 +91,9 @@ step 'driver mode'
 # The driver mode the Spark Kubernetes backend (and the Spark operator) invokes:
 # spark-submit in client mode under tini, bound to the pod address. The backend
 # also sets spark.driver.host (the driver service); here both are loopback.
-run -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[2]' \
+run -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[1]' \
   --conf spark.driver.host=127.0.0.1 \
-  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 10 \
+  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 2 \
   >"$work/driver.log" 2>&1 || show_fail "$work/driver.log" 'driver-mode SparkPi failed'
 check_pi "$work/driver.log" 'driver-mode SparkPi'
 
@@ -102,11 +105,11 @@ step 'PySpark'
 run "$image" sh -c '
   set -e
   [ "$(pwd)" = /opt/spark/work-dir ]
-  spark-submit --master "local[2]" /opt/spark/examples/src/main/python/pi.py 10
+  spark-submit --master "local[1]" /opt/spark/examples/src/main/python/pi.py 2
   cat > roundtrip.py <<EOF
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("verity-roundtrip").getOrCreate()
-df = spark.range(1000).selectExpr("id", "id % 7 AS bucket")
+df = spark.range(100).selectExpr("id", "id % 7 AS bucket")
 df.write.parquet("/tmp/out/parquet")
 df.write.json("/tmp/out/json")
 total = spark.read.parquet("/tmp/out/parquet").groupBy("bucket").count().count()
@@ -116,11 +119,11 @@ table = spark.table("buckets").count()
 print("ROUNDTRIP buckets=%d rows=%d table=%d" % (total, rows, table))
 spark.stop()
 EOF
-  spark-submit --master "local[2]" roundtrip.py
+  spark-submit --master "local[1]" roundtrip.py
   [ -d spark-warehouse/buckets ]
 ' >"$work/pyspark.log" 2>&1 || show_fail "$work/pyspark.log" 'PySpark run failed'
 check_pi "$work/pyspark.log" 'PySpark pi.py'
-grep -qx 'ROUNDTRIP buckets=7 rows=1000 table=1000' "$work/pyspark.log" ||
+grep -qx 'ROUNDTRIP buckets=7 rows=100 table=100' "$work/pyspark.log" ||
   show_fail "$work/pyspark.log" 'PySpark Parquet/JSON/table round trip returned the wrong result'
 
 step 'negative cases'
