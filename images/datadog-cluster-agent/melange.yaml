@@ -37,7 +37,9 @@ environment:
     # plus every pkg/comp submodule) is the build context, and go/remediate
     # keeps it in sync.
     CGO_ENABLED: "0"
-    GOFLAGS: -p=4
+    # cmd/cluster-agent is gated by //go:build kubeapiserver, so go/remediate's
+    # go list must see the same tags as the build.
+    GOFLAGS: -p=4 -tags=cel,clusterchecks,datadog.no_waf,ec2,kubeapiserver,orchestrator,zlib
     GOMAXPROCS: "4"
     GOTOOLCHAIN: local
 
