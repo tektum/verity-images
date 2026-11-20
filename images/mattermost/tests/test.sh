@@ -37,7 +37,11 @@ fail() {
 # no shell, so list it from an exported container.
 docker create --name "$app" "$image" >/dev/null
 docker export "$app" | tar -tf - | sed 's|/$||' >"$tmp/files"
+docker export "$app" | tar --numeric-owner -tvf - >"$tmp/listing"
 docker rm "$app" >/dev/null
+# The server persists generated secrets in config.json; apko sets it 0600.
+grep -E '^-rw------- 2000/2000 .* mattermost/config/config\.json$' "$tmp/listing" >/dev/null ||
+  fail 'config.json is not mode 0600 owned by 2000:2000'
 for path in mattermost/bin/mattermost mattermost/config/config.json \
   mattermost/client/root.html mattermost/client/manifest.json \
   mattermost/i18n/en.json mattermost/templates mattermost/fonts \

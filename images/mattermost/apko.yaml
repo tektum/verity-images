@@ -58,3 +58,10 @@ paths:
     uid: 2000
     gid: 2000
     permissions: 0o755
+  # Packaged world-readable so melange can archive it; the server stores
+  # generated secrets here and os.WriteFile keeps the existing mode.
+  - path: /mattermost/config/config.json
+    type: permissions
+    uid: 2000
+    gid: 2000
+    permissions: 0o600

@@ -109,9 +109,10 @@ pipeline:
         -e 's|"golang.org/x/crypto/openpgp"|"github.com/ProtonMail/go-crypto/openpgp"|' \
         -e 's|"golang.org/x/crypto/openpgp/armor"|"github.com/ProtonMail/go-crypto/openpgp/armor"|' \
         "$sig" "$upg"
-      sed -i 's|CheckDetachedSignature(keyring, signedFile, signature)|CheckDetachedSignature(keyring, signedFile, signature, nil)|' "$sig"
-      sed -i 's|CheckDetachedSignature(keyring, mattermost_tar, signature)|CheckDetachedSignature(keyring, mattermost_tar, signature, nil)|' "$upg"
-      if grep -rF --include='*.go' --exclude='*_test.go' 'golang.org/x/crypto/openpgp' .; then exit 1; fi
+      sed -i 's|CheckDetachedSignature(\(keyring, [A-Za-z_]*, signature\))|CheckDetachedSignature(\1, nil)|' \
+        "$sig" "$upg"
+      # Busybox grep: no --include, so filter non-test Go files afterwards.
+      if grep -rlF 'golang.org/x/crypto/openpgp' . | grep '\.go$' | grep -v '_test\.go$'; then exit 1; fi
       grep -Fq 'CheckDetachedSignature(keyring, signedFile, signature, nil)' "$sig"
       grep -Fq 'CheckDetachedSignature(keyring, mattermost_tar, signature, nil)' "$upg"
       GOTOOLCHAIN=local go get github.com/ProtonMail/go-crypto/openpgp@${{vars.protonmail-go-crypto}}
@@ -177,7 +178,7 @@ pipeline:
         -e 's|"SMTPPort": "2500",|"SMTPPort": "",|g' \
         "$dest/config/config.json"
       chown 2000:2000 "$dest/config/config.json"
-      chmod 600 "$dest/config/config.json"
+      chmod 644 "$dest/config/config.json"
       cp -RL ../webapp/channels/dist/. "$dest/client/"
       # A source build is not the MIT-licensed binary distribution Mattermost,
       # Inc. ships (build/MIT-COMPILED-LICENSE.md); it carries the source
