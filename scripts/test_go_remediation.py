@@ -117,7 +117,7 @@ def test_osv_scan_contract(module, root: Path) -> None:
     dependency = "google.golang.org/grpc"
     raw = osv_scan("GHSA-vp52-pcj8-j9qc", dependency, "v1.82.1", "v1.83.1")
     messages = module.scan_modules(root, fake_module_scanner(root, raw, 1))
-    updates, unresolved, detected, fixable = module.derive_fixes([{"config": {}}, *messages], {dependency: "v1.82.1"})
+    updates, unresolved, detected, fixable, _ = module.derive_fixes([{"config": {}}, *messages], {dependency: "v1.82.1"})
     assert updates == {dependency: "v1.83.1"}
     assert unresolved == []
     assert detected == {("GHSA-vp52-pcj8-j9qc", dependency)}
@@ -242,14 +242,15 @@ def test_fix_selection(module) -> None:
         osv("GO-2", dependency, "v1.3.0"),
         finding("GO-2", dependency, "v1.0.0"),
     ))
-    updates, unresolved, detected, fixable = module.derive_fixes(messages, {dependency: "v1.0.0"})
+    updates, unresolved, detected, fixable, required = module.derive_fixes(messages, {dependency: "v1.0.0"})
     assert updates == {dependency: "v1.3.0"}
     assert unresolved == []
     assert detected == {("GO-1", dependency), ("GO-2", dependency)}
     assert fixable == detected
+    assert required == {("GO-1", dependency): "v1.2.0", ("GO-2", dependency): "v1.3.0"}
 
     incompatible = "example.com/dependency/v2"
-    updates, unresolved, _, fixable = module.derive_fixes(
+    updates, unresolved, _, fixable, _ = module.derive_fixes(
         module.parse_stream(stream(osv("GO-3", incompatible, "v3.0.0"), finding("GO-3", incompatible, "v2.0.0"))),
         {incompatible: "v2.0.0"},
     )
@@ -257,7 +258,7 @@ def test_fix_selection(module) -> None:
     assert unresolved == [("GO-3", incompatible, "v2.0.0", "no-compatible-fix")]
 
     legacy = "example.com/legacy"
-    updates, unresolved, detected, fixable = module.derive_fixes(
+    updates, unresolved, detected, fixable, _ = module.derive_fixes(
         module.parse_stream(stream(osv("GO-LEGACY", legacy, "v28.0.0"), finding("GO-LEGACY", legacy, "v27.0.0+incompatible"))),
         {legacy: "v27.0.0+incompatible"},
     )
@@ -265,7 +266,7 @@ def test_fix_selection(module) -> None:
     assert unresolved == []
     assert detected == {("GO-LEGACY", legacy)} and fixable == detected
 
-    updates, unresolved, _, fixable = module.derive_fixes(
+    updates, unresolved, _, fixable, _ = module.derive_fixes(
         module.parse_stream(stream(osv("GO-4", dependency, "v1.2.0"), finding("GO-4", dependency, "v1.3.0"))),
         {dependency: "v1.3.0"},
     )
@@ -286,7 +287,7 @@ def test_fix_selection(module) -> None:
                 }],
             },
         }
-        updates, unresolved, detected, fixable = module.derive_fixes(
+        updates, unresolved, detected, fixable, _ = module.derive_fixes(
             module.parse_stream(stream(record, finding(identifier, dependency, "v1.2.0"))),
             {dependency: "v1.2.0"},
         )
@@ -1173,7 +1174,7 @@ def test_outer_pass_limit(module, root: Path) -> None:
         index = scans - 1
         dependency = f"example.com/dependency{index}"
         identity = (f"GO-{index}", dependency)
-        return {dependency: "v1.1.0"}, [], {identity}, {identity}
+        return {dependency: "v1.1.0"}, [], {identity}, {identity}, {identity: "v1.1.0"}
 
     def run_go(arguments, _root, capture=False, workspace=None, report=False):
         assert workspace is None
@@ -1205,7 +1206,9 @@ def test_outer_no_progress(module, root: Path) -> None:
     identity = ("GO-1", dependency)
     module.scan = lambda *_args, **_kwargs: []
     module.selected_modules = lambda *_args, **_kwargs: dict(selected)
-    module.derive_fixes = lambda *_args, **_kwargs: ({dependency: "v1.2.0"}, [], {identity}, {identity})
+    module.derive_fixes = lambda *_args, **_kwargs: (
+        {dependency: "v1.2.0"}, [], {identity}, {identity}, {identity: "v1.2.0"}
+    )
     def run_go(arguments, _root, capture=False, workspace=None, report=False):
         assert workspace is None
         if capture:
@@ -1322,11 +1325,11 @@ def test_advisory_fix_correction(module) -> None:
         messages = module.parse_stream(stream(record, finding(identifier, ISTIO, current)))
         return module.derive_fixes(messages, {ISTIO: current})
 
-    updates, unresolved, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.0")
+    updates, unresolved, *_ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.0")
     assert updates == {ISTIO: "v1.12.8"} and unresolved == []
-    updates, unresolved, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.8")
+    updates, unresolved, *_ = fixes(ISTIO_TYPO_ADVISORY, "v1.12.8")
     assert updates == {} and unresolved == [("GHSA-xwx5-5c9g-x68x", ISTIO, "v1.12.8", "no-fix")]
-    updates, _, _, _ = fixes(ISTIO_TYPO_ADVISORY, "v1.13.2")
+    updates, *_ = fixes(ISTIO_TYPO_ADVISORY, "v1.13.2")
     assert updates == {ISTIO: "v1.13.5"}
 
     aliased = json.loads(json.dumps(ISTIO_TYPO_ADVISORY))
@@ -1338,6 +1341,37 @@ def test_advisory_fix_correction(module) -> None:
     unrelated["osv"]["id"] = "GHSA-unrelated"
     unrelated["osv"]["aliases"] = []
     assert fixes(unrelated, "v1.12.0")[0] == {ISTIO: "v1.12.18"}
+
+    for aliases in (5, [["GHSA-xwx5-5c9g-x68x"]]):
+        malformed = json.loads(json.dumps(ISTIO_TYPO_ADVISORY))
+        malformed["osv"]["aliases"] = aliases
+        assert_raises(module.RemediationError, "invalid OSV aliases", lambda: fixes(malformed, "v1.12.0"))
+
+
+def test_untagged_fixes_checked_per_finding(module) -> None:
+    current = "v0.0.0-20220701000000-aaaaaaaaaaaa"
+    tags = {
+        "1.12.8": "v0.0.0-20220606151702-83a7f5f171c0",
+        "1.11.9": "v0.0.0-20220801000000-bbbbbbbbbbbb",
+    }
+
+    def run_go(arguments, *_args, **_kwargs):
+        version = tags.get(arguments[-1].rsplit("@", 1)[1])
+        if version is None:
+            raise module.CommandError(arguments, 1, "", "unknown revision")
+        return json.dumps({"Path": ISTIO, "Version": version})
+
+    module.run_go = run_go
+    messages = module.parse_stream(stream(
+        osv("GO-RELEASE", ISTIO, "v1.12.8"), finding("GO-RELEASE", ISTIO, current),
+        osv("GO-BACKPORT", ISTIO, "v1.11.9"), finding("GO-BACKPORT", ISTIO, current),
+    ))
+    updates, _, _, _, required = module.derive_fixes(messages, {ISTIO: current})
+    assert updates == {ISTIO: "v1.12.8"}
+    with contextlib.redirect_stdout(io.StringIO()):
+        resolved, satisfied = module.resolve_untagged_fixes(updates, {ISTIO: current}, required)
+    assert satisfied == {("GO-RELEASE", ISTIO)}
+    assert resolved == {ISTIO: tags["1.11.9"]}
 
 
 def test_untagged_module_uses_release_tag(module, root: Path) -> None:
@@ -1415,6 +1449,7 @@ def main() -> None:
         test_required_go_upgrade_preserved(module, root)
         test_fix_selection(module)
         test_advisory_fix_correction(module)
+        test_untagged_fixes_checked_per_finding(module)
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)

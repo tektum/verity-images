@@ -258,7 +258,10 @@ pipeline:
 
       def minimum_fix(entry, module, current):
           candidates = []
-          identifiers = {entry.get("id"), *(entry.get("aliases") or ())}
+          aliases = entry.get("aliases") or []
+          if not isinstance(aliases, list) or any(not isinstance(alias, str) for alias in aliases):
+              raise RemediationError("invalid OSV aliases")
+          identifiers = {entry.get("id"), *aliases}
           affected = entry.get("affected")
           if not isinstance(affected, list):
               raise RemediationError("invalid OSV affected records")
@@ -402,20 +405,37 @@ pipeline:
           )
 
 
-      def resolve_untagged_fixes(updates, selected, fixable):
+      def resolve_untagged_fixes(updates, selected, required):
+          # Semver order of advisory fixes is not commit order for an untagged module:
+          # a backport tag can be newer than a higher release. Check each finding
+          # against its own fixed release.
           satisfied = set()
           resolved = dict(updates)
-          for module, fixed in sorted(updates.items()):
+          releases = {}
+          for module in sorted(updates):
               current = selected.get(module, "")
               if UNTAGGED_PSEUDO.fullmatch(current) is None:
                   continue
-              release = resolve_release_fix(module, fixed)
-              if version_key(release) <= version_key(current):
-                  del resolved[module]
-                  satisfied.update(item for item in fixable if item[1] == module)
-                  print(f"go remediation: {module}@{current} includes fixed release {fixed} ({release})", flush=True)
+              remaining = []
+              for (osv_id, owner), fixed in sorted(required.items()):
+                  if owner != module:
+                      continue
+                  if (module, fixed) not in releases:
+                      releases[module, fixed] = resolve_release_fix(module, fixed)
+                  release = releases[module, fixed]
+                  if version_key(release) <= version_key(current):
+                      satisfied.add((osv_id, module))
+                      print(
+                          f"go remediation: {osv_id} in {module}@{current} "
+                          f"includes fixed release {fixed} ({release})",
+                          flush=True,
+                      )
+                  else:
+                      remaining.append(release)
+              if remaining:
+                  resolved[module] = max(remaining, key=version_key)
               else:
-                  resolved[module] = release
+                  del resolved[module]
           return resolved, satisfied
 
 
@@ -659,6 +679,7 @@ pipeline:
           unresolved = set()
           detected = set()
           fixable = set()
+          required = {}
           for finding in findings:
               osv_id = finding.get("osv")
               trace = finding.get("trace")
@@ -678,10 +699,11 @@ pipeline:
                   unresolved.add((osv_id, module, current, reason))
                   continue
               fixable.add((osv_id, module))
+              required[(osv_id, module)] = fixed
               previous = updates.get(module)
               if previous is None or version_key(previous) < version_key(fixed):
                   updates[module] = fixed
-          return updates, sorted(unresolved), detected, fixable
+          return updates, sorted(unresolved), detected, fixable, required
 
       def reconcile(workspace_root, root, packages, workspace, vendor_patches, required_sums=()):
           snapshots = language_snapshot(workspace_root, root, workspace)
@@ -774,8 +796,8 @@ pipeline:
           reconciled = False
           while True:
               selected = selected_modules(root, workspace)
-              updates, unresolved, detected, fixable = derive_fixes(messages, selected)
-              updates, satisfied = resolve_untagged_fixes(updates, selected, fixable)
+              updates, unresolved, detected, fixable, required = derive_fixes(messages, selected)
+              updates, satisfied = resolve_untagged_fixes(updates, selected, required)
               fixable -= satisfied
               persisted = remediated & (detected - satisfied)
               requested = [
