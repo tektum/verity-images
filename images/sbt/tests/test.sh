@@ -15,8 +15,8 @@ fail() {
 
 [ -n "$version" ] || fail 'could not read the pinned sbt version'
 case $version in
-  2.0.*) ;;
-  *) fail "pinned sbt $version is outside the published 2.0 stream" ;;
+  2.1.*) ;;
+  *) fail "pinned sbt $version is outside the published 2.1 stream" ;;
 esac
 
 inspect() {
