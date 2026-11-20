@@ -173,7 +173,10 @@ docker stop --time 20 "$container" >/dev/null
 [ "$(docker inspect --format '{{.State.ExitCode}}' "$container")" = 0 ] || fail 'supervisord did not exit cleanly on SIGTERM'
 docker logs "$container" > "$fixture/stop.log" 2>&1
 grep -F 'received SIGTERM indicating exit request' "$fixture/stop.log" >/dev/null || fail 'SIGTERM was not handled by supervisord'
-grep -F 'stopped: web (terminated by SIGTERM)' "$fixture/stop.log" >/dev/null || fail 'web was not stopped on shutdown'
+# Only lines after the exit request count: the earlier `ctl stop web` logged the same message.
+sed -n '/received SIGTERM indicating exit request/,$p' "$fixture/stop.log" > "$fixture/shutdown.log"
+grep -F 'stopped: web (terminated by SIGTERM)' "$fixture/shutdown.log" >/dev/null || fail 'web was not stopped on shutdown'
+grep -F 'stopped: ticker (terminated by SIGTERM)' "$fixture/shutdown.log" >/dev/null || fail 'ticker was not stopped on shutdown'
 
 # XML-RPC over an authenticated TCP listener with a caller-supplied configuration.
 mkdir "$fixture/rpc"
