@@ -35,10 +35,12 @@ environment:
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
 
 paths:
+  # Group 0 can write, so arbitrary UIDs (OpenShift) keep the default
+  # spark-warehouse and scratch files in the working directory.
   - path: /opt/spark/work-dir
     type: directory
     uid: 185
-    gid: 185
+    gid: 0
     permissions: 0o775
   - path: /home/spark
     type: directory

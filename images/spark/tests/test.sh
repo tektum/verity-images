@@ -72,10 +72,11 @@ docker run --rm -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 
 check_pi "$work/driver.log" 'driver-mode SparkPi'
 
 # PySpark: the bundled pi.py, then a DataFrame round trip through Parquet and JSON
-# (Hadoop file system, parquet-jackson and Jackson), as an arbitrary non-root UID.
+# (Hadoop file system, parquet-jackson and Jackson), as an arbitrary non-root UID
+# in group 0, from the default working directory.
 docker run --rm -u 1000770000:0 -e HOME=/tmp "$image" sh -c '
   set -e
-  cd /tmp
+  [ "$(pwd)" = /opt/spark/work-dir ]
   spark-submit --master "local[2]" /opt/spark/examples/src/main/python/pi.py 10
   cat > roundtrip.py <<EOF
 from pyspark.sql import SparkSession
@@ -85,14 +86,17 @@ df.write.parquet("/tmp/out/parquet")
 df.write.json("/tmp/out/json")
 total = spark.read.parquet("/tmp/out/parquet").groupBy("bucket").count().count()
 rows = spark.read.json("/tmp/out/json").count()
-print("ROUNDTRIP buckets=%d rows=%d" % (total, rows))
+df.write.saveAsTable("buckets")
+table = spark.table("buckets").count()
+print("ROUNDTRIP buckets=%d rows=%d table=%d" % (total, rows, table))
 spark.stop()
 EOF
   spark-submit --master "local[2]" roundtrip.py
+  [ -d spark-warehouse/buckets ]
 ' >"$work/pyspark.log" 2>&1 || show_fail "$work/pyspark.log" 'PySpark run failed'
 check_pi "$work/pyspark.log" 'PySpark pi.py'
-grep -qx 'ROUNDTRIP buckets=7 rows=1000' "$work/pyspark.log" ||
-  show_fail "$work/pyspark.log" 'PySpark Parquet/JSON round trip returned the wrong result'
+grep -qx 'ROUNDTRIP buckets=7 rows=1000 table=1000' "$work/pyspark.log" ||
+  show_fail "$work/pyspark.log" 'PySpark Parquet/JSON/table round trip returned the wrong result'
 
 # Negative cases: a missing main class fails, and the Hive SQL CLI is not built in.
 if docker run --rm "$image" spark-submit --master 'local[1]' --class org.example.Missing \
