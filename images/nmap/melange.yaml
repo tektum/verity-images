@@ -1,0 +1,77 @@
+package:
+  name: verity-nmap
+  # yamllint disable-line rule:line-length
+  version: "7.993"  # renovate: datasource=github-tags depName=nmap/nmap versioning=loose extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Network exploration and security auditing tool with Ncat and Nping
+  copyright:
+    - license: LicenseRef-NPSL-0.95
+      license-path: LICENSE
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - glibc-2.44-dev
+      - libpcap-dev
+      - libssh2-dev
+      - linux-headers
+      - lua5.4-dev
+      - openssl-dev
+      - pcre2-dev
+      - zlib-dev
+
+pipeline:
+  # nmap.org publishes the release tarball with a SHA-256 digest and a
+  # detached signature from the Nmap Project release key.
+  - uses: fetch
+    with:
+      uri: https://nmap.org/dist/nmap-${{package.version}}.tar.bz2
+      expected-sha256: 270e55f04915bfcecb5db8feb959d4c5ba86a48c094520a4f1c07571e1c79c59
+
+  # Link the Wolfi libpcap, PCRE2, libssh2, zlib, Lua and OpenSSL packages so
+  # the scanner tracks them; only liblinear stays vendored.
+  - runs: |
+      # lua5.4-dev ships only a static liblua under /usr/lib/lua5.4.
+      export LDFLAGS="-L/usr/lib/lua5.4"
+      ./configure \
+        --prefix=/usr \
+        --with-openssl=/usr \
+        --with-libpcap=/usr \
+        --with-libpcre=/usr \
+        --with-libssh2=/usr \
+        --with-libz=/usr \
+        --with-liblua=/usr \
+        --with-liblinear=included \
+        --without-zenmap \
+        --without-ndiff \
+        --without-nmap-update
+      make -j$(nproc)
+      make DESTDIR="${{targets.destdir}}" install
+      rm -rf "${{targets.destdir}}/usr/share/man" "${{targets.destdir}}/usr/bin/uninstall_ndiff"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        nmap --version | sed -n 1p | grep -F 'Nmap version ${{package.version}} '
+        ncat --version 2>&1 | grep -F 'Ncat: Version ${{package.version}} '
+        nping --version | grep -F 'Nping version ${{package.version}} '
