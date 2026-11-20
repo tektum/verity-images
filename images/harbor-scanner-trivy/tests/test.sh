@@ -172,10 +172,18 @@ code=$(curl_adapter -sS -m 10 -o /dev/null -w '%{http_code}' http://127.0.0.1:80
   fail 'unknown path request failed'
 [ "$code" = 404 ] || fail "unknown path returned $code, expected 404"
 
-# SIGTERM shuts the API server down cleanly.
+# SIGTERM shuts the API server down before the stop timeout. Upstream's
+# ListenAndServe calls os.Exit(1) when it sees http.ErrServerClosed (the check
+# is inverted), so a graceful stop exits 0 or 1 depending on which goroutine
+# wins. Anything else, notably 137 from SIGKILL, is a failure.
 docker stop -t 20 "$adapter" >/dev/null || fail 'cannot stop the adapter'
 status=$(docker inspect --format '{{.State.ExitCode}}' "$adapter")
-[ "$status" = 0 ] || fail "adapter exited with $status after SIGTERM"
+case "$status" in
+  0) ;;
+  1) docker logs "$adapter" 2>&1 | grep -F '"err":"http: Server closed"' >/dev/null ||
+       fail 'adapter exited with 1 after SIGTERM without a graceful shutdown' ;;
+  *) fail "adapter exited with $status after SIGTERM" ;;
+esac
 
 # A broken configuration fails fast instead of serving.
 status=0
