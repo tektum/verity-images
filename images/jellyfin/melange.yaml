@@ -1,0 +1,218 @@
+package:
+  name: verity-jellyfin
+  # yamllint disable-line rule:line-length
+  version: "12.4"  # renovate: datasource=github-tags depName=jellyfin/jellyfin versioning=regex:^(?<major>12)\.(?<minor>\d+)$ extractVersion=^v(?<version>\d+\.\d+)$
+  epoch: 0
+  description: Jellyfin server and web client built from source, with an LGPL FFmpeg and no patent-pool encoders
+  copyright:
+    # Jellyfin server is GPL-2.0-only, jellyfin-web is GPL-2.0-or-later, and the
+    # bundled FFmpeg is configured without --enable-gpl, --enable-version3 and
+    # --enable-nonfree, so it stays LGPL-2.1-or-later.
+    - license: GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later
+  dependencies:
+    runtime:
+      - aspnet-10-runtime
+      - ca-certificates-bundle
+      # SkiaSharp and libass resolve fonts through fontconfig.
+      - fontconfig
+      - ttf-dejavu
+      - icu
+      - tzdata
+  resources:
+    cpu: "16"
+    memory: 16Gi
+  test-resources:
+    cpu: "2"
+    memory: 2Gi
+
+vars:
+  # jellyfin-web is released in lockstep with the server under the same tag.
+  # yamllint disable-line rule:line-length
+  web-version: "12.4"  # renovate: datasource=github-tags depName=jellyfin/jellyfin-web versioning=regex:^(?<major>12)\.(?<minor>\d+)$ extractVersion=^v(?<version>\d+\.\d+)$
+  web-commit: 0a580ce8df89282dfd120b6d5efb8e106da23bd5
+  # Same FFmpeg release stream as images/ffmpeg/9.0.
+  # yamllint disable-line rule:line-length
+  ffmpeg-version: "9.0.2"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
+  ffmpeg-commit: 946fcce07b6dcd0331c8cc609192aeff5e1924f8
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - dav1d-dev
+      - dotnet-10-sdk
+      - fontconfig-dev
+      - freetype-dev
+      - fribidi-dev
+      - gnutls-dev
+      - harfbuzz-dev
+      - lame-dev
+      - libass-dev
+      - libvorbis-dev
+      - libvpx-dev
+      - libwebp-dev
+      - nasm
+      - nodejs-24
+      - npm
+      - opus-dev
+      - pkgconf
+      - svt-av1-dev
+      - wolfi-baselayout
+      - zlib-dev
+  environment:
+    DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+    DOTNET_NOLOGO: "1"
+    DOTNET_SKIP_FIRST_TIME_EXPERIENCE: "1"
+    npm_config_audit: "false"
+    npm_config_cache: /var/cache/melange/npm
+    npm_config_fund: "false"
+    npm_config_update_notifier: "false"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jellyfin/jellyfin
+      tag: v${{package.version}}
+      expected-commit: 83d0d0e7f76e23e2e085c8ff67d28b772d35967d
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/jellyfin/jellyfin-web
+      tag: v${{vars.web-version}}
+      expected-commit: ${{vars.web-commit}}
+      destination: jellyfin-web
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/FFmpeg/FFmpeg
+      tag: n${{vars.ffmpeg-version}}
+      expected-commit: ${{vars.ffmpeg-commit}}
+      destination: ffmpeg
+
+  # git-checkout leaves each destination directory mode 0700 and owned by root,
+  # which melange cannot open when it reads the workspace back after the build.
+  - name: Open the secondary checkouts
+    runs: chmod 755 jellyfin-web ffmpeg
+
+  # Codec policy: LGPL build. No --enable-gpl, --enable-version3 or
+  # --enable-nonfree, and no external encoder libraries for patent-pool formats
+  # (x264, x265, openh264, fdk-aac, opencore-amr). --disable-autodetect keeps the
+  # configuration to the explicit list below. Hardware acceleration is not
+  # built. Static FFmpeg libraries keep the two tools self-contained under
+  # /usr/lib/jellyfin-ffmpeg, away from any system libav*.
+  - name: FFmpeg
+    working-directory: ffmpeg
+    runs: |
+      printf '%s\n' "${{vars.ffmpeg-version}}" > VERSION
+      ./configure \
+        --prefix=/usr/lib/jellyfin-ffmpeg \
+        --enable-static \
+        --disable-shared \
+        --disable-debug \
+        --disable-doc \
+        --disable-ffplay \
+        --disable-autodetect \
+        --enable-iconv \
+        --enable-zlib \
+        --enable-gnutls \
+        --enable-libass \
+        --enable-libdav1d \
+        --enable-libfontconfig \
+        --enable-libfreetype \
+        --enable-libfribidi \
+        --enable-libharfbuzz \
+        --enable-libmp3lame \
+        --enable-libopus \
+        --enable-libsvtav1 \
+        --enable-libvorbis \
+        --enable-libvpx \
+        --enable-libwebp
+      for flag in GPL NONFREE VERSION3 LIBX264 LIBX265 LIBOPENH264 LIBFDK_AAC LIBOPENCORE_AMRNB LIBOPENCORE_AMRWB; do
+        grep -Fx "#define CONFIG_${flag} 0" config.h
+      done
+      make -j"$(nproc)" ffmpeg ffprobe
+      licenses="${{targets.destdir}}/usr/share/licenses/${{package.name}}"
+      install -Dm755 ffmpeg ffprobe -t "${{targets.destdir}}/usr/lib/jellyfin-ffmpeg"
+      install -Dm644 COPYING.LGPLv2.1 LICENSE.md -t "$licenses/ffmpeg"
+
+  - name: Web client
+    working-directory: jellyfin-web
+    runs: |
+      export HOME="$(mktemp -d)"
+      export NODE_OPTIONS="--max-old-space-size=8192"
+      npm ci
+      npm run build:production
+      test -s dist/index.html
+      install -d "${{targets.destdir}}/usr/share/jellyfin"
+      cp -R dist "${{targets.destdir}}/usr/share/jellyfin/web"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/jellyfin-web/LICENSE"
+
+  # Framework-dependent publish: the .NET and ASP.NET Core shared runtime comes
+  # from the Wolfi aspnet-10-runtime package. HOME stays outside the build
+  # workspace because .NET creates mode 0700 state there that the workspace
+  # export cannot read.
+  - name: Server
+    runs: |
+      export HOME="$(mktemp -d)"
+      case "${{build.arch}}" in
+        x86_64) rid=linux-x64 ;;
+        aarch64) rid=linux-arm64 ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      dotnet publish Jellyfin.Server/Jellyfin.Server.csproj \
+        --configuration Release \
+        --runtime "$rid" \
+        --no-self-contained \
+        --output publish \
+        -p:DebugSymbols=false \
+        -p:DebugType=none \
+        -p:UseAppHost=false
+      test -s publish/jellyfin.dll
+      install -d "${{targets.destdir}}/usr/lib/jellyfin"
+      cp -a publish/. "${{targets.destdir}}/usr/lib/jellyfin/"
+      find "${{targets.destdir}}/usr/lib/jellyfin" -type d -exec chmod 0755 {} +
+      find "${{targets.destdir}}/usr/lib/jellyfin" -type f -exec chmod 0644 {} +
+      find "${{targets.destdir}}/usr/lib/jellyfin" -type f -name '*.so' -exec chmod 0755 {} +
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/jellyfin/LICENSE"
+
+  # Drop the secondary build trees (node_modules, FFmpeg objects) so the
+  # workspace export does not walk them.
+  - name: Clean build trees
+    runs: rm -rf jellyfin-web ffmpeg publish
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -s /usr/lib/jellyfin/jellyfin.dll
+        grep -F '"Microsoft.AspNetCore.App"' /usr/lib/jellyfin/jellyfin.runtimeconfig.json
+        if find /usr/lib/jellyfin -name 'System.Private.CoreLib.dll' | grep .; then
+          echo 'a bundled .NET runtime leaked into the application directory' >&2
+          exit 1
+        fi
+        test -s /usr/share/jellyfin/web/index.html
+        ffmpeg=/usr/lib/jellyfin-ffmpeg/ffmpeg
+        "$ffmpeg" -hide_banner -version | head -n1 | grep -F 'ffmpeg version ${{vars.ffmpeg-version}} '
+        "$ffmpeg" -hide_banner -buildconf > /tmp/buildconf
+        if grep -E -- '--enable-(gpl|nonfree|version3|libx264|libx265|libopenh264|libfdk-aac|libopencore)' \
+          /tmp/buildconf; then
+          exit 1
+        fi
+        "$ffmpeg" -hide_banner -L | grep -F 'GNU Lesser General Public'
+        if "$ffmpeg" -hide_banner -encoders | grep -E ' (libx264|libx265|libopenh264|libfdk_aac) '; then
+          exit 1
+        fi
+        apk info --license verity-jellyfin | grep -Fx 'GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later'
