@@ -108,11 +108,15 @@ out=$(docker exec "$container" spreaper ping --reaper-port 18080 2>&1) || fail "
 printf '%s\n' "$out" | grep -q 'is answering in: localhost:18080' || fail "unexpected spreaper ping output: $out"
 
 # --- Clean SIGTERM shutdown --------------------------------------------------
+# CI also runs this test for arm64 under qemu-user, where Jetty's graceful stop cannot
+# interrupt acceptor threads blocked in accept(); it then waits out Dropwizard's 30s
+# shutdownGracePeriod before closing the connectors (~36s total). Natively the stop takes
+# about 1s. The exit-code check below still catches a SIGKILL (137) at the docker timeout.
 start=$(date +%s)
-docker stop -t 30 "$container" >/dev/null
+docker stop -t 60 "$container" >/dev/null
 elapsed=$(($(date +%s) - start))
 code=$(docker inspect -f '{{.State.ExitCode}}' "$container")
-[ "$elapsed" -lt 30 ] || fail "SIGTERM shutdown took ${elapsed}s (killed at timeout)"
+[ "$elapsed" -lt 60 ] || fail "SIGTERM shutdown took ${elapsed}s (killed at timeout)"
 [ "$code" = 0 ] || [ "$code" = 143 ] || fail "unexpected exit code after SIGTERM: $code"
 docker logs "$container" 2>&1 | grep -q 'Stopped' || fail 'no Jetty shutdown logged after SIGTERM'
 
