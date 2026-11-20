@@ -44,6 +44,9 @@ environment:
       - coreutils
       - curl-dev
       - git
+      # On aarch64 the build compiles the upstream "tso" GCC plugin, whose
+      # plugin headers include gmp.h.
+      - gmp-dev
       - libtool
       - linux-headers
       - openssl-dev
