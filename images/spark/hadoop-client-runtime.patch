@@ -1,0 +1,51 @@
+Rebuild hadoop-client-runtime with raised floors for its shaded libraries.
+
+Jetty and jline serve only server-side HTTP (HttpServer2, YARN web apps) and
+the YARN container shell, which Spark on Kubernetes or in local mode never
+loads, so they are no longer shaded. The parent resolves from Maven Central,
+and commons-configuration2, which hadoop-project pins literally, takes its
+version from the build command.
+
+--- a/pom.xml
++++ b/pom.xml
+@@ -19,7 +19,7 @@
+    <groupId>org.apache.hadoop</groupId>
+    <artifactId>hadoop-project</artifactId>
+    <version>3.5.0</version>
+-   <relativePath>../../hadoop-project</relativePath>
++   <relativePath/>
+ </parent>
+   <artifactId>hadoop-client-runtime</artifactId>
+   <version>3.5.0</version>
+@@ -34,6 +34,21 @@
+     <maven.javadoc.skip>true</maven.javadoc.skip>
+   </properties>
+ 
++  <dependencyManagement>
++    <dependencies>
++      <dependency>
++        <groupId>org.apache.commons</groupId>
++        <artifactId>commons-configuration2</artifactId>
++        <version>${commons-configuration2.version}</version>
++        <exclusions>
++          <exclusion>
++            <groupId>org.apache.commons</groupId>
++            <artifactId>commons-lang3</artifactId>
++          </exclusion>
++        </exclusions>
++      </dependency>
++    </dependencies>
++  </dependencyManagement>
+   <dependencies>
+     <dependency>
+       <groupId>org.apache.hadoop</groupId>
+@@ -165,6 +180,9 @@
+                       <exclude>org.eclipse.jetty:jetty-util</exclude>
+                       <exclude>org.eclipse.jetty:jetty-server</exclude>
+                       <exclude>org.eclipse.jetty:jetty-continuation</exclude>
++                      <exclude>org.eclipse.jetty:*</exclude>
++                      <exclude>org.eclipse.jetty.websocket:*</exclude>
++                      <exclude>org.jline:*</exclude>
+                       <exclude>org.ow2.asm:*</exclude>
+                       <!-- Leave bouncycastle unshaded because it's signed with a special Oracle certificate so it can be a custom JCE security provider -->
+                       <exclude>org.bouncycastle:*</exclude>

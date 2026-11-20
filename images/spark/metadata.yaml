@@ -1,0 +1,9 @@
+name: spark
+track: wolfi
+description: Apache Spark runtime for Kubernetes and local mode with PySpark, built from source without Hive or YARN.
+category: Data & ML
+upstream: https://spark.apache.org/
+versions: [4.3]
+scan-identity: [cpe:2.3:a:apache:spark, pkg:maven/org.apache.spark/spark-core_2.13]
+owner: tektum
+enabled: true

@@ -1,0 +1,25 @@
+Rebuild parquet-jackson with a newer shaded Jackson.
+
+The parent resolves from Maven Central. Jackson 2.20 and later publish
+jackson-annotations under a major.minor version only.
+
+--- a/pom.xml
++++ b/pom.xml
+@@ -20,7 +20,7 @@
+   <parent>
+     <groupId>org.apache.parquet</groupId>
+     <artifactId>parquet</artifactId>
+-    <relativePath>../pom.xml</relativePath>
++    <relativePath/>
+     <version>1.17.0</version>
+   </parent>
+ 
+@@ -41,7 +41,7 @@
+     <dependency>
+       <groupId>${jackson.groupId}</groupId>
+       <artifactId>jackson-annotations</artifactId>
+-      <version>${jackson.version}</version>
++      <version>${jackson-annotations.version}</version>
+     </dependency>
+     <dependency>
+       <groupId>com.fasterxml.jackson.core</groupId>
