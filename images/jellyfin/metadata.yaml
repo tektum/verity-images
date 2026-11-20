@@ -1,7 +1,7 @@
 name: jellyfin
 track: wolfi
 # yamllint disable-line rule:line-length
-description: Jellyfin media server (GPLv2) and jellyfin-web client built from source on the Wolfi .NET runtime, with an LGPL FFmpeg built without --enable-gpl, --enable-nonfree or patent-pool encoder libraries (no x264, x265, openh264, fdk-aac or opencore-amr).
+description: Jellyfin media server (GPLv2) and jellyfin-web client built from source on the official Microsoft ASP.NET Core runtime, with an LGPL FFmpeg built without --enable-gpl, --enable-nonfree or patent-pool encoder libraries (no x264, x265, openh264, fdk-aac or opencore-amr).
 category: Media
 upstream: https://github.com/jellyfin/jellyfin
 versions: [12.4]

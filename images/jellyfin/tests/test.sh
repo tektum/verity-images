@@ -5,6 +5,7 @@ image=${1:?usage: test.sh IMAGE}
 here=$(cd "$(dirname "$0")" && pwd)
 version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' "$here/../melange.yaml")
 ffmpeg_version=$(awk '$1 == "ffmpeg-version:" { gsub(/"/, "", $2); print $2; exit }' "$here/../melange.yaml")
+dotnet_runtime_version=$(awk '$1 == "dotnet-runtime-version:" { gsub(/"/, "", $2); print $2; exit }' "$here/../melange.yaml")
 container="verity-jellyfin-test-$$"
 config_volume="verity-jellyfin-config-$$"
 cache_volume="verity-jellyfin-cache-$$"
@@ -26,6 +27,7 @@ trap cleanup EXIT INT TERM
 
 [ -n "$version" ] || fail "cannot read package.version from melange.yaml"
 [ -n "$ffmpeg_version" ] || fail "cannot read vars.ffmpeg-version from melange.yaml"
+[ -n "$dotnet_runtime_version" ] || fail "cannot read vars.dotnet-runtime-version from melange.yaml"
 
 # OCI contract.
 test "$(docker image inspect "$image" --format '{{.Config.User}}')" = 65532 ||
@@ -40,7 +42,15 @@ for expected in JELLYFIN_DATA_DIR=/config JELLYFIN_CACHE_DIR=/cache \
   printf '%s\n' "$env_list" | grep -Fx "$expected" >/dev/null || fail "missing environment $expected"
 done
 test "$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.licenses"}}')" = \
-  'GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later' || fail "unexpected license label"
+  'GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later AND MIT' || fail "unexpected license label"
+
+# The server runs on the pinned official ASP.NET Core runtime.
+runtimes=$(docker run --rm --entrypoint /usr/bin/dotnet "$image" --list-runtimes) ||
+  fail "dotnet --list-runtimes failed"
+for framework in Microsoft.AspNetCore.App Microsoft.NETCore.App; do
+  printf '%s\n' "$runtimes" | grep -F "$framework $dotnet_runtime_version " >/dev/null ||
+    fail "missing $framework $dotnet_runtime_version: $runtimes"
+done
 
 # Codec policy: LGPL FFmpeg, no GPL, nonfree or version3 code, and no
 # patent-pool encoder libraries.

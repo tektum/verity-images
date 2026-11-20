@@ -5,21 +5,29 @@ package:
   epoch: 0
   description: Jellyfin server and web client built from source, with an LGPL FFmpeg and no patent-pool encoders
   copyright:
-    # Jellyfin server is GPL-2.0-only, jellyfin-web is GPL-2.0-or-later, and the
+    # Jellyfin server is GPL-2.0-only, jellyfin-web is GPL-2.0-or-later, the
     # bundled FFmpeg is configured without --enable-gpl, --enable-version3 and
-    # --enable-nonfree, so it stays LGPL-2.1-or-later.
-    - license: GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later
+    # --enable-nonfree, so it stays LGPL-2.1-or-later, and the bundled ASP.NET
+    # Core runtime is MIT.
+    - license: GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later AND MIT
   dependencies:
     runtime:
-      - aspnet-10-runtime
       - ca-certificates-bundle
+      # Microsoft's documented .NET runtime dependency set. ICU, OpenSSL and
+      # GSSAPI are loaded with dlopen, so the package cannot discover them as
+      # shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - zlib
       # SkiaSharp and libass resolve fonts through fontconfig.
       - fontconfig
       - ttf-dejavu
       # HarfBuzzSharp resolves to the system HarfBuzz; see the Server step.
       - harfbuzz
-      - icu
-      - tzdata
   resources:
     cpu: "16"
     memory: 16Gi
@@ -36,6 +44,11 @@ vars:
   # yamllint disable-line rule:line-length
   ffmpeg-version: "9.0.2"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
   ffmpeg-commit: 946fcce07b6dcd0331c8cc609192aeff5e1924f8
+  # Official Microsoft ASP.NET Core runtime (with Microsoft.NETCore.App), the
+  # same release stream and checksums as images/aspnet-runtime/10. Wolfi
+  # stopped publishing dotnet-10 at 10.0.114.
+  # yamllint disable-line rule:line-length
+  dotnet-runtime-version: "10.0.15"  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>10)\.(?<minor>0)\.(?<patch>\d+)$
 
 environment:
   contents:
@@ -66,6 +79,7 @@ environment:
       - opus-dev
       - pkgconf
       - svt-av1-dev
+      - wget
       - wolfi-baselayout
       - zlib-dev
   environment:
@@ -157,9 +171,9 @@ pipeline:
       install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/jellyfin-web/LICENSE"
 
   # Framework-dependent publish: the .NET and ASP.NET Core shared runtime comes
-  # from the Wolfi aspnet-10-runtime package. HOME stays outside the build
-  # workspace because .NET creates mode 0700 state there that the workspace
-  # export cannot read.
+  # from the official Microsoft runtime installed after strip. HOME stays
+  # outside the build workspace because .NET creates mode 0700 state there that
+  # the workspace export cannot read.
   - name: Server
     runs: |
       export HOME="$(mktemp -d)"
@@ -202,6 +216,39 @@ pipeline:
 
   - uses: strip
 
+  # Installed after strip so the runtime stays byte-identical to the checksummed
+  # release archive. The sha512 values come from the official release metadata
+  # of this exact version:
+  # https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
+  # A version bump without matching checksums fails closed on the check below.
+  - name: ASP.NET Core runtime
+    runs: |
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=704751c6d671b720935a18849e8f10cdb6938549e9cf25493050ebc838a95eb5cb1caa9936d2edae3b85c5975778ed926e9b736e3a2582d861411babba3229c3
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=1d82a6822871c0e750d2d3d3b9b27657d24a2083eb999c2f78b39b0cd10862178cb2c6d21f941579cd521baf5738a78d3378e5754c5895a93d7546135eb40ec6
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=aspnetcore-runtime-${{vars.dotnet-runtime-version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/${{vars.dotnet-runtime-version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      dotnet="${{targets.destdir}}/usr/share/dotnet"
+      licenses="${{targets.destdir}}/usr/share/licenses/${{package.name}}/dotnet"
+      install -d "$dotnet" "$licenses" "${{targets.destdir}}/usr/bin"
+      tar --no-same-owner -xzf "/tmp/$archive" -C "$dotnet"
+      rm -f "/tmp/$archive"
+      mv "$dotnet/LICENSE.txt" "$dotnet/ThirdPartyNotices.txt" "$licenses/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi
+      # does not ship. It only loads when LTTng tracing is enabled explicitly.
+      rm -f "$dotnet"/shared/Microsoft.NETCore.App/*/libcoreclrtraceptprovider.so
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
+
 test:
   environment:
     contents:
@@ -212,6 +259,9 @@ test:
     - runs: |
         test -s /usr/lib/jellyfin/jellyfin.dll
         grep -F '"Microsoft.AspNetCore.App"' /usr/lib/jellyfin/jellyfin.runtimeconfig.json
+        dotnet --list-runtimes | grep -F 'Microsoft.AspNetCore.App ${{vars.dotnet-runtime-version}} '
+        dotnet --list-runtimes | grep -F 'Microsoft.NETCore.App ${{vars.dotnet-runtime-version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet
         test "$(readlink /usr/lib/jellyfin/libHarfBuzzSharp.so)" = ../libharfbuzz.so.0
         test -f /usr/lib/jellyfin/libHarfBuzzSharp.so
         if find /usr/lib/jellyfin -name 'System.Private.CoreLib.dll' | grep .; then
@@ -230,4 +280,4 @@ test:
         if "$ffmpeg" -hide_banner -encoders | grep -E ' (libx264|libx265|libopenh264|libfdk_aac) '; then
           exit 1
         fi
-        apk info --license verity-jellyfin | grep -Fx 'GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later'
+        apk info --license verity-jellyfin | grep -Fx 'GPL-2.0-only AND GPL-2.0-or-later AND LGPL-2.1-or-later AND MIT'
