@@ -2,7 +2,7 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-curl_image='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
+curl_index='docker.io/curlimages/curl:8.14.1@sha256:9a1ed35addb45476afa911696297f8e115993df459278ed036182dd2cd22b67b'
 prefix="verity-cert-manager-webhook-pdns-test-$$"
 server=$prefix-server
 tmp=$(mktemp -d)
@@ -22,6 +22,28 @@ fail() {
 inspect() {
   docker image inspect -f "$1" "$image"
 }
+
+# CI runs this script once per architecture on one host, and a classic image
+# store cannot bind the index digest to a second platform's image. Pull the
+# curl helper by its per-platform child digest after checking the index bytes
+# against the pinned digest, which keeps the pin authoritative.
+image_arch=$(inspect '{{.Architecture}}')
+pull_child() {
+  raw=$(docker buildx imagetools inspect --raw "$1") || fail "cannot inspect $1"
+  [ "sha256:$(printf '%s' "$raw" | sha256sum | cut -d' ' -f1)" = "${1#*@}" ] ||
+    fail "index digest mismatch for $1"
+  child=$(printf '%s' "$raw" | jq -r --arg arch "$image_arch" '
+    [.manifests[] | select(.platform.os == "linux" and .platform.architecture == $arch) | .digest]
+    | if length == 1 then .[0] else empty end') || fail "cannot resolve a child of $1"
+  case $child in
+    sha256:*) ;;
+    *) fail "no unique linux/$image_arch child in $1" ;;
+  esac
+  docker pull --quiet --platform "linux/$image_arch" "${1%%@*}@$child" >/dev/null ||
+    fail "cannot pull ${1%%@*}@$child"
+  printf '%s' "${1%%@*}@$child"
+}
+curl_image=$(pull_child "$curl_index")
 
 curl_in() {
   docker run --rm --network "container:$server" "$curl_image" "$@"
