@@ -1,0 +1,216 @@
+package:
+  name: verity-datadog-agent
+  # yamllint disable-line rule:line-length
+  version: "7.85.5"  # renovate: datasource=github-releases depName=DataDog/datadog-agent versioning=regex:^(?<major>7)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Open-source core Datadog Agent without the Python, JMX and NVIDIA check runtimes
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # sdjournal dlopens libsystemd.so.0 for journald log collection.
+      - libsystemd
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+vars:
+  source-commit: d836a175cccb038642d3143e6905cf349bc05b4a
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+      - py3-pyyaml
+      - systemd-dev
+      - zstd
+  environment:
+    # Upstream AGENT_TAGS and COMMON_TAGS (tasks/build_tags.bzl) minus the
+    # components this image excludes: python (rtloader, embedded CPython and the
+    # separate integrations-core bundle), jmx (the separate JMXFetch jar and a
+    # JVM), nvml (NVIDIA's proprietary libnvidia-ml) and jetson (NVIDIA's
+    # proprietary tegrastats). Kept in GOFLAGS so go/remediate resolves and
+    # validates the same package graph that is built.
+    # yamllint disable-line rule:line-length
+    GOFLAGS: -p=8 -tags=cel,consul,containerd,cri,crio,datadog.no_waf,docker,ec2,etcd,fargateprocess,kubeapiserver,kubelet,ncm,netcgo,oracle,orchestrator,otlp,podman,sharedlibrarycheck,systemd,systemprobechecks,trivy,zk,zlib,grpcnotrace,retrynotrace,trivy_no_javadb
+    GOMAXPROCS: "8"
+    GOTOOLCHAIN: local
+    # Upstream links the agent against glibc with cgo (netcgo, the journald
+    # tailer, shared-library checks and the optional godror Oracle driver).
+    CGO_ENABLED: "1"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/DataDog/datadog-agent
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # pkg/config/setup registers its settings from generated, git-ignored files,
+  # and pkg/config/schema embeds zstd-compressed copies of the config schemas.
+  # Upstream's agent.build runs `dda inv schema.codegen` and `schema.compress`
+  # (through Bazel) first; run the same generator modules directly instead of
+  # installing the invoke task tree, with the zstd arguments upstream pins in
+  # tasks/schema/generate.py (_ZSTD_ARGS).
+  - runs: |
+      cat >"${HOME}/schema_codegen.py" <<'PYTHON'
+      import os
+      import sys
+      import types
+
+      for name, path in (("tasks", "tasks"), ("tasks.schema", "tasks/schema")):
+          module = types.ModuleType(name)
+          module.__path__ = [os.path.abspath(path)]
+          sys.modules[name] = module
+
+      from tasks.schema.codegen_init_settings import (
+          run_codegen,
+          run_constants_codegen,
+          run_core_constant_codegen,
+      )
+      from tasks.schema.merge_schema import resolve_schema
+      from tasks.schema.produce_byproduct import produce_byproduct
+
+      schema_dir = "pkg/config/schema/yaml"
+      setup_dir = "pkg/config/setup"
+      core = resolve_schema(f"{schema_dir}/core_schema.yaml")
+      system_probe = resolve_schema(f"{schema_dir}/system-probe_schema.yaml")
+      run_codegen(core, setup_dir)
+      run_codegen(system_probe, setup_dir, sysprobe=True)
+      run_core_constant_codegen(core, setup_dir)
+      run_constants_codegen(core, system_probe, f"{setup_dir}/constants")
+      for name in ("core_schema", "system-probe_schema"):
+          produce_byproduct(
+              "embedded",
+              f"{schema_dir}/{name}.yaml",
+              f"pkg/config/schema/compressed/{name}.yaml",
+          )
+      PYTHON
+      python3 "${HOME}/schema_codegen.py"
+      for file in all_settings.go system_probe_settings.go generated.go constants/generated.go; do
+        [ -s "pkg/config/setup/$file" ]
+      done
+      for name in core_schema system-probe_schema; do
+        zstd -q --force --no-check -5 --rm "pkg/config/schema/compressed/$name.yaml" \
+          -o "pkg/config/schema/compressed/$name.yaml.zstd"
+        [ -s "pkg/config/schema/compressed/$name.yaml.zstd" ]
+      done
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/agent
+
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      # Same version stamps as `dda inv agent.build` (get_version_ldflags and
+      # get_build_flags in tasks/libs/common/utils.py), including the linker
+      # version script that keeps go-nvml style --export-dynamic symbols local.
+      # The tag has no v prefix and the root module has no /v7 suffix, so Go
+      # could only stamp a v0.0.0 pseudo-version; VCS stamping is off and
+      # metadata.yaml declares the scan identity instead.
+      module=github.com/DataDog/datadog-agent
+      payload=$(awk '$1 == "github.com/DataDog/agent-payload/v5" { split($2, v, /[-+]/); print v[1]; exit }' go.mod)
+      printf '%s\n' "$payload" | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+'
+      ldflags="-s -w -X $module/pkg/version.AgentVersion=${{package.version}}"
+      ldflags="$ldflags -X $module/pkg/version.AgentPackageVersion=${{package.version}}"
+      ldflags="$ldflags -X $module/pkg/version.Commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-7)"
+      ldflags="$ldflags -X $module/pkg/version.FullCommit=${{vars.source-commit}}"
+      ldflags="$ldflags -X $module/pkg/version.AgentPayloadVersion=$payload"
+      ldflags="$ldflags -extldflags=-Wl,--version-script=$(pwd)/datadog-agent.map"
+      # Upstream install layout: the agent resolves its install and run paths
+      # from its own location (/opt/datadog-agent/bin/agent/agent).
+      bin="${{targets.destdir}}/opt/datadog-agent/bin/agent/agent"
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="$ldflags" -o "$bin" ./cmd/agent
+      # Guard the binary identity and the excluded components: the agent main
+      # package of the root module, no pseudo-version that would mis-version
+      # the scan, and none of the excluded build tags.
+      go version -m "$bin" | awk '$1 == "path" { print $2 }' | grep -Fx "$module/cmd/agent"
+      go version -m "$bin" | awk -v m="$module" '$1 == "mod" && $2 == m { print $3 }' | grep -Fx '(devel)'
+      tags=$(go version -m "$bin" | awk '$1 == "build" && $2 ~ /^-tags=/ { sub(/^-tags=/, "", $2); print $2 }')
+      for tag in python jmx nvml jetson; do
+        if printf '%s\n' "$tags" | tr ',' '\n' | grep -Fx "$tag"; then
+          printf 'excluded build tag %s is set\n' "$tag" >&2
+          exit 1
+        fi
+      done
+      printf '%s\n' "$tags" | tr ',' '\n' | grep -Fx systemd
+      if go version -m "$bin" | awk '$1 == "dep" { print $2 }' | grep -E '^github\.com/NVIDIA/'; then
+        printf 'NVIDIA modules linked into the agent\n' >&2
+        exit 1
+      fi
+      "$bin" version | grep -F "Agent ${{package.version}} - Commit: "
+      mkdir -p "${{targets.destdir}}/usr/bin"
+      ln -s /opt/datadog-agent/bin/agent/agent "${{targets.destdir}}/usr/bin/agent"
+      # The upstream image ships an empty datadog.yaml (cont-init.d/59-defaults.sh)
+      # and the Docker install_info.
+      install -Dm644 /dev/null "${{targets.destdir}}/etc/datadog-agent/datadog.yaml"
+      install -Dm644 Dockerfiles/agent/install_info "${{targets.destdir}}/etc/datadog-agent/install_info"
+      # Default check configs for the Go core checks in this build: upstream's
+      # Linux AGENT_CORECHECKS (cmd/agent/dist/core_checks.bzl) minus jmx, gpu,
+      # nccl and jetson, plus the in-repo Go disk check config that replaces
+      # the integrations-core disk default. The network check config ships as
+      # an example: the upstream image removes it unless /host/proc is mounted,
+      # which this shell-less image cannot test at startup.
+      confd="${{targets.destdir}}/etc/datadog-agent/conf.d"
+      for check in cisco_sdwan cloud_hostinfo container container_image container_lifecycle \
+        containerd cpu cri datadog_csi_driver discovery disk docker file_handle go_expvar io \
+        load memory network_config_management network_path ntp oom_kill oracle \
+        orchestrator_ecs orchestrator_kubelet_config orchestrator_pod sbom snmp systemd \
+        tcp_queue_length telemetry uptime versa; do
+        for file in cmd/agent/dist/conf.d/"$check".d/*; do
+          install -Dm644 "$file" "$confd/$check.d/$(basename "$file")"
+        done
+      done
+      install -Dm644 cmd/agent/dist/conf.d/network.d/conf.yaml.default \
+        "$confd/network.d/conf.yaml.example"
+      install -d "${{targets.destdir}}/etc/datadog-agent/checks.d"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+      install -Dm644 LICENSE-3rdparty.csv \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-3rdparty.csv"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the datadog-agent build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/datadog-agent-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 go.work "$dir/go.work"
+          install -Dm644 go.work.sum "$dir/go.work.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        agent version | grep -F "Agent ${{package.version}} - Commit: "
+        [ "$(readlink /usr/bin/agent)" = /opt/datadog-agent/bin/agent/agent ]
+        [ -f /etc/datadog-agent/datadog.yaml ]
+        [ -f /etc/datadog-agent/conf.d/cpu.d/conf.yaml.default ]
+        [ -f /etc/datadog-agent/conf.d/disk.d/conf.yaml.default ]
+        [ ! -e /etc/datadog-agent/conf.d/jmx.d ]
+        [ ! -e /etc/datadog-agent/conf.d/network.d/conf.yaml.default ]
+        apk info --who-owns /opt/datadog-agent/bin/agent/agent | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: DataDog/datadog-agent
