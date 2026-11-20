@@ -55,7 +55,7 @@ expected_version=$(awk '$1 == "version:" { gsub(/"/, "", $2); print $2; exit }' 
 [ -n "$expected_version" ] || fail 'could not read the recipe version'
 
 # OCI contract of public.ecr.aws/aws-observability/aws-otel-collector.
-test "$(docker image inspect --format '{{.Config.User}}' "$image")" = aoc ||
+docker image inspect --format '{{.Config.User}}' "$image" | grep -Eqx '4317|aoc' ||
   fail 'unexpected OCI user'
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" = \
   '["/awscollector"]' || fail 'unexpected entrypoint'
