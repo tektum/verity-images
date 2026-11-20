@@ -410,6 +410,15 @@ Keep external sources in these layouts:
   recipe and name there when you add such a pin; `scripts/test_melange_source_pins.py`
   fails a recipe with an uncovered secondary pin, and a covered recipe whose
   secondary pins and match strings disagree.
+- An `apko.yaml` value that must equal a secondary pin (for example
+  `TRIVY_VERSION` in `images/harbor-scanner-trivy`, which the adapter reports
+  as the scanner version) carries the pin's annotation verbatim. The companion
+  manager in `renovate.json` lists each such `apko.yaml` and resolves the value
+  as a `source` dependency of the same GitHub repository, so it gets the pin's
+  update and branch and both files change in one pull request.
+  `scripts/test_melange_source_pins.py` fails an annotated `apko.yaml` value
+  that the manager does not cover, or one whose annotation, value, or
+  repository differs from its pin.
 - A smoke-test peer image in `images/datadog-cluster-agent/tests/test.sh` uses
   `registry/repository:tag@sha256:...`. The tag names the stream; Renovate
   moves only the digest within it, weekly, as a review-required pull request

@@ -107,6 +107,17 @@
       "depTypeTemplate": "test-peer",
       "datasourceTemplate": "docker",
       "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Secondary source pin companions: an image apko.yaml environment value that must equal a melange vars.<name>-version (harbor-scanner-trivy TRIVY_VERSION, which the adapter reports as the scanner version) carries the same annotation. As a git-tags source dep of the same repository it resolves the same update, branch, and rules as the secondary pin, so Renovate rewrites both files in one pull request.",
+      "managerFilePatterns": ["/^images/harbor-scanner-trivy/apko\\.yaml$/"],
+      "matchStrings": [
+        "(?m)^  [A-Z][A-Z0-9_]*: [\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=\\S+[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*$"
+      ],
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "https://github.com/{{{depName}}}"
     }
   ],
   "packageRules": [

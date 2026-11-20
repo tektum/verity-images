@@ -51,6 +51,7 @@ EXPECTED_EXTRACT_VERSION_TEMPLATE = (
 
 PRIMARY_DESCRIPTION = "Melange source pins:"
 SECONDARY_DESCRIPTION = "Melange secondary source pins:"
+COMPANION_DESCRIPTION = "Secondary source pin companions:"
 EXPECTED_SECONDARY_TEMPLATE = (
     "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue "
     "(replace '^(  [a-z0-9-]+-(?:version|tag): \\W?)v?[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' "
@@ -68,7 +69,9 @@ UNTRACKED_SECONDARY = {"images/trino/melange.yaml": {"launcher"}}
 def source_managers() -> list[dict]:
     managers = json.loads(RENOVATE.read_text(encoding="utf-8"))["customManagers"]
     found = [manager for manager in managers if manager.get("depTypeTemplate") == "source"]
-    assert len(found) == 2, "renovate.json must define one melange source manager and one secondary one"
+    assert len(found) == 3, (
+        "renovate.json must define one melange source manager, one secondary one, and one for their companions"
+    )
     return found
 
 
@@ -81,6 +84,12 @@ def source_manager() -> dict:
 def secondary_manager() -> dict:
     found = [m for m in source_managers() if m.get("description", "").startswith(SECONDARY_DESCRIPTION)]
     assert len(found) == 1, "renovate.json must define exactly one melange secondary source manager"
+    return found[0]
+
+
+def companion_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(COMPANION_DESCRIPTION)]
+    assert len(found) == 1, "renovate.json must define exactly one secondary source companion manager"
     return found[0]
 
 
@@ -627,9 +636,77 @@ def test_secondary(manager: dict, primary: dict) -> int:
     return covered
 
 
+def test_companions(manager: dict, secondary: dict) -> int:
+    """Companions: an apko.yaml value that must equal a secondary pin moves with it.
+
+    The companion manager resolves the value as a git-tags source dep of the
+    pin's repository, so Renovate gives it the pin's update, rules, and branch.
+    Every annotated apko.yaml value must be covered; its annotation and value
+    must equal the pin's, and Renovate's default replacement (currentValue to
+    newValue inside the match) must rewrite exactly that line.
+    """
+    assert manager["datasourceTemplate"] == "git-tags"
+    assert manager["packageNameTemplate"] == "https://github.com/{{{depName}}}"
+    assert "autoReplaceStringTemplate" not in manager
+    assert len(manager["matchStrings"]) == 1
+    pattern = python_pattern(manager["matchStrings"][0])
+    patterns = file_patterns(manager)
+    secondary_patterns = file_patterns(secondary)
+    covered = 0
+    problems = []
+    for path in sorted((ROOT / "images").rglob("apko.yaml")):
+        relative = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        annotated = [index for index, line in enumerate(lines) if re.search(r"#[ \t]*renovate:", line)]
+        if not any(file_pattern.search(relative) for file_pattern in patterns):
+            # Otherwise only the security-floor manager sees the value, and it
+            # opens no ordinary updates, so the value would drift from its pin.
+            if annotated:
+                problems.append(f"{relative}: annotated values are not covered by the companion manager")
+            continue
+        covered += 1
+        matches = list(pattern.finditer(text))
+        if [text.count("\n", 0, match.start()) for match in matches] != annotated:
+            problems.append(f"{relative}: the companion match string does not match every annotated line")
+        recipe = path.with_name("melange.yaml")
+        recipe_relative = recipe.relative_to(ROOT).as_posix()
+        if not recipe.exists() or not any(file_pattern.search(recipe_relative) for file_pattern in secondary_patterns):
+            problems.append(f"{relative}: {recipe_relative} is not covered by the secondary manager")
+            continue
+        pins = extract(secondary, recipe.read_text(encoding="utf-8"))
+        for match in matches:
+            name = match["depName"]
+            peers = [pin for pin in pins if pin["depName"] == name]
+            if len(peers) != 1:
+                problems.append(f"{relative}: {name} has {len(peers)} secondary pins in {recipe_relative}; expected one")
+                continue
+            pin = peers[0]
+            annotation = match[0][match[0].index("renovate:") :].rstrip()
+            pin_line = pin[0].splitlines()[0]
+            if pin_line[pin_line.index("renovate:") :].rstrip() != annotation:
+                problems.append(f"{relative}: {name} annotation differs from its pin in {recipe_relative}")
+            if match["currentValue"] != pin["currentValue"]:
+                problems.append(f"{relative}: {name} is {match['currentValue']}, its pin is {pin['currentValue']}")
+            if pin["repository"] != f"https://github.com/{name}":
+                problems.append(f"{relative}: {name} pin checks out {pin['repository']}, not https://github.com/{name}")
+            new_value = bumped(match["currentValue"])
+            region = match[0].replace(match["currentValue"], new_value)
+            upgraded = text[: match.start()] + region + text[match.end() :]
+            new_lines = upgraded.splitlines()
+            changed = [index for index, (old, new) in enumerate(zip(lines, new_lines)) if old != new]
+            rematched = [found["currentValue"] for found in pattern.finditer(upgraded) if found["depName"] == name]
+            if len(new_lines) != len(lines) or len(changed) != 1 or rematched != [new_value]:
+                problems.append(f"{relative}: {name} replacement did not rewrite exactly its value")
+    assert not problems, "\n".join(problems)
+    assert covered, "secondary source companion manager covers no apko.yaml"
+    return covered
+
+
 def main() -> None:
     manager = source_manager()
     secondary = test_secondary(secondary_manager(), manager)
+    companions = test_companions(companion_manager(), secondary_manager())
     test_manager_shape(manager)
     test_fixtures(manager)
     literal, var = test_repository(manager)
@@ -637,7 +714,7 @@ def main() -> None:
     print(
         f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins; "
         f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams; "
-        f"{secondary} recipes with secondary pins)"
+        f"{secondary} recipes with secondary pins, {companions} with apko companions)"
     )
 
 
