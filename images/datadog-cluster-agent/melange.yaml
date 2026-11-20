@@ -1,0 +1,188 @@
+package:
+  name: verity-datadog-cluster-agent
+  # yamllint disable-line rule:line-length
+  version: "7.85.5"  # renovate: datasource=github-releases depName=DataDog/datadog-agent versioning=regex:^(?<major>7)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Datadog Cluster Agent, the cluster-level companion of the Datadog Agent
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: d836a175cccb038642d3143e6905cf349bc05b4a
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+      - py3-pyyaml
+  environment:
+    # Upstream builds the cluster agent with its default (dynamic) flags, but
+    # none of the cluster-agent build tags pull in a cgo-only dependency, and
+    # pkg/zstd has a pure Go !cgo path. The repository go.work (root module
+    # plus every pkg/comp submodule) is the build context, and go/remediate
+    # keeps it in sync.
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/DataDog/datadog-agent
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # pkg/config/setup registers its settings from generated, git-ignored files,
+  # and the shipped datadog-cluster.yaml is rendered from the same schema.
+  # Upstream's cluster-agent.build runs `dda inv schema.codegen` and then
+  # generate_template(..., "dca", "linux"); run the same generator modules
+  # directly instead of installing the invoke task tree.
+  - runs: |
+      cat >"${HOME}/schema_codegen.py" <<'PYTHON'
+      import os
+      import sys
+      import types
+
+      for name, path in (("tasks", "tasks"), ("tasks.schema", "tasks/schema")):
+          module = types.ModuleType(name)
+          module.__path__ = [os.path.abspath(path)]
+          sys.modules[name] = module
+
+      # tasks.schema.template imports invoke only for @task and Exit.
+      invoke = types.ModuleType("invoke")
+      invoke.task = lambda *a, **k: a[0] if a and callable(a[0]) else (lambda f: f)
+      exceptions = types.ModuleType("invoke.exceptions")
+      exceptions.Exit = SystemExit
+      invoke.exceptions = exceptions
+      sys.modules["invoke"] = invoke
+      sys.modules["invoke.exceptions"] = exceptions
+
+      from tasks.schema.codegen_init_settings import (
+          run_codegen,
+          run_constants_codegen,
+          run_core_constant_codegen,
+      )
+      from tasks.schema.merge_schema import resolve_schema
+      from tasks.schema.template import CORE_SCHEMA_FILE, generate_template
+
+      schema_dir = "pkg/config/schema/yaml"
+      setup_dir = "pkg/config/setup"
+      core = resolve_schema(f"{schema_dir}/core_schema.yaml")
+      system_probe = resolve_schema(f"{schema_dir}/system-probe_schema.yaml")
+      run_codegen(core, setup_dir)
+      run_codegen(system_probe, setup_dir, sysprobe=True)
+      run_core_constant_codegen(core, setup_dir)
+      run_constants_codegen(core, system_probe, f"{setup_dir}/constants")
+      generate_template(
+          CORE_SCHEMA_FILE,
+          "Dockerfiles/cluster-agent/datadog-cluster.yaml",
+          "dca",
+          "linux",
+      )
+      PYTHON
+      python3 "${HOME}/schema_codegen.py"
+      for file in all_settings.go system_probe_settings.go generated.go constants/generated.go; do
+        [ -s "pkg/config/setup/$file" ]
+      done
+      grep -q '^api_key:' Dockerfiles/cluster-agent/datadog-cluster.yaml
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/cluster-agent
+
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      # Same build tags and version stamps as `dda inv cluster-agent.build`
+      # (tasks/cluster_agent_helpers.py, tasks/build_tags.bzl
+      # CLUSTER_AGENT_TAGS, get_version_ldflags). The tag has no v prefix and
+      # the root module has no /v7 suffix, so Go could only stamp a v0.0.0
+      # pseudo-version; VCS stamping is off and metadata.yaml declares the
+      # scan identity instead.
+      module=github.com/DataDog/datadog-agent
+      payload=$(awk '$1 == "github.com/DataDog/agent-payload/v5" { split($2, v, /[-+]/); print v[1]; exit }' go.mod)
+      printf '%s\n' "$payload" | grep -Ex 'v[0-9]+\.[0-9]+\.[0-9]+'
+      ldflags="-s -w -X $module/pkg/version.AgentVersion=${{package.version}}"
+      ldflags="$ldflags -X $module/pkg/version.Commit=$(printf '%s' '${{vars.source-commit}}' | cut -c1-7)"
+      ldflags="$ldflags -X $module/pkg/version.FullCommit=${{vars.source-commit}}"
+      ldflags="$ldflags -X $module/pkg/version.AgentPayloadVersion=$payload"
+      bin="${{targets.destdir}}/usr/bin/datadog-cluster-agent"
+      go build -mod=readonly -trimpath -buildvcs=false \
+        -tags "cel clusterchecks datadog.no_waf ec2 kubeapiserver orchestrator zlib" \
+        -ldflags="$ldflags" -o "$bin" ./cmd/cluster-agent
+      # Guard the binary identity: the cluster-agent main package of the root
+      # module, with no pseudo-version that would mis-version the scan.
+      go version -m "$bin" | awk '$1 == "path" { print $2 }' | grep -Fx "$module/cmd/cluster-agent"
+      go version -m "$bin" | awk -v m="$module" '$1 == "mod" && $2 == m { print $3 }' | grep -Fx '(devel)'
+      tags=-tags=cel,clusterchecks,datadog.no_waf,ec2,kubeapiserver,orchestrator,zlib
+      go version -m "$bin" | awk -v t="$tags" '$1 == "build" && $2 == t { f = 1 } END { exit !f }'
+      "$bin" version | grep -F "Cluster Agent ${{package.version}} - Commit: "
+      # The upstream image installs the binary in /opt/datadog-agent/bin, puts
+      # that directory on PATH, and links `agent` to it.
+      optbin="${{targets.destdir}}/opt/datadog-agent/bin"
+      mkdir -p "$optbin"
+      ln -s /usr/bin/datadog-cluster-agent "$optbin/datadog-cluster-agent"
+      ln -s /usr/bin/datadog-cluster-agent "$optbin/agent"
+      # Upstream image configuration, minus the shell entrypoint and the
+      # security-agent-policies compliance bundle (a separate repository).
+      etc="${{targets.destdir}}/etc/datadog-agent"
+      install -Dm644 Dockerfiles/cluster-agent/datadog-cluster.yaml "$etc/datadog-cluster.yaml"
+      install -Dm644 Dockerfiles/cluster-agent/install_info "$etc/install_info"
+      for check in kubernetes_apiserver orchestrator; do
+        install -Dm644 "Dockerfiles/cluster-agent/conf.d/$check.d/conf.yaml.default" \
+          "$etc/conf.d/$check.d/conf.yaml.default"
+      done
+      install -Dm644 pkg/privateactionrunner/autoconnections/conf/script-config.yaml \
+        "$etc/private-action-runner/script-config.yaml"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the cluster agent build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/datadog-cluster-agent-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 go.work "$dir/go.work"
+          install -Dm644 go.work.sum "$dir/go.work.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        datadog-cluster-agent version | grep -F "Cluster Agent ${{package.version}} - Commit: "
+        [ "$(readlink /opt/datadog-agent/bin/datadog-cluster-agent)" = /usr/bin/datadog-cluster-agent ]
+        [ "$(readlink /opt/datadog-agent/bin/agent)" = /usr/bin/datadog-cluster-agent ]
+        grep -q '^api_key:' /etc/datadog-agent/datadog-cluster.yaml
+        grep -Fx 'ad_identifiers:' /etc/datadog-agent/conf.d/orchestrator.d/conf.yaml.default
+        [ -s /etc/datadog-agent/conf.d/kubernetes_apiserver.d/conf.yaml.default ]
+        apk info --who-owns /usr/bin/datadog-cluster-agent | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: DataDog/datadog-agent
