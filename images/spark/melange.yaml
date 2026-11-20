@@ -64,6 +64,8 @@ environment:
       - ca-certificates-bundle
       - curl
       - git
+      # The protoc and gRPC plugin binaries Maven downloads link libstdc++.
+      - libstdc++
       - maven-3.9
       - openjdk-21-default-jdk
       - patch
