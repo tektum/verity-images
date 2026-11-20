@@ -68,12 +68,14 @@ docker volume create "$config_volume" >/dev/null
 docker volume create "$cache_volume" >/dev/null
 docker volume create "$media_volume" >/dev/null
 
-# A small VP9/Opus clip for the library scan, written by the bundled ffmpeg.
+# A small VP9/Opus video for the library scan, written by the bundled ffmpeg.
+# Avoid extra-type suffixes such as -clip or -sample: Jellyfin files those as
+# hidden extras instead of library videos.
 docker run --rm --entrypoint /usr/lib/jellyfin-ffmpeg/ffmpeg -v "$media_volume:/media" "$image" \
   -hide_banner -loglevel error -nostdin \
   -f lavfi -i testsrc=duration=2:size=128x96:rate=10 \
   -f lavfi -i sine=frequency=440:duration=2 \
-  -c:v libvpx-vp9 -c:a libopus -shortest /media/verity-clip.webm ||
+  -c:v libvpx-vp9 -c:a libopus -shortest /media/verity.webm ||
   fail "could not encode the test clip"
 
 port=
