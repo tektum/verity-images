@@ -56,13 +56,20 @@ step 'image layout'
 [ "$(run "$image" id -g)" = 185 ] || fail 'runtime group is not 185'
 run "$image" sh -c '
   set -e
-  [ -x /opt/decom.sh ] && [ -x /usr/bin/tini ] && [ -x /usr/bin/python3 ]
-  [ -f /opt/spark/RELEASE ] && [ -d /opt/spark/python/pyspark ]
+  test -x /opt/decom.sh
+  test -x /usr/bin/tini
+  test -x /usr/bin/python3
+  test -f /opt/spark/RELEASE
+  test -d /opt/spark/python/pyspark
   ls /opt/spark/python/lib/py4j-*-src.zip /opt/spark/python/lib/pyspark.zip >/dev/null
-  touch /opt/spark/work-dir/probe && rm /opt/spark/work-dir/probe
+  touch /opt/spark/work-dir/probe
+  rm /opt/spark/work-dir/probe
   if ls /opt/spark/jars | grep -E "^(hive-exec|hive-metastore|spark-hive|spark-yarn)"; then exit 1; fi
   ls /opt/spark/jars/spark-kubernetes_*.jar >/dev/null
 ' || fail 'unexpected image layout'
+# Group 0 can write the working directory, also for a UID without a passwd entry.
+run -u 1000770000:0 "$image" sh -c 'touch probe; rm probe' ||
+  fail 'group 0 cannot write the working directory'
 
 step 'java -version'
 run "$image" java -version >"$work/java.log" 2>&1 || show_fail "$work/java.log" 'java -version failed'
@@ -130,21 +137,26 @@ step 'negative cases'
 # Negative cases: a missing main class fails, the Hive SQL CLI is not built in, and
 # a UID without a passwd entry is rejected by Hadoop's login (Wolfi has no
 # nss_wrapper for the entrypoint's fake-passwd fallback).
-if run "$image" spark-submit --master 'local[1]' --class org.example.Missing \
-  /opt/spark/examples/jars/spark-examples.jar >"$work/missing.log" 2>&1; then
+# A timeout (124) is a hang, not the expected failure.
+expect_failure() {
+  log=$1
+  shift
+  status=0
+  run "$@" >"$log" 2>&1 || status=$?
+  [ "$status" -ne 124 ] || show_fail "$log" "timed out instead of failing: $*"
+  [ "$status" -ne 0 ]
+}
+expect_failure "$work/missing.log" "$image" spark-submit --master 'local[1]' \
+  --class org.example.Missing /opt/spark/examples/jars/spark-examples.jar ||
   fail 'spark-submit with a missing class succeeded'
-fi
 grep -q 'Failed to load class org.example.Missing' "$work/missing.log" ||
   show_fail "$work/missing.log" 'missing class did not fail clearly'
-if run "$image" spark-sql -e 'SELECT 1' >"$work/hive.log" 2>&1; then
+expect_failure "$work/hive.log" "$image" spark-sql -e 'SELECT 1' ||
   fail 'spark-sql (Hive) unexpectedly available'
-fi
 grep -q 'You need to build Spark with -Phive' "$work/hive.log" || show_fail "$work/hive.log" 'spark-sql did not fail clearly'
-if run -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
-  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 1 \
-  >"$work/uid.log" 2>&1; then
+expect_failure "$work/uid.log" -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
+  --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 1 ||
   fail 'a UID without a passwd entry unexpectedly ran Spark'
-fi
 grep -q 'Invalid UID, could not determine effective user' "$work/uid.log" ||
   show_fail "$work/uid.log" 'unknown UID did not fail clearly'
 

@@ -35,8 +35,9 @@ environment:
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
 
 paths:
-  # Group 0 can write, so arbitrary UIDs (OpenShift) keep the default
-  # spark-warehouse and scratch files in the working directory.
+  # Group 0 can write the working directory (asserted by the smoke test). Spark
+  # itself still needs UID 185: Hadoop login rejects a UID without a passwd
+  # entry and Wolfi has no nss_wrapper, so arbitrary UIDs cannot run Spark.
   - path: /opt/spark/work-dir
     type: directory
     uid: 185
