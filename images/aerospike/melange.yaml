@@ -78,6 +78,15 @@ pipeline:
       shallow-submodules: true
       submodule-jobs: 8
 
+  # asd refuses to start when proto-fd-max (15000) exceeds the soft
+  # RLIMIT_NOFILE. Current Docker and containerd start containers with a soft
+  # limit of 1024 under a much higher hard limit (Docker 29: 1024/524288), and
+  # the packaged service relies on systemd's LimitNOFILE instead. Raise the
+  # soft limit to the hard limit first, which needs no privilege.
+  - uses: patch
+    with:
+      patches: raise-nofile-soft-limit.patch
+
   - runs: |
       # build/version stamps the binary from the nearest numeric tag on a
       # release line. The shallow checkout only holds the v-prefixed tag, so

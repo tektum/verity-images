@@ -234,8 +234,10 @@ info_value() {
   printf '%s\n' "$1" | awk -F '\t' -v key="$2" '$1 == key { print $2 }'
 }
 
-# Positive: an in-memory namespace from a mounted config.
-docker run -d --name "$memory" --label "$label" \
+# Positive: an in-memory namespace from a mounted config. The soft open-file
+# limit starts below proto-fd-max (15000), as under current Docker and
+# containerd defaults; asd must raise it to the hard limit and start.
+docker run -d --name "$memory" --label "$label" --ulimit nofile=1024:65536 \
   -v "$work/fixture:/fixture:ro" "$image" --config-file /fixture/memory.conf >/dev/null ||
   fail 'could not start asd with the in-memory config'
 wait_ready "$memory"
@@ -265,6 +267,8 @@ digest=0123456789abcdef0123456789abcdef01234567
   fail 'missing record did not return KEY_NOT_FOUND (2)'
 docker logs "$memory" 2>&1 | grep -q 'service ready: soon there will be cake!' ||
   fail 'asd did not log service readiness'
+docker logs "$memory" 2>&1 | grep -q 'system file descriptor limit: 65536, proto-fd-max: 15000' ||
+  fail 'asd did not raise the soft open-file limit to the hard limit'
 docker rm -f "$memory" >/dev/null
 
 # Negative: an invalid config must stop asd with a parse error, not start it.
