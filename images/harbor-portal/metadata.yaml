@@ -1,0 +1,8 @@
+name: harbor-portal
+track: wolfi
+description: Harbor web portal served by nginx, built from a pinned upstream source commit.
+category: CI/CD & GitOps
+upstream: https://github.com/goharbor/harbor
+versions: [2.15]
+owner: tektum
+enabled: true

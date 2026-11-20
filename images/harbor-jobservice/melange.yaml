@@ -1,0 +1,114 @@
+package:
+  name: verity-harbor-jobservice
+  # yamllint disable-line rule:line-length
+  version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Harbor job service for replication, garbage collection, scans, and webhooks
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v2.15.5 is a lightweight tag on this commit.
+  source-commit: 8c17ef6ede52bf95c8b98c530d5d50cb315a134d
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/goharbor/harbor
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: src
+      packages: ./jobservice
+
+  # Upstream release builds use GOBUILDTAGS="include_oss include_gcs"; the
+  # version stamp matches the core build so every component reports the same
+  # release.
+  - uses: go/build
+    with:
+      packages: ./jobservice
+      modroot: src
+      output: harbor_jobservice
+      go-package: go-1.27
+      tags: include_oss,include_gcs
+      ldflags: |
+        -buildid=
+        -X github.com/goharbor/harbor/src/pkg/version.ReleaseVersion=v${{package.version}}
+        -X github.com/goharbor/harbor/src/pkg/version.GitCommit=$(git rev-parse --short=8 HEAD)
+
+  # The upstream image keeps the binary at /harbor/harbor_jobservice; that path stays a
+  # symlink so deployments that override the command keep working.
+  - runs: |
+      set -eu
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      binary="${{targets.destdir}}/usr/bin/harbor_jobservice"
+      go version -m "$binary" | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/goharbor/harbor/src/jobservice
+      install -d "${{targets.destdir}}/harbor"
+      ln -s /usr/bin/harbor_jobservice "${{targets.destdir}}/harbor/harbor_jobservice"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Harbor jobservice build
+    pipeline:
+      - runs: |
+          install -Dm644 src/go.mod \
+            "${{targets.subpkgdir}}/usr/share/harbor-jobservice-build/go.mod"
+          install -Dm644 src/go.sum \
+            "${{targets.subpkgdir}}/usr/share/harbor-jobservice-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -x /usr/bin/harbor_jobservice
+        test "$(readlink /harbor/harbor_jobservice)" = /usr/bin/harbor_jobservice
+        apk info --who-owns /usr/bin/harbor_jobservice \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: goharbor/harbor
+    strip-prefix: v
+    tag-filter-prefix: v2.15
+    use-tag: true

@@ -1,0 +1,171 @@
+package:
+  name: verity-harbor-portal
+  # yamllint disable-line rule:line-length
+  version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Harbor web portal and API explorer, served by nginx
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - nginx-mainline
+      - nginx-mainline-mime-types
+      - verity-harbor-portal-nginx-config
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v2.15.5 is a lightweight tag on this commit.
+  source-commit: 8c17ef6ede52bf95c8b98c530d5d50cb315a134d
+  webroot: /usr/share/nginx/html
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - nodejs-22
+      - npm
+      - python3
+  environment:
+    NODE_OPTIONS: --max_old_space_size=4096
+    NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/goharbor/harbor
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Same steps as make/photon/portal/Dockerfile: install from the committed
+  # lockfiles, generate the API client from api/v2.0/swagger.yaml, build the
+  # Angular production bundle, then the swagger-ui developer center.
+  - name: Build portal
+    runs: |
+      set -eu
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      cp api/v2.0/swagger.yaml src/portal/swagger.yaml
+      cd src/portal
+      npm ci --unsafe-perm --ignore-scripts --no-optional --no-audit --no-fund --loglevel=error
+      npm run postinstall
+      npm run generate-build-timestamp
+      node --max_old_space_size=2048 node_modules/@angular/cli/bin/ng build --configuration production
+      node -e "const yaml = require('js-yaml'); const fs = require('fs');
+        fs.writeFileSync('swagger.json',
+          JSON.stringify(yaml.load(fs.readFileSync('swagger.yaml', 'utf8'))));"
+      cp ../../LICENSE dist/
+      cd app-swagger-ui
+      npm ci --unsafe-perm --no-optional --no-audit --no-fund --loglevel=error
+      npm run build
+      cd ..
+      test -s dist/index.html
+      test -s app-swagger-ui/dist/swagger-ui-index.html
+      webroot="${{targets.destdir}}${{vars.webroot}}"
+      install -d "$webroot"
+      cp -R dist/. "$webroot/"
+      cp swagger.json "$webroot/"
+      cp -R app-swagger-ui/dist/. "$webroot/"
+      find "$webroot" -type d -exec chmod 755 {} +
+      find "$webroot" -type f -exec chmod 644 {} +
+      install -Dm644 ../../LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  # Harbor deployments mount their own /etc/nginx/nginx.conf. The default
+  # here is the non-TLS rendering of upstream's
+  # make/photon/prepare/templates/portal/nginx.conf.jinja, with logs on the
+  # container streams, so the image serves the portal on 8080 unprivileged.
+  - name: ${{package.name}}-nginx-config
+    description: Default nginx configuration for the Harbor portal
+    dependencies:
+      provides:
+        - nginx-config=${{package.full-version}}
+    pipeline:
+      - runs: |
+          set -eu
+          install -d "${{targets.subpkgdir}}/etc/nginx"
+          cat > "${{targets.subpkgdir}}/etc/nginx/nginx.conf" <<'CONF'
+          worker_processes auto;
+          pid /tmp/nginx.pid;
+          error_log stderr notice;
+
+          events {
+              worker_connections  1024;
+          }
+
+          http {
+              access_log /dev/stdout;
+              client_body_temp_path /tmp/client_body_temp;
+              proxy_temp_path /tmp/proxy_temp;
+              fastcgi_temp_path /tmp/fastcgi_temp;
+              uwsgi_temp_path /tmp/uwsgi_temp;
+              scgi_temp_path /tmp/scgi_temp;
+
+              server {
+                  listen 8080;
+                  server_name  localhost;
+
+                  root   /usr/share/nginx/html;
+                  index  index.html index.htm;
+                  include /etc/nginx/mime.types;
+
+                  gzip on;
+                  gzip_min_length 1000;
+                  gzip_proxied expired no-cache no-store private auth;
+                  gzip_types text/plain text/css application/json application/javascript
+                      application/x-javascript text/xml application/xml application/xml+rss
+                      text/javascript;
+
+                  location /devcenter-api-2.0 {
+                      try_files $uri $uri/ /swagger-ui-index.html;
+                  }
+
+                  location / {
+                      try_files $uri $uri/ /index.html;
+                  }
+
+                  location = /index.html {
+                      add_header Cache-Control "no-store, no-cache, must-revalidate";
+                  }
+              }
+          }
+          CONF
+          chmod 644 "${{targets.subpkgdir}}/etc/nginx/nginx.conf"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -s /usr/share/nginx/html/index.html
+        test -s /usr/share/nginx/html/swagger.json
+        test -s /usr/share/nginx/html/swagger-ui-index.html
+        grep -F '"title":"Harbor API"' /usr/share/nginx/html/swagger.json
+        grep -F 'listen 8080;' /etc/nginx/nginx.conf
+        nginx -t -c /etc/nginx/nginx.conf
+        apk info --who-owns /usr/share/nginx/html/index.html \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: goharbor/harbor
+    strip-prefix: v
+    tag-filter-prefix: v2.15
+    use-tag: true
