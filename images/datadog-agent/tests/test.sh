@@ -227,7 +227,12 @@ print(json.dumps(value) if isinstance(value, (list, dict)) else value)
 [ "$(field argv)" = "[\"$agent\", \"run\"]" ] ||
   fail "unexpected process argv: $(field argv)"
 [ "$(field live.status)" = 200 ] || fail "live probe returned $(field live.status)"
-[ "$(field ready.Unhealthy)" = '[]' ] || fail "unhealthy components: $(field ready.Unhealthy)"
+# The ready body is {"Healthy": [...], "Unhealthy": null} once every component is up.
+case $(field ready.Unhealthy) in
+  None | '[]') ;;
+  *) fail "unhealthy components: $(field ready.Unhealthy)" ;;
+esac
+[ "$(field ready.Healthy)" != None ] || fail 'the ready probe lists no healthy components'
 for check in cpu disk file_handle io load memory uptime; do
   [ "$(field "checks.$check.errors")" = 0 ] ||
     fail "core check $check failed: $(field "checks.$check.last_error")"
@@ -243,12 +248,17 @@ done
 [ "$(field udp.PacketReadingErrors)" = 0 ] || fail 'UDP listener reported read errors'
 
 # The CLI reaches the running agent over its authenticated IPC API.
-health=$(docker exec "$server" agent health 2>&1) || fail "agent health failed: $health"
+# CLI commands inherit DD_LOG_LEVEL=info, and the CLI logs to stdout; keep
+# their output to the command result.
+cli() {
+  docker exec -e DD_LOG_LEVEL=off "$server" agent "$@"
+}
+health=$(cli health 2>&1) || fail "agent health failed: $health"
 printf '%s\n' "$health" | grep -F 'Agent health: PASS' >/dev/null ||
   fail "unexpected agent health output: $health"
 printf 'HEALTH %s\n' "$(printf '%s\n' "$health" | head -n 1)"
 
-status_json=$(docker exec "$server" agent status --json 2>"$work/status.err") ||
+status_json=$(cli status --json 2>"$work/status.err") ||
   fail "agent status failed: $(cat "$work/status.err") $status_json"
 status_fields=$(printf '%s\n' "$status_json" | docker run --rm -i --network none "$python" python3 -c '
 import json, sys
@@ -285,7 +295,7 @@ print(json.dumps(value) if isinstance(value, (list, dict)) else value)
 status_value loader_errors.http_check | grep -F 'not found in Catalog' >/dev/null ||
   fail "http_check did not fail to load: $(status_value loader_errors)"
 
-configcheck=$(docker exec "$server" agent configcheck 2>&1) ||
+configcheck=$(cli configcheck 2>&1) ||
   fail "agent configcheck failed: $configcheck"
 for check in cpu memory uptime http_check; do
   printf '%s\n' "$configcheck" | grep -E "=== ${check} check ===" >/dev/null ||
