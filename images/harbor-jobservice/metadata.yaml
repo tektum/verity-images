@@ -6,3 +6,4 @@ upstream: https://github.com/goharbor/harbor
 versions: [2.15]
 owner: tektum
 enabled: true
+scan-identity: [cpe:2.3:a:linuxfoundation:harbor, pkg:golang/github.com/goharbor/harbor]

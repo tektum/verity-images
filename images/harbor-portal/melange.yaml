@@ -145,6 +145,17 @@ subpackages:
           }
           CONF
           chmod 644 "${{targets.subpkgdir}}/etc/nginx/nginx.conf"
+          # Harbor's rendered nginx.conf sets no error_log or access_log, and
+          # Wolfi nginx compiles both under /var/lib/nginx/logs. Link them to
+          # the container streams, as upstream does for its compiled-in paths,
+          # so a mounted Harbor configuration starts on a read-only root.
+          install -d "${{targets.subpkgdir}}/var/lib/nginx/logs"
+          ln -s /dev/stderr "${{targets.subpkgdir}}/var/lib/nginx/logs/error.log"
+          ln -s /dev/stdout "${{targets.subpkgdir}}/var/lib/nginx/logs/access.log"
+          # The docker runner creates these as root; give them the workspace
+          # owner so Melange can add its SBOM under /var/lib/db. The APK
+          # records the owner as root; the group stays root.
+          chown -hR "$(stat -c %u "${{targets.subpkgdir}}")" "${{targets.subpkgdir}}/var"
 
 test:
   environment:
