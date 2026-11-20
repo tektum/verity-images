@@ -20,6 +20,13 @@ case "$1" in
     printf 'start %s\n' "$*" >>"$MELANGE_LOG"
     sleep 0.1
     printf 'end %s\n' "$*" >>"$MELANGE_LOG"
+    previous=
+    for argument in "$@"; do
+      if [[ "$previous" == --env-file && "$argument" == */go-untagged-release-modules.env ]]; then
+        cp "$argument" "$MELANGE_LOG.go-policy"
+      fi
+      previous=$argument
+    done
     while [[ $# -gt 0 ]]; do
       if [[ "$1" == --out-dir ]]; then
         mkdir -p "$2"
@@ -161,6 +168,10 @@ grep -q '^godebug: fips140=only$' "$APKO_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch amd64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 grep -q "start build $work/caddy/melange.yaml --arch arm64.*--env-file $work/caddy/fips.env" "$MELANGE_LOG"
 grep -q -- "--pipeline-dir $root/pipelines" "$MELANGE_LOG"
+# go/remediate receives the shared untagged-module allowlist through the build environment.
+grep -q -- "--pipeline-dir $root/pipelines --env-file [^ ]*/go-untagged-release-modules.env" "$MELANGE_LOG"
+[[ "$(cat "$MELANGE_LOG.go-policy")" == \
+  "GO_UNTAGGED_RELEASE_MODULES='$(jq -c . "$root/pipelines/go/untagged-release-modules.json")'" ]]
 [[ $(grep -c "^start .*${work}/caddy/melange.yaml" "$MELANGE_LOG") -eq 2 ]]
 [[ $(grep -n "^end build $work/caddy/melange.yaml --arch amd64" "$MELANGE_LOG" | cut -d: -f1) -lt $(grep -n "^start build $work/caddy/melange.yaml --arch arm64" "$MELANGE_LOG" | cut -d: -f1) ]]
 [[ -d "$work/dist/caddy-fips/packages" ]]

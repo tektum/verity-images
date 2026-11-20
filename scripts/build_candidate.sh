@@ -54,9 +54,14 @@ if [[ "$track" == wolfi ]]; then
     trap 'rm -rf "$key_dir"; rm -f "$config"' EXIT
     mkdir -p "${output}/packages"
     melange keygen "$key"
+    # go/remediate reads the shared untagged-module allowlist from the build
+    # environment. Single quotes keep the JSON literal for melange's env parser.
+    go_policy="$key_dir/go-untagged-release-modules.env"
+    go_policy_json=$(jq -c . "$root/pipelines/go/untagged-release-modules.json")
+    printf "GO_UNTAGGED_RELEASE_MODULES='%s'\n" "${go_policy_json//\'/\\u0027}" >"$go_policy"
     melange_args=(--runner docker --signing-key "$key" \
       --out-dir "${output}/packages" --generate-provenance \
-      --pipeline-dir "$root/pipelines")
+      --pipeline-dir "$root/pipelines" --env-file "$go_policy")
     # arm64 compiles natively in its own job; its signed packages arrive in
     # PREBUILT_ARM64 and are trusted through that job's key, appended to the keyring.
     melange_arches=(amd64 arm64)

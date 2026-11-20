@@ -581,8 +581,11 @@ def main() -> None:
     ]
     assert gen_matrix.GO_REMEDIATE_PATHS == {
         "pipelines/go/remediate.yaml",
+        "pipelines/go/untagged-release-modules.json",
         "scripts/build_candidate.sh",
     }
+    # The scan gate reads the same allowlist as go/remediate.
+    assert "pipelines/go/untagged-release-modules.json" in gen_matrix.GLOBAL_PATHS
     assert gen_matrix.COREPACK_INSTALL_PATHS == {
         "pipelines/corepack/install.yaml",
         "scripts/build_candidate.sh",
