@@ -28,6 +28,7 @@ package:
 vars:
   source-commit: 243e3d0135203ab9166fe8f2873b07f697b06fd4
   prefix: /mattermost
+  protonmail-go-crypto: v1.5.2  # renovate: datasource=go depName=github.com/ProtonMail/go-crypto
 
 environment:
   contents:
@@ -95,6 +96,25 @@ pipeline:
     runs: |
       [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
       go work init ./server ./server/public
+
+  # Plugin and upgrade signature checks use the maintained ProtonMail fork
+  # instead of golang.org/x/crypto/openpgp, which GO-2026-5932 carves out of
+  # golang.org/x/crypto, so go/remediate can move x/crypto past the fix.
+  - name: Migrate openpgp
+    runs: |
+      cd server
+      sig=channels/app/plugin_signature.go
+      upg=platform/services/upgrader/upgrader_linux.go
+      sed -i \
+        -e 's|"golang.org/x/crypto/openpgp"|"github.com/ProtonMail/go-crypto/openpgp"|' \
+        -e 's|"golang.org/x/crypto/openpgp/armor"|"github.com/ProtonMail/go-crypto/openpgp/armor"|' \
+        "$sig" "$upg"
+      sed -i 's|CheckDetachedSignature(keyring, signedFile, signature)|CheckDetachedSignature(keyring, signedFile, signature, nil)|' "$sig"
+      sed -i 's|CheckDetachedSignature(keyring, mattermost_tar, signature)|CheckDetachedSignature(keyring, mattermost_tar, signature, nil)|' "$upg"
+      if grep -rF --include='*.go' --exclude='*_test.go' 'golang.org/x/crypto/openpgp' .; then exit 1; fi
+      grep -Fq 'CheckDetachedSignature(keyring, signedFile, signature, nil)' "$sig"
+      grep -Fq 'CheckDetachedSignature(keyring, mattermost_tar, signature, nil)' "$upg"
+      GOTOOLCHAIN=local go get github.com/ProtonMail/go-crypto/openpgp@${{vars.protonmail-go-crypto}}
 
   - uses: go/remediate
     with:
