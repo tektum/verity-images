@@ -45,13 +45,11 @@ SECDB_URL: Final = f"{remediation.WOLFI_REPOSITORY}/security.json"
 NAME: Final = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]*")
 # Package names that still share a Wolfi name, per image context. Rename the
 # package to `verity-<name>` and delete its entry here in the same change. The
-# epoch-bumped ko, velero, yq, karpenter and kube-state-metrics entries go
-# with their open rename pull requests.
+# remaining epoch-bumped entries go with their open rename pull requests.
 ALLOWLIST: Final[dict[str, frozenset[str]]] = {
     "images/envoy": frozenset({"envoy-1.37", "envoy-1.37-config"}),
     "images/fluent-bit": frozenset({"fluent-bit-4.2"}),
     "images/imagemagick": frozenset({"imagemagick-7"}),
-    "images/karpenter": frozenset({"karpenter-1.11"}),
     "images/ko": frozenset({"ko"}),
     "images/kube-state-metrics": frozenset({"kube-state-metrics"}),
     "images/kubernetes-reflector": frozenset({"kubernetes-reflector"}),
