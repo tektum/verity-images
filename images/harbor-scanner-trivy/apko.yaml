@@ -29,7 +29,8 @@ environment:
   SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
   # Reported as scanner.version by /api/v1/metadata, as upstream sets it.
   # Must equal vars.trivy-version in melange.yaml; tests/test.sh enforces it.
-  TRIVY_VERSION: "0.76.2"
+  # yamllint disable-line rule:line-length
+  TRIVY_VERSION: "0.76.2"  # renovate: datasource=github-releases depName=aquasecurity/trivy versioning=regex:^(?<major>0)\.(?<minor>76)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
 
 paths:
   - path: /home/scanner

@@ -69,10 +69,14 @@ pipeline:
       modroot: .
       packages: ./cmd/scanner-trivy
 
+  # Remediation builds and lists ./cmd/trivy, so it needs the same experiment
+  # as the final Trivy build (images/trivy sets it package-wide).
   - uses: go/remediate
     with:
       modroot: third_party/trivy
       packages: ./cmd/trivy
+    environment:
+      GOEXPERIMENT: jsonv2
 
   - runs: |
       # Upstream GoReleaser runs `go mod tidy` before building; its go.sum is
