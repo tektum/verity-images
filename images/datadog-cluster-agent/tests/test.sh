@@ -190,14 +190,17 @@ done
 grep -F 'Agent health: PASS' "$work/health" >/dev/null ||
   fail "unexpected health output: $(cat "$work/health")"
 
-# Leader election writes its lease to the API server with this pod as holder.
-# The cluster agent campaigns once a leader-only feature needs it; cluster
-# checks (enabled by the Helm chart and operator defaults) start it at boot.
+# Leader election writes its lock to the API server with this pod as holder.
+# With the default leader_election_default_resource (configmap) the lock is
+# the datadog-leader-election ConfigMap's client-go leader annotation. The
+# cluster agent campaigns once a leader-only feature needs it; cluster checks
+# (enabled by the Helm chart and operator defaults) start it at boot.
 deadline=$(($(date +%s) + 180))
-until holder=$(kubectl -n default get lease datadog-leader-election \
-  -o jsonpath='{.spec.holderIdentity}' 2>&1) && [ "$holder" = "$pod_name" ]; do
+until record=$(kubectl -n default get configmap datadog-leader-election \
+  -o 'jsonpath={.metadata.annotations.control-plane\.alpha\.kubernetes\.io/leader}' 2>&1) &&
+  printf '%s' "$record" | grep -F "\"holderIdentity\":\"$pod_name\"" >/dev/null; do
   [ "$(date +%s)" -lt "$deadline" ] ||
-    fail "lease datadog-leader-election is not held by $pod_name: $holder"
+    fail "configmap datadog-leader-election is not held by $pod_name: $record"
   sleep 2
 done
 
