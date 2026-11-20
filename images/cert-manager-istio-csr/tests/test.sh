@@ -3,8 +3,10 @@ set -eu
 
 image=${1:?usage: test.sh IMAGE}
 work=$(mktemp -d)
+nocluster="verity-istio-csr-nocluster-$$"
 
 cleanup() {
+  docker rm -f "$nocluster" >/dev/null 2>&1 || true
   rm -rf "$work"
 }
 trap cleanup EXIT INT TERM
@@ -38,13 +40,24 @@ fi
 grep -F 'unknown flag: --definitely-invalid' "$work/invalid" >/dev/null ||
   fail 'invalid argument diagnostic is missing'
 
-# No cluster: neither in-cluster env nor a kubeconfig is available.
-if timeout 60 docker run --rm --network none --read-only "$image" \
-  >"$work/nocluster" 2>&1; then
-  fail 'startup without a cluster unexpectedly succeeded'
-fi
-grep -F 'failed to build kubernetes rest config' "$work/nocluster" >/dev/null ||
-  fail 'missing cluster diagnostic is missing'
+# No cluster: with neither in-cluster env nor a kubeconfig, client-go falls back
+# to http://localhost:8080. The agent keeps running and reports that API server
+# as unreachable; it does not exit.
+docker run -d --name "$nocluster" --network none --read-only "$image" >/dev/null
+attempts=0
+until docker logs "$nocluster" 2>&1 | grep -F 'http://localhost:8080/' >/dev/null; do
+  attempts=$((attempts + 1))
+  [ "$attempts" -lt 120 ] || {
+    docker logs "$nocluster" >&2
+    fail 'startup without a cluster did not report the unreachable API server'
+  }
+  sleep 1
+done
+test "$(docker inspect --format '{{.State.Running}}' "$nocluster")" = true || {
+  docker logs "$nocluster" >&2
+  fail 'agent exited without a cluster'
+}
+docker rm -f "$nocluster" >/dev/null
 
 if timeout 60 docker run --rm --network none --read-only "$image" \
   --kubeconfig=/definitely-missing >"$work/kubeconfig" 2>&1; then
