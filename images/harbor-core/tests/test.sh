@@ -86,7 +86,8 @@ docker run -d --label "$label" --name "$db" --network "$network" \
   --network-alias postgresql -e POSTGRES_PASSWORD="$db_password" \
   -e POSTGRES_DB=registry "$postgres_image" >/dev/null
 docker run -d --label "$label" --name "$cache" --network "$network" \
-  --network-alias redis "$valkey_image" >/dev/null
+  --network-alias redis "$valkey_image" \
+  valkey-server --ignore-warnings ARM64-COW-BUG >/dev/null
 
 psql_query() {
   docker exec -e PGPASSWORD="$db_password" "$db" \

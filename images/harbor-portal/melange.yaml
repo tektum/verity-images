@@ -57,7 +57,7 @@ pipeline:
       [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
       cp api/v2.0/swagger.yaml src/portal/swagger.yaml
       cd src/portal
-      npm ci --unsafe-perm --ignore-scripts --no-optional --no-audit --no-fund --loglevel=error
+      npm ci --ignore-scripts --no-optional --no-audit --no-fund --loglevel=error
       npm run postinstall
       npm run generate-build-timestamp
       node --max_old_space_size=2048 node_modules/@angular/cli/bin/ng build --configuration production
@@ -66,7 +66,7 @@ pipeline:
           JSON.stringify(yaml.load(fs.readFileSync('swagger.yaml', 'utf8'))));"
       cp ../../LICENSE dist/
       cd app-swagger-ui
-      npm ci --unsafe-perm --no-optional --no-audit --no-fund --loglevel=error
+      npm ci --no-optional --no-audit --no-fund --loglevel=error
       npm run build
       cd ..
       test -s dist/index.html
