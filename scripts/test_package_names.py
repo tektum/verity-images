@@ -76,7 +76,6 @@ ALLOWLIST: Final[dict[str, frozenset[str]]] = {
     "images/valkey": frozenset({"valkey-9.0", "valkey-9.0-cli"}),
     "images/vector": frozenset({"vector"}),
     "images/velero": frozenset({"velero"}),
-    "images/yq": frozenset({"yq"}),
 }
 
 
