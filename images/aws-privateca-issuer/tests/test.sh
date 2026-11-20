@@ -161,12 +161,22 @@ kubeconfig "not-$token" >"$work/badkube/config"
 chmod 0755 "$work/kube" "$work/badkube"
 chmod 0644 "$work/kube/config" "$work/badkube/config"
 
-docker network create --internal "$network" >/dev/null
-gateway=$(docker network inspect -f '{{(index .IPAM.Config 0).Gateway}}' "$network")
-case $gateway in
-  *.*.*.1) api_ip=${gateway%.1}.250 ;;
-  *) fail "unexpected gateway $gateway on $network" ;;
-esac
+# An internal network has no default route, so kube-apiserver cannot pick its
+# advertise address, and Docker only accepts --ip on a network with a
+# user-configured subnet. Give the network an explicit random 10.x.y.0/24
+# (retrying on overlap with an existing network) and pin the API server's address.
+subnet=
+i=0
+while [ "$i" -lt 10 ]; do
+  candidate=$(od -An -N2 -tu1 /dev/urandom | awk '{ print "10." $1 "." $2 }')
+  if docker network create --internal --subnet "$candidate.0/24" "$network" >/dev/null 2>&1; then
+    subnet=$candidate
+    break
+  fi
+  i=$((i + 1))
+done
+[ -n "$subnet" ] || fail 'could not create the internal network'
+api_ip="$subnet.10"
 docker run -d --name "$etcd" --network "$network" --tmpfs /var/lib/etcd:uid=65532,gid=65532 \
   "$etcd_image" --data-dir=/var/lib/etcd/data \
   --listen-client-urls=http://0.0.0.0:2379 --advertise-client-urls="http://$etcd:2379" >/dev/null
@@ -247,7 +257,9 @@ kubectl wait --for=condition=Established --timeout=60s \
   crd/certificaterequests.cert-manager.io >/dev/null ||
   fail 'CertificateRequest CRD was not established'
 
-manager "$op" "$work/kube"
+# Debug verbosity (V(4)) logs the reconciler's early exit for an unapproved
+# request, the positive signal that the approval gate was exercised.
+manager "$op" "$work/kube" --zap-log-level=4
 i=0
 until docker logs "$op" 2>&1 | grep -F 'Starting workers' | grep -F 'certificaterequest' >/dev/null; do
   i=$((i + 1))
@@ -375,6 +387,15 @@ done
 expect_ready certificaterequest pending 'False|Pending|issuer is not ready'
 expect_ready certificaterequest bogus 'False|Failed|unsupported issuer kind: Bogus'
 # The approval check is on by default: the unapproved request is left alone.
+# Wait until the controller has reconciled it and taken the not-approved exit
+# before asserting that nothing was written to it.
+i=0
+until docker logs "$op" 2>&1 | grep -F 'certificate request has not been approved' |
+  grep -F '"name":"unapproved"' >/dev/null; do
+  i=$((i + 1))
+  [ "$i" -lt 60 ] || fail 'controller never reconciled the unapproved request'
+  sleep 1
+done
 [ -z "$(ready_condition certificaterequest unapproved)" ] ||
   fail "unapproved request was processed: $(ready_condition certificaterequest unapproved)"
 kubectl get certificaterequest -n "$ns" unapproved -o jsonpath='{.status.certificate}' \
