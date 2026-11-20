@@ -27,6 +27,8 @@ vars:
   # Thrift is indirect (jaeger and zipkin receivers); its v0.25.0 fixes are not in the Go
   # vulnerability or OSV module feeds that go/remediate reads.
   thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
+  # yamllint disable-line rule:line-length
+  configstreamconsumer-def-pin: v0.82.0  # renovate: datasource=go depName=github.com/DataDog/datadog-agent/comp/core/configstreamconsumer/def
 
 environment:
   contents:
@@ -65,7 +67,7 @@ pipeline:
   # pin the graph node to the first tagged release so remediation can resolve.
   - runs: |
       def=github.com/DataDog/datadog-agent/comp/core/configstreamconsumer/def
-      go mod edit -replace="$def@v0.0.0-00010101000000-000000000000=$def@v0.82.0"
+      go mod edit -replace="$def@v0.0.0-00010101000000-000000000000=$def@${{vars.configstreamconsumer-def-pin}}"
   # Security floors, raised before remediation so it builds against them. The
   # vendor tree is resynced so govulncheck can load packages in vendor mode.
   - runs: |
