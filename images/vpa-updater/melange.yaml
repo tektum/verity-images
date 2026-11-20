@@ -1,0 +1,69 @@
+package:
+  name: verity-vpa-updater
+  # yamllint disable-line rule:line-length
+  version: "1.8.1"  # renovate: datasource=github-tags depName=kubernetes/autoscaler versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^vertical-pod-autoscaler-(?<version>.+)$
+  epoch: 0
+  description: Kubernetes Vertical Pod Autoscaler updater
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 12Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # vertical-pod-autoscaler-1.8.1 is an annotated tag; this is its peeled commit.
+  source-commit: de59752fd24e25cca63e8e779561b97c9240623a
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes/autoscaler
+      tag: vertical-pod-autoscaler-${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - runs: |
+      grep -qx 'const versionCore = "${{package.version}}"' vertical-pod-autoscaler/common/version.go
+
+  - uses: go/remediate
+    with:
+      modroot: vertical-pod-autoscaler
+      packages: ./pkg/updater
+
+  # Upstream pkg/updater/Dockerfile builds with BUILD_LD_FLAGS="-s" and
+  # leaves common.gitCommit unset, so the binary reports versionCore.
+  - uses: go/build
+    with:
+      modroot: vertical-pod-autoscaler
+      packages: ./pkg/updater
+      output: updater
+      go-package: go-1.26
+      ldflags: -buildid=
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        updater --help 2>&1 | grep -F -- '--updater-interval'
