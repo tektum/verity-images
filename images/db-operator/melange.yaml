@@ -1,0 +1,74 @@
+package:
+  name: verity-db-operator
+  version: "2.46.0"  # renovate: datasource=github-releases depName=db-operator/db-operator
+  epoch: 0
+  description: DB Operator, creates databases and users on PostgreSQL and MySQL instances from Kubernetes CRDs
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  # 2.46.0 is a lightweight tag on this commit.
+  source-commit: ec9cd14221f709f0e1f7c4bd961874a1c969610a
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/db-operator/db-operator
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd
+
+  # Same build as the upstream Containerfile: CGO 0, `-tags build`, and the
+  # release tag stamped into common.OperatorVersion, which the controllers
+  # write to each resource's status.operatorVersion. The package path instead
+  # of the upstream file argument keeps the main module version stamped.
+  # The CRDs ship with the binary so the CRDs match the controller.
+  - runs: |
+      test "$(git rev-parse HEAD)" = '${{vars.source-commit}}'
+      stamp=github.com/db-operator/db-operator/v2/internal/helpers/common.OperatorVersion
+      go build -mod=readonly -trimpath -buildvcs=true -tags build \
+        -ldflags="-X $stamp=${{package.version}}" \
+        -o "${{targets.destdir}}/usr/local/bin/db-operator" ./cmd
+      go version -m "${{targets.destdir}}/usr/local/bin/db-operator" | awk '
+        $1 == "mod" && $2 == "github.com/db-operator/db-operator/v2" && $3 ~ /^v[0-9]/ { ok = 1 }
+        END { exit !ok }'
+      for crd in config/crd/bases/kinda.rocks_*.yaml; do
+        install -Dm644 "$crd" "${{targets.destdir}}/usr/share/db-operator/crd/$(basename "$crd")"
+      done
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/local/bin/db-operator --help | grep -F controller
+        /usr/local/bin/db-operator --help | grep -F webhook
+        test -s /usr/share/db-operator/crd/kinda.rocks_databases.yaml
+        test -s /usr/share/db-operator/crd/kinda.rocks_dbinstances.yaml
+        test -s /usr/share/db-operator/crd/kinda.rocks_dbusers.yaml
+        test -f /usr/share/licenses/${{package.name}}/LICENSE
