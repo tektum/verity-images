@@ -270,5 +270,7 @@ test "$code" != 200 || fail 'diagd internal API is exposed on the health check p
 # SIGTERM stops the whole process group.
 docker stop -t 30 "$emissary" >/dev/null || fail 'could not stop emissary'
 test "$(docker inspect --format '{{.State.OOMKilled}}' "$emissary")" = false || fail 'emissary was OOM killed'
+exit_code=$(docker inspect --format '{{.State.ExitCode}}' "$emissary")
+test "$exit_code" != 137 || fail 'emissary ignored SIGTERM and was killed after the stop timeout'
 
 printf 'emissary %s (Envoy %s) smoke test passed\n' "$expected_version" "$envoy_version"

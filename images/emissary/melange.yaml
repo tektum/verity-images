@@ -31,6 +31,7 @@ vars:
   # yamllint disable-line rule:line-length
   envoy-version: "1.40.2"  # renovate: datasource=github-releases depName=envoyproxy/envoy versioning=regex:^(?<major>1)\.(?<minor>40)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   envoy-commit: b2d89e0ae53916f28770771fbdd49c5c99c5c5a2
+  # envoy-host-llvm.patch hardcodes /usr/lib/llvm-22; change both together.
   llvm-version: "22"
   python-version: "3.13"
   venv: /opt/ambassador/emissary
