@@ -1,0 +1,51 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-debezium-server@local
+
+# Mirrors the upstream quay.io/debezium/server image: user jboss (UID 185) with
+# primary group 0, so an arbitrary UID in group 0 can also write config and data.
+accounts:
+  users:
+    - username: jboss
+      uid: 185
+      gid: 0
+      homedir: /debezium
+  run-as: 185
+
+# Upstream sets CMD, not ENTRYPOINT, so a command override replaces run.sh.
+cmd: /debezium/run.sh
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  LANG: en_US.UTF-8
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SERVER_HOME: /debezium
+  # Upstream loads the OpenTelemetry agent with its SDK disabled by default.
+  OTEL_ENABLED: "true"
+  OTEL_SDK_DISABLED: "true"
+
+paths:
+  - path: /debezium/config
+    type: directory
+    uid: 185
+    gid: 0
+    permissions: 0o775
+  - path: /debezium/data
+    type: directory
+    uid: 185
+    gid: 0
+    permissions: 0o775
+  # run.sh tightens the JMX password file to 0600 before the JVM reads it.
+  - path: /debezium/jmx/jmxremote.password
+    type: permissions
+    uid: 185
+    gid: 0
+    permissions: 0o600
+
+work-dir: /debezium

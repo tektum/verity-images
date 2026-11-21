@@ -1,0 +1,9 @@
+name: pgpool2
+track: wolfi
+description: Pgpool-II PostgreSQL connection pooler and load balancer built from pinned upstream source.
+category: Databases & Caching
+upstream: https://www.pgpool.net/
+versions: [4.7]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:pgpool:pgpool-ii]

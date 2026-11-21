@@ -1,0 +1,9 @@
+name: karma
+track: wolfi
+description: karma Alertmanager dashboard built from pinned upstream source with the embedded web UI.
+category: Monitoring & Observability
+upstream: https://github.com/prymitive/karma
+versions: [0.134]
+scan-identity: [pkg:golang/github.com/prymitive/karma]
+owner: tektum
+enabled: true

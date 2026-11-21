@@ -1,0 +1,55 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-harbor-jobservice@local
+
+# Upstream goharbor/harbor-jobservice runs as harbor (10000:10000) from
+# WORKDIR /harbor and execs `harbor_jobservice -c /etc/jobservice/config.yml`
+# after a Photon-only CA bundle step, which this image omits. /var/log/jobs
+# is the upstream job log volume.
+accounts:
+  groups:
+    - groupname: harbor
+      gid: 10000
+  users:
+    - username: harbor
+      uid: 10000
+      gid: 10000
+      homedir: /home/harbor
+  run-as: 10000
+
+entrypoint:
+  command: /harbor/harbor_jobservice -c /etc/jobservice/config.yml
+
+work-dir: /harbor
+
+volumes:
+  - /var/log/jobs
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/harbor
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /etc/jobservice
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /var/log/jobs
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755

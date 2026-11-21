@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-cert-manager-csi-driver@local
+
+# Upstream runs the node plugin as root: it mounts a tmpfs under its data root,
+# bind-mounts certificate volumes into kubelet pod directories, and creates the
+# CSI socket under the kubelet plugin directory.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/cert-manager-csi-driver
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt

@@ -1,0 +1,23 @@
+diff --git a/as/src/base/cfg.c b/as/src/base/cfg.c
+index be6d86f..f406c13 100644
+--- a/as/src/base/cfg.c
++++ b/as/src/base/cfg.c
+@@ -5067,6 +5067,18 @@ as_config_post_process(as_config* c, const char* config_file)
+ 
+ 	getrlimit(RLIMIT_NOFILE, &fd_limit);
+ 
++	// Containers often start with a soft limit of 1024 under a much higher
++	// hard limit, and an unprivileged process may raise its own soft limit up
++	// to the hard limit, as systemd's LimitNOFILE does for the packaged service.
++	if ((rlim_t)c->n_proto_fd_max > fd_limit.rlim_cur &&
++			fd_limit.rlim_cur < fd_limit.rlim_max) {
++		fd_limit.rlim_cur = fd_limit.rlim_max;
++
++		if (setrlimit(RLIMIT_NOFILE, &fd_limit) != 0) {
++			getrlimit(RLIMIT_NOFILE, &fd_limit);
++		}
++	}
++
+ 	if ((rlim_t)c->n_proto_fd_max > fd_limit.rlim_cur) {
+ 		cf_crash_nostack(AS_CFG,
+ 				"%lu system file descriptors not enough, config specified %u",

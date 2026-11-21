@@ -1,0 +1,119 @@
+package:
+  name: verity-timestamp-authority
+  # yamllint disable-line rule:line-length
+  version: "2.2.1"  # renovate: datasource=github-releases depName=sigstore/timestamp-authority versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Sigstore RFC 3161 timestamping authority server
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - merged-usrsbin
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v2.2.1 is an annotated tag; this is its peeled commit.
+  source-commit: ba15e76e81244fbf3dc386b42fd7e57230cc65a2
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sigstore/timestamp-authority
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/timestamp-server
+
+  # Same ldflags as the upstream Makefile SERVER_LDFLAGS and goreleaser build.
+  # The version stamp lives in sigs.k8s.io/release-utils/version; the main
+  # module path carries the /v2 major suffix. release-utils prefers the VCS
+  # stamped main module version over gitVersion, and go/remediate edits go.mod,
+  # so `version` reports v<version>+dirty and GitTreeState dirty. Only the
+  # server is shipped, as in the upstream `deploy` image; timestamp-cli is a
+  # separate client tool.
+  - uses: go/build
+    with:
+      packages: ./cmd/timestamp-server
+      output: timestamp-server
+      go-package: go-1.27
+      ldflags: |
+        -buildid=
+        -X sigs.k8s.io/release-utils/version.gitVersion=v${{package.version}}
+        -X sigs.k8s.io/release-utils/version.gitCommit=$(git rev-parse HEAD)
+        -X sigs.k8s.io/release-utils/version.gitTreeState=$(git diff --quiet && echo clean || echo dirty)
+        -X sigs.k8s.io/release-utils/version.buildDate=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
+
+  - runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      binary="${{targets.destdir}}/usr/bin/timestamp-server"
+      "$binary" version 2>&1 | grep -E '^GitVersion: +v${{package.version}}(\+dirty)?$'
+      "$binary" version 2>&1 | grep -E '^GitCommit: +${{vars.source-commit}}$'
+      go version -m "$binary" \
+        | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/sigstore/timestamp-authority/v2/cmd/timestamp-server
+      go version -m "$binary" \
+        | awk '$1 == "mod" && $2 == "github.com/sigstore/timestamp-authority/v2" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the timestamp-authority build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/timestamp-authority-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/timestamp-authority-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        timestamp-server version 2>&1 | grep -E '^GitVersion: +v${{package.version}}(\+dirty)?$'
+        timestamp-server serve --help >/dev/null
+        apk info --who-owns /usr/bin/timestamp-server \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: sigstore/timestamp-authority
+    strip-prefix: v
+    tag-filter-prefix: v2
+    use-tag: true

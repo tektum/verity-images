@@ -6,6 +6,7 @@
 # How to run:
 #   uv run scripts/gen_apk_matrix.py --all
 #   uv run scripts/gen_apk_matrix.py --changed BASE_SHA HEAD_SHA
+#   uv run scripts/gen_apk_matrix.py --unpublished packages/repository-state.json
 
 import json
 import os
@@ -18,6 +19,7 @@ from typing import Final, TypedDict
 ROOT: Final = Path(__file__).resolve().parents[1]
 ARCHITECTURES: Final = ("aarch64", "x86_64")
 PACKAGE_PATTERN: Final = re.compile(r"[a-z0-9][a-z0-9+._-]*")
+RECIPE_FIELD: Final = re.compile(r"(name|version|epoch):\s*(.*?)\s*(?:#.*)?")
 SHARED_PATHS: Final = frozenset(
     {
         "scripts/build_apk_package.sh",
@@ -92,6 +94,10 @@ def generate(base_ref: str | None, head_ref: str | None) -> Matrix:
                     pipelines = re.findall(r"(?m)^\s*-\s+uses:\s*(\S+)", (ROOT / source).read_text(encoding="utf-8"))
                     if any(f"pipelines/{pipeline}.yaml" in pipeline_changes for pipeline in pipelines):
                         selected.add(package)
+    return _matrix(recipes, selected)
+
+
+def _matrix(recipes: dict[str, str], selected: set[str]) -> Matrix:
     return {
         "include": [
             {
@@ -105,6 +111,42 @@ def generate(base_ref: str | None, head_ref: str | None) -> Matrix:
     }
 
 
+def recipe_identity(recipe: str) -> tuple[str, str]:
+    """Return the package name and APK version-release declared by a recipe's top-level package block."""
+    fields: dict[str, str] = {}
+    in_package = False
+    for line in (ROOT / recipe).read_text(encoding="utf-8").splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        if not line[0].isspace():
+            in_package = line.rstrip() == "package:"
+            continue
+        if in_package and line.startswith("  ") and not line[2].isspace():
+            if (match := RECIPE_FIELD.fullmatch(line[2:])) is not None:
+                fields.setdefault(match[1], match[2].strip("\"'"))
+    name = fields.get("name", "")
+    version = fields.get("version", "")
+    epoch = fields.get("epoch", "0")
+    if not name or not version or not epoch.isdigit():
+        raise PackageDiscoveryError(f"recipe lacks a literal package name, version, or epoch: {recipe}")
+    return name, f"{version}-r{int(epoch)}"
+
+
+def unpublished(state: Path) -> Matrix:
+    """Select every package whose recipe version-release is absent from the pinned published repository state."""
+    recipes = package_recipes()
+    packages = json.loads(state.read_text(encoding="utf-8"))["packages"]
+    published = {(entry["name"], entry["version"], entry["architecture"]) for entry in packages}
+    selected: set[str] = set()
+    for package, recipe in recipes.items():
+        name, version = recipe_identity(recipe)
+        if name != package:
+            raise PackageDiscoveryError(f"recipe package name {name} does not match directory {package}")
+        if any((name, version, architecture) not in published for architecture in ARCHITECTURES):
+            selected.add(package)
+    return _matrix(recipes, selected)
+
+
 def main() -> None:
     arguments = sys.argv[1:]
     if arguments == ["--all"]:
@@ -113,7 +155,10 @@ def main() -> None:
     if len(arguments) == 3 and arguments[0] == "--changed" and arguments[1] and arguments[2]:
         print(json.dumps(generate(arguments[1], arguments[2]), separators=(",", ":"), sort_keys=True))
         return
-    raise SystemExit("usage: gen_apk_matrix.py --all | --changed BASE_SHA HEAD_SHA")
+    if len(arguments) == 2 and arguments[0] == "--unpublished" and arguments[1]:
+        print(json.dumps(unpublished(Path(arguments[1])), separators=(",", ":"), sort_keys=True))
+        return
+    raise SystemExit("usage: gen_apk_matrix.py --all | --changed BASE_SHA HEAD_SHA | --unpublished STATE_JSON")
 
 
 if __name__ == "__main__":

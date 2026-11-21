@@ -1,0 +1,9 @@
+name: debezium-server
+track: wolfi
+description: Debezium Server CDC runtime from pinned source, without the RocketMQ sink or Cassandra connectors.
+category: Messaging & Streaming
+upstream: https://debezium.io/documentation/reference/stable/operations/debezium-server.html
+versions: [3.7]
+scan-identity: [pkg:maven/io.debezium/debezium-server-core]
+owner: tektum
+enabled: true

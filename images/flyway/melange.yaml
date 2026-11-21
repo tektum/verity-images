@@ -1,0 +1,97 @@
+package:
+  name: verity-flyway
+  # yamllint disable-line rule:line-length
+  version: "13.13.0"  # renovate: datasource=github-tags depName=flyway/flyway versioning=regex:^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^flyway-(?<version>.+)$
+  epoch: 0
+  description: Flyway Community (OSS) command line with PostgreSQL support, built from the Apache-2.0 source
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - openjdk-21-default-jvm
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - maven
+      - openjdk-21-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+    LANG: en_US.UTF-8
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/flyway/flyway
+      tag: flyway-${{package.version}}
+      expected-commit: 106acda188f75d033976f0eb41025de376667122
+  - runs: |
+      # The public repository has no Redgate reactor (flyway-reactor-redgate is
+      # activated only when its pom exists), so this builds the OSS edition.
+      test ! -e flyway-reactor-redgate
+      mvn -B -T 4 -DskipTests -pl flyway-commandline -am \
+        package dependency:copy-dependencies -DincludeScope=runtime
+      deps=flyway-commandline/target/dependency
+      root="${{targets.destdir}}/flyway"
+      install -d "$root/lib/flyway" "$root/drivers" "$root/conf" "$root/sql" "$root/licenses"
+      # The CLI derives its install directory from lib/flyway/<jar>, and reads
+      # <install>/conf and <install>/sql, matching the upstream image layout.
+      install -m644 flyway-commandline/target/flyway-commandline-${{package.version}}.jar "$root/lib/flyway/"
+      # Ship only the Community core, the PostgreSQL module (with the CockroachDB
+      # module it extends), and their compile-scope libraries. Every other
+      # database module, JDBC driver, cloud SDK, and native connector is omitted.
+      for jar in flyway-core flyway-core-utilities flyway-command-mcp \
+        flyway-database-postgresql flyway-database-cockroachdb; do
+        install -m644 "$deps/$jar-${{package.version}}.jar" "$root/lib/flyway/"
+      done
+      # The dependency tree carries both Jackson 2 and Jackson 3; Flyway uses
+      # Jackson 3 (tools.jackson) with the shared Jackson 2 annotations. Each
+      # pattern must match exactly one jar, so a new major or duplicate fails.
+      for jar in jackson-annotations-2. jackson-core-3. jackson-databind-3. \
+        jackson-dataformat-toml-3. jackson-dataformat-xml-3. jansi- stax2-api- \
+        woodstox-core- postgresql-; do
+        set -- "$deps/$jar"*.jar
+        [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "expected one jar for $jar: $*" >&2; exit 1; }
+        case $jar in
+          postgresql-*) install -m644 "$1" "$root/drivers/" ;;
+          *) install -m644 "$1" "$root/lib/" ;;
+        esac
+      done
+      assembly=flyway-commandline/src/main/assembly
+      install -m755 "$assembly/flyway" "$root/flyway"
+      install -m644 "$assembly/flyway.toml.example" "$root/conf/flyway.toml.example"
+      install -m644 LICENSE.txt "$root/licenses/LICENSE.txt"
+      install -m644 "$assembly/flyway-community.txt" "$root/licenses/flyway-community.txt"
+      # Guard the OSS-only contract: no Redgate edition reactor, licensing, or
+      # comparison artifacts may enter the package.
+      if find "$root" -name '*.jar' | grep -Ei 'redgate|rgcompare|licens|proprietary'; then
+        echo 'proprietary Flyway artifact in package' >&2
+        exit 1
+      fi
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: |
+        /flyway/flyway -skipCheckForUpdate version | grep -F 'Flyway OSS Edition ${{package.version}}'
+
+update:
+  enabled: true
+  github:
+    identifier: flyway/flyway
+    strip-prefix: flyway-
+    tag-filter-prefix: flyway-
+    use-tag: true

@@ -56,6 +56,31 @@
       "packageNameTemplate": "{{{repository}}}",
       "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^{{{tagPrefix}}}(?<version>.+){{{tagSuffix}}}${{/if}}",
       "autoReplaceStringTemplate": "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue (replace '^(  version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' (replace currentDigest newDigest replaceString))}}}{{else}}{{{replaceString}}}{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Melange secondary source pins: a vars <name>-version annotation with the adjacent <name>-commit, consumed by a second git-checkout as tag ${{vars.<name>-version}} and expected-commit ${{vars.<name>-commit}}. Both are resolved from that checkout's repository git tags and rewritten together. Each var name is listed explicitly because the regex engine has no backreferences to pair them generically.",
+      "managerFilePatterns": ["/^images/jellyfin/melange\\.yaml$/"],
+      "matchStrings": [
+        "(?m)^  web-version: [\\\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n  web-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.web-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.web-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  ffmpeg-version: [\\\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n  ffmpeg-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.ffmpeg-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.ffmpeg-commit\\}\\}[ \\t]*\\n"
+      ],
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "{{{repository}}}",
+      "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^{{{tagPrefix}}}(?<version>.+){{{tagSuffix}}}${{/if}}",
+      "autoReplaceStringTemplate": "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue (replace '^(  [a-z0-9-]+-version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' (replace currentDigest newDigest replaceString))}}}{{else}}{{{replaceString}}}{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Smoke-test peer images pinned as registry/repository:tag@sha256:... in a test script. The tag names the stream the test needs; only its digest moves.",
+      "managerFilePatterns": ["/^images/datadog-cluster-agent/tests/test\\.sh$/"],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.-]*\\.[a-z]+/[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "depTypeTemplate": "test-peer",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
     }
   ],
   "packageRules": [
@@ -116,6 +141,7 @@
         "images/gh/melange.yaml",
         "images/http-echo/melange.yaml",
         "images/jaeger/melange.yaml",
+        "images/nifi-registry/melange.yaml",
         "images/opa/melange.yaml",
         "images/opensearch/2/melange.yaml",
         "images/opensearch/3/melange.yaml",
@@ -143,16 +169,19 @@
         "!images/grafana-image-renderer/melange.yaml",
         "!images/kaniko/melange.yaml",
         "!images/ko/melange.yaml",
+        "!images/linkerd-web/melange.yaml",
         "!images/logstash-exporter/melange.yaml",
         "!images/metallb-controller/melange.yaml",
         "!images/mysqld-exporter/melange.yaml",
         "!images/nginx-prometheus-exporter/melange.yaml",
+        "!images/parseable/melange.yaml",
         "!images/postgres-exporter/melange.yaml",
         "!images/postgres-operator/melange.yaml",
         "!images/qdrant/melange.yaml",
         "!images/redis-exporter/melange.yaml",
         "!images/secrets-store-csi-driver/melange.yaml",
-        "!images/statsd-exporter/melange.yaml"
+        "!images/statsd-exporter/melange.yaml",
+        "!images/xeol/melange.yaml"
       ],
       "automerge": true,
       "labels": ["source-update", "in-stream", "review-required"]
@@ -171,6 +200,7 @@
         "images/gh/melange.yaml",
         "images/http-echo/melange.yaml",
         "images/jaeger/melange.yaml",
+        "images/nifi-registry/melange.yaml",
         "images/opa/melange.yaml",
         "images/opensearch/2/melange.yaml",
         "images/opensearch/3/melange.yaml",
@@ -184,6 +214,16 @@
       ],
       "automerge": true,
       "labels": ["source-update", "in-stream", "review-required"]
+    },
+    {
+      "description": "Smoke-test peer image digests move within their pinned tag. Tag updates stay disabled by the images/** rule above, and a weekly schedule bounds the churn from daily Verity rebuilds.",
+      "matchDepTypes": ["test-peer"],
+      "matchUpdateTypes": ["digest"],
+      "enabled": true,
+      "automerge": true,
+      "platformAutomerge": true,
+      "labels": ["test-peer-digest", "review-required"],
+      "schedule": ["* 0-6 * * 1"]
     }
   ]
 }

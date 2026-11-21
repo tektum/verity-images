@@ -7,7 +7,7 @@ contents:
     - "@LOCAL_KEY@"
   packages:
     - ca-certificates-bundle
-    - kubectl-1.35@local
+    - verity-kubectl-1.35@local
 
 entrypoint:
   command: /usr/bin/kubectl

@@ -1,0 +1,9 @@
+name: mattermost
+track: wolfi
+description: Mattermost Team Edition server and web app built from source, without Enterprise code.
+category: Messaging & Streaming
+upstream: https://github.com/mattermost/mattermost
+versions: [12.1]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:mattermost:mattermost_server]

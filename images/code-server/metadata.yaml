@@ -1,0 +1,9 @@
+name: code-server
+track: wolfi
+description: VS Code in the browser (code-server) on Wolfi Node.js, running as the unprivileged coder user.
+category: Languages & Build Tools
+upstream: https://github.com/coder/code-server
+versions: [4.145]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:coder:code-server, pkg:npm/code-server]

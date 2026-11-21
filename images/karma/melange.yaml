@@ -1,0 +1,90 @@
+package:
+  name: verity-karma
+  # yamllint disable-line rule:line-length
+  version: "0.134"  # renovate: datasource=github-tags depName=prymitive/karma versioning=regex:^(?<major>0)\.(?<minor>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Alertmanager UI dashboard
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 72300baf94b6bd8d986f08bdc80b8a92d2553ecd
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - nodejs-25
+      - npm
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+    npm_config_cache: /var/cache/melange/npm
+    npm_config_ignore_scripts: "true"
+    npm_config_update_notifier: "false"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prymitive/karma
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - name: Build web UI
+    runs: |
+      # ui/embed.go embeds ui/dist, which go/remediate's package listing needs,
+      # so the UI is built first, the same way upstream's ui/Makefile does.
+      cd ui
+      npm ci
+      npm run build
+      test -f dist/index.html
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/karma
+  - name: Build binary
+    runs: |
+      # Upstream make/go.mk: go build -trimpath -modcacherw
+      # -ldflags "-X main.version=$(VERSION) -s -w", with VERSION from
+      # git describe (the v-prefixed tag). Tags such as v0.134 are not
+      # semver, so VCS stamping would record a misleading v0.0.0
+      # pseudo-version; Syft reads the main.version stamp instead.
+      go build -mod=readonly -trimpath -modcacherw -buildvcs=false \
+        -ldflags "-X main.version=v${{package.version}} -s -w" \
+        -o karma ./cmd/karma
+      install -Dm755 karma "${{targets.destdir}}/usr/bin/karma"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the karma build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod "${{targets.subpkgdir}}/usr/share/karma-build/go.mod"
+          install -Dm644 go.sum "${{targets.subpkgdir}}/usr/share/karma-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test "$(karma --version)" = "v${{package.version}}"
+        apk info --who-owns /usr/bin/karma \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"

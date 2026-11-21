@@ -1056,6 +1056,72 @@ def test_duplicate_source_identity_graph(module) -> None:
     )
 
 
+def test_percent_encoded_git_source(module, root: Path) -> None:
+    # Lockfile v4 form-urlencodes a git reference value; cargo metadata and
+    # cargo-audit report it decoded (linkerd2-proxy's kubert tag pins).
+    encoded = "git+https://github.com/example/kubert.git?tag=kubert-process%2Fv0.2.4#" + "c" * 40
+    decoded = "git+https://github.com/example/kubert.git?tag=kubert-process/v0.2.4#" + "c" * 40
+    case = root / "percent-encoded-git"
+    case.mkdir()
+    project = prepare_project(
+        case,
+        (("app", "0.1.0"), ("kubert-process", "0.2.4")),
+        sources={"kubert-process@0.2.4": encoded},
+    )
+    locked = module.locked_instances(project / "Cargo.lock")
+    assert locked["kubert-process"] == (("0.2.4", decoded),)
+    packages = (
+        ("app", "app", "0.1.0", ""),
+        ("kubert", "kubert-process", "0.2.4", decoded),
+    )
+    raw = cargo_graph(packages, ("app",), {"app": (("kubert", ((None, None),)),)})
+    assert ("kubert-process", "0.2.4", decoded) in module.parse_shipped_graph(raw, locked)
+
+    def audit(reported: str):
+        return lambda: module.derive_fixes(
+            json.loads(
+                report(vulnerability("RUSTSEC-2099-0210", "kubert-process", "0.2.4", (">=0.2.5",), source=reported))
+            ),
+            locked,
+        )
+
+    assert_raises(module.RemediationError, f"kubert-process@0.2.4 is locked from {decoded}", audit(decoded))
+    # cargo-audit reports the decoded form; an encoded report is not Cargo's identity.
+    assert_raises(module.RemediationError, "cannot be correlated to Cargo.lock", audit(encoded))
+    # cargo metadata reports the decoded form; the encoded form must not correlate.
+    encoded_graph = cargo_graph(
+        (("app", "app", "0.1.0", ""), ("kubert", "kubert-process", "0.2.4", encoded)),
+        ("app",),
+        {"app": (("kubert", ((None, None),)),)},
+    )
+    assert_raises(
+        module.RemediationError, "cannot be correlated", lambda: module.parse_shipped_graph(encoded_graph, locked)
+    )
+
+    sha = "#" + "d" * 40
+    base = "git+https://example.com/a%20b/repo.git?"
+    lock = project / "Cargo.lock"
+    # Only the reference value is decoded, with form-urlencoding rules; the URL is untouched.
+    lock.write_text(
+        f'version = 4\n\n[[package]]\nname = "x"\nversion = "1.0.0"\nsource = "{base}branch=a+b%2Bc%7E{sha}"\n',
+        encoding="utf-8",
+    )
+    assert module.locked_instances(lock)["x"] == (("1.0.0", f"{base}branch=a b+c~{sha}"),)
+    # Lockfiles before v4 store the reference unencoded; nothing is decoded.
+    lock.write_text(
+        f'version = 3\n\n[[package]]\nname = "x"\nversion = "1.0.0"\nsource = "{base}tag=a%2Fb{sha}"\n',
+        encoding="utf-8",
+    )
+    assert module.locked_instances(lock)["x"] == (("1.0.0", f"{base}tag=a%2Fb{sha}"),)
+    # A v4 reference Cargo would not have produced fails closed.
+    for source in (f"{base}tag=a/b{sha}", f"{base}tag=a%2fb{sha}", f"{base}tag=%FF{sha}", f"{base}tag=a&rev=b{sha}"):
+        lock.write_text(
+            f'version = 4\n\n[[package]]\nname = "x"\nversion = "1.0.0"\nsource = "{source}"\n',
+            encoding="utf-8",
+        )
+        assert_raises(module.RemediationError, "Cargo.lock", lambda: module.locked_instances(lock))
+
+
 def test_workspace_default_members(module) -> None:
     packages = (
         ("member-a", "member-a", "0.1.0", ""),
@@ -1728,6 +1794,7 @@ def main() -> None:
         test_optional_dependency_feature_selection(module)
         test_release_dependency_kinds(module)
         test_duplicate_source_identity_graph(module)
+        test_percent_encoded_git_source(module, root)
         test_workspace_default_members(module)
         test_target_conditioned_dependencies(module)
         test_feature_argument_compatibility(module)

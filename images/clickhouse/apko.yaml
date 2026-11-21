@@ -6,7 +6,7 @@ contents:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
     - "@LOCAL_KEY@"
   packages:
-    - clickhouse-26.5@local
+    - verity-clickhouse-26.5@local
 
 accounts:
   run-as: 65532

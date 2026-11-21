@@ -1,0 +1,9 @@
+name: emissary
+track: wolfi
+description: Emissary-ingress Kubernetes API gateway with its Envoy data plane, built from pinned upstream source.
+category: Service Mesh & Networking
+upstream: https://emissary-ingress.dev/
+versions: [4.2]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:getambassador:emissary-ingress]

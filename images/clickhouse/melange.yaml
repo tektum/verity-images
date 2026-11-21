@@ -1,13 +1,11 @@
 package:
-  name: clickhouse-26.5
+  name: verity-clickhouse-26.5
   # yamllint disable-line rule:line-length
   version: "26.5.7.64"  # renovate: datasource=github-tags depName=ClickHouse/ClickHouse versioning=regex:^(?<major>26)\.(?<minor>5)\.(?<patch>\d+)\.(?<build>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+\.\d+)-stable$
   # CVE-2026-111497 (GHSA-9v8h-qqgm-4m35) is in the bundled Brotli decoder,
   # which the release tag still pins at 1.0.9. The recipe replaces it with
-  # Brotli 1.2.1 as upstream main does. The Wolfi security feed records the
-  # fix as clickhouse-26.5 26.5.7.64-r5, which is no longer published, so this
-  # package keeps the Wolfi name and uses epoch 5 to match that revision.
-  epoch: 5
+  # Brotli 1.2.1 as upstream main does.
+  epoch: 0
   description: ClickHouse column-oriented database built from the upstream stable release
   copyright:
     - license: Apache-2.0
