@@ -293,3 +293,16 @@ ignore:
       (recovery keeps the enclosing directory descriptor for root errors and handles
       bytes names). Scoped to the scan-identity package declared by
       images/python/3.11 (cpe python:python) at 3.11.18.
+  - vulnerability: GHSA-r9w3-57w2-gch2
+    package:
+      name: github.com/ory/hydra/v2
+      version: v2.0.0-20260320110106-0b84568fffcc+dirty
+      type: go-module
+    reason: >-
+      Wrong match: GHSA marks github.com/ory/hydra/v2 fixed in pseudo-version
+      2.3.1-0.20260320110106-0b84568fffcc, which is commit
+      0b84568fffccf151dc5e6c7955fdfb738555bf4b. images/hydra builds that exact commit
+      (tag v26.2.0, recipe source-commit), but Go stamps the main module as
+      v2.0.0-20260320110106-0b84568fffcc because v26 tags are not valid v2 module
+      versions, so Grype orders the fixed build below the fix. Scoped to the Go main
+      module of images/hydra at that version.

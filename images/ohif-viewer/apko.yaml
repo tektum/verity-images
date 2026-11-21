@@ -1,0 +1,34 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - nginx-mainline
+    - nginx-mainline-mime-types
+    - verity-ohif-viewer@local
+
+accounts:
+  groups:
+    - groupname: nginx
+      gid: 65532
+  users:
+    - username: nginx
+      uid: 65532
+      gid: 65532
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/nginx
+
+cmd: -c /etc/ohif-viewer/nginx.conf -e stderr
+
+# nginx stops gracefully on SIGQUIT; SIGTERM drops in-flight requests.
+stop-signal: SIGQUIT
+
+work-dir: /usr/share/ohif-viewer
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin

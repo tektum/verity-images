@@ -1,0 +1,11 @@
+name: aws-efs-csi-driver
+track: wolfi
+description: Amazon EFS CSI driver with efs-utils (mount.efs, efs-proxy, stunnel). Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-sigs/aws-efs-csi-driver
+versions: [3.6]
+flavors: [plain]
+owner: tektum
+enabled: true
+# yamllint disable-line rule:line-length
+scan-identity: [pkg:golang/github.com/kubernetes-sigs/aws-efs-csi-driver]

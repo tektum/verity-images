@@ -1,0 +1,50 @@
+package:
+  name: verity-ipfs-cluster
+  version: "1.1.6"  # renovate: datasource=github-releases depName=ipfs-cluster/ipfs-cluster
+  epoch: 0
+  description: Pinset orchestration for IPFS with the cluster service, ctl and follow binaries
+  copyright:
+    - license: Apache-2.0 OR MIT
+
+vars:
+  source-commit: 2182e887ef378f906455784396f1011df968822c
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ipfs-cluster/ipfs-cluster
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: './cmd/ipfs-cluster-service ./cmd/ipfs-cluster-ctl ./cmd/ipfs-cluster-follow'
+  - runs: |
+      for cmd in ipfs-cluster-service ipfs-cluster-ctl ipfs-cluster-follow; do
+        go build -mod=readonly -trimpath -ldflags "-s -w" -o "$cmd" "./cmd/$cmd"
+        install -Dm755 "$cmd" "${{targets.destdir}}/usr/bin/$cmd"
+      done
+      install -Dm755 docker/entrypoint.sh "${{targets.destdir}}/usr/local/bin/entrypoint.sh"
+      install -Dm644 LICENSE-APACHE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-APACHE"
+      install -Dm644 LICENSE-MIT "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-MIT"
+
+test:
+  pipeline:
+    - runs: |
+        ipfs-cluster-service --version | grep -F "${{package.version}}"
+        ipfs-cluster-ctl --version | grep -F "${{package.version}}"
+        ipfs-cluster-follow --version | grep -F "${{package.version}}"

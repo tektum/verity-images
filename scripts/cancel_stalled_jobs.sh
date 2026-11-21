@@ -50,7 +50,15 @@ stalled=
 while IFS= read -r job; do
   [[ -n "$job" ]] || continue
   status=$(jq -r .status <<<"$job")
-  [[ "$status" == queued || "$status" == in_progress ]] || continue
+  [[ "$status" != completed ]] || continue
+  # Only completed is terminal. GitHub also reports waiting (environment
+  # protection), pending (job-level concurrency, as in publish.yaml), and
+  # requested; those are not runner stalls, so keep watching without cancelling
+  # and let the job timeout bound them.
+  if [[ "$status" != queued && "$status" != in_progress ]]; then
+    pending=true
+    continue
+  fi
   started=$(jq -r '.started_at // empty' <<<"$job")
   if [[ -z "$started" ]]; then
     pending=true
@@ -87,15 +95,19 @@ if [[ -n "$stalled" ]]; then
   exit 1
 fi
 
-# Exit 0 once every watched job is terminal and a validate/publish row has been
-# seen; exit 42 while any remain or none exist yet. validate/publish need
-# native-arm64, so their rows appear only after the slowest native compile, and
-# an all-terminal native set must not end the watch before they exist. Annotations
-# above still go to stdout for GitHub to render, so the exit code (not stdout) is
-# the only pending/done signal, and 42 is reserved so a genuine script failure
-# (any other non-zero status) still aborts the caller's loop instead of being
-# retried forever.
-rows=$(jq 'map(select(.name | test("^(validate|publish( / publish)?) \\("))) | length' <<<"$jobs")
-if [[ "$pending" == true || "$rows" -eq 0 ]]; then
+# Exit 0 once every watched job is terminal and build-gate exists; exit 42 while
+# any remain or build-gate does not exist yet. build-gate needs native-arm64,
+# validate, and publish, so GitHub creates its row only after every
+# validate/publish row it waits on has been created and resolved. Counting
+# validate/publish rows instead is not enough: on main, validate resolves as a
+# skipped row the moment native-arm64 finishes, and publish rows (from the
+# reusable workflow) can be absent or not yet queued on that same poll, which
+# ended the guard before it ever watched publish. Annotations above still go to
+# stdout for GitHub to render, so the exit code (not stdout) is the only
+# pending/done signal, and 42 is reserved so a genuine script failure (any other
+# non-zero status) still aborts the caller's loop instead of being retried
+# forever.
+gate=$(jq '[.[] | (.jobs // [])[] | select(.name == "build-gate")] | length' <<<"$pages")
+if [[ "$pending" == true || "$gate" -eq 0 ]]; then
   exit 42
 fi

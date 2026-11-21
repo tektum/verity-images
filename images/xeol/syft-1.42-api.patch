@@ -1,0 +1,101 @@
+diff --git a/cmd/xeol/cli/cli.go b/cmd/xeol/cli/cli.go
+index 9716d61..f2c794e 100644
+--- a/cmd/xeol/cli/cli.go
++++ b/cmd/xeol/cli/cli.go
+@@ -38,18 +38,15 @@ func create(id clio.Identification) (clio.Application, *cobra.Command) {
+ 			clio.LoggingConfig{Level: logger.ErrorLevel}).
+ 		WithUIConstructor(
+ 			// select a UI based on the logging configuration and state of stdin (if stdin is a tty)
+-			func(cfg clio.Config) ([]clio.UI, error) {
++			func(cfg clio.Config) (*clio.UICollection, error) {
+ 				noUI := ui.None(cfg.Log.Quiet)
+ 				if !cfg.Log.AllowUI(os.Stdin) || cfg.Log.Quiet {
+-					return []clio.UI{noUI}, nil
++					return clio.NewUICollection(noUI), nil
+ 				}
+ 
+ 				h := handler.New(handler.DefaultHandlerConfig())
+ 
+-				return []clio.UI{
+-					ui.New(cfg.Log.Quiet, h),
+-					noUI,
+-				}, nil
++				return clio.NewUICollection(ui.New(cfg.Log.Quiet, h), noUI), nil
+ 			},
+ 		).
+ 		WithInitializers(
+diff --git a/xeol/presenter/table/presenter.go b/xeol/presenter/table/presenter.go
+index 2d79c84..8aaa192 100644
+--- a/xeol/presenter/table/presenter.go
++++ b/xeol/presenter/table/presenter.go
+@@ -8,6 +8,8 @@ import (
+ 	"time"
+ 
+ 	"github.com/olekukonko/tablewriter"
++	"github.com/olekukonko/tablewriter/renderer"
++	"github.com/olekukonko/tablewriter/tw"
+ 
+ 	"github.com/xeol-io/xeol/xeol/match"
+ 	"github.com/xeol-io/xeol/xeol/pkg"
+@@ -69,24 +71,43 @@ func (pres *Presenter) Present(output io.Writer) error {
+ 		return false
+ 	})
+ 
+-	table := tablewriter.NewWriter(output)
+-
+-	table.SetHeader(columns)
+-	table.SetAutoWrapText(false)
+-	table.SetHeaderAlignment(tablewriter.ALIGN_LEFT)
+-	table.SetAlignment(tablewriter.ALIGN_LEFT)
+-
+-	table.SetHeaderLine(false)
+-	table.SetBorder(false)
+-	table.SetAutoFormatHeaders(true)
+-	table.SetCenterSeparator("")
+-	table.SetColumnSeparator("")
+-	table.SetRowSeparator("")
+-	table.SetTablePadding("  ")
+-	table.SetNoWhiteSpace(true)
+-
+-	table.AppendBulk(rows)
+-	table.Render()
++	table := tablewriter.NewTable(output,
++		tablewriter.WithHeader(columns),
++		tablewriter.WithHeaderAutoFormat(tw.On),
++		tablewriter.WithHeaderAutoWrap(tw.WrapNone),
++		tablewriter.WithHeaderAlignment(tw.AlignLeft),
++		tablewriter.WithRowAutoFormat(tw.Off),
++		tablewriter.WithRowAutoWrap(tw.WrapNone),
++		tablewriter.WithRowAlignment(tw.AlignLeft),
++		tablewriter.WithTrimSpace(tw.On),
++		tablewriter.WithRenderer(renderer.NewBlueprint()),
++		tablewriter.WithPadding(tw.Padding{Right: "  "}),
++		tablewriter.WithRendition(tw.Rendition{
++			Symbols: tw.NewSymbols(tw.StyleNone),
++			Borders: tw.Border{Left: tw.Off, Top: tw.Off, Right: tw.Off, Bottom: tw.Off},
++			Settings: tw.Settings{
++				Separators: tw.Separators{
++					ShowHeader:     tw.Off,
++					ShowFooter:     tw.Off,
++					BetweenRows:    tw.Off,
++					BetweenColumns: tw.Off,
++				},
++				Lines: tw.Lines{
++					ShowTop:        tw.Off,
++					ShowBottom:     tw.Off,
++					ShowHeaderLine: tw.Off,
++					ShowFooterLine: tw.Off,
++				},
++			},
++		}),
++	)
++
++	if err := table.Bulk(rows); err != nil {
++		return fmt.Errorf("failed to add table rows: %w", err)
++	}
++	if err := table.Render(); err != nil {
++		return fmt.Errorf("failed to render table: %w", err)
++	}
+ 
+ 	return nil
+ }

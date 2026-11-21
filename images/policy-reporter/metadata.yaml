@@ -1,0 +1,10 @@
+name: policy-reporter
+track: wolfi
+description: Kyverno Policy Reporter with REST API and PolicyReport metrics, built from pinned upstream source.
+category: Policy & Compliance
+upstream: https://github.com/kyverno/policy-reporter
+versions: [3.11]
+flavors: [plain]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/kyverno/policy-reporter]

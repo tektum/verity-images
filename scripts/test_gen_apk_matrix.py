@@ -6,6 +6,7 @@
 # How to run:
 #   uv run scripts/test_gen_apk_matrix.py
 
+import json
 import subprocess
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -18,6 +19,102 @@ def write_recipe(root: Path, directory: str) -> None:
     recipe = root / directory / "melange.yaml"
     recipe.parent.mkdir(parents=True)
     recipe.write_text("package:\n  name: fixture\n", encoding="utf-8")
+
+
+def write_state(path: Path, packages: list[tuple[str, str, str]]) -> None:
+    path.write_text(
+        json.dumps(
+            {
+                "packages": [
+                    {"architecture": architecture, "name": name, "version": version}
+                    for name, version, architecture in packages
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
+def unpublished_tests() -> None:
+    with TemporaryDirectory() as temporary_directory:
+        root = Path(temporary_directory)
+        for directory, text in {
+            "packages/current": 'package:\n  name: current\n  version: "1.2"\n  epoch: 4\n',
+            "packages/single-arch": "package:\n  name: single-arch\n  version: 2.0\n",
+            "images/restic": (
+                "# leading comment\n"
+                "package:\n"
+                "  name: restic-fixture\n"
+                '  version: "0.18.1"\n'
+                "  epoch: 10  # Rebuild with a patched dependency\n"
+                "  copyright:\n"
+                "    - license: BSD-2-Clause\n"
+                "pipeline:\n"
+                "  - uses: go/build\n"
+                "    with:\n"
+                "      name: other\n"
+                "subpackages:\n"
+                "  - name: restic-fixture-doc\n"
+                "    version: 9.9\n"
+            ),
+        }.items():
+            recipe = root / directory / "melange.yaml"
+            recipe.parent.mkdir(parents=True)
+            recipe.write_text(text, encoding="utf-8")
+        (root / "packages/restic-fixture").mkdir()
+        (root / "packages/restic-fixture/melange.yaml").symlink_to("../../images/restic/melange.yaml")
+        state = root / "state.json"
+        write_state(
+            state,
+            [
+                ("current", "1.2-r4", "aarch64"),
+                ("current", "1.2-r4", "x86_64"),
+                ("single-arch", "2.0-r0", "x86_64"),
+                ("restic-fixture", "0.18.1-r9", "aarch64"),
+                ("restic-fixture", "0.18.1-r9", "x86_64"),
+            ],
+        )
+        with patch.object(gen_apk_matrix, "ROOT", root):
+            assert gen_apk_matrix.recipe_identity("packages/restic-fixture/melange.yaml") == (
+                "restic-fixture",
+                "0.18.1-r10",
+            )
+            assert gen_apk_matrix.recipe_identity("packages/single-arch/melange.yaml") == ("single-arch", "2.0-r0")
+            # The previous-commit diff misses a bump merged earlier; the published state does not.
+            assert [(entry["package"], entry["architecture"]) for entry in gen_apk_matrix.unpublished(state)["include"]] == [
+                ("restic-fixture", "aarch64"),
+                ("restic-fixture", "x86_64"),
+                ("single-arch", "aarch64"),
+                ("single-arch", "x86_64"),
+            ]
+
+            write_state(
+                state,
+                [
+                    (name, version, architecture)
+                    for name, version in (("current", "1.2-r4"), ("single-arch", "2.0-r0"), ("restic-fixture", "0.18.1-r10"))
+                    for architecture in gen_apk_matrix.ARCHITECTURES
+                ],
+            )
+            assert gen_apk_matrix.unpublished(state) == {"include": []}
+
+            (root / "packages/current/melange.yaml").write_text(
+                'package:\n  name: renamed\n  version: "1.2"\n', encoding="utf-8"
+            )
+            try:
+                gen_apk_matrix.unpublished(state)
+            except gen_apk_matrix.PackageDiscoveryError as error:
+                assert "does not match directory current" in str(error)
+            else:
+                raise AssertionError("recipe name mismatch was admitted")
+
+            (root / "packages/current/melange.yaml").write_text("package:\n  name: current\n", encoding="utf-8")
+            try:
+                gen_apk_matrix.unpublished(state)
+            except gen_apk_matrix.PackageDiscoveryError as error:
+                assert "packages/current/melange.yaml" in str(error)
+            else:
+                raise AssertionError("recipe without a version was admitted")
 
 
 def main() -> None:
@@ -174,6 +271,7 @@ def main() -> None:
                 "alpha",
                 "alpha",
             ]
+    unpublished_tests()
 
 
 if __name__ == "__main__":

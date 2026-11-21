@@ -1,0 +1,9 @@
+name: flyway
+track: wolfi
+description: Flyway Community (OSS) database migration CLI with PostgreSQL support, built from pinned source.
+category: Databases & Caching
+upstream: https://github.com/flyway/flyway
+versions: [13.13]
+scan-identity: [pkg:maven/org.flywaydb/flyway-core]
+owner: tektum
+enabled: true

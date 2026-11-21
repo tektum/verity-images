@@ -1,0 +1,110 @@
+package:
+  name: verity-pgpool2-4.7
+  # yamllint disable-line rule:line-length
+  version: "4.7.3"  # renovate: datasource=github-tags depName=pgpool/pgpool2 versioning=regex:^(?<major>4)[._](?<minor>7)[._](?<patch>\d+)$ extractVersion=^V(?<version>4_7_\d+)$
+  epoch: 0
+  description: Pgpool-II 4.7 PostgreSQL connection pooler and load balancer
+  copyright:
+    # The PgPool Global Development Group permission notice (COPYING).
+    - license: HPND
+  resources:
+    cpu: "8"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - autoconf
+      - automake
+      - bison
+      - build-base
+      - busybox
+      - flex
+      - libtool
+      - perl
+      - postgresql-18-dev
+      - wolfi-baselayout
+
+pipeline:
+  # V4_7_3 is a lightweight tag on 07d24655e42dfdbfe2e7549df6166e057b99b622.
+  # The upstream tag spells the version with underscores, which a git-checkout
+  # source pin cannot recover through extractVersion, so the tag archive is
+  # pinned by checksum like pgbouncer.
+  - uses: fetch
+    with:
+      uri: "https://github.com/pgpool/pgpool2/archive/refs/tags/V\
+        ${{vars.mangled-package-version}}.tar.gz"
+      expected-sha256: 4c933840c5e2bdd99a4f41e65b36bdec44454a116d023e473fcc33f9e651bee1
+
+  # The tag tree carries no generated configure script or parser sources.
+  - runs: |
+      autoreconf -fi
+      ./configure \
+        --prefix=/usr \
+        --sysconfdir=/etc/pgpool2 \
+        --localstatedir=/var \
+        --with-openssl \
+        --disable-rpath
+      make -j$(nproc)
+      make install DESTDIR="${{targets.destdir}}"
+      install -Dm644 COPYING \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/COPYING"
+
+      cd "${{targets.destdir}}"
+      # Test-cluster helpers that need a local PostgreSQL installation.
+      rm -f usr/bin/pgpool_setup usr/bin/watchdog_setup
+      rm -rf usr/include usr/lib/*.a usr/lib/*.la usr/share/pgpool-II
+
+      etc=etc/pgpool2
+      test -f "$etc/pgpool.conf.sample"
+      sed \
+        -e "s|^#listen_addresses = 'localhost'|listen_addresses = '*'|" \
+        -e "s|^#unix_socket_directories = '/tmp'|unix_socket_directories = '/var/run/pgpool'|" \
+        -e "s|^#pcp_socket_dir = '/tmp'|pcp_socket_dir = '/var/run/pgpool'|" \
+        -e "s|^#wd_ipc_socket_dir = '/tmp'|wd_ipc_socket_dir = '/var/run/pgpool'|" \
+        -e "s|^#pid_file_name = '/var/run/pgpool/pgpool.pid'|pid_file_name = '/var/run/pgpool/pgpool.pid'|" \
+        -e "s|^#work_dir = '/tmp'|work_dir = '/var/lib/pgpool'|" \
+        -e "s|^#pool_passwd = 'pool_passwd'|pool_passwd = '/var/lib/pgpool/pool_passwd'|" \
+        "$etc/pgpool.conf.sample" > "$etc/pgpool.conf"
+      for setting in \
+        "listen_addresses = '\*'" \
+        "unix_socket_directories = '/var/run/pgpool'" \
+        "pcp_socket_dir = '/var/run/pgpool'" \
+        "wd_ipc_socket_dir = '/var/run/pgpool'" \
+        "pid_file_name = '/var/run/pgpool/pgpool.pid'" \
+        "work_dir = '/var/lib/pgpool'" \
+        "pool_passwd = '/var/lib/pgpool/pool_passwd'"; do
+        grep -x "$setting" "$etc/pgpool.conf"
+      done
+      cp "$etc/pcp.conf.sample" "$etc/pcp.conf"
+      cp "$etc/pool_hba.conf.sample" "$etc/pool_hba.conf"
+      chmod 644 "$etc/pgpool.conf" "$etc/pcp.conf" "$etc/pool_hba.conf"
+
+  - uses: strip
+
+var-transforms:
+  - from: ${{package.version}}
+    match: '\.'
+    replace: '_'
+    to: mangled-package-version
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        pgpool --version 2>&1 | grep -F 'pgpool-II version ${{package.version}} '
+        pcp_node_info --version 2>&1 | grep -F 'pcp_node_info (pgpool-II) ${{package.version}}'
+        pg_md5 --help >/dev/null 2>&1 || test $? -eq 1
+        grep -x "listen_addresses = '\*'" /etc/pgpool2/pgpool.conf
+        grep -x "pool_passwd = '/var/lib/pgpool/pool_passwd'" /etc/pgpool2/pgpool.conf
+        test -f /etc/pgpool2/pcp.conf
+        test -f /etc/pgpool2/pool_hba.conf
+        test ! -e /usr/bin/pgpool_setup
+        grep -F 'Permission to use, copy, modify' "/usr/share/licenses/${{package.name}}/COPYING"

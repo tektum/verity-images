@@ -1,0 +1,10 @@
+name: tesseract
+track: wolfi
+description: Tesseract OCR engine CLI with English and orientation/script detection models, from Wolfi packages.
+category: Data & ML
+upstream: https://github.com/tesseract-ocr/tesseract
+versions: [5.5]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:tesseract-ocr:tesseract_ocr]
+scan-package: tesseract

@@ -1,0 +1,13 @@
+# Disabled: the official EOL database host data.xeol.io no longer resolves (NXDOMAIN), so the
+# listing and every database download, including the sample database the README documents, fail
+# (xeol-io/xeol#607). There has been no upstream release since v0.10.8 (2025-03-05). `xeol db update`
+# still exits 0 with "No EOL database update available", so scans silently run without EOL data.
+# Re-enable when upstream restores the database or ships a release with a working source.
+name: xeol
+track: wolfi
+description: End-of-life software scanner for images, filesystems, and SBOMs. Built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/xeol-io/xeol
+versions: [0.10]
+owner: tektum
+enabled: false

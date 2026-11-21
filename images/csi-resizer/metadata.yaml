@@ -1,0 +1,9 @@
+name: csi-resizer
+track: wolfi
+description: Kubernetes CSI external-resizer sidecar driving CSI volume expansion RPCs. Built from pinned source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes-csi/external-resizer
+versions: [2.3]
+flavors: [plain]
+owner: tektum
+enabled: true

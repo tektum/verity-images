@@ -1,0 +1,25 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-secrets-store-csi-driver-provider-gcp@local
+
+# Upstream image (distroless/static, no USER) runs as root: the provider
+# creates its gRPC socket in the hostPath directory shared with the Secrets
+# Store CSI Driver. The upstream DaemonSet may still set runAsUser.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /bin/secrets-store-csi-driver-provider-gcp
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt

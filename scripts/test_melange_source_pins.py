@@ -49,10 +49,34 @@ EXPECTED_EXTRACT_VERSION_TEMPLATE = (
 )
 
 
-def source_manager() -> dict:
+PRIMARY_DESCRIPTION = "Melange source pins:"
+SECONDARY_DESCRIPTION = "Melange secondary source pins:"
+EXPECTED_SECONDARY_TEMPLATE = (
+    "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue "
+    "(replace '^(  [a-z0-9-]+-version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' "
+    "(replace currentDigest newDigest replaceString))}}}"
+    "{{else}}{{{replaceString}}}{{/if}}"
+)
+SECONDARY_COMMIT_REF = re.compile(r"\$\{\{vars\.(?P<name>[A-Za-z0-9_-]+)-commit\}\}")
+SECONDARY_NAME = re.compile(r"^\(\?m\)\^  (?P<name>[a-z0-9-]+)-version: ")
+
+
+def source_managers() -> list[dict]:
     managers = json.loads(RENOVATE.read_text(encoding="utf-8"))["customManagers"]
     found = [manager for manager in managers if manager.get("depTypeTemplate") == "source"]
+    assert len(found) == 2, "renovate.json must define one melange source manager and one secondary one"
+    return found
+
+
+def source_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(PRIMARY_DESCRIPTION)]
     assert len(found) == 1, "renovate.json must define exactly one melange source manager"
+    return found[0]
+
+
+def secondary_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(SECONDARY_DESCRIPTION)]
+    assert len(found) == 1, "renovate.json must define exactly one melange secondary source manager"
     return found[0]
 
 
@@ -477,15 +501,131 @@ def test_manager_shape(manager: dict) -> None:
     assert len(manager["matchStrings"]) == 2
 
 
+def apply_secondary_upgrade(match: re.Match[str], text: str, new_value: str, new_digest: str) -> str:
+    """Mirror EXPECTED_SECONDARY_TEMPLATE: every commit copy, then the leading var version."""
+    region = match[0].replace(match["currentDigest"], new_digest)
+    region = re.sub(
+        r"^(  [a-z0-9-]+-version: \W?)[0-9][0-9A-Za-z.+_-]*",
+        lambda prefix: prefix[1] + new_value,
+        region,
+        count=1,
+    )
+    return text[: match.start()] + region + text[match.end() :]
+
+
+def var_scalars(lines: list[str]) -> dict[str, str]:
+    """Top-level vars as bare scalars; unlike parse_vars, also drops a comment after a quoted value."""
+    result = {}
+    for line in top_level_block(lines, "vars"):
+        match = re.match(r"^  (?P<key>[A-Za-z0-9_-]+):[ \t]*[\"']?(?P<value>[^\"'\s#]*)", line)
+        if match:
+            result[match["key"]] = match["value"]
+    return result
+
+
+def test_secondary(manager: dict, primary: dict) -> int:
+    """Secondary pins: `vars.<name>-version` plus `vars.<name>-commit` for a second checkout.
+
+    For every recipe the manager covers, each git-checkout with
+    `expected-commit: ${{vars.<name>-commit}}` (other than source-commit) has
+    exactly one match string, which extracts that checkout's repository, the
+    var version and the var commit; the replacement rewrites exactly those two
+    lines and leaves the primary source pin intact.
+    """
+    assert manager["datasourceTemplate"] == "git-tags"
+    assert manager["packageNameTemplate"] == "{{{repository}}}"
+    assert manager["extractVersionTemplate"] == EXPECTED_EXTRACT_VERSION_TEMPLATE
+    assert manager["autoReplaceStringTemplate"] == EXPECTED_SECONDARY_TEMPLATE
+    names = []
+    for raw in manager["matchStrings"]:
+        name = SECONDARY_NAME.match(raw)
+        assert name, f"secondary match string must start at a vars <name>-version line: {raw[:60]}"
+        names.append(name["name"])
+    assert len(names) == len(set(names)), names
+
+    patterns = file_patterns(manager)
+    covered = 0
+    problems = []
+    recipes = (path for top in ("images", "packages", "patched") for path in (ROOT / top).rglob("*.y*ml"))
+    for path in sorted(recipes):
+        relative = path.relative_to(ROOT).as_posix()
+        if not any(pattern.search(relative) for pattern in patterns):
+            continue
+        covered += 1
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        variables = var_scalars(lines)
+        checkouts = {}
+        for checkout in parse_checkouts(lines):
+            ref = SECONDARY_COMMIT_REF.fullmatch(checkout.fields.get("expected-commit", ""))
+            if ref and ref["name"] != "source":
+                checkouts[ref["name"]] = checkout
+        file_names = [name for name in names if f"  {name}-version:" in text]
+        if sorted(file_names) != sorted(checkouts):
+            problems.append(f"{relative}: secondary pins {sorted(checkouts)} but match strings {sorted(file_names)}")
+            continue
+        primary_before = [match.groupdict() for match in extract(primary, text)]
+        for raw, name in zip(manager["matchStrings"], names):
+            if name not in checkouts:
+                continue
+            matches = list(python_pattern(raw).finditer(text))
+            if len(matches) != 1:
+                problems.append(f"{relative}: {name} matched {len(matches)} times; expected one")
+                continue
+            match = matches[0]
+            checkout = checkouts[name]
+            version = variables.get(f"{name}-version", "")
+            commit = variables.get(f"{name}-commit", "")
+            if not SHA.fullmatch(commit):
+                problems.append(f"{relative}: vars.{name}-commit must be a full 40-hex commit")
+            expected = {
+                "currentValue": version,
+                "currentDigest": commit,
+                "repository": checkout.fields.get("repository"),
+            }
+            got = {key: match[key] for key in expected}
+            if got != expected:
+                problems.append(f"{relative}: {name} extracted {got}, expected {expected}")
+            tag = match["tagPrefix"] + "${{vars.%s-version}}" % name + match["tagSuffix"]
+            if tag != checkout.fields.get("tag"):
+                problems.append(f"{relative}: {name} tag {tag!r} is not the checkout tag")
+            if not match["extractVersion"] and not (
+                PLAIN_AFFIX.fullmatch(match["tagPrefix"]) and PLAIN_AFFIX.fullmatch(match["tagSuffix"])
+            ):
+                problems.append(f"{relative}: {name} needs an explicit extractVersion=")
+
+            new_version, new_digest = bumped(version), "f" * 40
+            upgraded = apply_secondary_upgrade(match, text, new_version, new_digest)
+            new_lines = upgraded.splitlines()
+            changed = {index for index, (old, new) in enumerate(zip(lines, new_lines)) if old != new}
+            new_vars = var_scalars(new_lines)
+            if (
+                len(new_lines) != len(lines)
+                or new_vars.get(f"{name}-version") != new_version
+                or new_vars.get(f"{name}-commit") != new_digest
+                or len(changed) != 2
+            ):
+                problems.append(f"{relative}: {name} replacement did not rewrite exactly its version and commit")
+            if [m.groupdict() for m in extract(primary, upgraded)] != primary_before:
+                problems.append(f"{relative}: {name} replacement changed the primary source pin")
+        if not checkouts:
+            problems.append(f"{relative}: covered by the secondary manager but has no secondary pin")
+    assert not problems, "\n".join(problems)
+    assert covered, "secondary source manager covers no recipe"
+    return covered
+
+
 def main() -> None:
     manager = source_manager()
+    secondary = test_secondary(secondary_manager(), manager)
     test_manager_shape(manager)
     test_fixtures(manager)
     literal, var = test_repository(manager)
     streams = test_stream_rules(manager)
     print(
         f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins; "
-        f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams)"
+        f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams; "
+        f"{secondary} recipe with secondary pins)"
     )
 
 

@@ -1,0 +1,33 @@
+{
+  "listen_address": "0.0.0.0",
+  "listen_port": 10003,
+  "health_listen_port": 10004,
+  "log_level": "info",
+  "threads": 1,
+  "chains": [
+    {
+      "name": "smoke-oidc",
+      "filters": [
+        {
+          "oidc": {
+            "authorization_uri": "https://idp.smoke.invalid/authorize",
+            "token_uri": "https://idp.smoke.invalid/token",
+            "jwks": "{\"keys\":[]}",
+            "callback_uri": "https://app.smoke.invalid/oauth/callback",
+            "client_id": "authservice-smoke",
+            "client_secret": "smoke-placeholder-not-a-secret",
+            "cookie_name_prefix": "smoke",
+            "id_token": {
+              "preamble": "Bearer",
+              "header": "authorization"
+            },
+            "logout": {
+              "path": "/logout",
+              "redirect_uri": "https://idp.smoke.invalid/logout"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

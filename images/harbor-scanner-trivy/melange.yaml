@@ -1,0 +1,172 @@
+package:
+  name: verity-harbor-scanner-trivy
+  # yamllint disable-line rule:line-length
+  version: "0.40.1"  # renovate: datasource=github-releases depName=goharbor/harbor-scanner-trivy versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Harbor scanner adapter for Trivy, bundled with the Trivy CLI it drives
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - wolfi-baselayout
+  resources:
+    cpu: "8"
+    memory: 15Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 13c8134a56ddb58aa8a02f0f146cd345df0bdf2e
+  # The upstream image is FROM aquasec/trivy at the version its Dockerfile pins.
+  # Trivy is rebuilt here from source the same way images/trivy builds it, and
+  # the build fails if this minor drifts from the adapter's pinned Trivy minor.
+  # apko.yaml TRIVY_VERSION must equal this value; the smoke test enforces it.
+  # yamllint disable-line rule:line-length
+  trivy-version: "0.76.2"  # renovate: datasource=github-releases depName=aquasecurity/trivy versioning=regex:^(?<major>0)\.(?<minor>76)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  trivy-commit: 3f6334d223b52188324af3b9923b4249cd206652
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/goharbor/harbor-scanner-trivy
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: git-checkout
+    with:
+      repository: https://github.com/aquasecurity/trivy
+      tag: v${{vars.trivy-version}}
+      expected-commit: ${{vars.trivy-commit}}
+      destination: third_party/trivy
+
+  - runs: |
+      # Keep the bundled Trivy on the minor the adapter release was tested with.
+      pinned=$(sed -n 's/^ARG TRIVY_VERSION=\([0-9][0-9.]*\)$/\1/p' Dockerfile)
+      test -n "$pinned"
+      test "${pinned%.*}" = "$(echo '${{vars.trivy-version}}' | cut -d. -f1,2)"
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/scanner-trivy
+
+  # Remediation builds and lists ./cmd/trivy, so it needs the same experiment
+  # as the final Trivy build (images/trivy sets it package-wide).
+  - uses: go/remediate
+    with:
+      modroot: third_party/trivy
+      packages: ./cmd/trivy
+    environment:
+      GOEXPERIMENT: jsonv2
+
+  - runs: |
+      # Upstream GoReleaser runs `go mod tidy` before building; its go.sum is
+      # not tidy, and remediated modules can need sums it lacks. Tidy never
+      # lowers a selected version, so the remediated graph is kept.
+      go mod tidy
+      # Same stamps as the upstream GoReleaser build (main.version/commit/date);
+      # the date is the pinned commit's timestamp.
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      bin="${{targets.destdir}}/usr/bin/scanner-trivy"
+      stamp="-X main.version=${{package.version}} -X main.commit=${{vars.source-commit}}"
+      stamp="$stamp -X main.date=$build_date"
+      go build -mod=readonly -trimpath -buildvcs=true -ldflags="-s -w $stamp" \
+        -o "$bin" ./cmd/scanner-trivy
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/aquasecurity/harbor-scanner-trivy" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # Upstream runs /home/scanner/bin/scanner-trivy; keep that path working.
+      mkdir -p "${{targets.destdir}}/home/scanner/bin"
+      ln -s /usr/bin/scanner-trivy "${{targets.destdir}}/home/scanner/bin/scanner-trivy"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - working-directory: third_party/trivy
+    runs: |
+      bin="${{targets.destdir}}/usr/bin/trivy"
+      GOEXPERIMENT=jsonv2 go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/aquasecurity/trivy/pkg/version/app.ver=${{vars.trivy-version}}" \
+        -o "$bin" ./cmd/trivy
+      go version -m "$bin" \
+        | awk '$1 == "mod" && $2 == "github.com/aquasecurity/trivy" { print $3 }' \
+        | grep -Ex 'v${{vars.trivy-version}}(\+dirty)?'
+      go version -m "$bin" | grep -Fx '	build	GOEXPERIMENT=jsonv2'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/trivy/LICENSE"
+
+  - runs: |
+      # The root-owned checkout is not readable by the host user that reads
+      # back workspace xattrs after the build. Keep only the resolved module
+      # files for the build-metadata subpackage.
+      install -Dm644 third_party/trivy/go.mod trivy-build/go.mod
+      install -Dm644 third_party/trivy/go.sum trivy-build/go.sum
+      rm -rf third_party/trivy
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the harbor-scanner-trivy and Trivy builds
+    pipeline:
+      - runs: |
+          dest="${{targets.subpkgdir}}/usr/share/harbor-scanner-trivy-build"
+          install -Dm644 go.mod "$dest/go.mod"
+          install -Dm644 go.sum "$dest/go.sum"
+          install -Dm644 trivy-build/go.mod "$dest/trivy/go.mod"
+          install -Dm644 trivy-build/go.sum "$dest/trivy/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        trivy version --format json | grep -F '"Version":"${{vars.trivy-version}}"'
+        test "$(readlink /home/scanner/bin/scanner-trivy)" = /usr/bin/scanner-trivy
+        # An unsupported Redis scheme fails after the build info is logged.
+        rc=0
+        SCANNER_REDIS_URL=bogus://localhost \
+          SCANNER_TRIVY_CACHE_DIR=/tmp/cache SCANNER_TRIVY_REPORTS_DIR=/tmp/reports \
+          scanner-trivy >/tmp/out 2>&1 || rc=$?
+        test "$rc" -ne 0
+        grep -F '"version":"${{package.version}}"' /tmp/out
+        grep -F '"commit":"${{vars.source-commit}}"' /tmp/out
+        grep -F 'invalid redis URL scheme: bogus' /tmp/out
+        apk info --who-owns /usr/bin/scanner-trivy \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --who-owns /usr/bin/trivy \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/trivy/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: goharbor/harbor-scanner-trivy
+    strip-prefix: v
+    tag-filter-prefix: v0.
+    use-tag: true

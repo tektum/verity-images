@@ -1,0 +1,27 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-db-operator@local
+
+# Upstream ghcr.io/db-operator/db-operator is distroless/static with
+# ENTRYPOINT ["/usr/local/bin/db-operator"], no CMD, and USER 1001. Its Helm
+# chart sets `command: [db-operator, controller]` (or `webhook`), resolved on
+# PATH, mounts the config at /run/config, and runs non-root with every
+# capability dropped.
+accounts:
+  run-as: 1001
+
+entrypoint:
+  command: /usr/local/bin/db-operator
+
+work-dir: /
+
+environment:
+  PATH: /usr/local/bin:/usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
