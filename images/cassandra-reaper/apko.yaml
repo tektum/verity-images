@@ -33,6 +33,7 @@ volumes:
 environment:
   JAVA_HOME: /usr/lib/jvm/default-jvm
   PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/lib/jvm/default-jvm/bin
+  REAPER_HEAP_SIZE: 1G
   REAPER_SEGMENT_COUNT_PER_NODE: "64"
   REAPER_REPAIR_PARALELLISM: DATACENTER_AWARE
   REAPER_REPAIR_INTENSITY: "0.9"

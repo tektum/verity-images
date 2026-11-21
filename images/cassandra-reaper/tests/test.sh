@@ -32,6 +32,7 @@ volumes=$(inspect '{{json .Config.Volumes}}')
 env=$(inspect '{{range .Config.Env}}{{println .}}{{end}}')
 for want in \
   REAPER_STORAGE_TYPE=memory \
+  REAPER_HEAP_SIZE=1G \
   REAPER_SERVER_APP_PORT=8080 \
   REAPER_SERVER_ADMIN_PORT=8081 \
   REAPER_AUTH_ENABLED=true \
@@ -75,7 +76,6 @@ docker run -d --name "$container" --network none \
   -e REAPER_STORAGE_TYPE=memory \
   -e REAPER_AUTH_ENABLED=false \
   -e REAPER_SERVER_APP_PORT=18080 \
-  -e REAPER_HEAP_SIZE=256m \
   "$image" >/dev/null || fail 'docker run failed'
 
 wait_ready "$container" 8081
