@@ -26,11 +26,17 @@ GLOBAL_PATHS: Final = {
     ".github/workflows/publish.yaml",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
+    "pipelines/go/untagged-release-modules.json",
+    "scripts/untagged_go_modules.py",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
     "scripts/runner_environment.sh",
 }
-GO_REMEDIATE_PATHS: Final = {"pipelines/go/remediate.yaml", "scripts/build_candidate.sh"}
+GO_REMEDIATE_PATHS: Final = {
+    "pipelines/go/remediate.yaml",
+    "pipelines/go/untagged-release-modules.json",
+    "scripts/build_candidate.sh",
+}
 COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}
 CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"

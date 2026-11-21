@@ -8,9 +8,10 @@
 #
 # Turns the Grype reports of one monitor shard into a normalized report and a
 # SARIF projection. Only findings with a published fix become code scanning
-# results, matching the publication gate. A package fix is a remediation
-# candidate; applying it may require changed image inputs. Unfixed findings stay
-# in the report totals.
+# results, matching the publication gate, including its acceptance of
+# allowlisted untagged Go modules (scripts/untagged_go_modules.py). A package
+# fix is a remediation candidate; applying it may require changed image inputs.
+# Unfixed findings stay in the report totals.
 
 from __future__ import annotations
 
@@ -19,6 +20,8 @@ import json
 import sys
 from pathlib import Path
 from typing import Final
+
+from untagged_go_modules import PolicyError, UntaggedFixes
 
 SARIF_SCHEMA: Final = (
     "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/"
@@ -273,6 +276,12 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
     database = manifest.get("database")
     if not isinstance(database, dict):
         raise SystemExit("monitor manifest is missing its vulnerability database identity")
+    # Parity with scripts/evaluate_scan_gate.sh: an allowlisted untagged Go module
+    # whose pseudo-version includes the fixed release is not a remediation candidate.
+    try:
+        untagged = UntaggedFixes()
+    except PolicyError as error:
+        raise SystemExit(str(error)) from error
 
     for subject in manifest["subjects"]:
         monitored = empty_counts()
@@ -285,7 +294,7 @@ def collect(manifest: dict, root: Path) -> tuple[list[Finding], dict, dict, list
             for match in document.get("matches") or []:
                 finding = Finding(subject, match)
                 monitored[finding.severity] += 1
-                if not finding.fixed:
+                if not finding.fixed or untagged.included(match):
                     continue
                 fixable += 1
                 current_fixes = set(finding.fixed)
