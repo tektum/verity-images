@@ -380,6 +380,25 @@ def lock_already_fixed(lockfile: Path, finding: dict[str, object], fixed: tuple[
     return bool(versions) and all(pins_fix(current, fixed) for current in versions)
 
 
+def exact_pin(config: Path, package: object) -> str | None:
+    """The exact `name=version` pin of a package in an APKO config, if it has one.
+
+    A lock refresh resolves the config again, so it cannot move an exact pin.
+    Unpinned, ranged (`~`, `<`, `>`) and unlisted packages return None.
+    """
+    if not isinstance(package, str) or not package:
+        return None
+    try:
+        entries = configured_values(config, "packages")
+    except (OSError, UnicodeDecodeError, RepositoryError):
+        return None
+    prefix = f"{package}="
+    for entry in entries:
+        if entry.startswith(prefix) and not re.search(r"[<>~=]", entry[len(prefix) :]):
+            return entry[len(prefix) :]
+    return None
+
+
 def safe_epoch(
     finding: dict[str, object],
     identity: RecipeIdentity,
@@ -699,6 +718,21 @@ def classify(
                     "flavor": stream.flavor,
                     "kind": "apko-republish",
                 }
+                continue
+            package_name = finding["package"].get("name") if isinstance(finding["package"], dict) else None
+            pinned = exact_pin(candidate.config, package_name)
+            if pinned is not None and not pins_fix(pinned, candidate.fixed_versions):
+                # A refresh re-resolves the config and cannot move an exact pin, so
+                # queueing one proposes nothing and reports success. Fail loudly.
+                context_blocked.append(
+                    blocked(
+                        target,
+                        finding,
+                        f"exact pin, needs a bump: apko.yaml pins {package_name}={pinned},"
+                        f" fixed in {', '.join(candidate.fixed_versions)}",
+                    )
+                )
+                context_blocked_ids.add(id(candidate))
                 continue
             context_apko.add(target)
             context_apko_locks[(lock["config"], lock["lockfile"])] = lock
