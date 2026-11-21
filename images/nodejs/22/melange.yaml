@@ -1,6 +1,6 @@
 package:
   name: verity-nodejs-22
-  version: "22.23.4"  # renovate: datasource=github-releases depName=nodejs/node
+  version: "22.23.5"  # renovate: datasource=github-releases depName=nodejs/node
   epoch: 0
   description: Node.js 22 built from the official source release, with npm and corepack.
   copyright:
@@ -71,7 +71,7 @@ pipeline:
   - uses: fetch
     with:
       uri: https://nodejs.org/dist/v${{package.version}}/node-v${{package.version}}.tar.gz
-      expected-sha256: 4dd79de8cdc85d65cb32f48a75aee1067bf00bf94b96ecc8e4c2f82f6f0272c2
+      expected-sha256: 5ae198a2ec0513ea8b7ef28f71094c9a7931a44e4db17b1734d76fe958e0ff36
 
   # npm registry tarballs, kept as files and unpacked in the install step. The
   # SHA-256 values are of the registry tarballs; the registry also publishes a
