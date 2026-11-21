@@ -1,0 +1,9 @@
+name: cloudwatch-exporter
+track: wolfi
+description: Prometheus project Java CloudWatch exporter serving Amazon CloudWatch metrics. Built from pinned source.
+category: Monitoring & Observability
+upstream: https://github.com/prometheus/cloudwatch_exporter
+versions: [0.18]
+scan-identity: [pkg:maven/io.prometheus.cloudwatch/cloudwatch_exporter]
+owner: tektum
+enabled: true

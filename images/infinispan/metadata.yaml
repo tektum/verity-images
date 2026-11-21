@@ -1,0 +1,10 @@
+name: infinispan
+track: wolfi
+description: Infinispan in-memory data grid server assembled from Wolfi packages, running as a non-root user.
+category: Databases & Caching
+upstream: https://infinispan.org/
+versions: [16.3]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:infinispan:infinispan]
+scan-package: infinispan-16.3

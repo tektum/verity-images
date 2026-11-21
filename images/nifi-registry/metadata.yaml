@@ -1,0 +1,8 @@
+name: nifi-registry
+track: wolfi
+description: Apache NiFi Registry flow versioning service built from pinned upstream source.
+upstream: https://nifi.apache.org/
+versions: [2]
+scan-identity: [cpe:2.3:a:apache:nifi_registry, pkg:maven/org.apache.nifi.registry/nifi-registry-core]
+owner: tektum
+enabled: true

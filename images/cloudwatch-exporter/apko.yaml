@@ -1,0 +1,37 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - verity-cloudwatch-exporter@local
+
+accounts:
+  groups:
+    - groupname: nobody
+      gid: 65534
+  users:
+    - username: nobody
+      uid: 65534
+      gid: 65534
+      homedir: /
+  run-as: 65534
+
+# Upstream prom/cloudwatch-exporter: ENTRYPOINT ["java", "-jar",
+# "/cloudwatch_exporter.jar", "9106"] and CMD ["/config/config.yml"]. Like
+# upstream, the image ships no configuration; mount one at /config/config.yml.
+entrypoint:
+  command: java -jar /cloudwatch_exporter.jar 9106
+
+cmd: /config/config.yml
+
+work-dir: /
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  JAVA_HOME: /usr/lib/jvm/default-jvm

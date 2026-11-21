@@ -1,11 +1,7 @@
 package:
-  name: cosign
+  name: verity-cosign
   version: "3.1.4"  # renovate: datasource=github-releases depName=sigstore/cosign
-  # Wolfi cosign-3 3.1.4-r2 still links golang.org/x/crypto v0.58.0
-  # (GO-2026-5932) and github.com/klauspost/compress v1.20.1 (GO-2026-6865).
-  # The epoch stays above that Wolfi revision so this local build never sorts
-  # below a Wolfi-published fixed revision of the same upstream version.
-  epoch: 3
+  epoch: 0
   description: Code signing and transparency for containers and binaries
   copyright:
     - license: Apache-2.0

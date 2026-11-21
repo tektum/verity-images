@@ -1,0 +1,9 @@
+name: duckdb
+track: wolfi
+description: DuckDB analytical SQL database CLI with parquet, JSON, and ICU built in, built from pinned upstream source.
+category: Databases & Caching
+upstream: https://duckdb.org/
+versions: [2.0]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:duckdb:duckdb]

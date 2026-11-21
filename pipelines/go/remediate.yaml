@@ -59,6 +59,16 @@ pipeline:
           r"(?:-([0-9A-Za-z.-]+))?(?:\+[0-9A-Za-z.-]+)?$"
       )
 
+      UNTAGGED_PSEUDO = re.compile(r"^v0\.0\.0-[0-9]{14}-[0-9a-f]{12}$")
+      # Published advisory ranges that name a release which never existed. Keys are
+      # (advisory or alias, module, published fixed version); values are the fixed
+      # release from the upstream project's own advisory.
+      ADVISORY_FIX_CORRECTIONS = {
+          # GitHub-reviewed record says 1.12.18; Istio has no 1.12.18 release. The
+          # upstream advisory and ISTIO-SECURITY-2022-005 name 1.12.8.
+          ("GHSA-xwx5-5c9g-x68x", "istio.io/istio", "1.12.18"): "1.12.8",
+      }
+
       class RemediationError(ValueError):
           pass
 
@@ -248,6 +258,10 @@ pipeline:
 
       def minimum_fix(entry, module, current):
           candidates = []
+          aliases = entry.get("aliases") or []
+          if not isinstance(aliases, list) or any(not isinstance(alias, str) for alias in aliases):
+              raise RemediationError("invalid OSV aliases")
+          identifiers = {entry.get("id"), *aliases}
           affected = entry.get("affected")
           if not isinstance(affected, list):
               raise RemediationError("invalid OSV affected records")
@@ -285,6 +299,14 @@ pipeline:
                           fixed = event["fixed"]
                           if not isinstance(fixed, str):
                               raise RemediationError("invalid fixed version")
+                          fixed = next(
+                              (
+                                  ADVISORY_FIX_CORRECTIONS[key]
+                                  for identifier in sorted(identifiers, key=str)
+                                  if (key := (identifier, module, fixed.removeprefix("v"))) in ADVISORY_FIX_CORRECTIONS
+                              ),
+                              fixed,
+                          )
                           candidate = "v" + fixed.removeprefix("v")
                           if active and version_key(current) < version_key(candidate):
                               candidates.append(candidate)
@@ -352,6 +374,69 @@ pipeline:
               and current_key < version_key(value)
               and not (stable and version_key(value)[3] == 0)
           }, key=version_key)
+
+
+      def resolve_release_fix(module, fixed):
+          # A module without semantic version tags only has v0.0.0 pseudo-versions,
+          # while advisories name its release tags (Istio tags omit the v prefix).
+          # Resolve the advisory version as a module version first, then as the bare
+          # release tag, and return the canonical module version Go selects for it.
+          with tempfile.TemporaryDirectory(prefix="go-remediate-release-") as query_root:
+              Path(query_root, "go.mod").write_text("module go_remediation_query\n\ngo 1.21\n", encoding="utf-8")
+              for query in dict.fromkeys((fixed, fixed.removeprefix("v"))):
+                  try:
+                      raw = run_go(
+                          ["go", "list", "-mod=mod", "-m", "-json", f"{module}@{query}"], query_root, capture=True
+                      )
+                  except CommandError:
+                      continue
+                  try:
+                      result = json.loads(raw)
+                  except json.JSONDecodeError as error:
+                      raise RemediationError("invalid go list module output") from error
+                  if not isinstance(result, dict) or result.get("Path") != module:
+                      raise RemediationError(f"invalid go list module identity: {module}@{query}")
+                  version = result.get("Version")
+                  if not isinstance(version, str) or VERSION.fullmatch(version) is None:
+                      raise RemediationError(f"invalid go list module identity: {module}@{query}")
+                  return version
+          raise RemediationError(
+              f"advisory fix {module}@{fixed} is neither a published module version nor a release tag"
+          )
+
+
+      def resolve_untagged_fixes(updates, selected, required):
+          # Semver order of advisory fixes is not commit order for an untagged module:
+          # a backport tag can be newer than a higher release. Check each finding
+          # against its own fixed release.
+          satisfied = set()
+          resolved = dict(updates)
+          releases = {}
+          for module in sorted(updates):
+              current = selected.get(module, "")
+              if UNTAGGED_PSEUDO.fullmatch(current) is None:
+                  continue
+              remaining = []
+              for (osv_id, owner), fixed in sorted(required.items()):
+                  if owner != module:
+                      continue
+                  if (module, fixed) not in releases:
+                      releases[module, fixed] = resolve_release_fix(module, fixed)
+                  release = releases[module, fixed]
+                  if version_key(release) <= version_key(current):
+                      satisfied.add((osv_id, module))
+                      print(
+                          f"go remediation: {osv_id} in {module}@{current} "
+                          f"includes fixed release {fixed} ({release})",
+                          flush=True,
+                      )
+                  else:
+                      remaining.append(release)
+              if remaining:
+                  resolved[module] = max(remaining, key=version_key)
+              else:
+                  del resolved[module]
+          return resolved, satisfied
 
 
       def candidate_contains_packages(root, module, version, packages):
@@ -594,6 +679,7 @@ pipeline:
           unresolved = set()
           detected = set()
           fixable = set()
+          required = {}
           for finding in findings:
               osv_id = finding.get("osv")
               trace = finding.get("trace")
@@ -613,10 +699,11 @@ pipeline:
                   unresolved.add((osv_id, module, current, reason))
                   continue
               fixable.add((osv_id, module))
+              required[(osv_id, module)] = fixed
               previous = updates.get(module)
               if previous is None or version_key(previous) < version_key(fixed):
                   updates[module] = fixed
-          return updates, sorted(unresolved), detected, fixable
+          return updates, sorted(unresolved), detected, fixable, required
 
       def reconcile(workspace_root, root, packages, workspace, vendor_patches, required_sums=()):
           snapshots = language_snapshot(workspace_root, root, workspace)
@@ -709,8 +796,10 @@ pipeline:
           reconciled = False
           while True:
               selected = selected_modules(root, workspace)
-              updates, unresolved, detected, fixable = derive_fixes(messages, selected)
-              persisted = remediated & detected
+              updates, unresolved, detected, fixable, required = derive_fixes(messages, selected)
+              updates, satisfied = resolve_untagged_fixes(updates, selected, required)
+              fixable -= satisfied
+              persisted = remediated & (detected - satisfied)
               requested = [
                   (module, fixed)
                   for module, fixed in sorted(updates.items())

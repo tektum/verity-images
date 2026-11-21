@@ -38,8 +38,11 @@ FROZEN_BASELINE: Final = frozenset(
 # inventing an identity. Immutable like FROZEN_BASELINE; adding an image here is a deliberate edit of this set.
 FROZEN_NO_FEED: Final = frozenset(
     {
+        "images/cassandra-reaper",
         "images/jupyterhub-k8s-hub",
+        "images/keycloak-config-cli",
         "images/kubernetes-reflector",
+        "images/linkerd-proxy",
         "images/opensearch-dashboards",
         "images/sonar-scanner-cli",
     }
@@ -183,6 +186,16 @@ def check_declared_identity() -> None:
         assert len({package["SPDXID"] for package in sbom["packages"]}) == 4
         contained = [r["relatedSpdxElement"] for r in sbom["relationships"] if r["relationshipType"] == "CONTAINS"]
         assert contained == [package["SPDXID"] for package in added.values()]
+    with TemporaryDirectory() as directory:
+        # Grype matches GHSA by the decoded scoped name; the purl keeps its canonical %40 encoding.
+        image = Image(Path(directory), [], identity="scan-identity: [pkg:npm/%40scope/tool]\n")
+        image.apply()
+        package = json.loads(image.sbom.read_text(encoding="utf-8"))["packages"][-1]
+        assert package["name"] == "@scope/tool"
+        assert package["externalRefs"][0]["referenceLocator"] == "pkg:npm/%40scope/tool@1.2.3"
+        assert scan_identity.declared_missing(
+            json.loads(image.sbom.read_text(encoding="utf-8")), ("pkg:npm/%40scope/tool",), "1.2.3"
+        ) == []
     with TemporaryDirectory() as directory:
         # A flavor-only helper recipe packages glue, not the runtime: nothing to declare or check.
         image = Image(Path(directory), [], identity=declared, recipe="fips.melange.yaml")

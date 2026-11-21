@@ -1,0 +1,120 @@
+package:
+  name: verity-steampipe
+  version: "2.5.1"  # renovate: datasource=github-releases depName=turbot/steampipe
+  epoch: 0
+  description: SQL interface to cloud APIs and services backed by an embedded PostgreSQL
+  copyright:
+    - license: AGPL-3.0-only
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - merged-usrsbin
+      - tzdata
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 7Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  go-getter-floor: v1.8.10  # renovate: datasource=go depName=github.com/hashicorp/go-getter
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/turbot/steampipe
+      tag: v${{package.version}}
+      expected-commit: 7b04c8d63b1cd1ed9efd28a162c04bb153991fa6
+
+  # CVE-2026-19585 and CVE-2026-88922 (go-getter) are not in the feeds
+  # go/remediate reads, and upstream v2.5.1 still requires go-getter v1.8.6.
+  - runs: |
+      current="$(go list -m -f '{{.Version}}' github.com/hashicorp/go-getter)"
+      if awk -v have="$current" -v want=${{vars.go-getter-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/hashicorp/go-getter@${{vars.go-getter-floor}}
+      fi
+      go list -m -f '{{.Version}}' github.com/hashicorp/go-getter
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  - uses: go/build
+    with:
+      packages: .
+      output: steampipe
+      go-package: go-1.27
+      ldflags: |
+        -X main.version=${{package.version}}
+        -X main.commit=$(git rev-parse HEAD)
+        -X main.date=$(date -u -d @$(git log -1 --format=%ct) +%FT%TZ)
+        -X main.builtBy=verity
+
+  - runs: |
+      binary="${{targets.destdir}}/usr/bin/steampipe"
+      # Steampipe refuses to run as root, so the build-time check runs a copy
+      # as nobody, which cannot traverse the build workspace.
+      check_dir=$(mktemp -d)
+      install -m755 "$binary" "$check_dir/steampipe"
+      chmod 755 "$check_dir"
+      su -s /bin/sh nobody -c "HOME=$check_dir '$check_dir/steampipe' --version" \
+        | grep -Fx "Steampipe v${{package.version}}"
+      rm -rf "$check_dir"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        su -s /bin/sh nobody -c 'HOME=/tmp steampipe --version' \
+          | grep -Fx "Steampipe v${{package.version}}"
+        if steampipe --version >/dev/null 2>&1; then
+          echo 'steampipe unexpectedly ran as root' >&2
+          exit 1
+        fi
+        apk info --who-owns /usr/bin/steampipe \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx AGPL-3.0-only
+        grep -F 'GNU AFFERO GENERAL PUBLIC LICENSE' \
+          "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: turbot/steampipe
+    strip-prefix: v
+    tag-filter-prefix: v2
+    use-tag: true

@@ -1,0 +1,160 @@
+package:
+  name: verity-harbor-core
+  # yamllint disable-line rule:line-length
+  version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Harbor core API server and token service
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v2.15.5 is a lightweight tag on this commit.
+  source-commit: 8c17ef6ede52bf95c8b98c530d5d50cb315a134d
+  # Upstream generates the v2.0 API server with this go-swagger release
+  # (SWAGGER_VERSION in the Makefile); a different release changes the
+  # generated code, so it moves only with the Harbor source.
+  # yamllint disable-line rule:line-length
+  swagger-version: v0.33.1  # renovate: datasource=go depName=github.com/go-swagger/go-swagger versioning=regex:^v(?<major>0)\.(?<minor>33)\.(?<patch>\d+)$
+  # GHSA-pjcq-xvwq-hhpj (GO-2026-5543): Harbor 2.15.5 requires v0.1.0, and the
+  # OSV-Scanner run inside go/remediate does not report it for that version.
+  go-ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/goharbor/harbor
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Same as the upstream gen_apis target: regenerate the committed placeholder
+  # packages under src/server/v2.0 from api/v2.0/swagger.yaml.
+  - name: Generate v2.0 API server
+    runs: |
+      set -eu
+      tool_dir=$(mktemp -d)
+      GOBIN="$tool_dir" GOWORK=off \
+        go install github.com/go-swagger/go-swagger/cmd/swagger@${{vars.swagger-version}}
+      target=src/server/v2.0
+      find "$target/models" "$target/restapi" -type f ! -name zz_generated_placeholder.go -delete
+      "$tool_dir/swagger" generate server --template-dir=tools/swagger/templates \
+        --exclude-main --additional-initialism=CVE --additional-initialism=GC \
+        --additional-initialism=OIDC -f api/v2.0/swagger.yaml -A harbor --target "$target"
+      test -s "$target/restapi/configure_harbor.go" || test -s "$target/restapi/server.go"
+      rm -rf "$tool_dir"
+
+  - working-directory: src
+    runs: |
+      current="$(go list -mod=mod -m -f '{{.Version}}' github.com/Azure/go-ntlmssp)"
+      if awk -v have="$current" -v want=${{vars.go-ntlmssp-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        go get github.com/Azure/go-ntlmssp@${{vars.go-ntlmssp-floor}}
+      fi
+
+  - uses: go/remediate
+    with:
+      modroot: src
+      packages: ./core
+
+  # Upstream release builds use GOBUILDTAGS="include_oss include_gcs" and the
+  # CORE_LDFLAGS version stamp with an 8 character commit.
+  - uses: go/build
+    with:
+      packages: ./core
+      modroot: src
+      output: harbor_core
+      go-package: go-1.27
+      tags: include_oss,include_gcs
+      ldflags: |
+        -buildid=
+        -X github.com/goharbor/harbor/src/pkg/version.ReleaseVersion=v${{package.version}}
+        -X github.com/goharbor/harbor/src/pkg/version.GitCommit=$(git rev-parse --short=8 HEAD)
+
+  # The upstream image runs from WORKDIR /harbor and resolves views/,
+  # migrations/postgresql/, and icons/ relative to it.
+  - runs: |
+      set -eu
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      binary="${{targets.destdir}}/usr/bin/harbor_core"
+      go version -m "$binary" | awk '$1 == "path" { print $2 }' \
+        | grep -Fx github.com/goharbor/harbor/src/core
+      dest="${{targets.destdir}}/harbor"
+      install -d "$dest"
+      cp -R src/core/views "$dest/views"
+      cp -R make/migrations "$dest/migrations"
+      cp -R icons "$dest/icons"
+      find "$dest" -type d -exec chmod 755 {} +
+      find "$dest" -type f -exec chmod 644 {} +
+      ln -s /usr/bin/harbor_core "$dest/harbor_core"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Harbor core build
+    pipeline:
+      - runs: |
+          install -Dm644 src/go.mod \
+            "${{targets.subpkgdir}}/usr/share/harbor-core-build/go.mod"
+          install -Dm644 src/go.sum \
+            "${{targets.subpkgdir}}/usr/share/harbor-core-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -x /usr/bin/harbor_core
+        test "$(readlink /harbor/harbor_core)" = /usr/bin/harbor_core
+        test -s /harbor/views/404.tpl
+        ls /harbor/migrations/postgresql/*.up.sql >/dev/null
+        test -s /harbor/icons/image.png
+        apk info --who-owns /usr/bin/harbor_core \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: goharbor/harbor
+    strip-prefix: v
+    tag-filter-prefix: v2.15
+    use-tag: true

@@ -1,0 +1,8 @@
+name: linkerd-proxy
+track: wolfi
+description: Linkerd sidecar proxy image with proxy-identity, proxy-init and linkerd-await, built from pinned source.
+category: Service Mesh & Networking
+upstream: https://github.com/linkerd/linkerd2-proxy
+versions: [2.374]
+owner: tektum
+enabled: true

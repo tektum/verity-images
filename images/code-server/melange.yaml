@@ -1,0 +1,189 @@
+package:
+  name: verity-code-server
+  version: "4.145.2"  # renovate: datasource=npm depName=code-server
+  epoch: 0
+  description: code-server npm release with locked production dependencies and native modules built for Wolfi Node.js 24
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - busybox
+      - dumb-init
+      # The npm release requires Node.js 24 (engines and postinstall check).
+      - nodejs-24
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "2"
+    memory: 4Gi
+
+vars:
+  prefix: /usr/lib/code-server
+  # npm security floors on top of the shipped lockfiles. Each one raises a locked
+  # version to the release that fixes advisories in it; everything else installs
+  # exactly as upstream locks it. undici and basic-ftp stay in their locked
+  # majors. zod also replaces the 3.x copy under @vscode/sandbox-runtime, whose
+  # schema calls are covered by the package test; katex is a 0.x minor bump.
+  undici-version: "7.30.1"  # renovate: datasource=npm depName=undici
+  zod-version: "4.6.6"  # renovate: datasource=npm depName=zod
+  katex-version: "0.18.2"  # renovate: datasource=npm depName=katex
+  basic-ftp-version: "6.2.4"  # renovate: datasource=npm depName=basic-ftp
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - binutils
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - jq
+      - krb5-dev
+      - node-gyp
+      - nodejs-24
+      - npm
+      - python3
+      - wolfi-baselayout
+  environment:
+    npm_config_cache: /var/cache/melange/npm
+    # Read by the node-pty, kerberos and @parcel/watcher install scripts: compile
+    # those addons against the Wolfi Node.js instead of loading prebuilt binaries.
+    npm_config_build_from_source: "true"
+
+pipeline:
+  # The npm release carries upstream's compiled code-server and VS Code server
+  # bundles plus their npm-shrinkwrap.json lockfiles; it is the input upstream's
+  # standalone release installs. The tarball is pinned by SHA-256, cross-checked
+  # against the registry's SHA-512 integrity value when it was pinned.
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/code-server/-/code-server-${{package.version}}.tgz
+      expected-sha256: 655a9e6f72f2318e5bfc3ce6612e017991799b255456ddd43b10949ea78059de
+      strip-components: 1
+
+  # Upstream's postinstall.sh runs `npm install --omit=dev` in lib/vscode and
+  # lib/vscode/extensions and links the remote CLI and browser helper scripts.
+  # The same steps run here for all three trees. npm 12 no longer reads
+  # npm-shrinkwrap.json, so each shipped lockfile is copied to package-lock.json
+  # first; without it `npm install` would re-resolve every version range.
+  - runs: |
+      set -eu
+      test "$(jq -r .version package.json)" = '${{package.version}}'
+      for tree in . lib/vscode lib/vscode/extensions; do
+        cp "$tree/npm-shrinkwrap.json" "$tree/package-lock.json"
+      done
+      # npm requires an override of a direct dependency to equal its spec.
+      npm pkg set "overrides.basic-ftp=${{vars.basic-ftp-version}}"
+      (cd lib/vscode && npm pkg set \
+        "overrides.undici=${{vars.undici-version}}" \
+        "dependencies.zod=${{vars.zod-version}}" "overrides.zod=${{vars.zod-version}}" \
+        "dependencies.katex=${{vars.katex-version}}")
+
+      npm install --omit=dev --ignore-scripts --no-audit --no-fund
+      # argon2 hashes the session cookie. Its install script is not in an
+      # allowScripts list, so compile it here and drop the bundled prebuilds.
+      (cd node_modules/argon2 && node-gyp rebuild)
+      rm -rf node_modules/argon2/prebuilds
+      node -e 'require("./node_modules/argon2")'
+
+      (cd lib/vscode && npm install --omit=dev --no-audit --no-fund --foreground-scripts)
+      (cd lib/vscode/extensions && npm install --omit=dev --no-audit --no-fund --foreground-scripts)
+      (cd lib/vscode/bin/remote-cli && rm -rf code-server && ln -s code-linux.sh code-server)
+      (cd lib/vscode/bin/helpers && rm -rf browser.sh && ln -s browser-linux.sh browser.sh)
+      # Fail if npm installed a locked production package at another version
+      # than the lockfile, or the security floor for an overridden package.
+      floors='undici=${{vars.undici-version}} zod=${{vars.zod-version}}'
+      floors="$floors katex=${{vars.katex-version}} basic-ftp=${{vars.basic-ftp-version}}"
+      for tree in . lib/vscode lib/vscode/extensions; do
+        (cd "$tree" && FLOORS="$floors" node -e '
+          const fs = require("fs");
+          const floors = Object.fromEntries(process.env.FLOORS.split(" ").map((p) => p.split("=")));
+          const lock = JSON.parse(fs.readFileSync("npm-shrinkwrap.json", "utf8"));
+          const drift = [];
+          for (const [path, entry] of Object.entries(lock.packages)) {
+            if (!path || entry.dev || entry.link || !fs.existsSync(path + "/package.json")) continue;
+            const name = path.slice(path.lastIndexOf("node_modules/") + 13);
+            const expected = floors[name] ?? entry.version;
+            const installed = JSON.parse(fs.readFileSync(path + "/package.json", "utf8")).version;
+            if (installed !== expected) drift.push(`${path} ${expected} -> ${installed}`);
+          }
+          if (drift.length) { console.error(drift.join("\n")); process.exit(1); }')
+      done
+      # @vscode/sandbox-runtime was written against zod 3: its schemas must still
+      # accept a valid config and reject an overly broad domain with zod 4.
+      # VS Code loads KaTeX from dist/katex.min.js; it must still render.
+      (cd lib/vscode && node --input-type=module -e '
+        const { NetworkConfigSchema } = await import(
+          "./node_modules/@vscode/sandbox-runtime/dist/sandbox/sandbox-config.js");
+        const ok = NetworkConfigSchema.safeParse({ allowedDomains: ["*.example.com"], deniedDomains: [] });
+        const bad = NetworkConfigSchema.safeParse({ allowedDomains: ["*.com"], deniedDomains: [] });
+        if (!ok.success || bad.success) throw new Error("sandbox-runtime schema behavior changed");
+        const { createRequire } = await import("node:module");
+        const katex = createRequire(import.meta.url)("./node_modules/katex/dist/katex.min.js");
+        if (!katex.renderToString("x^2").includes("katex")) throw new Error("katex did not render");
+      ')
+
+      # The npm release is platform-neutral. Remove ELF binaries for other
+      # architectures, FreeBSD and musl; nothing on this platform loads them.
+      case "${{build.arch}}" in
+        x86_64) machine='Advanced Micro Devices X86-64' ;;
+        aarch64) machine='AArch64' ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      find . -type f -size +1k -exec sh -c '
+        machine=$1; shift
+        for f; do
+          [ "$(head -c4 "$f" | tail -c3)" = ELF ] || continue
+          header=$(readelf -h "$f")
+          if ! printf "%s\n" "$header" | grep -q "Machine: *$machine\$" ||
+            printf "%s\n" "$header" | grep -q "OS/ABI: *UNIX - FreeBSD" ||
+            readelf -d "$f" | grep -q "NEEDED.*libc\.musl"; then
+            echo "removing foreign binary $f"
+            rm -f "$f"
+          fi
+        done' _ "$machine" {} +
+      # The Microsoft authentication broker runtime is an x86-64 library for a
+      # desktop GTK/WebKit session. The extension loads it in a try/catch and
+      # falls back to its browser flow, which is the only flow a server can use.
+      rm -f lib/vscode/extensions/microsoft-authentication/dist/libmsalruntime.so \
+        lib/vscode/extensions/microsoft-authentication/dist/msal-node-runtime.node
+
+      app="${{targets.destdir}}${{vars.prefix}}"
+      install -d "$app"
+      cp -R package.json npm-shrinkwrap.json out src lib node_modules "$app/"
+      install -m644 LICENSE ThirdPartyNotices.txt "$app/"
+      # The VS Code remote CLI and browser helper scripts run $ROOT/lib/node,
+      # where upstream's standalone release puts its bundled Node.js.
+      ln -s /usr/bin/node "$app/lib/node"
+      install -d "${{targets.destdir}}/usr/bin"
+      ln -s "${{vars.prefix}}/out/node/entry.js" "${{targets.destdir}}/usr/bin/code-server"
+      install -Dm755 /dev/stdin "${{targets.destdir}}/usr/bin/entrypoint.sh" <<'EOF'
+      #!/bin/sh
+      # Upstream ci/release-image/entrypoint.sh without fixuid and sudo: the
+      # image has no setuid helpers, so DOCKER_USER renaming is not supported.
+      set -eu
+      if [ -d "${ENTRYPOINTD:-}" ]; then
+        find "${ENTRYPOINTD}" -type f -executable -print -exec {} \;
+      fi
+      exec dumb-init /usr/bin/code-server "$@"
+      EOF
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+  pipeline:
+    - runs: |
+        set -eu
+        code-server --version | grep -E '^${{package.version}} [0-9a-f]{40} '
+        test "$(readlink -f /usr/lib/code-server/lib/node)" = "$(readlink -f /usr/bin/node)"
+        test -x /usr/lib/code-server/lib/vscode/bin/remote-cli/code-server
+        node -e 'require("/usr/lib/code-server/node_modules/argon2")'
+        apk info --license "${{package.name}}" | grep -Fx MIT

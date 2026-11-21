@@ -1,0 +1,41 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-emissary@local
+
+# Upstream runs as the "ambassador" user (UID 8888) in the root group, and
+# keeps /ambassador group-writable so arbitrary UIDs in GID 0 also work.
+accounts:
+  users:
+    - username: ambassador
+      uid: 8888
+      gid: 0
+      shell: /bin/false
+  run-as: 8888
+
+entrypoint:
+  command: busyambassador entrypoint
+
+work-dir: /opt/ambassador
+
+environment:
+  HOME: /tmp/ambassador
+  PATH: /usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /ambassador
+    type: directory
+    uid: 8888
+    gid: 0
+    permissions: 0o775
+  - path: /ambassador/sidecars
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755

@@ -1,0 +1,10 @@
+name: supervisor
+track: wolfi
+description: Supervisor process control system (supervisord and supervisorctl), assembled from Wolfi packages.
+category: Base & Utilities
+upstream: https://github.com/Supervisor/supervisor
+versions: [4.3]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:supervisord:supervisor, pkg:pypi/supervisor]
+scan-package: supervisor

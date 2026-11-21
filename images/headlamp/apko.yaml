@@ -1,0 +1,55 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-headlamp@local
+
+# Upstream's Alpine `adduser -S headlamp` yields uid 100 and gid 101, which the
+# upstream Helm chart's securityContext pins.
+accounts:
+  groups:
+    - groupname: headlamp
+      gid: 101
+  users:
+    - username: headlamp
+      uid: 100
+      gid: 101
+      homedir: /home/headlamp
+      shell: /sbin/nologin
+  run-as: 100
+
+work-dir: /headlamp
+
+entrypoint:
+  command: /headlamp/headlamp-server -html-static-dir /headlamp/frontend -plugins-dir /headlamp/plugins
+
+environment:
+  HEADLAMP_STATIC_PLUGINS_DIR: /headlamp/static-plugins
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/headlamp
+    type: directory
+    uid: 100
+    gid: 101
+    permissions: 0o755
+  - path: /headlamp/plugins
+    type: directory
+    uid: 100
+    gid: 101
+    permissions: 0o755
+  - path: /headlamp/static-plugins
+    type: directory
+    uid: 100
+    gid: 101
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 100
+    gid: 101
+    permissions: 0o1777
