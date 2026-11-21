@@ -3,20 +3,20 @@
   "schemaVersion": 2,
   "repository": "tektum/verity-images",
   "release": {
-    "id": 443149961,
-    "tag": "apk-repo-v0015",
-    "targetCommit": "8f089821c622dc26d41fe0bbef5e84308d85ed5f",
+    "id": 451441982,
+    "tag": "apk-repo-v0016",
+    "targetCommit": "651999e0d9b84c43e7713589fd37ee90c971f5d6",
     "immutable": true
   },
   "asset": {
-    "id": 740031340,
+    "id": 767955682,
     "name": "verity-apk-repository.tar.zst",
-    "sha256": "sha256:e0b2b70adf1aa09075485d599f8e641cc7475644026217f8b171a6ba62edf0c9"
+    "sha256": "sha256:cc2cad54c87cba278f2f18f1605aafb071524e685d4511d22337564d559aebd5"
   },
   "archive": {
     "root": "apk",
-    "sha256": "sha256:e0b2b70adf1aa09075485d599f8e641cc7475644026217f8b171a6ba62edf0c9",
-    "manifestSha256": "5ff96b66b2c02d05d5a6109fb68b0cb039ea414faeeab6b4c92f37d18118e7a6",
+    "sha256": "sha256:cc2cad54c87cba278f2f18f1605aafb071524e685d4511d22337564d559aebd5",
+    "manifestSha256": "93d3dfd58631fffa76714fb695c28d33b648e236e010067d2bf43cca6761fa4c",
     "manifest": {
       "architectures": [
         "aarch64",
@@ -104,45 +104,45 @@
         },
         {
           "architecture": "aarch64",
-          "epoch": 9,
+          "epoch": 10,
           "name": "verity-restic-0.18",
           "origin": {
-            "buildArtifactId": 13957358609,
-            "buildArtifactSha256": "sha256:d97578741a4240a5d25baeb3be8fa9e4657bb328fc97515afa8d439bc0ec2c4c",
-            "buildRunId": 43248904198,
+            "buildArtifactId": 14538522067,
+            "buildArtifactSha256": "sha256:4d3985e28a2af8221d9b68c72c5c1fbe575bbd3e83344db894eb38c95c61ac20",
+            "buildRunId": 44540538995,
             "buildWorkflowId": 325229076,
             "bundlePath": "bundles/verity-restic-0.18/aarch64.json",
-            "bundleSha256": "e9c3d0b982945638406c8b2ca92688bf11c60fb652b08b2a676503349e01e7a0",
-            "signingRunId": 43248904198,
+            "bundleSha256": "da4986cd5ea94c4eedaedb7190073e9d3a449bcaf7a8bcff116be750192f43da",
+            "signingRunId": 44540538995,
             "signingWorkflowId": 325229076,
-            "sourceCommit": "8f089821c622dc26d41fe0bbef5e84308d85ed5f",
+            "sourceCommit": "651999e0d9b84c43e7713589fd37ee90c971f5d6",
             "type": "attested-build",
-            "unsignedSha256": "c8ec19215efcfd9f872cdb134362f3e34687a65437277325eda3f610c4b07f22"
+            "unsignedSha256": "57bb33537d26522aec057743a672a2dd328a790d8a619a6c4880aeef12a0119f"
           },
-          "path": "aarch64/verity-restic-0.18-0.18.1-r9.apk",
-          "sha256": "20b6a6071c8d1e87eb876d85281254439c9b2fc06107cf268e41f100537f13bc",
-          "version": "0.18.1-r9"
+          "path": "aarch64/verity-restic-0.18-0.18.1-r10.apk",
+          "sha256": "84a9eaa644da989ef4fbf0fc554f9f72cc340b2f3ae5d9c33db309eb9f1cd7b3",
+          "version": "0.18.1-r10"
         },
         {
           "architecture": "x86_64",
-          "epoch": 9,
+          "epoch": 10,
           "name": "verity-restic-0.18",
           "origin": {
-            "buildArtifactId": 13957483319,
-            "buildArtifactSha256": "sha256:1722bc7059f4ca0c418ce1d82a8de4076bed356455f786dad11ec35a3fbf5c23",
-            "buildRunId": 43248904198,
+            "buildArtifactId": 14538437055,
+            "buildArtifactSha256": "sha256:00db5ba9f484ad7e707bf9d409b31c51a411017889061f10bf1768b3f7909279",
+            "buildRunId": 44540538995,
             "buildWorkflowId": 325229076,
             "bundlePath": "bundles/verity-restic-0.18/x86_64.json",
-            "bundleSha256": "e943b8df0d36334c4cfee2875923d426fe9b7af4dcfa4546a261a5224506ffdc",
-            "signingRunId": 43248904198,
+            "bundleSha256": "7666b0cb1f070ad4ad768e3ec2647b8933139a359af83a0772930e4e0b0a4903",
+            "signingRunId": 44540538995,
             "signingWorkflowId": 325229076,
-            "sourceCommit": "8f089821c622dc26d41fe0bbef5e84308d85ed5f",
+            "sourceCommit": "651999e0d9b84c43e7713589fd37ee90c971f5d6",
             "type": "attested-build",
-            "unsignedSha256": "3808ac0bac11c32b35741c8798511f93d9522279f30c8d81a9bf19dd3c566545"
+            "unsignedSha256": "8bec6ba53e39ba103a609c5748c91974a411280475fd5180b6e0b491c42d0137"
           },
-          "path": "x86_64/verity-restic-0.18-0.18.1-r9.apk",
-          "sha256": "43ab84d1412b6cc0009c225fec65df93d02b29203ee3a2e5c26f270bfc441281",
-          "version": "0.18.1-r9"
+          "path": "x86_64/verity-restic-0.18-0.18.1-r10.apk",
+          "sha256": "6cc76d7ff0bea2ba7c68e26229ab4cf014b38e861eed0e66eb9726b8592ba905",
+          "version": "0.18.1-r10"
         }
       ],
       "schemaVersion": 2
@@ -233,45 +233,45 @@
     },
     {
       "architecture": "aarch64",
-      "epoch": 9,
+      "epoch": 10,
       "name": "verity-restic-0.18",
       "origin": {
-        "buildArtifactId": 13957358609,
-        "buildArtifactSha256": "sha256:d97578741a4240a5d25baeb3be8fa9e4657bb328fc97515afa8d439bc0ec2c4c",
-        "buildRunId": 43248904198,
+        "buildArtifactId": 14538522067,
+        "buildArtifactSha256": "sha256:4d3985e28a2af8221d9b68c72c5c1fbe575bbd3e83344db894eb38c95c61ac20",
+        "buildRunId": 44540538995,
         "buildWorkflowId": 325229076,
         "bundlePath": "bundles/verity-restic-0.18/aarch64.json",
-        "bundleSha256": "e9c3d0b982945638406c8b2ca92688bf11c60fb652b08b2a676503349e01e7a0",
-        "signingRunId": 43248904198,
+        "bundleSha256": "da4986cd5ea94c4eedaedb7190073e9d3a449bcaf7a8bcff116be750192f43da",
+        "signingRunId": 44540538995,
         "signingWorkflowId": 325229076,
-        "sourceCommit": "8f089821c622dc26d41fe0bbef5e84308d85ed5f",
+        "sourceCommit": "651999e0d9b84c43e7713589fd37ee90c971f5d6",
         "type": "attested-build",
-        "unsignedSha256": "c8ec19215efcfd9f872cdb134362f3e34687a65437277325eda3f610c4b07f22"
+        "unsignedSha256": "57bb33537d26522aec057743a672a2dd328a790d8a619a6c4880aeef12a0119f"
       },
-      "path": "aarch64/verity-restic-0.18-0.18.1-r9.apk",
-      "sha256": "20b6a6071c8d1e87eb876d85281254439c9b2fc06107cf268e41f100537f13bc",
-      "version": "0.18.1-r9"
+      "path": "aarch64/verity-restic-0.18-0.18.1-r10.apk",
+      "sha256": "84a9eaa644da989ef4fbf0fc554f9f72cc340b2f3ae5d9c33db309eb9f1cd7b3",
+      "version": "0.18.1-r10"
     },
     {
       "architecture": "x86_64",
-      "epoch": 9,
+      "epoch": 10,
       "name": "verity-restic-0.18",
       "origin": {
-        "buildArtifactId": 13957483319,
-        "buildArtifactSha256": "sha256:1722bc7059f4ca0c418ce1d82a8de4076bed356455f786dad11ec35a3fbf5c23",
-        "buildRunId": 43248904198,
+        "buildArtifactId": 14538437055,
+        "buildArtifactSha256": "sha256:00db5ba9f484ad7e707bf9d409b31c51a411017889061f10bf1768b3f7909279",
+        "buildRunId": 44540538995,
         "buildWorkflowId": 325229076,
         "bundlePath": "bundles/verity-restic-0.18/x86_64.json",
-        "bundleSha256": "e943b8df0d36334c4cfee2875923d426fe9b7af4dcfa4546a261a5224506ffdc",
-        "signingRunId": 43248904198,
+        "bundleSha256": "7666b0cb1f070ad4ad768e3ec2647b8933139a359af83a0772930e4e0b0a4903",
+        "signingRunId": 44540538995,
         "signingWorkflowId": 325229076,
-        "sourceCommit": "8f089821c622dc26d41fe0bbef5e84308d85ed5f",
+        "sourceCommit": "651999e0d9b84c43e7713589fd37ee90c971f5d6",
         "type": "attested-build",
-        "unsignedSha256": "3808ac0bac11c32b35741c8798511f93d9522279f30c8d81a9bf19dd3c566545"
+        "unsignedSha256": "8bec6ba53e39ba103a609c5748c91974a411280475fd5180b6e0b491c42d0137"
       },
-      "path": "x86_64/verity-restic-0.18-0.18.1-r9.apk",
-      "sha256": "43ab84d1412b6cc0009c225fec65df93d02b29203ee3a2e5c26f270bfc441281",
-      "version": "0.18.1-r9"
+      "path": "x86_64/verity-restic-0.18-0.18.1-r10.apk",
+      "sha256": "6cc76d7ff0bea2ba7c68e26229ab4cf014b38e861eed0e66eb9726b8592ba905",
+      "version": "0.18.1-r10"
     }
   ]
 }
