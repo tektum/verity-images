@@ -52,8 +52,8 @@ environment:
 
 pipeline:
   # The Bazel dependency graph and upstream .requirements pin native and Lua
-  # dependency commits and archive checksums. Pre-fetch and verify Kong Manager,
-  # whose upstream release wrapper does not pin it.
+  # dependency commits and archive checksums. Pre-fetch and checksum the official
+  # upstream Kong Manager prebuilt web asset; its upstream wrapper has no hash.
   - uses: git-checkout
     with:
       repository: https://github.com/Kong/kong
@@ -64,12 +64,6 @@ pipeline:
       # renovate: datasource=github-releases depName=Kong/kong-manager
       uri: https://github.com/Kong/kong-manager/releases/download/v3.9.0.0/release.tar.gz
       expected-sha256: 0e5028f8ecfcc611de8d0a015a1985d46fe207d09a87ffe644a2d19b189db70a
-  - uses: fetch
-    with:
-      # yamllint disable-next-line rule:line-length
-      uri: https://raw.githubusercontent.com/omercnet/kong/28d058fe659a8b2bdee9d4f3cc8858785e1ac613/build/openssl4.patch
-      expected-sha256: bb4d1ae5276c037e99f69d704f1d62d4d070477eaa9bfae834a86079ea025b10
-      extract: false
   - uses: patch
     with:
       patches: http-archive.patch openssl.patch
