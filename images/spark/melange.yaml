@@ -1,0 +1,183 @@
+package:
+  name: verity-spark
+  # yamllint disable-line rule:line-length
+  version: "4.3.0"  # renovate: datasource=maven depName=org.apache.spark:spark-core_2.13 versioning=regex:^(?<major>4)\.(?<minor>3)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Spark unified analytics engine for large-scale data processing
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - coreutils
+      - glibc-locale-en
+      - gosu
+      - libstdc++
+      - openjdk-21-default-jvm
+      - posix-libc-utils
+      - procps
+      - python-3.13
+      - tini
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# Security floors. Spark, its shaded Hadoop client runtime and parquet-jackson
+# pin these libraries below their fixed releases.
+vars:
+  # yamllint disable rule:line-length
+  jetty-version: 12.1.15  # renovate: datasource=maven depName=org.eclipse.jetty:jetty-server versioning=regex:^(?<major>12)\.(?<minor>1)\.(?<patch>\d+)$
+  netty-version: 4.2.21.Final  # renovate: datasource=maven depName=io.netty:netty-handler versioning=regex:^(?<major>4)\.(?<minor>2)\.(?<patch>\d+)\.Final$
+  jackson-version: 2.21.8  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=regex:^(?<major>2)\.(?<minor>21)\.(?<patch>\d+)$
+  hadoop-jackson-version: 2.18.12  # renovate: datasource=maven depName=com.fasterxml.jackson.core:jackson-databind versioning=regex:^(?<major>2)\.(?<minor>18)\.(?<patch>\d+)$
+  guava-version: 33.8.0-jre  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>33)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
+  hadoop-shaded-guava-version: 1.6.0  # renovate: datasource=maven depName=org.apache.hadoop.thirdparty:hadoop-shaded-guava versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+  log4j-version: 2.25.5  # renovate: datasource=maven depName=org.apache.logging.log4j:log4j-core versioning=regex:^(?<major>2)\.(?<minor>25)\.(?<patch>\d+)$
+  snappy-version: 1.1.10.12  # renovate: datasource=maven depName=org.xerial.snappy:snappy-java versioning=maven
+  lz4-version: 1.11.4  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>11)\.(?<patch>\d+)$
+  vertx-version: 4.5.36  # renovate: datasource=maven depName=io.vertx:vertx-core versioning=regex:^(?<major>4)\.(?<minor>5)\.(?<patch>\d+)$
+  jline-version: 3.30.17  # renovate: datasource=maven depName=org.jline:jline versioning=regex:^(?<major>3)\.(?<minor>30)\.(?<patch>\d+)$
+  kerby-version: 2.1.2  # renovate: datasource=maven depName=org.apache.kerby:kerby-asn1 versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+  commons-configuration2-version: 2.15.1  # renovate: datasource=maven depName=org.apache.commons:commons-configuration2 versioning=maven
+  # Module poms of the Hadoop and Parquet releases Spark 4.3.0 links, pinned by
+  # release commit and checksum. The build fails if Spark moves to another release.
+  hadoop-client-runtime-pom: https://raw.githubusercontent.com/apache/hadoop/dbcc7cd797100e6b32cd84f85b53a5193a5f9af0/hadoop-client-modules/hadoop-client-runtime/pom.xml
+  hadoop-client-runtime-pom-sha256: f5a1580fde7a4fd89513c6ed94027236b6a4e27eaf5147e1e8711d72c468c8de
+  parquet-jackson-pom: https://raw.githubusercontent.com/apache/parquet-java/fac0c746532e133beb928a7f6a7e57b510b477a1/parquet-jackson/pom.xml
+  parquet-jackson-pom-sha256: ff941f8370174912af5f20baa984070477a1b313d0f197a802c46010d8877db1
+  # The official image entrypoint (apache/spark-docker), pinned by commit.
+  entrypoint: https://raw.githubusercontent.com/apache/spark-docker/f933b4486c0b7f91545c2bbc63cd6b960787190b/entrypoint.sh.template
+  entrypoint-sha256: ec72936bfb2abed8cfe36e47ae79d0b04fbcddfacb0e96fd1a0cd7f2d592ecf3
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - git
+      # The protoc and gRPC plugin binaries Maven downloads link libstdc++.
+      - libstdc++
+      - maven-3.9
+      - openjdk-21-default-jdk
+      - patch
+      - zip
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/spark
+      tag: v${{package.version}}
+      expected-commit: 98bc0212c94705434471627068f41e374ccab143
+  - uses: patch
+    with:
+      patches: spark-build.patch
+  - runs: |
+      # Keep the Maven repository out of the workspace, which melange reads back.
+      mvn_flags="-B -ntp -Dmaven.repo.local=/var/cache/maven"
+      pom_property() { sed -n "s|^    <$1>\(.*\)</$1>\$|\1|p" pom.xml; }
+      hadoop=$(pom_property hadoop.version)
+      parquet=$(pom_property parquet.version)
+      [ -n "$hadoop" ] && [ -n "$parquet" ]
+
+      # Install rebuilt shaded modules into the local repository, so the Spark
+      # build links them instead of the Maven Central artifacts.
+      install -d hadoop-client-runtime parquet-jackson
+      curl -fsSL --retry 5 --retry-all-errors -o hadoop-client-runtime/pom.xml \
+        "${{vars.hadoop-client-runtime-pom}}"
+      printf '%s  %s\n' "${{vars.hadoop-client-runtime-pom-sha256}}" hadoop-client-runtime/pom.xml |
+        sha256sum -c
+      grep -qx "  <version>$hadoop</version>" hadoop-client-runtime/pom.xml ||
+        { echo "Spark links Hadoop $hadoop; update the pinned pom" >&2; exit 1; }
+      patch -p1 -d hadoop-client-runtime < hadoop-client-runtime.patch
+      mvn $mvn_flags -f hadoop-client-runtime/pom.xml install \
+        -Djackson2.version=${{vars.hadoop-jackson-version}} \
+        -Djackson2.databind.version=${{vars.hadoop-jackson-version}} \
+        -Dguava.version=${{vars.guava-version}} \
+        -Dhadoop-thirdparty-guava.version=${{vars.hadoop-shaded-guava-version}} \
+        -Dkerby.version=${{vars.kerby-version}} \
+        -Dcommons-configuration2.version=${{vars.commons-configuration2-version}}
+
+      curl -fsSL --retry 5 --retry-all-errors -o parquet-jackson/pom.xml "${{vars.parquet-jackson-pom}}"
+      printf '%s  %s\n' "${{vars.parquet-jackson-pom-sha256}}" parquet-jackson/pom.xml | sha256sum -c
+      grep -qx "    <version>$parquet</version>" parquet-jackson/pom.xml ||
+        { echo "Spark links Parquet $parquet; update the pinned pom" >&2; exit 1; }
+      patch -p1 -d parquet-jackson < parquet-jackson.patch
+      jackson=${{vars.jackson-version}}
+      mvn $mvn_flags -f parquet-jackson/pom.xml install -DskipTests -Djapicmp.skip -Drat.skip -Dspotless.check.skip \
+        -Djackson.version=$jackson -Djackson-databind.version=$jackson \
+        -Djackson-annotations.version=${jackson%.*}
+
+      # Upstream's release adds -Pyarn -Psparkr -Phive -Phive-thriftserver. Hive 2.3
+      # carries advisories fixed only in Hive 4, so the image omits Hive support.
+      ./dev/make-distribution.sh --name verity --mvn mvn $mvn_flags -Pkubernetes \
+        -Djetty.version=${{vars.jetty-version}} \
+        -Dnetty.version=${{vars.netty-version}} \
+        -Dfasterxml.jackson.version=$jackson \
+        -Dguava.version=${{vars.guava-version}} \
+        -Dlog4j.version=${{vars.log4j-version}} \
+        -Dsnappy.version=${{vars.snappy-version}} \
+        -Dlz4.version=${{vars.lz4-version}} \
+        -Dvertx.version=${{vars.vertx-version}} \
+        -Djline3.version=${{vars.jline-version}}
+
+      # Fail if a floor did not reach the distribution.
+      for jar in jackson-databind-$jackson guava-${{vars.guava-version}} \
+        log4j-api-${{vars.log4j-version}} lz4-java-${{vars.lz4-version}} \
+        netty-handler-${{vars.netty-version}} snappy-java-${{vars.snappy-version}} \
+        vertx-core-${{vars.vertx-version}} jline-${{vars.jline-version}}-jdk8 \
+        hadoop-client-runtime-$hadoop parquet-jackson-$parquet; do
+        [ -f "dist/jars/$jar.jar" ] || { echo "missing dist/jars/$jar.jar" >&2; exit 1; }
+      done
+      if "$JAVA_HOME/bin/jar" tf "dist/jars/hadoop-client-runtime-$hadoop.jar" | grep -q '/eclipse/jetty/'; then
+        echo "hadoop-client-runtime still shades Jetty" >&2
+        exit 1
+      fi
+      if ls dist/jars | grep -E '^(hive-exec|hive-metastore|spark-hive)'; then
+        echo "Hive jars reached the distribution" >&2
+        exit 1
+      fi
+
+      root="${{targets.destdir}}/opt/spark"
+      install -d "$root/python"
+      cp -a dist/RELEASE dist/bin dist/sbin dist/jars dist/examples dist/data "$root/"
+      cp -a dist/python/pyspark dist/python/lib "$root/python/"
+      rm -f "$root"/bin/*.cmd
+      ln -s "$(basename "$root"/examples/jars/spark-examples_*.jar)" "$root/examples/jars/spark-examples.jar"
+      install -d "$root/work-dir"
+      install -m755 resource-managers/kubernetes/docker/src/main/dockerfiles/spark/decom.sh \
+        "${{targets.destdir}}/opt/decom.sh"
+      curl -fsSL --retry 5 --retry-all-errors -o entrypoint.sh "${{vars.entrypoint}}"
+      printf '%s  %s\n' "${{vars.entrypoint-sha256}}" entrypoint.sh | sha256sum -c
+      install -m755 entrypoint.sh "${{targets.destdir}}/opt/entrypoint.sh"
+      install -Dm644 dist/LICENSE "${{targets.destdir}}/licenses/LICENSE"
+      install -Dm644 dist/NOTICE "${{targets.destdir}}/licenses/NOTICE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - bash
+        - openjdk-21-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  pipeline:
+    - runs: /opt/spark/bin/spark-submit --version 2>&1 | grep -F "version ${{package.version}}"
+
+update:
+  enabled: true
+  github:
+    identifier: apache/spark
+    use-tag: true
+    tag-filter-prefix: v4.3.
+    strip-prefix: v

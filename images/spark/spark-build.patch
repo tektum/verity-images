@@ -1,0 +1,58 @@
+Make the lz4-java pin and the Scala REPL jline 3 (jdk8 classifier) overridable
+from the build command, like the other dependency versions.
+
+XSDToSchema imports InputStreamReader from the jline copy shaded into
+hadoop-client-runtime, which this build no longer shades; use java.io instead.
+
+diff --git a/pom.xml b/pom.xml
+--- a/pom.xml
++++ b/pom.xml
+@@ -227,6 +227,9 @@
+     <icu4j.version>78.3</icu4j.version>
+     <junit.version>6.0.3</junit.version>
+     <jline.version>2.14.6</jline.version>
++    <!-- org.jline:jline (jdk8) bundled by the Scala 2.13 compiler for the REPL -->
++    <jline3.version>3.29.0</jline3.version>
++    <lz4.version>1.11.0</lz4.version>
+     <!--
+       SPARK-50299: When updating `sbt-jupiter-interface.version`,
+       also need to update the version in `SparkBuild.scala` and `plugins.sbt`.
+@@ -896,7 +899,7 @@
+       <dependency>
+         <groupId>at.yawk.lz4</groupId>
+         <artifactId>lz4-java</artifactId>
+-        <version>1.11.0</version>
++        <version>${lz4.version}</version>
+       </dependency>
+       <dependency>
+         <groupId>com.github.luben</groupId>
+@@ -1241,6 +1244,12 @@
+         <artifactId>jline</artifactId>
+         <version>${jline.version}</version>
+       </dependency>
++      <dependency>
++        <groupId>org.jline</groupId>
++        <artifactId>jline</artifactId>
++        <version>${jline3.version}</version>
++        <classifier>jdk8</classifier>
++      </dependency>
+       <dependency>
+         <groupId>org.scalatest</groupId>
+         <artifactId>scalatest_${scala.binary.version}</artifactId>
+diff --git a/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/xml/XSDToSchema.scala b/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/xml/XSDToSchema.scala
+--- a/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/xml/XSDToSchema.scala
++++ b/sql/core/src/main/scala/org/apache/spark/sql/execution/datasources/xml/XSDToSchema.scala
+@@ -16,12 +16,11 @@
+  */
+ package org.apache.spark.sql.execution.datasources.xml
+ 
+-import java.io.StringReader
++import java.io.{InputStreamReader, StringReader}
+ 
+ import scala.jdk.CollectionConverters._
+ 
+ import org.apache.hadoop.fs.Path
+-import org.apache.hadoop.shaded.org.jline.utils.InputStreamReader
+ import org.apache.ws.commons.schema._
+ import org.apache.ws.commons.schema.constants.Constants
+ 

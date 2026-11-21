@@ -1,0 +1,55 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-spark@local
+
+# Upstream's apache/spark image runs as spark (185:185).
+accounts:
+  groups:
+    - groupname: spark
+      gid: 185
+  users:
+    - username: spark
+      uid: 185
+      gid: 185
+      homedir: /home/spark
+  run-as: 185
+
+# The upstream entrypoint runs `driver` and `executor` (the Spark Kubernetes
+# backend's container arguments) under tini and passes anything else to exec.
+entrypoint:
+  command: /opt/entrypoint.sh
+
+work-dir: /opt/spark/work-dir
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  LANG: en_US.UTF-8
+  PATH: /opt/spark/bin:/usr/lib/jvm/java-21-openjdk/bin:/usr/bin:/bin
+  SPARK_HOME: /opt/spark
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  # Group 0 can write the working directory (asserted by the smoke test). Spark
+  # itself still needs UID 185: Hadoop login rejects a UID without a passwd
+  # entry and Wolfi has no nss_wrapper, so arbitrary UIDs cannot run Spark.
+  - path: /opt/spark/work-dir
+    type: directory
+    uid: 185
+    gid: 0
+    permissions: 0o775
+  - path: /home/spark
+    type: directory
+    uid: 185
+    gid: 185
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
