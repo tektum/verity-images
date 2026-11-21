@@ -1,0 +1,50 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-harbor-core@local
+
+# Upstream goharbor/harbor-core runs as harbor (10000:10000) from WORKDIR
+# /harbor, where views/, migrations/postgresql/, and icons/ are resolved.
+# Upstream's /harbor/entrypoint.sh only runs install_cert.sh, which appends
+# CAs to the Photon bundle and is a no-op on any other OS, then execs
+# harbor_core; this image execs the binary directly. Configuration is the
+# upstream environment (CONFIG_PATH, POSTGRESQL_*, _REDIS_URL_*, CORE_SECRET,
+# ...) and the mounted /etc/core files.
+accounts:
+  groups:
+    - groupname: harbor
+      gid: 10000
+  users:
+    - username: harbor
+      uid: 10000
+      gid: 10000
+      homedir: /home/harbor
+  run-as: 10000
+
+entrypoint:
+  command: /harbor/harbor_core
+
+work-dir: /harbor
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/harbor
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /etc/core
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755

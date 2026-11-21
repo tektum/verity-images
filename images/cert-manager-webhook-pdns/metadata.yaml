@@ -1,0 +1,9 @@
+name: cert-manager-webhook-pdns
+track: wolfi
+description: cert-manager ACME DNS01 webhook solver for PowerDNS, built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/zachomedia/cert-manager-webhook-pdns
+versions: [2.5]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/zachomedia/cert-manager-webhook-pdns]
