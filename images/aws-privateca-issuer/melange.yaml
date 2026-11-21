@@ -1,0 +1,123 @@
+package:
+  name: verity-aws-privateca-issuer
+  # yamllint disable-line rule:line-length
+  version: "1.12.2"  # renovate: datasource=github-releases depName=cert-manager/aws-privateca-issuer versioning=regex:^(?<major>1)\.(?<minor>12)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: cert-manager external issuer for AWS Private Certificate Authority
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: b4bff7516fb5e2d827db41c9b2ba12806ef992b5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/cert-manager/aws-privateca-issuer
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: .
+
+  # Same -X stamps as the upstream Makefile and Dockerfile (the plug-in version
+  # and user agent sent to AWS Private CA). Building the package instead of
+  # main.go lets Go stamp the main module with the release tag, which the scan
+  # identity relies on.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w \
+          -X github.com/cert-manager/aws-privateca-issuer/pkg/api/injections.PlugInVersion=v${{package.version}} \
+          -X github.com/cert-manager/aws-privateca-issuer/pkg/api/injections.UserAgent=aws-privateca-issuer" \
+        -o "${{targets.destdir}}/usr/bin/aws-privateca-issuer" .
+      go version -m "${{targets.destdir}}/usr/bin/aws-privateca-issuer" \
+        | awk '$1 == "mod" && $2 == "github.com/cert-manager/aws-privateca-issuer" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      # The generated issuer CRDs of this release, so a consumer can install the
+      # exact schema the binary expects. The upstream image does not carry them.
+      for crd in config/crd/bases/*.yaml; do
+        install -Dm644 "$crd" \
+          "${{targets.destdir}}/usr/share/aws-privateca-issuer/crds/$(basename "$crd")"
+      done
+      # The manager watches cert-manager CertificateRequests and exits when that
+      # CRD is missing. Ship the CRD of the cert-manager module this binary is
+      # compiled against (after go/remediate), for clusters and smoke tests.
+      certmanager=$(go list -mod=readonly -m -f '{{.Dir}}' github.com/cert-manager/cert-manager)
+      crd=cert-manager.io_certificaterequests.yaml
+      install -Dm644 "$certmanager/deploy/crds/$crd" \
+        "${{targets.destdir}}/usr/share/aws-privateca-issuer/cert-manager-crds/$crd"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the aws-privateca-issuer build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/aws-privateca-issuer-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/aws-privateca-issuer-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        aws-privateca-issuer --help 2>&1 | grep -F -- '-issuer-ambient-credentials'
+        if out=$(aws-privateca-issuer --kubeconfig=/definitely-missing 2>&1); then
+          echo 'manager unexpectedly started without a cluster' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F 'unable to get kubeconfig'
+        for crd in awspcaissuers awspcaclusterissuers; do
+          grep -Fx 'kind: CustomResourceDefinition' \
+            "/usr/share/aws-privateca-issuer/crds/awspca.cert-manager.io_$crd.yaml"
+        done
+        apk info --who-owns /usr/bin/aws-privateca-issuer \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: cert-manager/aws-privateca-issuer
+    strip-prefix: v
+    tag-filter-prefix: v1.12.
+    use-tag: true
