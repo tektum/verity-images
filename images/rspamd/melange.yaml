@@ -1,0 +1,96 @@
+package:
+  name: verity-rspamd
+  version: "4.3.0"  # renovate: datasource=github-tags depName=rspamd/rspamd
+  epoch: 0
+  description: Rapid spam filtering system with the controller web interface
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 8Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cmake
+      - glib-dev
+      - glibc-2.44-dev
+      - icu-dev
+      - libarchive-dev
+      - libevent-dev
+      - libmagic-dev
+      - libsodium-dev
+      - luajit-dev
+      - openssl-4.0-dev
+      - pcre2-dev
+      - perl
+      - ragel-dev
+      - samurai
+      - sqlite-dev
+      - zlib-dev
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/rspamd/rspamd
+      tag: ${{package.version}}
+      expected-commit: 25c9ecc959b328834557a8a48013d39dbeced464
+
+  # The normal, controller and proxy workers default to accepting the
+  # File/Path/Shm message-source inputs, which let any client that reaches a
+  # TCP listener make rspamd read local files. The image listens on all
+  # interfaces, so those inputs default to off; upstream plans the same default
+  # for its next major release. Re-enable per worker in override.d.
+  - runs: |
+      for worker in normal controller proxy; do
+        conf="conf/worker-$worker.inc"
+        grep -qx 'allow_file_and_shm_inputs = true;' "$conf"
+        sed -i 's/^allow_file_and_shm_inputs = true;$/allow_file_and_shm_inputs = false;/' "$conf"
+        grep -qx 'allow_file_and_shm_inputs = false;' "$conf"
+      done
+
+  - uses: cmake/configure
+    with:
+      opts: |
+        -DENABLE_PCRE2=ON \
+        -DENABLE_LUAJIT=ON \
+        -DINSTALL_WEBUI=ON \
+        -DINSTALL_EXAMPLES=OFF \
+        -DCONFDIR=/etc/rspamd \
+        -DRUNDIR=/run/rspamd
+
+  - uses: cmake/build
+
+  - uses: cmake/install
+
+  - runs: |
+      test -f "${{targets.destdir}}/etc/rspamd/rspamd.conf"
+      install -d -m 755 "${{targets.destdir}}/etc/rspamd/local.d" "${{targets.destdir}}/etc/rspamd/override.d"
+      ln -sf rspamadm-${{package.version}} "${{targets.destdir}}/usr/bin/rspamadm"
+      ln -sf rspamc-${{package.version}} "${{targets.destdir}}/usr/bin/rspamc"
+      ln -sf rspamd-${{package.version}} "${{targets.destdir}}/usr/bin/rspamd"
+      rm -rf "${{targets.destdir}}/usr/share/man"
+      install -Dm644 LICENSE.md "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE.md"
+      test -f "${{targets.destdir}}/usr/share/rspamd/www/index.html"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        rspamd --version | grep -F '${{package.version}}'
+        rspamadm configtest

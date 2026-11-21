@@ -1,0 +1,58 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-pgpool2-4.7@local
+
+accounts:
+  groups:
+    - groupname: pgpool
+      gid: 65532
+  users:
+    - username: pgpool
+      uid: 65532
+      gid: 65532
+      homedir: /var/lib/pgpool
+      shell: /sbin/nologin
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/pgpool
+
+cmd: -n -f /etc/pgpool2/pgpool.conf -F /etc/pgpool2/pcp.conf
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /etc/pgpool2
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /var/run/pgpool
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/log/pgpool
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/lib/pgpool
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777

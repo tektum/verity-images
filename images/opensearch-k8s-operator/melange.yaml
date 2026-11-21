@@ -1,0 +1,106 @@
+package:
+  name: verity-opensearch-k8s-operator
+  # yamllint disable-line rule:line-length
+  version: "3.0.0"  # renovate: datasource=github-tags depName=opensearch-project/opensearch-k8s-operator extractVersion=^v(?<version>\d+\.\d+\.\d+)$
+  epoch: 0
+  description: OpenSearch Kubernetes Operator manager
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOTOOLCHAIN: local
+
+pipeline:
+  # The repository also tags Helm chart releases (opensearch-operator-X.Y.Z,
+  # opensearch-cluster-X.Y.Z) and infra re-tags (vX.Y.Z-infrafix1); the
+  # annotation's extractVersion accepts only plain vX.Y.Z operator releases.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/opensearch-project/opensearch-k8s-operator
+      tag: v${{package.version}}
+      expected-commit: 9266e6c1b0bcb2cf0df7aac90142b3305b41b617
+
+  # The repository root go.work also pulls in the functional test module, whose
+  # go.sum does not cover remediated versions. The upstream Dockerfile builds
+  # the operator module on its own, so drop the workspace before remediation.
+  - runs: rm go.work go.work.sum
+
+  - uses: go/remediate
+    with:
+      modroot: opensearch-operator
+      packages: .
+
+  # The Go module lives in opensearch-operator/ with the path
+  # github.com/opensearch-project/opensearch-k8s-operator/opensearch-operator,
+  # which has no /v3 suffix, so Go could only stamp a v0.0.0 pseudo-version.
+  # Build without VCS stamping; metadata.yaml declares the module as the scan
+  # identity instead. Upstream passes no ldflags stamps; the binary has no
+  # version flag.
+  - runs: |
+      cd opensearch-operator
+      go build -mod=readonly -trimpath -buildvcs=false -ldflags="-s -w" \
+        -o "${{targets.destdir}}/manager" .
+      cd ..
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the OpenSearch Kubernetes Operator build
+    pipeline:
+      - runs: |
+          install -Dm644 opensearch-operator/go.mod \
+            "${{targets.subpkgdir}}/usr/share/opensearch-k8s-operator-build/go.mod"
+          install -Dm644 opensearch-operator/go.sum \
+            "${{targets.subpkgdir}}/usr/share/opensearch-k8s-operator-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /manager -help 2>&1 | grep -F -- '-health-probe-bind-address'
+        if out=$(/manager -kubeconfig=/nonexistent/kubeconfig 2>&1); then
+          echo 'manager unexpectedly started without a cluster' >&2
+          exit 1
+        fi
+        printf '%s\n' "$out" | grep -F '"msg":"unable to get kubeconfig"'
+        apk info --who-owns /manager \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: opensearch-project/opensearch-k8s-operator
+    strip-prefix: v
+    tag-filter-prefix: v3.0.
+    use-tag: true

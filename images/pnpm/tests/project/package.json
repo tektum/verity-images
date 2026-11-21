@@ -1,0 +1,12 @@
+{
+  "name": "pnpm-smoke",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "greet": "node index.js",
+    "fail": "node -e \"process.exit(3)\""
+  },
+  "dependencies": {
+    "greeting": "file:./vendor/greeting"
+  }
+}

@@ -1,0 +1,8 @@
+name: cert-manager-csi-driver
+track: wolfi
+description: cert-manager CSI driver that mounts issued certificates into pods, built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/cert-manager/csi-driver
+versions: [0.16]
+owner: tektum
+enabled: true

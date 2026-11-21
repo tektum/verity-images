@@ -1,0 +1,86 @@
+package:
+  name: verity-dotnet-sdk-10
+  # yamllint disable-line rule:line-length
+  version: "10.0.404"  # renovate: datasource=dotnet-version depName=dotnet-sdk versioning=regex:^(?<major>10)\.(?<minor>0)\.(?<patch>\d+)$
+  epoch: 0
+  description: .NET 10 SDK from the pinned official Microsoft release archive.
+  target-architecture:
+    - x86_64
+    - aarch64
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # Microsoft's documented runtime dependency set. ICU, OpenSSL and GSSAPI are loaded with dlopen,
+      # so the package cannot discover them as shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - wolfi-baselayout
+      - zlib
+
+# The SDK archive bundles the shared .NET and ASP.NET Core runtimes, and the vulnerability feeds key .NET
+# advisories by those runtime packages, so scan-identity is versioned from the bundled runtime version. The
+# test below fails the build unless the archive really ships exactly this runtime, so the two cannot drift.
+vars:
+  # yamllint disable-line rule:line-length
+  upstream-version: 10.0.15  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>10)\.(?<minor>0)\.(?<patch>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - wget
+
+pipeline:
+  - runs: |
+      # The sha512 values come from the official release metadata of this exact version:
+      # https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
+      # A version bump without matching checksums fails closed on the check below.
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=577d0eb17fec33d029104c5c63a1ab0accc3e28776274abef2218dbac5af18d2109b5406d26b31d76f5c245215e3ba0926a94c20246c672c41847c9e1eb1dc50
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=3533a3869da219cac45c567aadac3d8e96cdf1c6a04fe1c1d5fdeefea5d45af8424488f0144730d11b4a751f7ad546fb11e4c2b2725cd8401efee726711f8f11
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=dotnet-sdk-${{package.version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/Sdk/${{package.version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      install -d \
+        "${{targets.destdir}}/usr/share/dotnet" \
+        "${{targets.destdir}}/usr/bin" \
+        "${{targets.destdir}}/usr/share/licenses/verity-dotnet-sdk-10"
+      tar -xzf "/tmp/$archive" -C "${{targets.destdir}}/usr/share/dotnet"
+      rm -f "/tmp/$archive"
+      mv \
+        "${{targets.destdir}}/usr/share/dotnet/LICENSE.txt" \
+        "${{targets.destdir}}/usr/share/dotnet/ThirdPartyNotices.txt" \
+        "${{targets.destdir}}/usr/share/licenses/verity-dotnet-sdk-10/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi does not ship. It only loads
+      # when LTTng tracing is enabled explicitly, so it is dropped instead of pulling a tracing stack in.
+      find "${{targets.destdir}}/usr/share/dotnet" -name libcoreclrtraceptprovider.so -delete
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
+
+test:
+  pipeline:
+    - runs: |
+        dotnet --list-sdks | grep -q '^${{package.version}} '
+        test "$(dotnet --list-runtimes | grep -c '^Microsoft.NETCore.App ')" = 1
+        dotnet --list-runtimes | grep -q '^Microsoft.NETCore.App ${{vars.upstream-version}} '
+        dotnet --list-runtimes | grep -q '^Microsoft.AspNetCore.App ${{vars.upstream-version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet

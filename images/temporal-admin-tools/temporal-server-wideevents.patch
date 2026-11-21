@@ -1,0 +1,220 @@
+diff --git a/vendor/go.temporal.io/server/common/wideevents/attrs.go b/vendor/go.temporal.io/server/common/wideevents/attrs.go
+index 5f091bb..c7a6b51 100644
+--- a/vendor/go.temporal.io/server/common/wideevents/attrs.go
++++ b/vendor/go.temporal.io/server/common/wideevents/attrs.go
+@@ -4,15 +4,15 @@ import (
+ 	"encoding/json"
+ 	"fmt"
+ 
+-	"go.opentelemetry.io/otel/log"
++	"go.opentelemetry.io/otel/attribute"
+ )
+ 
+ // jsonAttr records v as a compact JSON string under key rather than a nested structure, so the
+ // logging / ingestion layer keeps one low-cardinality field (e.g. details) instead of flattening
+ // into a dynamic key per leaf path. Used for composite fields (maps/slices/whole objects).
+-func jsonAttr(key string, v any) log.KeyValue {
++func jsonAttr(key string, v any) attribute.KeyValue {
+ 	if b, err := json.Marshal(v); err == nil {
+-		return log.String(key, string(b))
++		return attribute.String(key, string(b))
+ 	}
+-	return log.String(key, fmt.Sprintf("%v", v))
++	return attribute.String(key, fmt.Sprintf("%v", v))
+ }
+diff --git a/vendor/go.temporal.io/server/common/wideevents/events.go b/vendor/go.temporal.io/server/common/wideevents/events.go
+index 1df20f5..d6a522e 100644
+--- a/vendor/go.temporal.io/server/common/wideevents/events.go
++++ b/vendor/go.temporal.io/server/common/wideevents/events.go
+@@ -18,7 +18,7 @@ type Payload interface {
+ 	// events are easy to trace/grep by type.
+ 	EventName() string
+ 	// Attributes returns the event's fields as OTEL log key-values.
+-	Attributes() []log.KeyValue
++	Attributes() []attribute.KeyValue
+ }
+ 
+ // NewLogger returns the OTEL logger used to emit events for serviceName. serviceName is attached
+diff --git a/vendor/go.temporal.io/server/common/wideevents/namespace_events.go b/vendor/go.temporal.io/server/common/wideevents/namespace_events.go
+index 69e2508..476fcd9 100644
+--- a/vendor/go.temporal.io/server/common/wideevents/namespace_events.go
++++ b/vendor/go.temporal.io/server/common/wideevents/namespace_events.go
+@@ -1,6 +1,6 @@
+ package wideevents
+ 
+-import "go.opentelemetry.io/otel/log"
++import "go.opentelemetry.io/otel/attribute"
+ 
+ // NamespaceLifecycleEventName is the stable event name for the generic, phase-discriminated wide
+ // event describing namespace-level activity (replication, failover, configuration, admission,
+@@ -19,11 +19,11 @@ type NamespaceLifecyclePayload struct {
+ 
+ func (p NamespaceLifecyclePayload) EventName() string { return NamespaceLifecycleEventName }
+ 
+-func (p NamespaceLifecyclePayload) Attributes() []log.KeyValue {
+-	attrs := []log.KeyValue{
+-		log.String("phase", p.Phase),
+-		log.String("namespace", p.Namespace),
+-		log.String("namespace_id", p.NamespaceID),
++func (p NamespaceLifecyclePayload) Attributes() []attribute.KeyValue {
++	attrs := []attribute.KeyValue{
++		attribute.String("phase", p.Phase),
++		attribute.String("namespace", p.Namespace),
++		attribute.String("namespace_id", p.NamespaceID),
+ 	}
+ 	if len(p.Details) > 0 {
+ 		attrs = append(attrs, jsonAttr("details", p.Details))
+diff --git a/vendor/go.temporal.io/server/common/wideevents/replication_events.go b/vendor/go.temporal.io/server/common/wideevents/replication_events.go
+index 81dee94..1a91bba 100644
+--- a/vendor/go.temporal.io/server/common/wideevents/replication_events.go
++++ b/vendor/go.temporal.io/server/common/wideevents/replication_events.go
+@@ -1,7 +1,7 @@
+ package wideevents
+ 
+ import (
+-	"go.opentelemetry.io/otel/log"
++	"go.opentelemetry.io/otel/attribute"
+ 	persistencespb "go.temporal.io/server/api/persistence/v1"
+ )
+ 
+@@ -87,20 +87,20 @@ type VersionHistoryEntry struct {
+ 
+ func (p ReplicationLifecyclePayload) EventName() string { return ReplicationLifecycleEventName }
+ 
+-func (p ReplicationLifecyclePayload) Attributes() []log.KeyValue {
+-	attrs := []log.KeyValue{
+-		log.String("phase", string(p.Phase)),
+-		log.String("task_type", p.TaskType),
+-		log.Int64("shard", int64(p.Shard)),
+-		log.String("namespace", p.Namespace),
+-		log.String("namespace_id", p.NamespaceID),
+-		log.String("workflow_id", p.WorkflowID),
+-		log.String("run_id", p.RunID),
++func (p ReplicationLifecyclePayload) Attributes() []attribute.KeyValue {
++	attrs := []attribute.KeyValue{
++		attribute.String("phase", string(p.Phase)),
++		attribute.String("task_type", p.TaskType),
++		attribute.Int64("shard", int64(p.Shard)),
++		attribute.String("namespace", p.Namespace),
++		attribute.String("namespace_id", p.NamespaceID),
++		attribute.String("workflow_id", p.WorkflowID),
++		attribute.String("run_id", p.RunID),
+ 	}
+ 	if p.FailoverVersion != 0 || p.TransitionCount != 0 {
+ 		attrs = append(attrs,
+-			log.Int64("failover_version", p.FailoverVersion),
+-			log.Int64("transition_count", p.TransitionCount),
++			attribute.Int64("failover_version", p.FailoverVersion),
++			attribute.Int64("transition_count", p.TransitionCount),
+ 		)
+ 	}
+ 	// parent fields are phase-independent: emitted on any phase that populated them (sent +
+@@ -108,11 +108,11 @@ func (p ReplicationLifecyclePayload) Attributes() []log.KeyValue {
+ 	// not a child).
+ 	if p.ParentWorkflowID != "" {
+ 		attrs = append(attrs,
+-			log.String("parent_workflow_id", p.ParentWorkflowID),
+-			log.String("parent_run_id", p.ParentRunID),
++			attribute.String("parent_workflow_id", p.ParentWorkflowID),
++			attribute.String("parent_run_id", p.ParentRunID),
+ 		)
+ 		if p.ParentInitiatedID != 0 {
+-			attrs = append(attrs, log.Int64("parent_initiated_id", p.ParentInitiatedID))
++			attrs = append(attrs, attribute.Int64("parent_initiated_id", p.ParentInitiatedID))
+ 		}
+ 	}
+ 	if len(p.Details) > 0 {
+@@ -125,7 +125,7 @@ func (p ReplicationLifecyclePayload) Attributes() []log.KeyValue {
+ 	case ReplicationSent:
+ 		attrs = p.appendSent(attrs)
+ 	case ReplicationExecuting:
+-		attrs = append(attrs, log.Int64("attempt", int64(p.Attempt)))
++		attrs = append(attrs, attribute.Int64("attempt", int64(p.Attempt)))
+ 	case ReplicationApplied:
+ 		attrs = p.appendApplied(attrs)
+ 	default:
+@@ -133,63 +133,63 @@ func (p ReplicationLifecyclePayload) Attributes() []log.KeyValue {
+ 	return attrs
+ }
+ 
+-func (p ReplicationLifecyclePayload) appendSent(attrs []log.KeyValue) []log.KeyValue {
++func (p ReplicationLifecyclePayload) appendSent(attrs []attribute.KeyValue) []attribute.KeyValue {
+ 	if p.NewRunID != "" {
+-		attrs = append(attrs, log.String("new_run_id", p.NewRunID))
++		attrs = append(attrs, attribute.String("new_run_id", p.NewRunID))
+ 	}
+ 	if p.SourceTaskID != 0 {
+-		attrs = append(attrs, log.Int64("source_task_id", p.SourceTaskID))
++		attrs = append(attrs, attribute.Int64("source_task_id", p.SourceTaskID))
+ 	}
+-	attrs = append(attrs, log.Bool("is_first_sync", p.IsFirstSync))
++	attrs = append(attrs, attribute.Bool("is_first_sync", p.IsFirstSync))
+ 	if p.FirstEventID != 0 {
+-		attrs = append(attrs, log.Int64("first_event_id", p.FirstEventID))
++		attrs = append(attrs, attribute.Int64("first_event_id", p.FirstEventID))
+ 	}
+ 	if p.NextEventID != 0 {
+-		attrs = append(attrs, log.Int64("next_event_id", p.NextEventID))
++		attrs = append(attrs, attribute.Int64("next_event_id", p.NextEventID))
+ 	}
+ 	return attrs
+ }
+ 
+-func (p ReplicationLifecyclePayload) appendApplied(attrs []log.KeyValue) []log.KeyValue {
+-	attrs = append(attrs, log.String("outcome", p.Outcome))
++func (p ReplicationLifecyclePayload) appendApplied(attrs []attribute.KeyValue) []attribute.KeyValue {
++	attrs = append(attrs, attribute.String("outcome", p.Outcome))
+ 	if p.Error != "" {
+-		attrs = append(attrs, log.String("error", p.Error))
++		attrs = append(attrs, attribute.String("error", p.Error))
+ 	}
+ 	if p.State == "" {
+ 		return attrs
+ 	}
+ 	attrs = append(attrs,
+-		log.String("state", p.State),
+-		log.String("status", p.Status),
+-		log.Int64("applied_next_event_id", p.AppliedNextEventID),
++		attribute.String("state", p.State),
++		attribute.String("status", p.Status),
++		attribute.Int64("applied_next_event_id", p.AppliedNextEventID),
+ 	)
+ 	if len(p.TransitionHistory) > 0 {
+ 		attrs = append(attrs, jsonAttr("transition_history", p.TransitionHistory))
+ 	}
+-	attrs = append(attrs, log.Int64("last_event_id", p.LastEventID))
++	attrs = append(attrs, attribute.Int64("last_event_id", p.LastEventID))
+ 	if p.LastEventVersion != 0 {
+-		attrs = append(attrs, log.Int64("last_event_version", p.LastEventVersion))
++		attrs = append(attrs, attribute.Int64("last_event_version", p.LastEventVersion))
+ 	}
+ 	if p.NewExecutionRunID != "" {
+-		attrs = append(attrs, log.String("new_execution_run_id", p.NewExecutionRunID))
++		attrs = append(attrs, attribute.String("new_execution_run_id", p.NewExecutionRunID))
+ 	}
+ 	if p.ResetRunID != "" {
+-		attrs = append(attrs, log.String("reset_run_id", p.ResetRunID))
++		attrs = append(attrs, attribute.String("reset_run_id", p.ResetRunID))
+ 	}
+ 	if p.SignalCount != 0 {
+-		attrs = append(attrs, log.Int64("signal_count", p.SignalCount))
++		attrs = append(attrs, attribute.Int64("signal_count", p.SignalCount))
+ 	}
+ 	if p.ActivityCount != 0 {
+-		attrs = append(attrs, log.Int64("activity_count", p.ActivityCount))
++		attrs = append(attrs, attribute.Int64("activity_count", p.ActivityCount))
+ 	}
+ 	if p.UserTimerCount != 0 {
+-		attrs = append(attrs, log.Int64("user_timer_count", p.UserTimerCount))
++		attrs = append(attrs, attribute.Int64("user_timer_count", p.UserTimerCount))
+ 	}
+ 	if p.ChildExecutionCount != 0 {
+-		attrs = append(attrs, log.Int64("child_execution_count", p.ChildExecutionCount))
++		attrs = append(attrs, attribute.Int64("child_execution_count", p.ChildExecutionCount))
+ 	}
+ 	if p.UpdateCount != 0 {
+-		attrs = append(attrs, log.Int64("update_count", p.UpdateCount))
++		attrs = append(attrs, attribute.Int64("update_count", p.UpdateCount))
+ 	}
+ 	return attrs
+ }

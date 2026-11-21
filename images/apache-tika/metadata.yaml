@@ -1,0 +1,9 @@
+name: apache-tika
+track: wolfi
+description: Apache Tika server (tika-server-standard) for content and metadata extraction, built from pinned source.
+category: Data & ML
+upstream: https://tika.apache.org/
+versions: [3.3]
+scan-identity: [cpe:2.3:a:apache:tika, pkg:maven/org.apache.tika/tika-core]
+owner: tektum
+enabled: true

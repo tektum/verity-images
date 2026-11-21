@@ -1,0 +1,8 @@
+name: authservice
+track: wolfi
+description: Istio authservice Envoy ext_authz server enforcing OIDC login, built from pinned upstream source.
+category: Security & Identity
+upstream: https://github.com/istio-ecosystem/authservice
+versions: [1.1]
+owner: tektum
+enabled: true

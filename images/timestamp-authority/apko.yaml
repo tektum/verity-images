@@ -1,0 +1,38 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-timestamp-authority@local
+
+# Upstream `deploy` image: distroless static nonroot (uid 65532), the server
+# binary only, CMD `timestamp-server serve`. Upstream's server defaults to
+# localhost and a random port, so every upstream deployment (docker-compose,
+# the sigstore Helm chart) passes --host and --port. This image bakes those in
+# (0.0.0.0:3000); Prometheus metrics stay on upstream's fixed :2112. The signer
+# keeps upstream's default `memory`, an ephemeral key for testing only;
+# production use passes --timestamp-signer kms, tink, or file. The server looks
+# for an optional timestamp-server.yaml in $HOME and the working directory.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/timestamp-server
+
+cmd: serve --host=0.0.0.0 --port=3000
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt

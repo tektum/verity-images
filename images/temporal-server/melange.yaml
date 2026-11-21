@@ -1,7 +1,7 @@
 package:
   name: verity-temporal-server
   version: "1.32.2"
-  epoch: 0
+  epoch: 1  # otel/log v1 port
   description: Temporal server (frontend, history, matching and worker services)
   copyright:
     - license: MIT
@@ -20,6 +20,10 @@ vars:
   # The server module resolves thrift v0.24.0 through gocql. The thrift advisories fixed in
   # v0.25.0 are not in the Go vulnerability or OSV module feeds that go/remediate reads.
   thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
+  # GHSA-q7gw-24fr-5p69 is fixed in go.opentelemetry.io/otel v1.47.0, whose go.mod requires
+  # otel/log v1.47.0. otel/log v0.21.0 moved KeyValue and its constructors to otel/attribute,
+  # so common/wideevents is ported before go/remediate scans and rebuilds the module.
+  otel-log-floor: v1.47.0  # renovate: datasource=go depName=go.opentelemetry.io/otel/log
 
 environment:
   contents:
@@ -54,11 +58,17 @@ pipeline:
       }'; then
         go get github.com/apache/thrift@${{vars.thrift-floor}}
       fi
+      go get go.opentelemetry.io/otel/log@${{vars.otel-log-floor}}
+  - uses: patch
+    with:
+      patches: otel-log-attribute.patch
   - uses: go/remediate
     with:
       modroot: .
       packages: ./cmd/server
   - runs: |
+      # Upstream's tests for the ported package check emitted attribute names and values.
+      go test -mod=readonly -count=1 ./common/wideevents
       # Same tags as `make temporal-server`; -buildvcs keeps the tagged module version in the binary.
       go build -p 4 -mod=readonly -trimpath -buildvcs=true -tags disable_grpc_modules \
         -ldflags="-s -w" -o temporal-server ./cmd/server

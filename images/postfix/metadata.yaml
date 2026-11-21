@@ -1,0 +1,10 @@
+name: postfix
+track: wolfi
+description: Postfix mail transfer agent assembled from Wolfi packages, configured by a mounted main.cf.
+category: Messaging & Streaming
+upstream: https://www.postfix.org/
+versions: [3.11]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:postfix:postfix]
+scan-package: postfix

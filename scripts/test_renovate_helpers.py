@@ -177,7 +177,7 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 5
+    assert len(managers) == 7
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
@@ -188,6 +188,8 @@ def test_renovate_configuration() -> None:
             r"/^packages/.+/[^/]*melange\.ya?ml$/",
             r"/^patched/.+/[^/]*melange\.ya?ml$/",
         ],
+        [r"/^images/jellyfin/melange\.yaml$/"],
+        [r"/^images/datadog-cluster-agent/tests/test\.sh$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
         "docker",
@@ -195,9 +197,11 @@ def test_renovate_configuration() -> None:
         "github-releases",
         None,
         "git-tags",
+        "git-tags",
+        "docker",
     ]
-    # The melange source manager (version plus commit) is covered by
-    # scripts/test_melange_source_pins.py.
+    # The melange source managers (package.version plus commit, and the
+    # secondary vars pins) are covered by scripts/test_melange_source_pins.py.
 
 
     assert renovate["packageRules"][:3] == [
@@ -239,8 +243,9 @@ def test_renovate_configuration() -> None:
     # enabled/automerge/labels win for depType source. Their recipe lists are
     # derived from metadata.yaml stream widths in
     # scripts/test_melange_source_pins.py.
-    source_base, major_streams, patch_automerge, minor_automerge = renovate["packageRules"][3:]
-    assert all(rule["matchDepTypes"] == ["source"] for rule in renovate["packageRules"][3:])
+    source_rules = renovate["packageRules"][3:7]
+    source_base, major_streams, patch_automerge, minor_automerge = source_rules
+    assert all(rule["matchDepTypes"] == ["source"] for rule in source_rules)
     assert {key: value for key, value in source_base.items() if key != "description"} == {
         "matchDepTypes": ["source"],
         "enabled": True,
@@ -379,6 +384,54 @@ def test_renovate_configuration() -> None:
     ]
     for text, expected in fixtures:
         assert _extract(floor_manager, text) == expected, text
+
+    test_peer_digests(renovate)
+
+
+def test_peer_digests(renovate: dict) -> None:
+    """Smoke-test peer pins: only the digest moves, within the pinned tag."""
+    managers = renovate["customManagers"]
+    peer_manager = managers[6]
+    assert peer_manager["depTypeTemplate"] == "test-peer"
+    assert peer_manager["versioningTemplate"] == "docker"
+    # Comes after the images/** rule that disables every ordinary update type,
+    # so it re-enables digest updates only; tag updates stay disabled.
+    assert renovate["packageRules"][7:] == [
+        {
+            "description": renovate["packageRules"][7]["description"],
+            "matchDepTypes": ["test-peer"],
+            "matchUpdateTypes": ["digest"],
+            "enabled": True,
+            "automerge": True,
+            "platformAutomerge": True,
+            "labels": ["test-peer-digest", "review-required"],
+            "schedule": ["* 0-6 * * 1"],
+        }
+    ]
+    pattern = re.compile(peer_manager["matchStrings"][0].replace("(?<", "(?P<"))
+    digest = "sha256:" + "a" * 64
+    for text, expected in (
+        (f"etcd_index=ghcr.io/tektum/etcd:3.7@{digest}\n", ("ghcr.io/tektum/etcd", "3.7")),
+        (f"x=docker.io/library/busybox:1.37.0@{digest}\n", ("docker.io/library/busybox", "1.37.0")),
+        # A tagless digest names no stream, so it is not extracted.
+        (f"etcd_index=ghcr.io/tektum/etcd@{digest}\n", None),
+    ):
+        found = [(match["depName"], match["currentValue"]) for match in pattern.finditer(text)]
+        assert found == ([expected] if expected else []), text
+        if expected:
+            assert pattern.search(text)["currentDigest"] == digest
+    # Every pin in the covered test scripts carries a tag, or it would silently
+    # drop out of tracking.
+    for path in sorted((ROOT / "images").rglob("*")):
+        relative = path.relative_to(ROOT).as_posix()
+        if not any(
+            re.search(file_pattern.strip("/"), relative) for file_pattern in peer_manager["managerFilePatterns"]
+        ):
+            continue
+        text = path.read_text(encoding="utf-8")
+        pins = re.findall(r"[a-z0-9.-]+\.[a-z]+/[^\s:@\"']+(?::[^\s:@\"']+)?@sha256:[a-f0-9]{64}", text)
+        assert pins, f"{relative}: no peer image pins"
+        assert len(list(pattern.finditer(text))) == len(pins), f"{relative}: a peer pin has no tag"
 
 
 def test_self_hosted_renovate() -> None:

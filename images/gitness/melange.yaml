@@ -1,0 +1,138 @@
+package:
+  name: verity-gitness
+  # yamllint disable-line rule:line-length
+  version: "3.3.0"  # renovate: datasource=github-tags depName=harness/gitness versioning=regex:^(?<major>3)\.(?<minor>3)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Gitness (Harness Open Source) server with its embedded web UI
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - git
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: c7470a71a698fe91f07dc0a6630e594db3354ad3
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - nodejs-24
+      - python3
+      - yarn
+  environment:
+    # mattn/go-sqlite3 backs the default sqlite3 database driver.
+    CGO_ENABLED: "1"
+    GOTOOLCHAIN: local
+    NODE_OPTIONS: --max-old-space-size=8192
+    YARN_CACHE_FOLDER: /var/cache/melange/yarn
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/harness/gitness
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Mirror the upstream Dockerfile web stage. Lifecycle scripts are skipped:
+  # the only root script is the husky git-hook installer.
+  - name: Build web UI
+    runs: |
+      cd web
+      yarn install --frozen-lockfile --non-interactive --ignore-scripts
+      yarn build
+      test -s dist/index.html
+
+  # The docker/docker fix (GHSA-4vq8-7jfc-9cvp, 28.0.0) removes the deprecated
+  # types.NetworkCreate alias that drone-runner-docker still uses. Vendor the
+  # modules and patch both call sites to network.CreateOptions, which docker
+  # v27 already provides; go/remediate reapplies it after every re-vendor.
+  - name: Prepare docker client vendor patch
+    runs: |
+      go mod vendor
+      : > docker-network-create.patch
+      for file in \
+        vendor/github.com/drone-runners/drone-runner-docker/engine/engine.go \
+        vendor/github.com/drone-runners/drone-runner-docker/engine2/engine/engine_impl.go; do
+        patched=$(mktemp)
+        sed -e 's/types\.NetworkCreate{/network.CreateOptions{/' \
+          -e '/"github.com\/docker\/docker\/api\/types"$/d' "$file" > "$patched"
+        diff -u --label "a/$file" --label "b/$file" "$file" "$patched" \
+          >> docker-network-create.patch || test $? -eq 1
+        rm -f "$patched"
+      done
+      test "$(grep -c '^+.*network.CreateOptions{' docker-network-create.patch)" -eq 2
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/gitness
+      vendor-patches: docker-network-create.patch
+
+  # Upstream links the version and commit into the binary; the published
+  # Wolfi package did not, so its version endpoint reported 0.0.0.
+  - name: Build binary
+    runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      version='${{package.version}}'
+      major=${version%%.*}
+      rest=${version#*.}
+      minor=${rest%%.*}
+      patch=${rest#*.}
+      pkg=github.com/harness/gitness/version
+      flags="-s -w -X $pkg.GitCommit=${{vars.source-commit}}"
+      flags="$flags -X $pkg.major=$major -X $pkg.minor=$minor -X $pkg.patch=$patch"
+      go build -mod=vendor -trimpath -buildvcs=false -ldflags "$flags" \
+        -o "${{targets.destdir}}/usr/bin/gitness" ./cmd/gitness
+      "${{targets.destdir}}/usr/bin/gitness" server --help 2>&1 | grep -F 'starts the server'
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module and web UI dependency metadata for the Gitness build
+    pipeline:
+      - runs: |
+          dir="${{targets.subpkgdir}}/usr/share/gitness-build"
+          install -Dm644 go.mod "$dir/go.mod"
+          install -Dm644 go.sum "$dir/go.sum"
+          install -Dm644 web/package.json "$dir/package.json"
+          install -Dm644 web/yarn.lock "$dir/yarn.lock"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        gitness server --help 2>&1 | grep -F 'starts the server'
+        apk info --who-owns /usr/bin/gitness \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: harness/gitness
+    strip-prefix: v
+    use-tag: true

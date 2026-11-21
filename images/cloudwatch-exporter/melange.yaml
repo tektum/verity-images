@@ -1,0 +1,86 @@
+package:
+  name: verity-cloudwatch-exporter
+  # yamllint disable-line rule:line-length
+  version: "0.18.0"  # renovate: datasource=github-releases depName=prometheus/cloudwatch_exporter versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Prometheus exporter for Amazon CloudWatch metrics, built from the upstream source release
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - openjdk-25-default-jvm
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# Security floor: the AWS SDK release upstream pins brings Netty, Apache
+# HttpClient 5, and HttpCore 5 releases with fixed advisories. A newer SDK
+# release in the same major manages fixed versions of all three.
+vars:
+  # yamllint disable-line rule:line-length
+  awssdk-version: 2.59.4  # renovate: datasource=maven depName=software.amazon.awssdk:cloudwatch versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - maven-3.9
+      - openjdk-25-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-25-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/prometheus/cloudwatch_exporter
+      tag: v${{package.version}}
+      expected-commit: 543a474673e013089a10cffa0bf7d28e100c67bd
+
+  - name: Build the exporter
+    runs: |
+      # Upstream's Dockerfile runs `./mvnw package`; the Wolfi Maven package
+      # replaces the wrapper download. The release date label of
+      # cloudwatch_exporter_build_info comes from the source commit instead of
+      # the build clock. Fail if upstream stops exposing the SDK version property.
+      grep -q '<software.amazon.awssdk.version>' pom.xml
+      mvn -B --no-transfer-progress package \
+        -Dsoftware.amazon.awssdk.version=${{vars.awssdk-version}} \
+        -Dproject.releaseDate="$(git log -1 --format=%cs)"
+      jar=target/cloudwatch_exporter-${{package.version}}-jar-with-dependencies.jar
+      test -s "$jar"
+
+      install -Dm644 "$jar" "${{targets.destdir}}/cloudwatch_exporter.jar"
+      install -d -m755 "${{targets.destdir}}/config"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test -s /cloudwatch_exporter.jar
+        test -d /config
+        java -version 2>&1 | grep -F 'openjdk version "25'
+        unzip -p /cloudwatch_exporter.jar META-INF/MANIFEST.MF \
+          | grep -F 'Main-Class: io.prometheus.cloudwatch.WebServer'
+        unzip -p /cloudwatch_exporter.jar .properties | grep -Fx 'BuildVersion=${{package.version}}'
+        apk info --who-owns /cloudwatch_exporter.jar | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE
+
+update:
+  enabled: true
+  github:
+    identifier: prometheus/cloudwatch_exporter
+    strip-prefix: v

@@ -1,0 +1,9 @@
+name: k8sgpt
+track: wolfi
+description: K8sGPT CLI and analysis server built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/k8sgpt-ai/k8sgpt
+versions: [0.4]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/k8sgpt-ai/k8sgpt]

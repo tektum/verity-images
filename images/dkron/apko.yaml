@@ -1,0 +1,76 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    # Upstream dkron/dkron is Alpine with bash, ca-certificates, openssl, and
+    # tzdata; busybox provides the /bin/sh used by shell jobs with shell: true.
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - openssl
+    - tzdata
+    - dkron=4.2.1-r6
+    # The -compat packages link every binary into /usr/local/bin, the upstream
+    # install path. dkron discovers plugins next to its resolved executable.
+    - dkron-compat=4.2.1-r6
+    - dkron-executor-gcppubsub=4.2.1-r6
+    - dkron-executor-gcppubsub-compat=4.2.1-r6
+    - dkron-executor-grpc=4.2.1-r6
+    - dkron-executor-grpc-compat=4.2.1-r6
+    - dkron-executor-kafka=4.2.1-r6
+    - dkron-executor-kafka-compat=4.2.1-r6
+    - dkron-executor-nats=4.2.1-r6
+    - dkron-executor-nats-compat=4.2.1-r6
+    - dkron-executor-rabbitmq=4.2.1-r6
+    - dkron-executor-rabbitmq-compat=4.2.1-r6
+    - dkron-processor-files=4.2.1-r6
+    - dkron-processor-files-compat=4.2.1-r6
+    - dkron-processor-fluent=4.2.1-r6
+    - dkron-processor-fluent-compat=4.2.1-r6
+    - dkron-processor-log=4.2.1-r6
+    - dkron-processor-log-compat=4.2.1-r6
+    - dkron-processor-syslog=4.2.1-r6
+    - dkron-processor-syslog-compat=4.2.1-r6
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+entrypoint:
+  command: /usr/local/bin/dkron
+
+cmd: agent --server --bootstrap-expect=1
+
+# Upstream runs from / with the default relative data dir, so state lands in
+# /dkron.data; keep that path and make it writable by the non-root user.
+work-dir: /
+
+environment:
+  PATH: /usr/local/bin:/usr/bin:/bin
+  HOME: /home/nonroot
+  SHELL: /bin/bash
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /dkron.data
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+
+volumes:
+  - /dkron.data

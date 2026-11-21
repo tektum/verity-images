@@ -1,9 +1,7 @@
 package:
-  name: prometheus-blackbox-exporter
+  name: verity-prometheus-blackbox-exporter
   version: "0.28.0"
-  # A high epoch keeps this build above Wolfi advisory-fix revisions while
-  # rebuilding it with the current Go remediation pipeline.
-  epoch: 101
+  epoch: 0
   description: Prometheus exporter for blackbox probing of endpoints
   copyright:
     - license: Apache-2.0

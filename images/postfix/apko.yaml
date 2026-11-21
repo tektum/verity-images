@@ -1,0 +1,133 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - busybox
+    - ca-certificates-bundle
+    - postfix=3.11.7-r4
+
+accounts:
+  groups:
+    - groupname: postfix
+      gid: 101
+    - groupname: postdrop
+      gid: 102
+  users:
+    - username: postfix
+      uid: 100
+      gid: 101
+      homedir: /var/spool/postfix
+      shell: /sbin/nologin
+
+entrypoint:
+  command: /usr/sbin/postfix
+
+cmd: start-fg
+
+stop-signal: SIGTERM
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /var/spool/postfix
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /var/spool/postfix/active
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/bounce
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/corrupt
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/defer
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/deferred
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/flush
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/hold
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/incoming
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/private
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/saved
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/trace
+    type: directory
+    uid: 100
+    gid: 0
+    permissions: 0o700
+  - path: /var/spool/postfix/maildrop
+    type: directory
+    uid: 100
+    gid: 102
+    permissions: 0o730
+  - path: /var/spool/postfix/public
+    type: directory
+    uid: 100
+    gid: 102
+    permissions: 0o710
+  - path: /var/spool/postfix/pid
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /var/lib/postfix
+    type: directory
+    uid: 100
+    gid: 101
+    permissions: 0o700
+  - path: /var/mail
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /usr/sbin/postdrop
+    type: permissions
+    uid: 0
+    gid: 102
+    permissions: 0o2755
+  - path: /usr/sbin/postqueue
+    type: permissions
+    uid: 0
+    gid: 102
+    permissions: 0o2755
+
+volumes:
+  - /var/spool/postfix
+  - /var/mail
