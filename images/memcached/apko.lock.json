@@ -66,6 +66,25 @@
         "checksum": "Q19P7fzB945PuRaQEnzg9napiRzKE="
       },
       {
+        "name": "ld-linux-2.44",
+        "url": "https://packages.wolfi.dev/os/x86_64/ld-linux-2.44-2.44-r24.apk",
+        "version": "2.44-r24",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-29357",
+          "checksum": "sha1-UxST265ocCUIHd0q543o+OPQ0mg="
+        },
+        "data": {
+          "range": "bytes=29358-169994",
+          "checksum": "sha256-OZAMaaKiebkiqwtNRKeleEfAjWh242TDrsLSURlQYfA="
+        },
+        "checksum": "Q1UxST265ocCUIHd0q543o+OPQ0mg="
+      },
+      {
         "name": "libgcc",
         "url": "https://packages.wolfi.dev/os/x86_64/libgcc-16.2.0-r5.apk",
         "version": "16.2.0-r5",
@@ -121,44 +140,6 @@
           "checksum": "sha256-LvhruGs3TgmkrsUcn9shZ+NkVvzIfoZ6dF75yGDZ9k0="
         },
         "checksum": "Q1ucqZun4XzfAqvjin20zBOBgaczc="
-      },
-      {
-        "name": "ld-linux-2.44",
-        "url": "https://packages.wolfi.dev/os/x86_64/ld-linux-2.44-2.44-r24.apk",
-        "version": "2.44-r24",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-29357",
-          "checksum": "sha1-UxST265ocCUIHd0q543o+OPQ0mg="
-        },
-        "data": {
-          "range": "bytes=29358-169994",
-          "checksum": "sha256-OZAMaaKiebkiqwtNRKeleEfAjWh242TDrsLSURlQYfA="
-        },
-        "checksum": "Q1UxST265ocCUIHd0q543o+OPQ0mg="
-      },
-      {
-        "name": "libseccomp",
-        "url": "https://packages.wolfi.dev/os/x86_64/libseccomp-2.6.1-r5.apk",
-        "version": "2.6.1-r5",
-        "architecture": "x86_64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-18848",
-          "checksum": "sha1-3smejqRDsgBx/FhQdxdzNLTAfVc="
-        },
-        "data": {
-          "range": "bytes=18849-86692",
-          "checksum": "sha256-/abO4FeYFh0nUa8qIbhc5igoi5SmQr7QCfRSPCDvvAI="
-        },
-        "checksum": "Q13smejqRDsgBx/FhQdxdzNLTAfVc="
       },
       {
         "name": "openssl-provider-legacy-allowed",
@@ -292,6 +273,25 @@
           "checksum": "sha256-PVAB6uzVz4obE1sQj1BMY+SFpy9NhVvaMxqVt98rKCE="
         },
         "checksum": "Q147uMyBUPtXAjPsnkYtVsm+xMG2A="
+      },
+      {
+        "name": "libseccomp",
+        "url": "https://packages.wolfi.dev/os/x86_64/libseccomp-2.6.2-r0.apk",
+        "version": "2.6.2-r0",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-18840",
+          "checksum": "sha1-idEATFUipql1gZGqdFm81V8pD6Q="
+        },
+        "data": {
+          "range": "bytes=18841-87548",
+          "checksum": "sha256-bbz1I1J3hupW8yQ2Ck93y3DdfygMCLWTn/wE9ds1xEs="
+        },
+        "checksum": "Q1idEATFUipql1gZGqdFm81V8pD6Q="
       },
       {
         "name": "gdbm",
@@ -617,25 +617,6 @@
         "checksum": "Q1+QMLxa16FLTCnLg4S8ZShhyBjKQ="
       },
       {
-        "name": "libseccomp",
-        "url": "https://packages.wolfi.dev/os/aarch64/libseccomp-2.6.1-r5.apk",
-        "version": "2.6.1-r5",
-        "architecture": "aarch64",
-        "signature": {
-          "range": "",
-          "checksum": ""
-        },
-        "control": {
-          "range": "bytes=0-18877",
-          "checksum": "sha1-qPW1lo3IEEp8JIi2L7ynnUXKnGg="
-        },
-        "data": {
-          "range": "bytes=18878-86239",
-          "checksum": "sha256-FZn35yOQqGtyHkFdyT7SvrouSitezyF4Ag6VLdTzpQ8="
-        },
-        "checksum": "Q1qPW1lo3IEEp8JIi2L7ynnUXKnGg="
-      },
-      {
         "name": "openssl-provider-legacy-allowed",
         "url": "https://packages.wolfi.dev/os/aarch64/openssl-provider-legacy-allowed-4.1.0-r0.apk",
         "version": "4.1.0-r0",
@@ -767,6 +748,25 @@
           "checksum": "sha256-wzYgfWqWrAfrcTLtoBw6a9GC4V9hq6irMioZcp2q4mw="
         },
         "checksum": "Q15NtxXKux3znBMjAEQEbnMUKLWcU="
+      },
+      {
+        "name": "libseccomp",
+        "url": "https://packages.wolfi.dev/os/aarch64/libseccomp-2.6.2-r0.apk",
+        "version": "2.6.2-r0",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-18869",
+          "checksum": "sha1-tXafTDgSmx0fH0IPzSy2/8FOerQ="
+        },
+        "data": {
+          "range": "bytes=18870-86928",
+          "checksum": "sha256-GSqgdsr1LpTtvT3Vkqhd5iD6eBjhhC0ETt6c6TXM+fg="
+        },
+        "checksum": "Q1tXafTDgSmx0fH0IPzSy2/8FOerQ="
       },
       {
         "name": "gdbm",

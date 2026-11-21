@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/nsd/apko.yaml",
-    "checksum": "sha256-ZYlArZ9qqxvX1fAXH9AUNRr35S8KSkxGB/kXze0gpPs="
+    "checksum": "sha256-U6BidOuFhmC2KNaz3lrpYM1RlTN4fKRxmjpOEmmtHg8="
   },
   "contents": {
     "keyring": [
@@ -314,22 +314,22 @@
       },
       {
         "name": "nsd",
-        "url": "https://packages.wolfi.dev/os/x86_64/nsd-4.15.4-r0.apk",
-        "version": "4.15.4-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/nsd-4.15.4-r1.apk",
+        "version": "4.15.4-r1",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-8312",
-          "checksum": "sha1-9LPx59IzalDqK5gcJC8VDy+aNwY="
+          "range": "bytes=0-15124",
+          "checksum": "sha1-ImU+f1sf+r3hKWyhxlgvFSDky88="
         },
         "data": {
-          "range": "bytes=8313-2014431",
-          "checksum": "sha256-iHVYIyzz9Uy0NXmL6Koh8lzxDIHFLs5ooF1w84pN9rc="
+          "range": "bytes=15125-2021600",
+          "checksum": "sha256-6D3Ycc3QfDhKyeJgZTiHgFbytghu0Xn02w2rEk+zuFE="
         },
-        "checksum": "Q19LPx59IzalDqK5gcJC8VDy+aNwY="
+        "checksum": "Q1ImU+f1sf+r3hKWyhxlgvFSDky88="
       },
       {
         "name": "wolfi-baselayout",
@@ -618,22 +618,22 @@
       },
       {
         "name": "nsd",
-        "url": "https://packages.wolfi.dev/os/aarch64/nsd-4.15.4-r0.apk",
-        "version": "4.15.4-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/nsd-4.15.4-r1.apk",
+        "version": "4.15.4-r1",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-8341",
-          "checksum": "sha1-Ad+SZxJ4SI0o+Aryp43yU1mqoqY="
+          "range": "bytes=0-15153",
+          "checksum": "sha1-7Ab/RWVtvGcJmRR4+6wR9+suQDY="
         },
         "data": {
-          "range": "bytes=8342-993596",
-          "checksum": "sha256-IpCGrqRBNQkMls8eH/+YhBmUEDLHPZwUOSnhxSEYifQ="
+          "range": "bytes=15154-1000434",
+          "checksum": "sha256-K5FkQdtoEJjYHe6C/NvxVx0IHxFIcmEPX5CbLwPKw2Y="
         },
-        "checksum": "Q1Ad+SZxJ4SI0o+Aryp43yU1mqoqY="
+        "checksum": "Q17Ab/RWVtvGcJmRR4+6wR9+suQDY="
       }
     ]
   }
