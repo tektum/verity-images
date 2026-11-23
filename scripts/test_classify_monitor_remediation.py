@@ -580,6 +580,8 @@ def test_flavored_exact_pin_names_its_actual_config() -> None:
             "package": "openssl",
             "reason": "exact pin, needs a bump: fips.apko.yaml pins openssl=1-r0, fixed in 1-r1",
         }]
+        assert plan["apko"] == [apko_route("images/flavored", ["flavored@1"], ("plain", "fips"))]
+        assert plan["exact"] == [] and plan["localPackageRevisions"] == []
 
 
 def test_exact_pin_does_not_hide_other_refreshable_findings_silently() -> None:
