@@ -177,7 +177,7 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 8
+    assert len(managers) == 9
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
@@ -198,23 +198,32 @@ def test_renovate_configuration() -> None:
             r"/^images/helmfile/melange\.yaml$/",
             r"/^images/jellyfin/melange\.yaml$/",
             r"/^images/jenkins-inbound-agent/melange\.yaml$/",
+            r"/^images/linkerd-proxy/melange\.yaml$/",
             r"/^images/pypy/melange\.yaml$/",
             r"/^images/step-ca/melange\.yaml$/",
             r"/^images/temporal-admin-tools/melange\.yaml$/",
         ],
         [r"/^images/datadog-cluster-agent/tests/test\.sh$/"],
         [r"/^images/harbor-scanner-trivy/apko\.yaml$/"],
+        [r"/^images/linkerd-proxy/apko\.yaml$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
-        "docker",
-        "docker",
-        "github-releases",
-        None,
-        "git-tags",
-        "git-tags",
-        "docker",
-        "git-tags",
+        "docker", "docker", "github-releases", None, "git-tags", "git-tags", "docker", "git-tags", "git-tags",
     ]
+    # This file-scoped Linkerd companion overlaps no generic pattern.
+    linkerd_manager = managers[8]
+    linkerd_text = (ROOT / "images/linkerd-proxy/apko.yaml").read_text(encoding="utf-8")
+    expected = [{"depName": "linkerd/linkerd2", "currentValue": "26.11.2",
+                 "extractVersion": r"^edge-(?<version>.+)$"}]
+    assert _extract(linkerd_manager, linkerd_text) == expected
+    prefix = "  LINKERD_CONTAINER_VERSION_OVERRIDE: "
+    suffix = "  # renovate: datasource=github-tags depName=linkerd/linkerd2 extractVersion=^edge-(?<version>.+)$"
+    assert _extract(linkerd_manager, prefix + "26.11.2" + suffix) == expected
+    assert _extract(linkerd_manager, "LINKERD_CONTAINER_VERSION_OVERRIDE=edge-26.11.2") == []
+    for tag in ("edge-26.11.2", "26.11.2"):
+        text = prefix + tag + suffix
+        changed = text.replace("26.11.2", "26.11.3")
+        assert tag.replace("26.11.2", "26.11.3") in changed
     # The melange source managers (package.version plus commit, the secondary
     # vars pins, and their apko.yaml companions) are covered by
     # scripts/test_melange_source_pins.py.

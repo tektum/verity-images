@@ -69,8 +69,8 @@ UNTRACKED_SECONDARY = {"images/trino/melange.yaml": {"launcher"}}
 def source_managers() -> list[dict]:
     managers = json.loads(RENOVATE.read_text(encoding="utf-8"))["customManagers"]
     found = [manager for manager in managers if manager.get("depTypeTemplate") == "source"]
-    assert len(found) == 3, (
-        "renovate.json must define one melange source manager, one secondary one, and one for their companions"
+    assert len(found) == 4, (
+        "renovate.json must define primary/secondary melange source managers and their companion managers"
     )
     return found
 
@@ -89,7 +89,7 @@ def secondary_manager() -> dict:
 
 def companion_manager() -> dict:
     found = [m for m in source_managers() if m.get("description", "").startswith(COMPANION_DESCRIPTION)]
-    assert len(found) == 1, "renovate.json must define exactly one secondary source companion manager"
+    assert len(found) == 2, "renovate.json must define generic Harbor and prefixed Linkerd companion managers"
     return found[0]
 
 
@@ -636,7 +636,7 @@ def test_secondary(manager: dict, primary: dict) -> int:
     return covered
 
 
-def test_companions(manager: dict, secondary: dict) -> int:
+def test_companions(managers: list[dict], secondary: dict) -> int:
     """Companions: an apko.yaml value that must equal a secondary pin moves with it.
 
     The companion manager resolves the value as a git-tags source dep of the
@@ -645,28 +645,31 @@ def test_companions(manager: dict, secondary: dict) -> int:
     must equal the pin's, and Renovate's default replacement (currentValue to
     newValue inside the match) must rewrite exactly that line.
     """
-    assert manager["datasourceTemplate"] == "git-tags"
-    assert manager["packageNameTemplate"] == "https://github.com/{{{depName}}}"
-    assert "autoReplaceStringTemplate" not in manager
-    assert len(manager["matchStrings"]) == 1
-    pattern = python_pattern(manager["matchStrings"][0])
-    patterns = file_patterns(manager)
+    for manager in managers:
+        assert manager["datasourceTemplate"] == "git-tags"
+        assert manager["packageNameTemplate"] == "https://github.com/{{{depName}}}"
+        assert "autoReplaceStringTemplate" not in manager
+        assert len(manager["matchStrings"]) == 1
     secondary_patterns = file_patterns(secondary)
     covered = 0
     problems = []
     for path in sorted((ROOT / "images").rglob("apko.yaml")):
         relative = path.relative_to(ROOT).as_posix()
+        companions = [item for item in managers if any(p.search(relative) for p in file_patterns(item))]
+        assert len(companions) <= 1, f"multiple companion managers match {relative}"
+        match_patterns = [python_pattern(raw) for item in companions for raw in item["matchStrings"]]
         text = path.read_text(encoding="utf-8")
         lines = text.splitlines()
         annotated = [index for index, line in enumerate(lines) if re.search(r"#[ \t]*renovate:", line)]
-        if not any(file_pattern.search(relative) for file_pattern in patterns):
+        if not companions:
             # Otherwise only the security-floor manager sees the value, and it
             # opens no ordinary updates, so the value would drift from its pin.
             if annotated:
-                problems.append(f"{relative}: annotated values are not covered by the companion manager")
+                problems.append(f"{relative}: annotated values are not covered by a companion manager")
             continue
         covered += 1
-        matches = list(pattern.finditer(text))
+        matches = sorted((match for pattern in match_patterns for match in pattern.finditer(text)), key=lambda m: m.start())
+        assert len({(match.start(), match.end()) for match in matches}) == len(matches)
         if [text.count("\n", 0, match.start()) for match in matches] != annotated:
             problems.append(f"{relative}: the companion match string does not match every annotated line")
         recipe = path.with_name("melange.yaml")
@@ -695,7 +698,7 @@ def test_companions(manager: dict, secondary: dict) -> int:
             upgraded = text[: match.start()] + region + text[match.end() :]
             new_lines = upgraded.splitlines()
             changed = [index for index, (old, new) in enumerate(zip(lines, new_lines)) if old != new]
-            rematched = [found["currentValue"] for found in pattern.finditer(upgraded) if found["depName"] == name]
+            rematched = [found["currentValue"] for pattern in match_patterns for found in pattern.finditer(upgraded) if found["depName"] == name]
             if len(new_lines) != len(lines) or len(changed) != 1 or rematched != [new_value]:
                 problems.append(f"{relative}: {name} replacement did not rewrite exactly its value")
     assert not problems, "\n".join(problems)
@@ -706,7 +709,9 @@ def test_companions(manager: dict, secondary: dict) -> int:
 def main() -> None:
     manager = source_manager()
     secondary = test_secondary(secondary_manager(), manager)
-    companions = test_companions(companion_manager(), secondary_manager())
+    companions = test_companions([
+        item for item in source_managers() if item.get("description", "").startswith(COMPANION_DESCRIPTION)
+    ], secondary_manager())
     test_manager_shape(manager)
     test_fixtures(manager)
     literal, var = test_repository(manager)
