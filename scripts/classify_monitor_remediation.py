@@ -329,9 +329,9 @@ def streams() -> dict[tuple[str, str], list[Stream]]:
 
 APK_VERSION: Final = re.compile(
     r"(?P<numbers>[0-9]+(?:\.[0-9]+)*)(?P<letter>[a-z])?"
-    r"(?P<suffixes>(?:_(?:alpha|beta|pre|rc|p)[0-9]*)*)(?:-r(?P<epoch>[0-9]+))?"
+    r"(?P<suffixes>(?:_(?:cvs|svn|git|hg|alpha|beta|pre|rc|p)[0-9.]*)*)(?:-r(?P<epoch>[0-9]+))?"
 )
-APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "p": 1}
+APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "cvs": 1, "svn": 2, "git": 3, "hg": 4, "p": 5}
 
 
 def apk_version_key(value: str) -> tuple[object, ...] | None:
@@ -341,7 +341,7 @@ def apk_version_key(value: str) -> tuple[object, ...] | None:
         return None
     suffixes = tuple(
         (APK_SUFFIX_RANK[name], int(number or 0))
-        for name, number in re.findall(r"_(alpha|beta|pre|rc|p)([0-9]*)", match.group("suffixes"))
+        for name, number in re.findall(r"_(cvs|svn|git|hg|alpha|beta|pre|rc|p)([0-9]*)", match.group("suffixes"))
     )
     return (
         tuple(int(part) for part in match.group("numbers").split(".")),
@@ -728,7 +728,7 @@ def classify(
                     blocked(
                         target,
                         finding,
-                        f"exact pin, needs a bump: apko.yaml pins {package_name}={pinned},"
+                        f"exact pin, needs a bump: {candidate.config.name} pins {package_name}={pinned},"
                         f" fixed in {', '.join(candidate.fixed_versions)}",
                     )
                 )

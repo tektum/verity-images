@@ -562,6 +562,26 @@ def test_exact_pin_below_the_fix_is_flagged_not_refreshed() -> None:
         }]
 
 
+def test_flavored_exact_pin_names_its_actual_config() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/flavored", name="flavored", flavors=("plain", "fips"))
+        pin_packages(root, "images/flavored", "openssl=1-r0")
+        config = root / "images/flavored/apko.yaml"
+        (root / "images/flavored/fips.apko.yaml").write_text(config.read_text(encoding="utf-8"), encoding="utf-8")
+        config.write_text("contents:\n  packages: [openssl]\n", encoding="utf-8")
+        repository = SignedRepository(
+            root, {architecture: {("openssl", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
+        )
+        plan = classify(root, [finding("flavored", "1", "openssl", "1-r0", ["1-r1"], "CVE-fips")], repository.query)
+        assert plan["blocked"] == [{
+            "stream": "flavored@1-fips",
+            "advisory": "CVE-fips",
+            "package": "openssl",
+            "reason": "exact pin, needs a bump: fips.apko.yaml pins openssl=1-r0, fixed in 1-r1",
+        }]
+
+
 def test_exact_pin_does_not_hide_other_refreshable_findings_silently() -> None:
     with TemporaryDirectory() as temporary:
         root = Path(temporary)
@@ -630,6 +650,12 @@ def test_exact_pin_parsing_ignores_ranges_and_unreadable_configs() -> None:
             ("1.10-r0", ("1.9-r0",), True),
             ("2.0.12-r0", ("2.0.12-r1",), False),
             ("2.0.12-r1", ("2.0.12-r1",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261108-r0",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261110-r0",), False),
+            ("1.11.2_git20261109-r0", ("1.11.2-r0",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261231-r0",), False),
+            ("1.11.2_p1-r0", ("1.11.2_git99999999-r0",), True),
+            ("1.11.2_hg2-r0", ("1.11.2_svn999-r0",), True),
             ("not a version", ("1-r1",), False),
         ):
             assert classify_monitor_remediation.pins_fix(pinned, fixed) is expected
