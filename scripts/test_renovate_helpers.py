@@ -452,6 +452,10 @@ def test_self_hosted_renovate() -> None:
     apk = json.loads((ROOT / ".github/renovate-apk.json").read_text(encoding="utf-8"))
     assert apk["dependencyDashboard"] is False
     assert apk["branchPrefix"] == "renovate-apk/"
+    # Renovate defaults to 10 open branches; unreviewed APK PRs filled them and
+    # other images were skipped with branch-limit-reached.
+    assert apk["prConcurrentLimit"] == 25
+    assert apk["branchConcurrentLimit"] == 25
     assert apk["enabledManagers"] == ["custom.regex"]
     assert len(apk["customManagers"]) == 1
     apk_manager = apk["customManagers"][0]

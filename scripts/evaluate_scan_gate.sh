@@ -5,13 +5,24 @@ image_name=${1:?usage: evaluate_scan_gate.sh IMAGE_NAME TRACK OUTPUT}
 track=${2:?usage: evaluate_scan_gate.sh IMAGE_NAME TRACK OUTPUT}
 output=${3:?usage: evaluate_scan_gate.sh IMAGE_NAME TRACK OUTPUT}
 files=("scan-${image_name}-amd64.json" "scan-${image_name}-arm64.json")
+root=$(cd "$(dirname "$0")/.." && pwd)
+# Allowlisted untagged Go modules (pipelines/go/untagged-release-modules.json,
+# shared with go/remediate) whose pseudo-version includes every fixed release.
+# The monitor applies the same rule through the same module.
+satisfied_file=$(mktemp)
+trap 'rm -f "$satisfied_file"' EXIT
+python3 "$root/scripts/untagged_go_modules.py" "$satisfied_file" "${files[@]}"
+satisfied=$(jq -c . "$satisfied_file")
+# shellcheck disable=SC2016 # jq program, expanded by jq
+blocking='def blocking: select((.vulnerability.fix.versions // []) | length > 0) |
+  select([.vulnerability.id, .artifact.name, .artifact.version] as $key | any($satisfied[]; . == $key) | not);'
 
 final=$(jq -s -c '
   [.[].matches[].vulnerability.severity] |
   group_by(ascii_downcase) |
   map({(.[0] | ascii_downcase): length}) |
   add // {}' "${files[@]}")
-count=$(jq -s '[.[].matches[] | select((.vulnerability.fix.versions // []) | length > 0)] | length' \
+count=$(jq -s --argjson satisfied "$satisfied" "$blocking"'[.[].matches[] | blocking] | length' \
   "${files[@]}")
 
 case "$track" in
@@ -45,8 +56,8 @@ if [[ "$count" -eq 0 ]]; then
   exit 0
 fi
 
-blockers=$(jq -s -r '
-  [.[].matches[] | select((.vulnerability.fix.versions // []) | length > 0) |
+blockers=$(jq -s -r --argjson satisfied "$satisfied" "$blocking"'
+  [.[].matches[] | blocking |
     {id:.vulnerability.id,severity:.vulnerability.severity,
      package:.artifact.name,installed:.artifact.version,
      fixed:((.vulnerability.fix.versions // []) | join(","))}] |

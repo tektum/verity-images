@@ -44,11 +44,16 @@ docker image inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$imag
 for entry in XDG_CACHE_HOME=/data GITNESS_GIT_ROOT=/data \
   GITNESS_REGISTRY_FILESYSTEM_ROOT_DIRECTORY=/data/registry \
   GITNESS_DATABASE_DRIVER=sqlite3 GITNESS_DATABASE_DATASOURCE=/data/database.sqlite \
-  GITNESS_METRIC_ENABLED=true GITNESS_METRIC_ENDPOINT=https://stats.drone.ci/api/v1/gitness \
+  GITNESS_METRIC_ENABLED=false GITNESS_METRIC_ENDPOINT=https://stats.drone.ci/api/v1/gitness \
   GITNESS_TOKEN_COOKIE_NAME=token GITNESS_DOCKER_API_VERSION=1.41 \
   GITNESS_SSH_ENABLE=true GITNESS_GITSPACE_ENABLE=true; do
   grep -Fx "$entry" "$work/env" >/dev/null || fail "missing environment entry $entry"
 done
+# Usage metrics are off by default (opt in with -e GITNESS_METRIC_ENABLED=true).
+[ "$(grep -c '^GITNESS_METRIC_ENABLED=' "$work/env")" = 1 ] ||
+  fail 'GITNESS_METRIC_ENABLED must be set exactly once'
+grep -Fx GITNESS_METRIC_ENABLED=false "$work/env" >/dev/null ||
+  fail "usage metrics are not disabled by default: $(grep '^GITNESS_METRIC_ENABLED=' "$work/env")"
 
 docker run --rm --network none --entrypoint /bin/sh "$image" -c \
   'readlink -f /app/gitness; id -u; git --version; git lfs version; cat /usr/lib/apk/db/installed' \
@@ -70,8 +75,7 @@ grep -F 'unknown long flag' "$work/flag" >/dev/null ||
 
 start() {
   docker run -d --name "$container" -v "$volume:/data" \
-    -p 127.0.0.1::3000 -p 127.0.0.1::3022 \
-    -e GITNESS_METRIC_ENABLED=false "$image" >/dev/null
+    -p 127.0.0.1::3000 -p 127.0.0.1::3022 "$image" >/dev/null
   port=$(docker port "$container" 3000/tcp | awk -F: 'NR == 1 { print $NF }')
   [ -n "$port" ] || fail 'http port is not published'
   api="http://127.0.0.1:$port/api/v1"
