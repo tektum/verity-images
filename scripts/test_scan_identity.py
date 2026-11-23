@@ -38,6 +38,7 @@ FROZEN_BASELINE: Final = frozenset(
 # inventing an identity. Immutable like FROZEN_BASELINE; adding an image here is a deliberate edit of this set.
 FROZEN_NO_FEED: Final = frozenset(
     {
+        "images/cassandra-reaper",
         "images/jupyterhub-k8s-hub",
         "images/keycloak-config-cli",
         "images/kubernetes-reflector",

@@ -23,8 +23,10 @@ contents:
 # below. Upstream runs as root; this image runs as non-root 65532 and owns
 # /data, keeps /app/gitness as a symlink to the packaged /usr/bin/gitness, and
 # does not carry the /git volume inherited from the alpine/git base, which
-# gitness never uses. APKO cannot declare exposed ports, so the smoke test
-# asserts the 3000 and 3022 listeners.
+# gitness never uses. Unlike upstream, usage metrics are off by default
+# (GITNESS_METRIC_ENABLED=false); set GITNESS_METRIC_ENABLED=true at run time
+# to opt back in (the upstream endpoint is kept). APKO cannot declare exposed
+# ports, so the smoke test asserts the 3000 and 3022 listeners.
 accounts:
   groups:
     - groupname: nonroot
@@ -50,7 +52,7 @@ environment:
   GITNESS_REGISTRY_FILESYSTEM_ROOT_DIRECTORY: /data/registry
   GITNESS_DATABASE_DRIVER: sqlite3
   GITNESS_DATABASE_DATASOURCE: /data/database.sqlite
-  GITNESS_METRIC_ENABLED: "true"
+  GITNESS_METRIC_ENABLED: "false"
   GITNESS_METRIC_ENDPOINT: https://stats.drone.ci/api/v1/gitness
   GITNESS_TOKEN_COOKIE_NAME: token
   GITNESS_DOCKER_API_VERSION: "1.41"

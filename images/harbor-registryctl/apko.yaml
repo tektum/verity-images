@@ -1,0 +1,62 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-harbor-registryctl@local
+
+# Upstream goharbor/harbor-registryctl runs as harbor (10000:10000) and execs
+# `/home/harbor/harbor_registryctl -c /etc/registryctl/config.yml` after a
+# Photon-only CA bundle step, which this image omits. The controller reads the
+# registry storage configuration from /etc/registry/config.yml and serves
+# deletions in-process, so upstream's unused registry_DO_NOT_USE_GC binary is
+# not shipped. /var/lib/registry is the upstream filesystem storage volume.
+accounts:
+  groups:
+    - groupname: harbor
+      gid: 10000
+  users:
+    - username: harbor
+      uid: 10000
+      gid: 10000
+      homedir: /home/harbor
+  run-as: 10000
+
+entrypoint:
+  command: /home/harbor/harbor_registryctl -c /etc/registryctl/config.yml
+
+work-dir: /
+
+volumes:
+  - /var/lib/registry
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/harbor
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /etc/registry
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /etc/registryctl
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /var/lib/registry
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755

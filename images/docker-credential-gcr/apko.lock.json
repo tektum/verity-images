@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/docker-credential-gcr/apko.yaml",
-    "checksum": "sha256-xgEbZfHe+kBDAT144EZutD0ZEiTMLHIQr6S0Bxg/tms="
+    "checksum": "sha256-gpp9Qd2Ik3HSXGy5Guip7h7L3XM0kRj70YAl3augKks="
   },
   "contents": {
     "keyring": [
@@ -67,22 +67,22 @@
       },
       {
         "name": "docker-credential-gcr",
-        "url": "https://packages.wolfi.dev/os/x86_64/docker-credential-gcr-2.2.1-r8.apk",
-        "version": "2.2.1-r8",
+        "url": "https://packages.wolfi.dev/os/x86_64/docker-credential-gcr-2.2.2-r0.apk",
+        "version": "2.2.2-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-15593",
-          "checksum": "sha1-+5hXVn+dtUboL1y1Q+U57X4eDY0="
+          "range": "bytes=0-15655",
+          "checksum": "sha1-6Jx+JDg3LBHGm+jLVfBBgRE99UI="
         },
         "data": {
-          "range": "bytes=15594-3837076",
-          "checksum": "sha256-Yq9WSid564W7NaJXC7RqlrJmkh6RjfJBQmsE5BPX6CY="
+          "range": "bytes=15656-3928839",
+          "checksum": "sha256-B83zSZeZVFjLyTCuvchnZWC1+NqadQEcO5BaQXWXFjI="
         },
-        "checksum": "Q1+5hXVn+dtUboL1y1Q+U57X4eDY0="
+        "checksum": "Q16Jx+JDg3LBHGm+jLVfBBgRE99UI="
       },
       {
         "name": "wolfi-baselayout",
@@ -124,22 +124,22 @@
       },
       {
         "name": "docker-credential-gcr",
-        "url": "https://packages.wolfi.dev/os/aarch64/docker-credential-gcr-2.2.1-r8.apk",
-        "version": "2.2.1-r8",
+        "url": "https://packages.wolfi.dev/os/aarch64/docker-credential-gcr-2.2.2-r0.apk",
+        "version": "2.2.2-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-15624",
-          "checksum": "sha1-Vwxnx6ExDW0YCrR700tdnptSyoE="
+          "range": "bytes=0-15685",
+          "checksum": "sha1-aPeggnwCgEYucn/YcSYpnzpSSWw="
         },
         "data": {
-          "range": "bytes=15625-3462944",
-          "checksum": "sha256-LLomdpjLAF5N9rzWhvq3E6giznFyM00OFoaMhmJt6oQ="
+          "range": "bytes=15686-3544667",
+          "checksum": "sha256-2GODl+0r51qD/dBOk5JyYmPeRk/Z+hZUKBJFbpMg9pY="
         },
-        "checksum": "Q1Vwxnx6ExDW0YCrR700tdnptSyoE="
+        "checksum": "Q1aPeggnwCgEYucn/YcSYpnzpSSWw="
       }
     ]
   }

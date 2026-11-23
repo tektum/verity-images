@@ -1,0 +1,40 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-aws-privateca-issuer@local
+
+# Upstream runs on distroless static:nonroot as 65532:65532 with WORKDIR /.
+accounts:
+  run-as: 65532
+
+work-dir: /
+
+# Upstream ships /manager as ENTRYPOINT, and its Helm chart sets
+# command: /manager. This image installs /usr/bin/aws-privateca-issuer as the
+# entrypoint and keeps /manager as a symlink for manifests that set command.
+entrypoint:
+  command: /usr/bin/aws-privateca-issuer
+
+environment:
+  PATH: /usr/bin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /manager
+    type: symlink
+    source: /usr/bin/aws-privateca-issuer
+    uid: 0
+    gid: 0
+  # apko applies the symlink's unset permissions through the link to its
+  # target, so restore the binary mode after creating /manager.
+  - path: /usr/bin/aws-privateca-issuer
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755

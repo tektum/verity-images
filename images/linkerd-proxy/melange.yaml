@@ -1,0 +1,237 @@
+package:
+  name: verity-linkerd-proxy
+  # yamllint disable-line rule:line-length
+  version: "2.374.0"  # renovate: datasource=github-tags depName=linkerd/linkerd2-proxy extractVersion=^release/v(?<version>.+)$
+  epoch: 0
+  description: Linkerd data-plane proxy bundle with proxy-identity, proxy-init, linkerd-await and the network validator
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "16"
+    memory: 32Gi
+    disk: 24Gi
+
+# The upstream proxy image (linkerd2 Dockerfile.proxy at edge-<linkerd2-version>)
+# bundles these components next to the proxy release. Each pin is the version
+# that Dockerfile.proxy names at that linkerd2 edge release.
+vars:
+  # yamllint disable-line rule:line-length
+  linkerd2-version: "26.11.2"  # renovate: datasource=github-tags depName=linkerd/linkerd2 extractVersion=^edge-(?<version>.+)$
+  linkerd2-commit: 76f5e82dff7c0ead5390db7dd00266db9f6f93e1
+  # yamllint disable-line rule:line-length
+  proxy-init-version: "2.4.11"  # renovate: datasource=github-tags depName=linkerd/linkerd2-proxy-init extractVersion=^proxy-init/v(?<version>.+)$
+  proxy-init-commit: 9725ceca1cf8cdd869631f9206e8e3547613f4d2
+  # yamllint disable-line rule:line-length
+  validator-version: "0.1.10"  # renovate: datasource=github-tags depName=linkerd/linkerd2-proxy-init extractVersion=^validator/v(?<version>.+)$
+  validator-commit: 06853404b01104c95e4e3ef73a163e36496f826f
+  # yamllint disable-line rule:line-length
+  await-version: "0.3.3"  # renovate: datasource=github-tags depName=linkerd/linkerd-await extractVersion=^release/v(?<version>.+)$
+  await-commit: 5e0d767a105e7862ff412febc51cf58d9d5d0916
+  x-sys-floor: v0.49.0  # renovate: datasource=go depName=golang.org/x/sys
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - git
+      - go-1.26
+      - libcap-utils
+      - python3
+      - rust-1.99
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      destination: proxy
+      repository: https://github.com/linkerd/linkerd2-proxy
+      tag: release/v${{package.version}}
+      expected-commit: 16d3717b7a5448e892166ced1dca600935df291c
+
+  # Upstream's release has no extra Cargo features (default = []).
+  - uses: cargo/remediate
+    with:
+      crateroot: proxy
+
+  # Matches upstream's release build: release profile (LTO), cargo auditable,
+  # and --cfg tokio_unstable. build.rs reads the version and vendor stamps.
+  - working-directory: proxy
+    runs: |
+      export RUSTFLAGS="--cfg tokio_unstable"
+      export LINKERD2_PROXY_VERSION="${{package.version}}"
+      export LINKERD2_PROXY_VENDOR=tektum
+      cargo auditable build --release --locked --package linkerd2-proxy
+      dest="${{targets.destdir}}/usr/lib/linkerd"
+      install -Dm755 target/release/linkerd2-proxy "$dest/linkerd2-proxy"
+      install -Dm644 LICENSE "$dest/LICENSE"
+      printf 'v%s\n' "${{package.version}}" > "$dest/linkerd2-proxy-version.txt"
+      chmod 644 "$dest/linkerd2-proxy-version.txt"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf target .cargo
+
+  - uses: git-checkout
+    with:
+      destination: linkerd2
+      repository: https://github.com/linkerd/linkerd2
+      tag: edge-${{vars.linkerd2-version}}
+      expected-commit: ${{vars.linkerd2-commit}}
+  # x/net's fixed releases require a newer x/sys than the one go/remediate
+  # selects on its own, which leaves go.sum without the entries the build needs
+  # (same floor as images/linkerd-proxy-init and images/actionlint).
+  - working-directory: linkerd2
+    runs: |
+      current="$(go list -m -f '{{.Version}}' golang.org/x/sys)"
+      if awk -v have="$current" -v want=${{vars.x-sys-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get golang.org/x/sys@${{vars.x-sys-floor}}
+      fi
+  - uses: go/remediate
+    with:
+      modroot: linkerd2
+      packages: ./proxy-identity
+  - working-directory: linkerd2
+    runs: |
+      go build -mod=readonly -trimpath -ldflags "-s -w" \
+        -o "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-identity" ./proxy-identity
+
+  - uses: git-checkout
+    with:
+      destination: proxy-init
+      repository: https://github.com/linkerd/linkerd2-proxy-init
+      tag: proxy-init/v${{vars.proxy-init-version}}
+      expected-commit: ${{vars.proxy-init-commit}}
+  - working-directory: proxy-init
+    runs: |
+      current="$(go list -m -f '{{.Version}}' golang.org/x/sys)"
+      if awk -v have="$current" -v want=${{vars.x-sys-floor}} 'BEGIN {
+        split(substr(have, 2), h, /[.+-]/)
+        split(substr(want, 2), w, ".")
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+        }
+        exit (have ~ /-/) ? 0 : 1
+      }'; then
+        GOTOOLCHAIN=local go get golang.org/x/sys@${{vars.x-sys-floor}}
+      fi
+  - uses: go/remediate
+    with:
+      modroot: proxy-init
+      packages: ./proxy-init
+  - working-directory: proxy-init
+    runs: |
+      go build -mod=readonly -trimpath -ldflags "-s -w" \
+        -o "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-init" ./proxy-init
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/proxy-init-LICENSE"
+
+  - uses: git-checkout
+    with:
+      destination: validator
+      repository: https://github.com/linkerd/linkerd2-proxy-init
+      tag: validator/v${{vars.validator-version}}
+      expected-commit: ${{vars.validator-commit}}
+  - uses: cargo/remediate
+    with:
+      crateroot: validator
+  - working-directory: validator
+    runs: |
+      cargo auditable build --release --locked --package linkerd-network-validator
+      install -Dm755 target/release/linkerd-network-validator \
+        "${{targets.destdir}}/usr/lib/linkerd/linkerd2-network-validator"
+      rm -rf target .cargo
+
+  - uses: git-checkout
+    with:
+      destination: await
+      repository: https://github.com/linkerd/linkerd-await
+      tag: release/v${{vars.await-version}}
+      expected-commit: ${{vars.await-commit}}
+  - uses: cargo/remediate
+    with:
+      crateroot: await
+  - working-directory: await
+    runs: |
+      cargo auditable build --release --locked
+      install -Dm755 target/release/linkerd-await "${{targets.destdir}}/usr/lib/linkerd/linkerd-await"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/linkerd-await-LICENSE"
+      rm -rf target .cargo
+
+  - uses: strip
+
+  # After strip, which rewrites files and would drop the capability xattr.
+  # Upstream grants these so the linkerd-init container can program the
+  # firewall as a non-root user with NET_ADMIN and NET_RAW in its bounding set.
+  - runs: |
+      setcap cap_net_raw,cap_net_admin+eip "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-init"
+      getcap "${{targets.destdir}}/usr/lib/linkerd/linkerd2-proxy-init" | grep -F 'cap_net_admin,cap_net_raw=eip'
+
+  # The root-owned checkouts are not readable by the host user that reads back
+  # workspace xattrs after the build (as in images/envoy); everything shipped is
+  # already in the destdir. Keep the resolved module and lock files for the
+  # build-metadata subpackage first, as images/atlantis does.
+  - runs: |
+      for src in linkerd2 proxy-init; do
+        install -Dm644 "$src/go.mod" ".verity-$src/go.mod"
+        install -Dm644 "$src/go.sum" ".verity-$src/go.sum"
+      done
+      for src in proxy validator await; do
+        install -Dm644 "$src/Cargo.lock" ".verity-$src/Cargo.lock"
+      done
+      rm -rf proxy linkerd2 proxy-init validator await
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module and Cargo metadata for the Linkerd proxy build
+    pipeline:
+      - runs: |
+          dest="${{targets.subpkgdir}}/usr/share/linkerd-proxy-build"
+          for src in linkerd2 proxy-init; do
+            install -Dm644 ".verity-$src/go.mod" "$dest/$src/go.mod"
+            install -Dm644 ".verity-$src/go.sum" "$dest/$src/go.sum"
+          done
+          for src in proxy validator await; do
+            install -Dm644 ".verity-$src/Cargo.lock" "$dest/$src/Cargo.lock"
+          done
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+        - libcap-utils
+  pipeline:
+    - runs: |
+        dir=/usr/lib/linkerd
+        test "$(cat "$dir/linkerd2-proxy-version.txt")" = "v${{package.version}}"
+        if "$dir/linkerd2-proxy-identity" 2>err; then exit 1; fi
+        grep -F 'no end entity directory specified' err
+        "$dir/linkerd2-proxy-init" --help | grep -F -- '--firewall-bin-path'
+        "$dir/linkerd-await" --version | grep -E '^linkerd-await [0-9]+\.[0-9]+\.[0-9]+$'
+        "$dir/linkerd2-network-validator" --help | grep -F -- '--connect-addr'
+        getcap "$dir/linkerd2-proxy-init" | grep -F 'cap_net_admin,cap_net_raw=eip'
+        test -s "$dir/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: linkerd/linkerd2-proxy
+    strip-prefix: release/v
