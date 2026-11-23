@@ -1,0 +1,3 @@
+# Allowlisting an untagged Go module relaxes the publication and monitor
+# vulnerability gates, so every change needs security review.
+/pipelines/go/untagged-release-modules.json @omercnet
