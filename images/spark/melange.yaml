@@ -84,7 +84,7 @@ pipeline:
       patches: spark-build.patch
   - runs: |
       # Keep the Maven repository out of the workspace, which melange reads back.
-      mvn_flags="-B -ntp -Dmaven.repo.local=/var/cache/maven"
+      mvn_flags="-B -Dmaven.repo.local=/var/cache/maven"
       pom_property() { sed -n "s|^    <$1>\(.*\)</$1>\$|\1|p" pom.xml; }
       hadoop=$(pom_property hadoop.version)
       parquet=$(pom_property parquet.version)
