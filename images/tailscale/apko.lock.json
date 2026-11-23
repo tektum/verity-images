@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/tailscale/apko.yaml",
-    "checksum": "sha256-6iMh16IRc3dkucgM+iSnsWDYoR4mLO2suybPAj1vE1M="
+    "checksum": "sha256-ykEovVuUtZsxPR7jFOcg+VrmmB3QmTo9oragd2ai1ek="
   },
   "contents": {
     "keyring": [
@@ -48,41 +48,60 @@
       },
       {
         "name": "ca-certificates-bundle",
-        "url": "https://packages.wolfi.dev/os/x86_64/ca-certificates-bundle-20261020-r0.apk",
-        "version": "20261020-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/ca-certificates-bundle-20261020-r1.apk",
+        "version": "20261020-r1",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10705",
-          "checksum": "sha1-9P7fzB945PuRaQEnzg9napiRzKE="
+          "range": "bytes=0-17491",
+          "checksum": "sha1-KM8rfs/fuIpS1nqnIz9biSSN5L4="
         },
         "data": {
-          "range": "bytes=10706-118540",
-          "checksum": "sha256-3Lo0o7Emn192v8lxbpfeoYO9cN5fbdNay6q0HT99wL0="
+          "range": "bytes=17492-125325",
+          "checksum": "sha256-aQUjFUgyzz519vTqFQvtDnCOF9AEZAP1xuvVexOhZZA="
         },
-        "checksum": "Q19P7fzB945PuRaQEnzg9napiRzKE="
+        "checksum": "Q1KM8rfs/fuIpS1nqnIz9biSSN5L4="
       },
       {
         "name": "tailscale",
-        "url": "https://packages.wolfi.dev/os/x86_64/tailscale-1.104.7-r0.apk",
-        "version": "1.104.7-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/tailscale-1.104.7-r1.apk",
+        "version": "1.104.7-r1",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-16019",
-          "checksum": "sha1-PXZFrBdQAMZPmHSdjJTfIV6ayyw="
+          "range": "bytes=0-16037",
+          "checksum": "sha1-X14pjHwPtuL+a7k4OboDgFbjNks="
         },
         "data": {
-          "range": "bytes=16020-29970962",
-          "checksum": "sha256-xtYPkC1VHU7wvVvP0a5IVt1u3dZPV/YojmtvOIoufv0="
+          "range": "bytes=16038-22631741",
+          "checksum": "sha256-aHSYRj7a9RSD8w5ab0cjeH3LuT1BSF1y9zAfJN5Rq/8="
         },
-        "checksum": "Q1PXZFrBdQAMZPmHSdjJTfIV6ayyw="
+        "checksum": "Q1X14pjHwPtuL+a7k4OboDgFbjNks="
+      },
+      {
+        "name": "tailscale-containerboot",
+        "url": "https://packages.wolfi.dev/os/x86_64/tailscale-containerboot-1.104.7-r1.apk",
+        "version": "1.104.7-r1",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-16063",
+          "checksum": "sha1-e0Mi6diESM6Jyvcy3qK2h8ViMD8="
+        },
+        "data": {
+          "range": "bytes=16064-7351806",
+          "checksum": "sha256-cf1SBUmvnFsZWIwe22fYktLw854nngWkaEBjOjsJuZA="
+        },
+        "checksum": "Q1e0Mi6diESM6Jyvcy3qK2h8ViMD8="
       },
       {
         "name": "wolfi-baselayout",
@@ -105,41 +124,60 @@
       },
       {
         "name": "ca-certificates-bundle",
-        "url": "https://packages.wolfi.dev/os/aarch64/ca-certificates-bundle-20261020-r0.apk",
-        "version": "20261020-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/ca-certificates-bundle-20261020-r1.apk",
+        "version": "20261020-r1",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-10740",
-          "checksum": "sha1-Uxft6BYfAMq8F4Gi9M7Q2XromUs="
+          "range": "bytes=0-17526",
+          "checksum": "sha1-hm7OLFBVsM1J2wx9EEwekebZs2A="
         },
         "data": {
-          "range": "bytes=10741-118572",
-          "checksum": "sha256-pJ/U6kS8LIzp4yHvDxfuVI8RdvCydEFlFN/QrPu2FXY="
+          "range": "bytes=17527-125357",
+          "checksum": "sha256-k+JTFszFZNxDjI9RxIXYnpijhRvuAM5KzhgampYWkdg="
         },
-        "checksum": "Q1Uxft6BYfAMq8F4Gi9M7Q2XromUs="
+        "checksum": "Q1hm7OLFBVsM1J2wx9EEwekebZs2A="
       },
       {
         "name": "tailscale",
-        "url": "https://packages.wolfi.dev/os/aarch64/tailscale-1.104.7-r0.apk",
-        "version": "1.104.7-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/tailscale-1.104.7-r1.apk",
+        "version": "1.104.7-r1",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-16048",
-          "checksum": "sha1-/JhEH6htDgaWR6dpypa2iwC4TvI="
+          "range": "bytes=0-15989",
+          "checksum": "sha1-CKE/hAfbtEJ6uiqpHPJILMLOfpA="
         },
         "data": {
-          "range": "bytes=16049-27052870",
-          "checksum": "sha256-WN99JN+rKyNVFRRtCQDv4GnX3OCZSqQEJUCOQb5OYdE="
+          "range": "bytes=15990-20548787",
+          "checksum": "sha256-OvgNo1LX1vwMKN9t/2Nw5TMJR32LkBTpiMrNpYMaAgg="
         },
-        "checksum": "Q1/JhEH6htDgaWR6dpypa2iwC4TvI="
+        "checksum": "Q1CKE/hAfbtEJ6uiqpHPJILMLOfpA="
+      },
+      {
+        "name": "tailscale-containerboot",
+        "url": "https://packages.wolfi.dev/os/aarch64/tailscale-containerboot-1.104.7-r1.apk",
+        "version": "1.104.7-r1",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-16015",
+          "checksum": "sha1-lig3off1CMV954xCHIIU3ETsYro="
+        },
+        "data": {
+          "range": "bytes=16016-6569084",
+          "checksum": "sha256-byeTAkZULr+gdPzDbvf/JWo06+jKvoAJD3j0NLBygTQ="
+        },
+        "checksum": "Q1lig3off1CMV954xCHIIU3ETsYro="
       }
     ]
   }
