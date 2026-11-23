@@ -15,6 +15,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "pipelines/go/remediate.yaml"
+UNTAGGED_POLICY = ROOT / "pipelines/go/untagged-release-modules.json"
+UNTAGGED_POLICY_ENV = "GO_UNTAGGED_RELEASE_MODULES"
 
 
 def extract_resolver(root: Path) -> Path:
@@ -26,11 +28,16 @@ def extract_resolver(root: Path) -> Path:
     return path
 
 
-def load_resolver(root: Path):
+def load_resolver(root: Path, policy: str | None = None):
+    # main() reads the policy from the build environment, as scripts/build_candidate.sh
+    # provides it; direct helper calls use the same policy through the module globals.
+    policy = UNTAGGED_POLICY.read_text(encoding="utf-8") if policy is None else policy
+    os.environ[UNTAGGED_POLICY_ENV] = policy
     spec = importlib.util.spec_from_file_location("go_remediate", extract_resolver(root))
     assert spec and spec.loader
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
+    module.UNTAGGED_RELEASE_MODULES, module.ADVISORY_FIX_CORRECTIONS = module.load_untagged_policy(policy)
     return module
 
 
@@ -1423,6 +1430,112 @@ def test_untagged_module_uses_release_tag(module, root: Path) -> None:
     )
 
 
+UNTAGGED = "example.com/untagged"
+
+
+def run_untagged_remediation(
+    module, root: Path, package: str, record: dict, current: str, tags: dict[str, str], queries: list[str]
+):
+    selected = {package: current}
+    omnibump = []
+    vulnerable = module.parse_stream(stream(record, finding(record["osv"]["id"], package, "v0.0.0")))
+    module.reconcile = lambda *_args, **_kwargs: None
+    # A bump to the fixed module version clears the finding.
+    module.scan = lambda *_args, **_kwargs: vulnerable if selected[package] == current else []
+    module.selected_modules = lambda *_args, **_kwargs: dict(selected)
+
+    def run_go(arguments, _root, capture=False, workspace=None, report=False):
+        if arguments[0] == "omnibump":
+            request = arguments[arguments.index("--packages") + 1]
+            omnibump.append(request)
+            selected[package] = request.rsplit("@", 1)[1]
+            return ""
+        if arguments[:3] == ["go", "list", "-mod=mod"] and "-json" in arguments:
+            query = arguments[-1]
+            queries.append(query)
+            version = tags.get(query.rsplit("@", 1)[1])
+            if version is None:
+                raise module.CommandError(arguments, 1, "", f"go: {query}: invalid version: unknown revision")
+            return json.dumps({"Path": package, "Version": version, "Query": query})
+        return json.dumps({"Go": "1.25", "Toolchain": None}) if capture else ""
+
+    module.run_go = run_go
+    output = io.StringIO()
+    with contextlib.redirect_stdout(output):
+        invoke_main(module, root)
+    return omnibump, output.getvalue()
+
+
+def test_untagged_allowlist(root: Path) -> None:
+    newer = "v0.0.0-20260528141032-c51394391cf5"
+    older = "v0.0.0-20200101000000-0123456789ab"
+    not_allowlisted = f"{UNTAGGED}@v1.2.0 is not a published module version and {UNTAGGED} is not allowlisted"
+
+    # The shared policy allowlists istio.io/istio and nothing else, and carries the
+    # GHSA-xwx5 correction.
+    module = load_resolver(root)
+    assert module.UNTAGGED_RELEASE_MODULES == frozenset({ISTIO})
+    assert module.ADVISORY_FIX_CORRECTIONS == {("GHSA-xwx5-5c9g-x68x", ISTIO, "1.12.18"): "1.12.8"}
+
+    # A module outside the allowlist never falls back to its bare release tag, even
+    # when that tag is older than the selected commit.
+    record = osv("GHSA-untagged", UNTAGGED, "v1.2.0")
+    queries = []
+    assert_raises(
+        module.RemediationError,
+        not_allowlisted,
+        lambda: run_untagged_remediation(module, root, UNTAGGED, record, newer, {"1.2.0": older}, queries),
+    )
+    assert queries == [f"{UNTAGGED}@v1.2.0"]
+
+    # It still reaches a fix published as a module version through a normal bump.
+    module = load_resolver(root)
+    queries = []
+    omnibump, output = run_untagged_remediation(module, root, UNTAGGED, record, newer, {"v1.2.0": "v1.2.0"}, queries)
+    assert set(queries) == {f"{UNTAGGED}@v1.2.0"}
+    assert omnibump == [f"{UNTAGGED}@v1.2.0"]
+    assert "includes fixed release" not in output
+
+    # Without the policy in the build environment nothing is allowlisted and no fix
+    # is corrected, so istio fails closed instead of using the commit-date rule.
+    module = load_resolver(root, policy="")
+    assert_raises(
+        module.RemediationError,
+        f"{ISTIO}@v1.12.18 is not a published module version and {ISTIO} is not allowlisted",
+        lambda: run_untagged_remediation(
+            module, root, ISTIO, ISTIO_TYPO_ADVISORY, newer, {"1.12.8": "v0.0.0-20220606151702-83a7f5f171c0"}, []
+        ),
+    )
+
+    # The same module is accepted once a policy allowlists it.
+    policy = json.dumps({"modules": {UNTAGGED: {"reason": "test"}}})
+    module = load_resolver(root, policy=policy)
+    queries = []
+    omnibump, output = run_untagged_remediation(module, root, UNTAGGED, record, newer, {"1.2.0": older}, queries)
+    assert queries[:2] == [f"{UNTAGGED}@v1.2.0", f"{UNTAGGED}@1.2.0"] and set(queries) == set(queries[:2])
+    assert omnibump == []
+    assert f"GHSA-untagged in {UNTAGGED}@{newer} includes fixed release v1.2.0 ({older})" in output
+
+    for raw, message in (
+        ("{", "not JSON"),
+        ("[]", "modules must be an object"),
+        ('{"modules": []}', "modules must be an object"),
+        ('{"modules": {"not a module": {}}}', "module: 'not a module'"),
+        ('{"modules": {"example.com/m": []}}', "module: 'example.com/m'"),
+        ('{"modules": {"example.com/m": {"fix-corrections": {}}}}', "fix corrections for example.com/m"),
+        ('{"modules": {"example.com/m": {"fix-corrections": [{"advisory": "A", "published": "1"}]}}}', "fix correction"),
+        ('{"modules": {"example.com/m": {"fix-corrections": [{"advisory": "A", "published": "x", "fixed": "1.0.0"}]}}}', "invalid module version"),
+    ):
+        assert_raises(module.RemediationError, message, lambda raw=raw: module.load_untagged_policy(raw))
+
+
+def test_untagged_policy_is_not_overridden() -> None:
+    # The build environment carries the shared policy; a recipe environment that set
+    # the same variable would replace it for one image.
+    for path in sorted({*ROOT.glob("images/**/*melange.yaml"), *ROOT.glob("images/**/*.env")}):
+        assert UNTAGGED_POLICY_ENV not in path.read_text(encoding="utf-8"), path
+
+
 def test_pipeline_contract() -> None:
     pipeline = PIPELINE.read_text(encoding="utf-8")
     assert pipeline.count("go install golang.org/x/vuln/cmd/govulncheck@v1.7.0") == 1
@@ -1454,6 +1567,8 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_untagged_module_uses_release_tag(module, root)
+    with tempfile.TemporaryDirectory() as temporary:
+        test_untagged_allowlist(Path(temporary))
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         module = load_resolver(root)
@@ -1540,6 +1655,7 @@ def main() -> None:
         root = Path(temporary)
         module = load_resolver(root)
         test_newly_exposed_fixes_converge(module, root)
+    test_untagged_policy_is_not_overridden()
     test_pipeline_contract()
     print("passed scripts/test_go_remediation.py")
 

@@ -1,0 +1,16 @@
+{
+  "description": "Go modules without semver module tags whose advisory fixes may be matched to release tags by commit date. A module selected at an untagged v0.0.0 pseudo-version and not listed here fails closed when an advisory fix is not a published module version. Read by pipelines/go/remediate.yaml (through scripts/build_candidate.sh) and scripts/evaluate_scan_gate.sh.",
+  "modules": {
+    "istio.io/istio": {
+      "reason": "Istio release tags omit the v prefix (1.12.8), so the module proxy has no semver versions and dependents select v0.0.0 pseudo-versions.",
+      "fix-corrections": [
+        {
+          "advisory": "GHSA-xwx5-5c9g-x68x",
+          "published": "1.12.18",
+          "fixed": "1.12.8",
+          "source": "https://istio.io/latest/news/security/istio-security-2022-005/"
+        }
+      ]
+    }
+  }
+}

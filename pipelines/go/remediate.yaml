@@ -60,14 +60,18 @@ pipeline:
       )
 
       UNTAGGED_PSEUDO = re.compile(r"^v0\.0\.0-[0-9]{14}-[0-9a-f]{12}$")
+      # Shared policy for modules without semver module tags. scripts/build_candidate.sh
+      # passes pipelines/go/untagged-release-modules.json in this variable;
+      # scripts/evaluate_scan_gate.sh reads the same file.
+      UNTAGGED_POLICY_ENV = "GO_UNTAGGED_RELEASE_MODULES"
+      UNTAGGED_POLICY_FILE = "pipelines/go/untagged-release-modules.json"
+      # Modules whose advisory fixes may be resolved as release tags and compared by
+      # commit date. Every other untagged module fails closed. Loaded by main().
+      UNTAGGED_RELEASE_MODULES = frozenset()
       # Published advisory ranges that name a release which never existed. Keys are
       # (advisory or alias, module, published fixed version); values are the fixed
-      # release from the upstream project's own advisory.
-      ADVISORY_FIX_CORRECTIONS = {
-          # GitHub-reviewed record says 1.12.18; Istio has no 1.12.18 release. The
-          # upstream advisory and ISTIO-SECURITY-2022-005 name 1.12.8.
-          ("GHSA-xwx5-5c9g-x68x", "istio.io/istio", "1.12.18"): "1.12.8",
-      }
+      # release from the upstream project's own advisory. Loaded by main().
+      ADVISORY_FIX_CORRECTIONS = {}
 
       class RemediationError(ValueError):
           pass
@@ -104,6 +108,37 @@ pipeline:
           # Legacy module paths may use v2+ with +incompatible. Omnibump
           # canonicalizes an unsuffixed candidate before applying it.
           return suffix is None or int(suffix.group(1)) == major
+
+      def load_untagged_policy(raw):
+          # An absent policy allowlists nothing and corrects nothing, so untagged
+          # modules fail closed instead of silently using the commit-date rule.
+          if not raw:
+              return frozenset(), {}
+          try:
+              policy = json.loads(raw)
+          except json.JSONDecodeError as error:
+              raise RemediationError(f"invalid {UNTAGGED_POLICY_ENV}: not JSON") from error
+          modules = policy.get("modules") if isinstance(policy, dict) else None
+          if not isinstance(modules, dict):
+              raise RemediationError(f"invalid {UNTAGGED_POLICY_ENV}: modules must be an object")
+          corrections = {}
+          for module, entry in modules.items():
+              if MODULE.fullmatch(module) is None or not isinstance(entry, dict):
+                  raise RemediationError(f"invalid {UNTAGGED_POLICY_ENV} module: {module!r}")
+              fixes = entry.get("fix-corrections", [])
+              if not isinstance(fixes, list):
+                  raise RemediationError(f"invalid {UNTAGGED_POLICY_ENV} fix corrections for {module}")
+              for fix in fixes:
+                  names = ("advisory", "published", "fixed")
+                  values = [fix.get(name) if isinstance(fix, dict) else None for name in names]
+                  if any(not isinstance(value, str) or not value for value in values):
+                      raise RemediationError(f"invalid {UNTAGGED_POLICY_ENV} fix correction for {module}")
+                  advisory = values[0]
+                  published, fixed = (value.removeprefix("v") for value in values[1:])
+                  version_key("v" + published)
+                  version_key("v" + fixed)
+                  corrections[advisory, module, published] = fixed
+          return frozenset(modules), corrections
 
       def parse_stream(raw):
           decoder = json.JSONDecoder()
@@ -376,14 +411,16 @@ pipeline:
           }, key=version_key)
 
 
-      def resolve_release_fix(module, fixed):
+      def resolve_release_fix(module, fixed, release_tags):
           # A module without semantic version tags only has v0.0.0 pseudo-versions,
           # while advisories name its release tags (Istio tags omit the v prefix).
-          # Resolve the advisory version as a module version first, then as the bare
-          # release tag, and return the canonical module version Go selects for it.
+          # Resolve the advisory version as a module version first and, only for an
+          # allowlisted module, then as the bare release tag. Return the canonical
+          # module version Go selects for it.
+          queries = (fixed, fixed.removeprefix("v")) if release_tags else (fixed,)
           with tempfile.TemporaryDirectory(prefix="go-remediate-release-") as query_root:
               Path(query_root, "go.mod").write_text("module go_remediation_query\n\ngo 1.21\n", encoding="utf-8")
-              for query in dict.fromkeys((fixed, fixed.removeprefix("v"))):
+              for query in dict.fromkeys(queries):
                   try:
                       raw = run_go(
                           ["go", "list", "-mod=mod", "-m", "-json", f"{module}@{query}"], query_root, capture=True
@@ -400,6 +437,11 @@ pipeline:
                   if not isinstance(version, str) or VERSION.fullmatch(version) is None:
                       raise RemediationError(f"invalid go list module identity: {module}@{query}")
                   return version
+          if not release_tags:
+              raise RemediationError(
+                  f"advisory fix {module}@{fixed} is not a published module version and {module} "
+                  f"is not allowlisted for release-tag resolution in {UNTAGGED_POLICY_FILE}"
+              )
           raise RemediationError(
               f"advisory fix {module}@{fixed} is neither a published module version nor a release tag"
           )
@@ -408,7 +450,9 @@ pipeline:
       def resolve_untagged_fixes(updates, selected, required):
           # Semver order of advisory fixes is not commit order for an untagged module:
           # a backport tag can be newer than a higher release. Check each finding
-          # against its own fixed release.
+          # against its own fixed release. Only allowlisted modules may count a fix as
+          # included by commit date; any other untagged module must reach a published
+          # module version or fail.
           satisfied = set()
           resolved = dict(updates)
           releases = {}
@@ -416,14 +460,15 @@ pipeline:
               current = selected.get(module, "")
               if UNTAGGED_PSEUDO.fullmatch(current) is None:
                   continue
+              allowlisted = module in UNTAGGED_RELEASE_MODULES
               remaining = []
               for (osv_id, owner), fixed in sorted(required.items()):
                   if owner != module:
                       continue
                   if (module, fixed) not in releases:
-                      releases[module, fixed] = resolve_release_fix(module, fixed)
+                      releases[module, fixed] = resolve_release_fix(module, fixed, allowlisted)
                   release = releases[module, fixed]
-                  if version_key(release) <= version_key(current):
+                  if allowlisted and version_key(release) <= version_key(current):
                       satisfied.add((osv_id, module))
                       print(
                           f"go remediation: {osv_id} in {module}@{current} "
@@ -777,6 +822,10 @@ pipeline:
                   pending_sums = requested
 
       def main():
+          global UNTAGGED_RELEASE_MODULES, ADVISORY_FIX_CORRECTIONS
+          UNTAGGED_RELEASE_MODULES, ADVISORY_FIX_CORRECTIONS = load_untagged_policy(
+              os.environ.get(UNTAGGED_POLICY_ENV, "")
+          )
           binary, workspace_arg, root_arg, vendor_patches_arg, *packages = sys.argv[1:]
           workspace_root = Path(workspace_arg).resolve()
           root = Path(root_arg).resolve()
