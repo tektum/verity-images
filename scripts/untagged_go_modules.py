@@ -35,6 +35,7 @@ RELEASE: Final = re.compile(r"^v?[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+
 RETRIES: Final = 5
 RETRY_DELAY: Final = 5.0
 TIMEOUT: Final = 30.0
+PROXY_INFO_LIMIT: Final = 64 * 1024
 
 
 class PolicyError(ValueError):
@@ -108,7 +109,14 @@ class ReleaseResolver:
         for attempt in range(self.retries + 1):
             try:
                 with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                    return response.status, response.read()
+                    length = response.headers.get("Content-Length")
+                    try:
+                        if length is not None and int(length) > PROXY_INFO_LIMIT:
+                            return response.status, b""
+                    except ValueError:
+                        return response.status, b""
+                    body = response.read(PROXY_INFO_LIMIT + 1)
+                    return response.status, body if len(body) <= PROXY_INFO_LIMIT else b""
             except urllib.error.HTTPError as error:
                 if error.code < 500 and error.code not in (408, 429):
                     return error.code, b""

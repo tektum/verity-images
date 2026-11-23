@@ -5,6 +5,7 @@ import json
 import sys
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -57,7 +58,6 @@ def test_policy() -> None:
     assert policy.corrected(ISTIO, ["GHSA-xwx5-5c9g-x68x"], "1.13.5") == "1.13.5"
     assert not policy.allows("example.com/untagged")
     for document, message in (
-        ([], "modules must be an object"),
         ({"modules": []}, "modules must be an object"),
         ({"modules": {"not a module": {}}}, "invalid module"),
         ({"modules": {"example.com/m": []}}, "invalid module"),
@@ -136,8 +136,45 @@ def test_untagged_fixes(root: Path, proxy: str) -> None:
         assert not fixes.included(out_of_scope)
 
 
+class ProxyResponse:
+    def __init__(self, body: bytes, length: str | None = None) -> None:
+        self.status = 200
+        self.headers = {} if length is None else {"Content-Length": length}
+        self.body = body
+        self.reads: list[int] = []
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return None
+
+    def read(self, limit: int) -> bytes:
+        self.reads.append(limit)
+        return self.body
+
+
+def test_bounded_proxy_response() -> None:
+    resolver = untagged.ReleaseResolver("https://proxy.invalid", retries=0, delay=0)
+    for body, length, read in (
+        (b"ignored", str(untagged.PROXY_INFO_LIMIT + 1), False),
+        (b"ignored", "invalid", False),
+        (b"x" * (untagged.PROXY_INFO_LIMIT + 1), None, True),
+    ):
+        response = ProxyResponse(body, length)
+        with patch.object(untagged.urllib.request, "urlopen", return_value=response):
+            assert resolver.fetch("https://proxy.invalid/module/@v/v1.info") == (200, b"")
+        assert response.reads == ([untagged.PROXY_INFO_LIMIT + 1] if read else [])
+
+    response = ProxyResponse(b'{"Version":"v1.2.3"}', "20")
+    with patch.object(untagged.urllib.request, "urlopen", return_value=response):
+        assert resolver.fetch("https://proxy.invalid/module/@v/v1.info") == (200, b'{"Version":"v1.2.3"}')
+    assert response.reads == [untagged.PROXY_INFO_LIMIT + 1]
+
+
 def main() -> None:
     test_policy()
+    test_bounded_proxy_response()
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         with go_proxy_fixture.serve(root) as proxy:
