@@ -573,14 +573,14 @@ def test_flavored_exact_pin_names_its_actual_config() -> None:
         repository = SignedRepository(
             root, {architecture: {("openssl", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
         )
-        plan = classify(root, [finding("flavored", "1", "openssl", "1-r0", ["1-r1"], "CVE-fips")], repository.query)
+        plan = classify(root, [finding("flavored", "1-fips", "openssl", "1-r0", ["1-r1"], "CVE-fips")], repository.query)
         assert plan["blocked"] == [{
             "stream": "flavored@1-fips",
             "advisory": "CVE-fips",
             "package": "openssl",
             "reason": "exact pin, needs a bump: fips.apko.yaml pins openssl=1-r0, fixed in 1-r1",
         }]
-        assert plan["apko"] == [apko_route("images/flavored", ["flavored@1"], ("plain", "fips"))]
+        assert plan["apko"] == []
         assert plan["exact"] == [] and plan["localPackageRevisions"] == []
 
 
@@ -657,7 +657,9 @@ def test_exact_pin_parsing_ignores_ranges_and_unreadable_configs() -> None:
             ("1.11.2_git20261109-r0", ("1.11.2-r0",), True),
             ("1.11.2_git20261109-r0", ("1.11.2_git20261231-r0",), False),
             ("1.11.2_p1-r0", ("1.11.2_git99999999-r0",), True),
-            ("1.11.2_hg2-r0", ("1.11.2_svn999-r0",), True),
+            ("1.0_p1.2-r0", ("1.0_p1.3-r0",), False),
+            ("1.0_p1.3-r0", ("1.0_p1.2-r0",), False),
+            ("not a version", ("1-r1",), False),
             ("not a version", ("1-r1",), False),
         ):
             assert classify_monitor_remediation.pins_fix(pinned, fixed) is expected
@@ -678,6 +680,7 @@ def main() -> None:
     test_lock_that_already_pins_the_fix_is_republished_not_refreshed()
     test_republish_needs_every_architecture_fixed_and_understands_newer_upstream()
     test_exact_pin_below_the_fix_is_flagged_not_refreshed()
+    test_flavored_exact_pin_names_its_actual_config()
     test_exact_pin_does_not_hide_other_refreshable_findings_silently()
     test_pins_that_a_refresh_can_move_or_that_already_fix_still_refresh()
     test_exact_pin_parsing_ignores_ranges_and_unreadable_configs()

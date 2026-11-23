@@ -329,7 +329,7 @@ def streams() -> dict[tuple[str, str], list[Stream]]:
 
 APK_VERSION: Final = re.compile(
     r"(?P<numbers>[0-9]+(?:\.[0-9]+)*)(?P<letter>[a-z])?"
-    r"(?P<suffixes>(?:_(?:cvs|svn|git|hg|alpha|beta|pre|rc|p)[0-9.]*)*)(?:-r(?P<epoch>[0-9]+))?"
+    r"(?P<suffixes>(?:_(?:cvs|svn|git|hg|alpha|beta|pre|rc|p)[0-9]*)*)(?:-r(?P<epoch>[0-9]+))?"
 )
 APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "cvs": 1, "svn": 2, "git": 3, "hg": 4, "p": 5}
 
