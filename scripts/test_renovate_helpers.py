@@ -177,7 +177,7 @@ def test_renovate_configuration() -> None:
     # floors remain visible in the dependency dashboard and eligible for OSV.
     assert renovate["vulnerabilityAlerts"] == {"enabled": True}
     assert all(manager["customType"] == "regex" for manager in managers)
-    assert len(managers) == 5
+    assert len(managers) == 9
     assert [manager["managerFilePatterns"] for manager in managers] == [
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
         [r"/^\.github/workflows/[^/]+\.ya?ml$/"],
@@ -188,15 +188,44 @@ def test_renovate_configuration() -> None:
             r"/^packages/.+/[^/]*melange\.ya?ml$/",
             r"/^patched/.+/[^/]*melange\.ya?ml$/",
         ],
+        [
+            r"/^images/argo-events/melange\.yaml$/",
+            r"/^images/atlantis/melange\.yaml$/",
+            r"/^images/emissary/melange\.yaml$/",
+            r"/^images/flannel/melange\.yaml$/",
+            r"/^images/gitlab-runner-helper/melange\.yaml$/",
+            r"/^images/harbor-scanner-trivy/melange\.yaml$/",
+            r"/^images/helmfile/melange\.yaml$/",
+            r"/^images/jellyfin/melange\.yaml$/",
+            r"/^images/jenkins-inbound-agent/melange\.yaml$/",
+            r"/^images/linkerd-proxy/melange\.yaml$/",
+            r"/^images/pypy/melange\.yaml$/",
+            r"/^images/step-ca/melange\.yaml$/",
+            r"/^images/temporal-admin-tools/melange\.yaml$/",
+        ],
+        [r"/^images/datadog-cluster-agent/tests/test\.sh$/"],
+        [r"/^images/harbor-scanner-trivy/apko\.yaml$/"],
+        [r"/^images/linkerd-proxy/apko\.yaml$/"],
     ]
     assert [manager.get("datasourceTemplate") for manager in managers] == [
-        "docker",
-        "docker",
-        "github-releases",
-        None,
-        "git-tags",
+        "docker", "docker", "github-releases", None, "git-tags", "git-tags", "docker", "git-tags", "git-tags",
     ]
-    # The melange source manager (version plus commit) is covered by
+    # This file-scoped Linkerd companion overlaps no generic pattern.
+    linkerd_manager = managers[8]
+    linkerd_text = (ROOT / "images/linkerd-proxy/apko.yaml").read_text(encoding="utf-8")
+    expected = [{"depName": "linkerd/linkerd2", "currentValue": "26.11.2",
+                 "extractVersion": r"^edge-(?<version>.+)$"}]
+    assert _extract(linkerd_manager, linkerd_text) == expected
+    prefix = "  LINKERD_CONTAINER_VERSION_OVERRIDE: "
+    suffix = "  # renovate: datasource=github-tags depName=linkerd/linkerd2 extractVersion=^edge-(?<version>.+)$"
+    assert _extract(linkerd_manager, prefix + "26.11.2" + suffix) == expected
+    assert _extract(linkerd_manager, "LINKERD_CONTAINER_VERSION_OVERRIDE=edge-26.11.2") == []
+    for tag in ("edge-26.11.2", "26.11.2"):
+        text = prefix + tag + suffix
+        changed = text.replace("26.11.2", "26.11.3")
+        assert tag.replace("26.11.2", "26.11.3") in changed
+    # The melange source managers (package.version plus commit, the secondary
+    # vars pins, and their apko.yaml companions) are covered by
     # scripts/test_melange_source_pins.py.
 
 
@@ -239,8 +268,9 @@ def test_renovate_configuration() -> None:
     # enabled/automerge/labels win for depType source. Their recipe lists are
     # derived from metadata.yaml stream widths in
     # scripts/test_melange_source_pins.py.
-    source_base, major_streams, patch_automerge, minor_automerge = renovate["packageRules"][3:]
-    assert all(rule["matchDepTypes"] == ["source"] for rule in renovate["packageRules"][3:])
+    source_rules = renovate["packageRules"][3:7]
+    source_base, major_streams, patch_automerge, minor_automerge = source_rules
+    assert all(rule["matchDepTypes"] == ["source"] for rule in source_rules)
     assert {key: value for key, value in source_base.items() if key != "description"} == {
         "matchDepTypes": ["source"],
         "enabled": True,
@@ -380,6 +410,54 @@ def test_renovate_configuration() -> None:
     for text, expected in fixtures:
         assert _extract(floor_manager, text) == expected, text
 
+    test_peer_digests(renovate)
+
+
+def test_peer_digests(renovate: dict) -> None:
+    """Smoke-test peer pins: only the digest moves, within the pinned tag, review-only (no automerge)."""
+    managers = renovate["customManagers"]
+    peer_manager = managers[6]
+    assert peer_manager["depTypeTemplate"] == "test-peer"
+    assert peer_manager["versioningTemplate"] == "docker"
+    # Comes after the images/** rule that disables every ordinary update type,
+    # so it re-enables digest updates only; tag updates stay disabled.
+    assert renovate["packageRules"][7:] == [
+        {
+            "description": renovate["packageRules"][7]["description"],
+            "matchDepTypes": ["test-peer"],
+            "matchUpdateTypes": ["digest"],
+            "enabled": True,
+            "automerge": False,
+            "platformAutomerge": True,
+            "labels": ["test-peer-digest", "review-required"],
+            "schedule": ["* 0-6 * * 1"],
+        }
+    ]
+    pattern = re.compile(peer_manager["matchStrings"][0].replace("(?<", "(?P<"))
+    digest = "sha256:" + "a" * 64
+    for text, expected in (
+        (f"etcd_index=ghcr.io/tektum/etcd:3.7@{digest}\n", ("ghcr.io/tektum/etcd", "3.7")),
+        (f"x=docker.io/library/busybox:1.37.0@{digest}\n", ("docker.io/library/busybox", "1.37.0")),
+        # A tagless digest names no stream, so it is not extracted.
+        (f"etcd_index=ghcr.io/tektum/etcd@{digest}\n", None),
+    ):
+        found = [(match["depName"], match["currentValue"]) for match in pattern.finditer(text)]
+        assert found == ([expected] if expected else []), text
+        if expected:
+            assert pattern.search(text)["currentDigest"] == digest
+    # Every pin in the covered test scripts carries a tag, or it would silently
+    # drop out of tracking.
+    for path in sorted((ROOT / "images").rglob("*")):
+        relative = path.relative_to(ROOT).as_posix()
+        if not any(
+            re.search(file_pattern.strip("/"), relative) for file_pattern in peer_manager["managerFilePatterns"]
+        ):
+            continue
+        text = path.read_text(encoding="utf-8")
+        pins = re.findall(r"[a-z0-9.-]+\.[a-z]+/[^\s:@\"']+(?::[^\s:@\"']+)?@sha256:[a-f0-9]{64}", text)
+        assert pins, f"{relative}: no peer image pins"
+        assert len(list(pattern.finditer(text))) == len(pins), f"{relative}: a peer pin has no tag"
+
 
 def test_self_hosted_renovate() -> None:
     global_config = json.loads(
@@ -399,6 +477,10 @@ def test_self_hosted_renovate() -> None:
     apk = json.loads((ROOT / ".github/renovate-apk.json").read_text(encoding="utf-8"))
     assert apk["dependencyDashboard"] is False
     assert apk["branchPrefix"] == "renovate-apk/"
+    # Renovate defaults to 10 open branches; unreviewed APK PRs filled them and
+    # other images were skipped with branch-limit-reached.
+    assert apk["prConcurrentLimit"] == 25
+    assert apk["branchConcurrentLimit"] == 25
     assert apk["enabledManagers"] == ["custom.regex"]
     assert len(apk["customManagers"]) == 1
     apk_manager = apk["customManagers"][0]

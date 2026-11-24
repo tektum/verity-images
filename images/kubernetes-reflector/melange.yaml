@@ -4,16 +4,34 @@ package:
   epoch: 0
   description: Mirrors Kubernetes secrets and configmaps across namespaces
   copyright:
+    # Reflector and the bundled ASP.NET Core runtime are both MIT.
     - license: MIT
   dependencies:
     runtime:
-      - aspnet-10-runtime
+      - ca-certificates-bundle
+      # Microsoft's documented .NET runtime dependency set. ICU, OpenSSL and
+      # GSSAPI are loaded with dlopen, so the package cannot discover them as
+      # shared object dependencies.
+      - icu
+      - krb5-libs
+      - libgcc
+      - libssl3
+      - libstdc++
+      - tzdata
+      - zlib
   resources:
     cpu: "4"
     memory: 6Gi
   test-resources:
     cpu: "2"
     memory: 2Gi
+
+vars:
+  # Official Microsoft ASP.NET Core runtime (with Microsoft.NETCore.App), the
+  # same release stream and checksums as images/aspnet-runtime/10. Wolfi
+  # stopped publishing dotnet-10 at 10.0.114.
+  # yamllint disable-line rule:line-length
+  dotnet-runtime-version: "10.0.15"  # renovate: datasource=dotnet-version depName=dotnet-runtime versioning=regex:^(?<major>10)\.(?<minor>0)\.(?<patch>\d+)$
 
 environment:
   contents:
@@ -25,6 +43,7 @@ environment:
       - busybox
       - ca-certificates-bundle
       - dotnet-10-sdk
+      - wget
   environment:
     DOTNET_CLI_TELEMETRY_OPTOUT: "1"
     DOTNET_NOLOGO: "1"
@@ -38,8 +57,8 @@ pipeline:
       expected-commit: 0d074fb01e3f244692a3e257037362ab9454a68f
   - runs: |
       # Framework-dependent publish: the .NET and ASP.NET Core shared runtime
-      # comes from the Wolfi aspnet-10-runtime package, never from a bundled
-      # runtime pack downloaded during restore. HOME stays outside the build
+      # comes from the pinned official archive installed below, never from a
+      # bundled runtime pack downloaded during restore. HOME stays outside the build
       # workspace because .NET creates mode 0700 state there that the
       # workspace export cannot read.
       export HOME="$(mktemp -d)"
@@ -53,6 +72,39 @@ pipeline:
       find "${{targets.destdir}}/app" -type f -exec chmod 0644 {} +
       install -Dm644 LICENSE \
         "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  # The runtime is copied byte-identical from the checksummed release archive.
+  # The sha512 values come from the official release metadata of this exact
+  # version:
+  # https://builds.dotnet.microsoft.com/dotnet/release-metadata/10.0/releases.json
+  # A version bump without matching checksums fails closed on the check below.
+  - name: ASP.NET Core runtime
+    runs: |
+      case "${{build.arch}}" in
+        x86_64)
+          rid=linux-x64
+          sha512=704751c6d671b720935a18849e8f10cdb6938549e9cf25493050ebc838a95eb5cb1caa9936d2edae3b85c5975778ed926e9b736e3a2582d861411babba3229c3
+          ;;
+        aarch64)
+          rid=linux-arm64
+          sha512=1d82a6822871c0e750d2d3d3b9b27657d24a2083eb999c2f78b39b0cd10862178cb2c6d21f941579cd521baf5738a78d3378e5754c5895a93d7546135eb40ec6
+          ;;
+        *) echo "unsupported architecture ${{build.arch}}" >&2; exit 1 ;;
+      esac
+      archive=aspnetcore-runtime-${{vars.dotnet-runtime-version}}-$rid.tar.gz
+      url="https://builds.dotnet.microsoft.com/dotnet/aspnetcore/Runtime/${{vars.dotnet-runtime-version}}"
+      wget -q --tries=3 --timeout=60 -O "/tmp/$archive" "$url/$archive"
+      printf '%s  /tmp/%s\n' "$sha512" "$archive" | sha512sum -c -
+      dotnet="${{targets.destdir}}/usr/share/dotnet"
+      licenses="${{targets.destdir}}/usr/share/licenses/${{package.name}}/dotnet"
+      install -d "$dotnet" "$licenses" "${{targets.destdir}}/usr/bin"
+      tar --no-same-owner -xzf "/tmp/$archive" -C "$dotnet"
+      rm -f "/tmp/$archive"
+      mv "$dotnet/LICENSE.txt" "$dotnet/ThirdPartyNotices.txt" "$licenses/"
+      # The optional LTTng tracing provider links liblttng-ust.so.0, which Wolfi
+      # does not ship. It only loads when LTTng tracing is enabled explicitly.
+      rm -f "$dotnet"/shared/Microsoft.NETCore.App/*/libcoreclrtraceptprovider.so
+      ln -s ../share/dotnet/dotnet "${{targets.destdir}}/usr/bin/dotnet"
 
 test:
   environment:
@@ -69,6 +121,8 @@ test:
           echo 'a bundled .NET runtime leaked into the application directory' >&2
           exit 1
         fi
-        dotnet --list-runtimes | grep -F Microsoft.AspNetCore.App
+        dotnet --list-runtimes | grep -F 'Microsoft.AspNetCore.App ${{vars.dotnet-runtime-version}} '
+        dotnet --list-runtimes | grep -F 'Microsoft.NETCore.App ${{vars.dotnet-runtime-version}} '
+        test "$(readlink -f /usr/bin/dotnet)" = /usr/share/dotnet/dotnet
         apk info --license kubernetes-reflector | grep -Fx MIT
         test -s /usr/share/licenses/${{package.name}}/LICENSE

@@ -1,0 +1,9 @@
+name: opensearch-k8s-operator
+track: wolfi
+description: OpenSearch Kubernetes Operator for OpenSearch clusters and Dashboards, built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/opensearch-project/opensearch-k8s-operator
+versions: [3.0]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/opensearch-project/opensearch-k8s-operator/opensearch-operator]

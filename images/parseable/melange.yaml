@@ -1,0 +1,80 @@
+package:
+  name: verity-parseable
+  # yamllint disable-line rule:line-length
+  version: "3.2.7"  # renovate: datasource=github-releases depName=parseablehq/parseable versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Log analytics server with local and object store backends
+  copyright:
+    - license: AGPL-3.0-or-later
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "16"
+    memory: 32Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - cmake
+      - git
+      - perl
+      - rust-1.99
+  environment:
+    # build.rs otherwise downloads a prebuilt web console archive from
+    # upstream's blob storage and embeds it. That console is not built from
+    # this source tree, so embed an empty asset directory instead and ship the
+    # API server only.
+    LOCAL_ASSETS_PATH: /home/build/no-console
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/parseablehq/parseable
+      tag: v${{package.version}}
+      expected-commit: 912e5b30eae9b323e4cb335f8d8241d9707b7f5a
+
+  # QUARANTINED (metadata.yaml enabled: false): this step fails closed on
+  # RUSTSEC-2026-0258 / GHSA-q83h-524g-xf6h in h2 0.3.27. Only actix-http 3.x
+  # (HTTP API server) depends on it; every release up to 3.22.0 pins h2 ^0.3.27
+  # and h2 0.3 has no fix. actix-web's rustls-0_23 feature, which serves
+  # P_TLS_CERT_PATH, forces http2, so the dependency cannot be dropped. Unblock
+  # when actix-http moves to h2 >= 0.4.16, then set enabled: true.
+  - uses: cargo/remediate
+
+  - runs: |
+      mkdir -p "$LOCAL_ASSETS_PATH"
+      cargo auditable build --release --locked --bin parseable
+      install -Dm755 target/release/parseable "${{targets.destdir}}/usr/bin/parseable"
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf .cargo "$LOCAL_ASSETS_PATH"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        parseable --version | grep -F '${{package.version}}'
+        parseable local-store --help | grep -F 'P_FS_DIR'
+        apk info --who-owns /usr/bin/parseable \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx 'AGPL-3.0-or-later'
+
+update:
+  enabled: true
+  github:
+    identifier: parseablehq/parseable
+    strip-prefix: v

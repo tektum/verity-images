@@ -1,0 +1,64 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - nginx-mainline
+    - nginx-mainline-mime-types
+    - verity-harbor-portal@local
+    - verity-harbor-portal-nginx-config@local
+
+# Upstream goharbor/harbor-portal runs as nginx (10000:10000) with no
+# entrypoint and CMD `nginx -g "daemon off;"`, stops on SIGQUIT, and expects
+# deployments to mount /etc/nginx/nginx.conf. The default configuration serves
+# the portal on 8080 with every temporary path under /tmp. /run,
+# /var/cache/nginx, and /var/log/nginx are the upstream writable volumes.
+accounts:
+  groups:
+    - groupname: nginx
+      gid: 10000
+  users:
+    - username: nginx
+      uid: 10000
+      gid: 10000
+      homedir: /home/nginx
+  run-as: 10000
+
+cmd: nginx -g "daemon off;"
+
+stop-signal: SIGQUIT
+
+work-dir: /
+
+volumes:
+  - /run
+  - /var/cache/nginx
+  - /var/log/nginx
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+
+paths:
+  - path: /home/nginx
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /run
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /var/cache/nginx
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
+  - path: /var/log/nginx
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755

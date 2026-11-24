@@ -1,0 +1,106 @@
+package:
+  name: verity-duckdb
+  # yamllint disable-line rule:line-length
+  version: "2.0.0"  # renovate: datasource=github-releases depName=duckdb/duckdb versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: DuckDB in-process analytical SQL database command-line shell
+  copyright:
+    - license: MIT
+  resources:
+    cpu: "16"
+    memory: 32Gi
+
+vars:
+  source-commit: d54cbbe3df17e8e5ce68312f483b4155836112aa
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - cmake
+      - git
+      - samurai
+      - python3
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/duckdb/duckdb
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Upstream commit 2b942af6319783a5cc3c21d76a8e560e191978b2 on main ports the
+  # brotli decoder fix for CVE-2026-111497 into the vendored copy that the
+  # parquet reader uses. No DuckDB release carries it yet; drop the patch once
+  # a release includes it.
+  - uses: patch
+    with:
+      patches: brotli-cve-2026-111497.patch
+
+  - runs: |
+      # The CLI statically links the extensions of upstream's release CLI
+      # (core_functions is always built). OVERRIDE_GIT_DESCRIBE and
+      # DUCKDB_COMMIT pin the reported version and source id, so the checkout
+      # reports the release instead of a dev build, and extension autoinstall
+      # resolves the matching upstream v${{package.version}} repository path.
+      # NATIVE_ARCH stays off so the binary runs on any CPU.
+      DUCKDB_COMMIT="${{vars.source-commit}}" cmake -S . -B build -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_EXTENSIONS="autocomplete;icu;json;parquet" \
+        -DBUILD_UNITTESTS=OFF \
+        -DBUILD_BENCHMARKS=OFF \
+        -DENABLE_SANITIZER=OFF \
+        -DENABLE_UBSAN=OFF \
+        -DNATIVE_ARCH=OFF \
+        -DOVERRIDE_GIT_DESCRIBE="v${{package.version}}"
+      # Unity-build translation units need up to about 4 GiB each; size the
+      # job count to the build container's memory limit so the OOM killer
+      # does not stop the build on hosts with many cores.
+      limit=$(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo max)
+      case "$limit" in
+        ''|max) limit=$(awk '/^MemTotal:/ {print $2 * 1024}' /proc/meminfo) ;;
+      esac
+      jobs=$((limit / 4294967296))
+      [ "$jobs" -ge 1 ] || jobs=1
+      [ "$jobs" -le "$(nproc)" ] || jobs=$(nproc)
+      cmake --build build -j"$jobs" --target shell
+      install -Dm755 build/duckdb "${{targets.destdir}}/usr/bin/duckdb"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        duckdb --version | grep -F "v${{package.version}}"
+        duckdb -noheader -csv -c "select 40 + 2" | grep -Fx 42
+        duckdb -noheader -csv -c "select count(*) from duckdb_extensions()
+          where loaded and extension_name in ('icu', 'json', 'parquet')" | grep -Fx 3
+        if duckdb -c "selec 1" >/dev/null 2>&1; then
+          echo "invalid SQL unexpectedly succeeded" >&2
+          exit 1
+        fi
+        apk info --who-owns /usr/bin/duckdb \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx MIT
+        grep -F 'Permission is hereby granted' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: duckdb/duckdb
+    strip-prefix: v
+    tag-filter-prefix: v2.
+    use-tag: true

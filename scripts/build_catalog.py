@@ -39,6 +39,7 @@ CATEGORIES: Final = (
     "Policy & Compliance",
     "Cert Management",
     "Data & ML",
+    "Media",
     "Base & Utilities",
 )
 FILTER: Final = r"""

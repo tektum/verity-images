@@ -1,0 +1,42 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-harbor-exporter@local
+
+# Upstream goharbor/harbor-exporter runs as harbor (10000:10000) from WORKDIR
+# /harbor and execs harbor_exporter after a Photon-only CA bundle step, which
+# this image omits. Configuration is the upstream HARBOR_* environment
+# (HARBOR_DATABASE_*, HARBOR_REDIS_URL, HARBOR_SERVICE_*, HARBOR_EXPORTER_*).
+accounts:
+  groups:
+    - groupname: harbor
+      gid: 10000
+  users:
+    - username: harbor
+      uid: 10000
+      gid: 10000
+      homedir: /home/harbor
+  run-as: 10000
+
+entrypoint:
+  command: /harbor/harbor_exporter
+
+work-dir: /harbor
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/harbor
+    type: directory
+    uid: 10000
+    gid: 10000
+    permissions: 0o755
