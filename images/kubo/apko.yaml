@@ -1,0 +1,54 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-kubo-0.43@local
+
+# Upstream Dockerfile: user ipfs (uid 1000, group users gid 100), IPFS_PATH
+# /data/ipfs, EXPOSE 4001 4001/udp 5001 8080 8081, CMD daemon --migrate=true
+# behind a tini + gosu shell entrypoint. APKO cannot declare exposed ports, so
+# the image keeps the same listeners (swarm 4001 tcp/udp, RPC 5001, gateway
+# 8080) and the smoke test asserts them. This image drops the shell wrapper:
+# the entrypoint is ipfs itself, running as uid 1000 without gosu, and the
+# default command initializes the repo on first start. The RPC API and gateway
+# keep Kubo's default loopback binding; the RPC API is an unauthenticated admin
+# interface, so publishing it requires an explicit Addresses.API change.
+accounts:
+  groups:
+    - groupname: users
+      gid: 100
+  users:
+    - username: ipfs
+      uid: 1000
+      gid: 100
+      homedir: /data/ipfs
+  run-as: 1000
+
+entrypoint:
+  command: /usr/bin/ipfs
+
+cmd: daemon --init --migrate=true
+
+work-dir: /data/ipfs
+
+environment:
+  PATH: /usr/bin:/bin
+  IPFS_PATH: /data/ipfs
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /data
+    type: directory
+    uid: 1000
+    gid: 100
+    permissions: 0o755
+  - path: /data/ipfs
+    type: directory
+    uid: 1000
+    gid: 100
+    permissions: 0o700

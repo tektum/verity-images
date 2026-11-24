@@ -56,6 +56,21 @@ Use lowercase image names and current upstream versions. Do not add private
 repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
+### Package names
+
+An image-local package must not reuse a Wolfi package name. Wolfi's security
+data is keyed by package name and version, so Grype would apply Wolfi's
+advisories to the local build, and an epoch raised above Wolfi's fixed revision
+hides Wolfi's real future fixes along with the false matches. Name the package
+`verity-<name>` (as `images/vexctl` does) with an ordinary epoch, and let the
+scanner see the main software natively or through `scan-identity`.
+`scripts/test_package_names.py` enforces this against
+`scripts/wolfi_package_names.txt`, a committed snapshot of the Wolfi index and
+security database names, so lint does not change with Wolfi's state. Refresh it
+with `uv run scripts/test_package_names.py --refresh` in its own pull request;
+a recipe that a new Wolfi name collides with fails there. The allowlist holds
+the package names that predate the rule, per image, and may only shrink.
+
 ### Scan identity
 
 Melange stamps every binary it builds with a package note, so Syft reports the
@@ -86,7 +101,9 @@ scan-identity: [cpe:2.3:a:oracle:mysql, pkg:golang/github.com/coredns/coredns]
 
 Use the flow list form shown: the metadata parser reads no block lists or inline
 comments. A CPE entry is matched through NVD by the stock matcher; a Go purl is
-matched through GHSA, and its version gets a `v` prefix.
+matched through GHSA, and its version gets a `v` prefix. A scoped npm package
+percent-encodes its scope (`pkg:npm/%40scope/name`); the injected package is
+named `@scope/name`, the spelling GHSA uses.
 
 An asserted identity must be correct. A wrong vendor, product, or module path
 scans nothing and silently blinds the gate again, because nothing checks the
@@ -126,8 +143,8 @@ for a missing or disabled image. Native coverage of an allowlisted image logs
 `no-feed` marks an image whose main software has no CPE (NVD), GHSA or OSV
 record, so no identity can be declared without inventing one. It is not a pending
 follow-up. For these images the gate covers dependencies and OS packages only,
-not the main software. Currently `jupyterhub-k8s-hub`, `kubernetes-reflector`, `opensearch-dashboards` and
-`sonar-scanner-cli`.
+not the main software. Currently `cassandra-reaper`, `jupyterhub-k8s-hub`, `keycloak-config-cli`,
+`kubernetes-reflector`, `linkerd-proxy`, `opensearch-dashboards` and `sonar-scanner-cli`.
 Adding another needs a deliberate edit of the immutable `FROZEN_NO_FEED` set in
 `scripts/test_scan_identity.py`, in a prerequisite pull request with the evidence
 that no feed exists; `FROZEN_BASELINE` is not touched. The allowlist file itself
@@ -342,7 +359,8 @@ Image security floors and other pins are not advanced merely because newer
 versions exist, but source-built images follow their published stream (see
 `docs/POLICY.md`). `renovate.json` therefore disables every ordinary update
 type under `images/**`, `packages/**`, and `patched/**` except melange source
-dependencies (dependency type `source`). Renovate opens two kinds of pull
+dependencies (dependency type `source`) and smoke-test peer digests (dependency
+type `test-peer`, digest updates only). Renovate opens two kinds of pull
 requests for those paths: OSV vulnerability alerts on annotated security floors
 (Go, npm, crate, Maven, and similar pins), and source version bumps, one recipe
 per pull request. In-stream source bumps automerge after the required checks and
@@ -380,6 +398,32 @@ Keep external sources in these layouts:
   the same pull request. A smoke test needs no edit when it derives its expected
   primary version from the image or the recipe; a test that hardcodes that
   version, or asserts a bundled tool version, still changes with the bump.
+- A second source checked out next to the main one (for example envoy in
+  `images/emissary`, step-cli in `images/step-ca`, jellyfin-web and FFmpeg in
+  `images/jellyfin`) keeps `<name>-version` (or `<name>-tag`) with an inline
+  annotation and `<name>-commit: <40 hex>` after it under `vars:` (comment lines
+  may sit between them), and its `git-checkout` uses
+  `tag: ...${{vars.<name>-version}}...` and `expected-commit: ${{vars.<name>-commit}}`.
+  The secondary source manager in `renovate.json` lists each recipe and var name
+  explicitly (Renovate's regex engine has no backreferences to pair them) and
+  rewrites the version and commit together, as a `source` dependency. Add the
+  recipe and name there when you add such a pin; `scripts/test_melange_source_pins.py`
+  fails a recipe with an uncovered secondary pin, and a covered recipe whose
+  secondary pins and match strings disagree.
+- An `apko.yaml` value that must equal a secondary pin (for example
+  `TRIVY_VERSION` in `images/harbor-scanner-trivy`, which the adapter reports
+  as the scanner version) carries the pin's annotation verbatim. The companion
+  manager in `renovate.json` lists each such `apko.yaml` and resolves the value
+  as a `source` dependency of the same GitHub repository, so it gets the pin's
+  update and branch and both files change in one pull request.
+  `scripts/test_melange_source_pins.py` fails an annotated `apko.yaml` value
+  that the manager does not cover, or one whose annotation, value, or
+  repository differs from its pin.
+- A smoke-test peer image in `images/datadog-cluster-agent/tests/test.sh` uses
+  `registry/repository:tag@sha256:...`. The tag names the stream; Renovate
+  moves only the digest within it, weekly, as a review-required pull request
+  that never automerges. Extend the manager's file pattern to
+  cover another test script.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's
   `latest` tag.

@@ -1,0 +1,9 @@
+name: aws-otel-collector
+track: wolfi
+description: AWS Distro for OpenTelemetry (ADOT) Collector with its default config and healthcheck probe.
+category: Monitoring & Observability
+upstream: https://github.com/aws-observability/aws-otel-collector
+versions: [0.51]
+scan-identity: [pkg:golang/github.com/aws-observability/aws-otel-collector]
+owner: tektum
+enabled: true

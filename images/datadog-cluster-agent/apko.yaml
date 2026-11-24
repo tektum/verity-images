@@ -1,0 +1,69 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - tzdata
+    - verity-datadog-cluster-agent@local
+
+# Upstream datadog/cluster-agent runs `datadog-cluster-agent start` behind a
+# bash entrypoint that rejects a missing DD_API_KEY and copies files mounted
+# at /conf.d into /etc/datadog-agent. This image has no shell: it runs as
+# nonroot with the upstream command, and the cluster agent itself exits
+# non-zero with "no API key configured, exiting" when no key is set. Mount
+# check configurations directly under /etc/datadog-agent/conf.d instead of
+# /conf.d.
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+cmd: datadog-cluster-agent start
+
+work-dir: /home/nonroot
+
+environment:
+  PATH: /opt/datadog-agent/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  HOME: /home/nonroot
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  DOCKER_DD_AGENT: "true"
+  DD_SECRET_BACKEND_COMMAND_ALLOW_GROUP_EXEC_PERM: "true"
+  # The IPC auth token and certificate default to the config directory, which
+  # the nonroot user cannot write. Keep them in the writable run directory,
+  # which upstream also creates for the agent.
+  DD_AUTH_TOKEN_FILE_PATH: /opt/datadog-agent/run/auth_token
+  DD_IPC_CERT_FILE_PATH: /opt/datadog-agent/run/ipc_cert.pem
+
+paths:
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  # Default run_path (remote-config.db, transaction retry store) and log
+  # directory (/var/log/datadog/cluster-agent.log).
+  - path: /opt/datadog-agent/run
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/log/datadog
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777

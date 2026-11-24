@@ -1,0 +1,78 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    # rsyslogd, the modules /etc/rsyslog.conf loads (imptcp and imudp on 514,
+    # imrelp on 1601, omstdout, omelasticsearch, mmjsonparse, mmutf8fix,
+    # impstats) and that config.
+    - verity-rsyslog@local
+
+accounts:
+  groups:
+    - groupname: nonroot
+      gid: 65532
+  users:
+    - username: nonroot
+      uid: 65532
+      gid: 65532
+      homedir: /home/nonroot
+  run-as: 65532
+
+# Foreground (-n) with the pid file in a nonroot-owned directory. The default
+# cmd runs the shipped /etc/rsyslog.conf; pass `-f /path/to/rsyslog.conf` to
+# run a mounted config instead, or mount /etc/rsyslog/droprules.conf, which the
+# shipped config includes when present. It listens on 514 (imptcp, imudp) and
+# 1601 (imrelp) and writes facility syslog messages to stdout. Binding 514 as
+# nonroot relies on net.ipv4.ip_unprivileged_port_start, which Docker sets to 0;
+# on Kubernetes set that sysctl or grant NET_BIND_SERVICE.
+entrypoint:
+  command: /usr/bin/rsyslogd -n -i /run/rsyslogd/rsyslogd.pid
+
+cmd: -f /etc/rsyslog.conf
+
+# The shipped config expands these with backticks. Empty values keep the
+# optional log-file and Logsene rulesets off and impstats disabled.
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /home/nonroot
+  TZ: UTC
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+  ENABLE_STATISTICS: "off"
+  CNF_CALL_LOG_TO_LOGFILES: ""
+  CNF_CALL_LOG_TO_LOGSENE: ""
+
+# Writable working directory for queue and state files of mounted configs
+# (global(workDirectory="/var/lib/rsyslog")).
+work-dir: /var/lib/rsyslog
+
+paths:
+  - path: /run/rsyslogd
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /var/lib/rsyslog
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /etc/rsyslog
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /home/nonroot
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o1777

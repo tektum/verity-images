@@ -1,7 +1,7 @@
 package:
   name: temporal-admin-tools
   version: "1.32.2"
-  epoch: 1  # thrift floor
+  epoch: 2  # otel/log v1 port
   description: Temporal operator tools tdbg, temporal CLI, SQL and Cassandra schema tools
   copyright:
     - license: MIT
@@ -16,6 +16,10 @@ vars:
   # CVE-2026-82458 and the other thrift advisories fixed in v0.25.0 are not in
   # the Go vulnerability or OSV module feeds that go/remediate reads.
   thrift-floor: v0.25.0  # renovate: datasource=go depName=github.com/apache/thrift
+  # GHSA-q7gw-24fr-5p69 is fixed in go.opentelemetry.io/otel v1.47.0, whose go.mod requires
+  # otel/log v1.47.0. otel/log v0.21.0 moved KeyValue and its constructors to otel/attribute,
+  # which breaks the Temporal server's common/wideevents package embedded in the CLI.
+  otel-log-floor: v1.47.0  # renovate: datasource=go depName=go.opentelemetry.io/otel/log
 
 environment:
   contents:
@@ -81,11 +85,23 @@ pipeline:
       }'; then
         go get github.com/apache/thrift@${{vars.thrift-floor}}
       fi
+      go get go.opentelemetry.io/otel/log@${{vars.otel-log-floor}}
+  # The CLI imports the server as a module dependency, so port wideevents in the vendor
+  # tree; go/remediate reapplies the patch after every re-vendor.
+  - working-directory: cli
+    runs: |
+      go mod vendor
+      cp ../temporal-server-wideevents.patch .
+  - uses: patch
+    working-directory: cli
+    with:
+      patches: temporal-server-wideevents.patch
   - uses: go/remediate
     working-directory: cli
     with:
       modroot: .
       packages: ./cmd/temporal
+      vendor-patches: temporal-server-wideevents.patch
   - uses: go/build
     working-directory: cli
     with:
@@ -93,6 +109,7 @@ pipeline:
       output: temporal
       go-package: go-1.26
       ldflags: -X github.com/temporalio/cli/internal/temporalcli.Version=${{vars.cli-version}}
+      extra-args: -mod=vendor
   - runs: |
       install -Dm644 cli/LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/CLI-LICENSE"
 

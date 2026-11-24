@@ -1,0 +1,9 @@
+name: dogstatsd
+track: wolfi
+description: DogStatsD, the Datadog Agent StatsD metrics aggregation server, built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/DataDog/datadog-agent
+versions: [7.85]
+scan-identity: [pkg:golang/github.com/DataDog/datadog-agent]
+owner: tektum
+enabled: true

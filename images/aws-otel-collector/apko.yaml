@@ -1,0 +1,50 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-aws-otel-collector@local
+
+# Mirror public.ecr.aws/aws-observability/aws-otel-collector: user aoc (4317) with
+# HOME=/home/aoc for the AWS SDK shared-credentials lookup, RUN_IN_CONTAINER=True
+# so the collector logs to stderr instead of /opt/aws, /awscollector with the
+# bundled /etc/otel-config.yaml, and /healthcheck for container health probes.
+accounts:
+  groups:
+    - groupname: aoc
+      gid: 4317
+  users:
+    - username: aoc
+      uid: 4317
+      gid: 4317
+      homedir: /home/aoc
+  run-as: aoc
+
+entrypoint:
+  command: /awscollector
+
+cmd: --config=/etc/otel-config.yaml
+
+work-dir: /
+
+environment:
+  PATH: /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  RUN_IN_CONTAINER: "True"
+  HOME: /home/aoc
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /home/aoc
+    type: directory
+    uid: 4317
+    gid: 4317
+    permissions: 0o755
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777

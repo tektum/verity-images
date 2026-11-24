@@ -1,17 +1,25 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
-  "extends": ["config:recommended"],
+  "extends": [
+    "config:recommended"
+  ],
   "automerge": false,
   "platformAutomerge": false,
   "automergeType": "pr",
   "prCreation": "immediate",
   "osvVulnerabilityAlerts": true,
-  "vulnerabilityAlerts": { "enabled": true },
-  "enabledManagers": ["custom.regex"],
+  "vulnerabilityAlerts": {
+    "enabled": true
+  },
+  "enabledManagers": [
+    "custom.regex"
+  ],
   "customManagers": [
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.ya?ml$/"
+      ],
       "matchStrings": [
         "image:\\s*(?<depName>\\S+):(?<currentValue>[^:@\\s]+)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
@@ -20,7 +28,9 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^\\.github/workflows/[^/]+\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^\\.github/workflows/[^/]+\\.ya?ml$/"
+      ],
       "matchStrings": [
         "image:\\s*(?<depName>[^\\s@:]+(?:/[^\\s@:]+)*)@(?<currentDigest>sha256:[a-f0-9]{64})"
       ],
@@ -30,15 +40,23 @@
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^packages/repository-state\\.json$/"],
-      "matchStrings": ["\\\"tag\\\": \\\"(?<currentValue>apk-repo-v[0-9]{4})\\\""],
+      "managerFilePatterns": [
+        "/^packages/repository-state\\.json$/"
+      ],
+      "matchStrings": [
+        "\\\"tag\\\": \\\"(?<currentValue>apk-repo-v[0-9]{4})\\\""
+      ],
       "depNameTemplate": "tektum/verity-images",
       "datasourceTemplate": "github-releases",
       "versioningTemplate": "regex:^apk-repo-v(?<major>[0-9]{4})$"
     },
     {
       "customType": "regex",
-      "managerFilePatterns": ["/^images/.+$/", "/^packages/.+$/", "/^patched/.+$/"],
+      "managerFilePatterns": [
+        "/^images/.+$/",
+        "/^packages/.+$/",
+        "/^patched/.+$/"
+      ],
       "matchStrings": [
         "(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\"']?,?[ \\t]*#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?"
       ]
@@ -46,7 +64,11 @@
     {
       "customType": "regex",
       "description": "Melange source pins: a package.version annotation plus the git-checkout commit that tag resolves to. Both are resolved from the checked-out repository's git tags and rewritten together.",
-      "managerFilePatterns": ["/^images/.+/[^/]*melange\\.ya?ml$/", "/^packages/.+/[^/]*melange\\.ya?ml$/", "/^patched/.+/[^/]*melange\\.ya?ml$/"],
+      "managerFilePatterns": [
+        "/^images/.+/[^/]*melange\\.ya?ml$/",
+        "/^packages/.+/[^/]*melange\\.ya?ml$/",
+        "/^patched/.+/[^/]*melange\\.ya?ml$/"
+      ],
       "matchStrings": [
         "(?m)^  version: [\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?:(?<tagPrefix>[^\\s$\"'#]*)\\$\\{\\{package\\.version\\}\\}(?<tagSuffix>[^\\s\"'#]*)|\\$\\{\\{vars\\.[A-Za-z0-9_-]+\\}\\})[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n[\\s\\S]*",
         "(?m)^  version: [\"']?(?<currentValue>[0-9][0-9A-Za-z.+_-]*)[\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:.*\\n)*?  source-commit: [\"']?(?<currentDigest>[0-9a-f]{40})[\"']?[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?:(?<tagPrefix>[^\\s$\"'#]*)\\$\\{\\{package\\.version\\}\\}(?<tagSuffix>[^\\s\"'#]*)|\\$\\{\\{vars\\.[A-Za-z0-9_-]+\\}\\})[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.source-commit\\}\\}[ \\t]*\\n[\\s\\S]*"
@@ -56,21 +78,117 @@
       "packageNameTemplate": "{{{repository}}}",
       "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^{{{tagPrefix}}}(?<version>.+){{{tagSuffix}}}${{/if}}",
       "autoReplaceStringTemplate": "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue (replace '^(  version: \\W?)[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' (replace currentDigest newDigest replaceString))}}}{{else}}{{{replaceString}}}{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Melange secondary source pins: a vars <name>-version (or <name>-tag) annotation with the adjacent <name>-commit, consumed by a second git-checkout as tag ${{vars.<name>-version}} and expected-commit ${{vars.<name>-commit}}. Both are resolved from that checkout's repository git tags and rewritten together. Each var name is listed explicitly because the regex engine has no backreferences to pair them generically.",
+      "managerFilePatterns": [
+        "/^images/argo-events/melange\\.yaml$/",
+        "/^images/atlantis/melange\\.yaml$/",
+        "/^images/emissary/melange\\.yaml$/",
+        "/^images/flannel/melange\\.yaml$/",
+        "/^images/gitlab-runner-helper/melange\\.yaml$/",
+        "/^images/harbor-scanner-trivy/melange\\.yaml$/",
+        "/^images/helmfile/melange\\.yaml$/",
+        "/^images/jellyfin/melange\\.yaml$/",
+        "/^images/jenkins-inbound-agent/melange\\.yaml$/",
+        "/^images/linkerd-proxy/melange\\.yaml$/",
+        "/^images/pypy/melange\\.yaml$/",
+        "/^images/step-ca/melange\\.yaml$/",
+        "/^images/temporal-admin-tools/melange\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?m)^  argo-cli-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  argo-cli-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.argo-cli-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.argo-cli-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  conftest-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  conftest-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.conftest-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.conftest-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  git-lfs-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  git-lfs-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.git-lfs-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.git-lfs-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  envoy-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  envoy-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.envoy-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.envoy-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  cni-plugin-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  cni-plugin-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.cni-plugin-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.cni-plugin-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  base-images-tag: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  base-images-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.base-images-tag\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.base-images-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  trivy-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  trivy-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.trivy-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.trivy-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  helm-diff-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  helm-diff-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.helm-diff-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.helm-diff-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  web-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  web-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.web-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.web-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  ffmpeg-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  ffmpeg-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.ffmpeg-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.ffmpeg-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  docker-agent-tag: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  docker-agent-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.docker-agent-tag\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.docker-agent-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  cpython2-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  cpython2-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.cpython2-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.cpython2-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  pycparser-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  pycparser-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.pycparser-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.pycparser-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  step-cli-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  step-cli-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.step-cli-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.step-cli-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  cli-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  cli-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.cli-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.cli-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  linkerd2-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  linkerd2-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.linkerd2-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.linkerd2-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  proxy-init-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  proxy-init-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.proxy-init-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.proxy-init-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  validator-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  validator-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.validator-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.validator-commit\\}\\}[ \\t]*\\n",
+        "(?m)^  await-version: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=(?<datasource>\\S+)[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*\\n(?:[ \\t]*#.*\\n)*  await-commit: (?<currentDigest>[0-9a-f]{40})[ \\t]*\\n(?:.*\\n)*?[ \\t]+repository: (?<repository>https://\\S+)[ \\t]*\\n[ \\t]+tag: (?<tagPrefix>[^\\s$\\\"'#]*)\\$\\{\\{vars\\.await-version\\}\\}(?<tagSuffix>[^\\s\\\"'#]*)[ \\t]*\\n(?:[ \\t]*#.*\\n)*[ \\t]+expected-commit: \\$\\{\\{vars\\.await-commit\\}\\}[ \\t]*\\n"
+      ],
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "{{{repository}}}",
+      "extractVersionTemplate": "{{#if extractVersion}}{{{extractVersion}}}{{else}}^{{{tagPrefix}}}(?<version>.+){{{tagSuffix}}}${{/if}}",
+      "autoReplaceStringTemplate": "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue (replace '^(  [a-z0-9-]+-(?:version|tag): \\W?)v?[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' (replace currentDigest newDigest replaceString))}}}{{else}}{{{replaceString}}}{{/if}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Smoke-test peer images pinned as registry/repository:tag@sha256:... in a test script. The tag names the stream the test needs; only its digest moves.",
+      "managerFilePatterns": [
+        "/^images/datadog-cluster-agent/tests/test\\.sh$/"
+      ],
+      "matchStrings": [
+        "(?<depName>[a-z0-9][a-z0-9.-]*\\.[a-z]+/[a-z0-9][a-z0-9._/-]*):(?<currentValue>[A-Za-z0-9][A-Za-z0-9._-]*)@(?<currentDigest>sha256:[a-f0-9]{64})"
+      ],
+      "depTypeTemplate": "test-peer",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Secondary source pin companions: an image apko.yaml environment value that must equal a melange vars.<name>-version (harbor-scanner-trivy TRIVY_VERSION, which the adapter reports as the scanner version) carries the same annotation. As a git-tags source dep of the same repository it resolves the same update, branch, and rules as the secondary pin, so Renovate rewrites both files in one pull request.",
+      "managerFilePatterns": [
+        "/^images/harbor-scanner-trivy/apko\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?m)^  [A-Z][A-Z0-9_]*: [\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=\\S+[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*$"
+      ],
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "https://github.com/{{{depName}}}"
+    },
+    {
+      "customType": "regex",
+      "depTypeTemplate": "source",
+      "datasourceTemplate": "git-tags",
+      "packageNameTemplate": "https://github.com/{{{depName}}}",
+      "description": "Secondary source pin companions: preserve the optional edge- prefix of LINKERD_CONTAINER_VERSION_OVERRIDE while updating the same linkerd2 release as vars.linkerd2-version.",
+      "managerFilePatterns": [
+        "/^images/linkerd-proxy/apko\\.yaml$/"
+      ],
+      "matchStrings": [
+        "(?m)^  LINKERD_CONTAINER_VERSION_OVERRIDE: (?:edge-)?[\\\"']?(?<currentValue>v?[0-9][0-9A-Za-z.+_-]*)[\\\"']?[ \\t]+#[ \\t]*renovate:[ \\t]*datasource=\\S+[ \\t]+depName=(?<depName>\\S+)(?:[ \\t]+versioning=(?<versioning>\\S+))?(?:[ \\t]+extractVersion=(?<extractVersion>\\S+))?[ \\t]*$"
+      ]
     }
   ],
   "packageRules": [
     {
-      "matchFileNames": [".github/workflows/*.yaml"],
+      "matchFileNames": [
+        ".github/workflows/*.yaml"
+      ],
       "automerge": true,
       "platformAutomerge": true
     },
     {
-      "matchFileNames": ["packages/repository-state.json"],
+      "matchFileNames": [
+        "packages/repository-state.json"
+      ],
       "automerge": false,
-      "labels": ["apk-repository-state", "review-required"]
+      "labels": [
+        "apk-repository-state",
+        "review-required"
+      ]
     },
     {
-      "matchFileNames": ["images/**", "packages/**", "patched/**", "!packages/repository-state.json"],
+      "matchFileNames": [
+        "images/**",
+        "packages/**",
+        "patched/**",
+        "!packages/repository-state.json"
+      ],
       "matchUpdateTypes": [
         "major",
         "minor",
@@ -85,15 +203,23 @@
       "enabled": false,
       "automerge": true,
       "platformAutomerge": true,
-      "labels": ["security-floor", "review-required"]
+      "labels": [
+        "security-floor",
+        "review-required"
+      ]
     },
     {
       "description": "Melange source version and commit pairs (docs/POLICY.md#update-cadence). One recipe per pull request, throttled for the runner pool, created off-peak, and never routed through the security-floor validator. Defaults to no automerge; the rules below opt in only updates that stay inside the published stream.",
-      "matchDepTypes": ["source"],
+      "matchDepTypes": [
+        "source"
+      ],
       "enabled": true,
       "automerge": false,
       "platformAutomerge": true,
-      "labels": ["source-update", "review-required"],
+      "labels": [
+        "source-update",
+        "review-required"
+      ],
       "groupName": null,
       "separateMinorPatch": true,
       "additionalBranchPrefix": "source/{{{packageFileDir}}}/",
@@ -101,11 +227,16 @@
       "rebaseWhen": "conflicted",
       "prConcurrentLimit": 5,
       "prHourlyLimit": 2,
-      "schedule": ["* 19-23 * * *", "* 0-6 * * *"]
+      "schedule": [
+        "* 19-23 * * *",
+        "* 0-6 * * *"
+      ]
     },
     {
       "description": "Major-version streams (metadata.yaml versions: [N]) publish minor updates in the same stream, so do not split minor from patch.",
-      "matchDepTypes": ["source"],
+      "matchDepTypes": [
+        "source"
+      ],
       "matchFileNames": [
         "images/apko/melange.yaml",
         "images/azure-workload-identity-webhook/melange.yaml",
@@ -116,6 +247,7 @@
         "images/gh/melange.yaml",
         "images/http-echo/melange.yaml",
         "images/jaeger/melange.yaml",
+        "images/nifi-registry/melange.yaml",
         "images/opa/melange.yaml",
         "images/opensearch/2/melange.yaml",
         "images/opensearch/3/melange.yaml",
@@ -131,8 +263,12 @@
     },
     {
       "description": "In-stream patch updates automerge through GitHub auto-merge (merge queue, required checks and review still apply). Excluded recipes publish their full version as the stream (metadata.yaml versions: [X.Y.Z]) or are disabled, so no source bump stays in their stream or passes the build gate.",
-      "matchDepTypes": ["source"],
-      "matchUpdateTypes": ["patch"],
+      "matchDepTypes": [
+        "source"
+      ],
+      "matchUpdateTypes": [
+        "patch"
+      ],
       "matchFileNames": [
         "images/**",
         "!images/caddy/melange.yaml",
@@ -148,20 +284,30 @@
         "!images/metallb-controller/melange.yaml",
         "!images/mysqld-exporter/melange.yaml",
         "!images/nginx-prometheus-exporter/melange.yaml",
+        "!images/parseable/melange.yaml",
         "!images/postgres-exporter/melange.yaml",
         "!images/postgres-operator/melange.yaml",
         "!images/qdrant/melange.yaml",
         "!images/redis-exporter/melange.yaml",
         "!images/secrets-store-csi-driver/melange.yaml",
-        "!images/statsd-exporter/melange.yaml"
+        "!images/statsd-exporter/melange.yaml",
+        "!images/xeol/melange.yaml"
       ],
       "automerge": true,
-      "labels": ["source-update", "in-stream", "review-required"]
+      "labels": [
+        "source-update",
+        "in-stream",
+        "review-required"
+      ]
     },
     {
       "description": "In-stream minor updates automerge only for major-version streams (metadata.yaml versions: [N]).",
-      "matchDepTypes": ["source"],
-      "matchUpdateTypes": ["minor"],
+      "matchDepTypes": [
+        "source"
+      ],
+      "matchUpdateTypes": [
+        "minor"
+      ],
       "matchFileNames": [
         "images/apko/melange.yaml",
         "images/azure-workload-identity-webhook/melange.yaml",
@@ -172,6 +318,7 @@
         "images/gh/melange.yaml",
         "images/http-echo/melange.yaml",
         "images/jaeger/melange.yaml",
+        "images/nifi-registry/melange.yaml",
         "images/opa/melange.yaml",
         "images/opensearch/2/melange.yaml",
         "images/opensearch/3/melange.yaml",
@@ -184,7 +331,30 @@
         "images/yq/melange.yaml"
       ],
       "automerge": true,
-      "labels": ["source-update", "in-stream", "review-required"]
+      "labels": [
+        "source-update",
+        "in-stream",
+        "review-required"
+      ]
+    },
+    {
+      "description": "Smoke-test peer image digests move within their pinned tag. Tag updates stay disabled by the images/** rule above, and a weekly schedule bounds the churn from daily Verity rebuilds. Review-only: a digest bump never automerges.",
+      "matchDepTypes": [
+        "test-peer"
+      ],
+      "matchUpdateTypes": [
+        "digest"
+      ],
+      "enabled": true,
+      "automerge": false,
+      "platformAutomerge": true,
+      "labels": [
+        "test-peer-digest",
+        "review-required"
+      ],
+      "schedule": [
+        "* 0-6 * * 1"
+      ]
     }
   ]
 }

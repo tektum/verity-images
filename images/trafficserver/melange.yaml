@@ -1,0 +1,159 @@
+package:
+  name: verity-trafficserver
+  # yamllint disable-line rule:line-length
+  version: "10.2.1"  # renovate: datasource=github-tags depName=apache/trafficserver versioning=regex:^(?<major>10)\.(?<minor>2)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Traffic Server caching HTTP proxy built from the pinned upstream release
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - wolfi-baselayout
+  resources:
+    cpu: "16"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - brotli-dev
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cmake
+      - git
+      - hwloc-dev
+      - linux-headers
+      - luajit-dev
+      - ncurses-dev
+      # Pin the OpenSSL 3 stream: the unversioned openssl-dev resolves to
+      # OpenSSL 4, which the 10.2 release does not support.
+      - openssl-3.6-dev
+      - pcre2-dev
+      - perl
+      - pkgconf
+      - samurai
+      - wolfi-baselayout
+      - xz-dev
+      - zlib-dev
+      - zstd-dev
+      # zstd's CMake package config validates the static archive even though
+      # Traffic Server links the shared library.
+      - zstd-static
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/trafficserver
+      tag: ${{package.version}}
+      expected-commit: e395e13beab200008705fffb942e57bbc969c424
+
+  # Explicit ON for the optional features the image ships, so a missing build
+  # dependency fails the build instead of silently dropping a plugin. POSIX
+  # capabilities are off: the image runs unprivileged and never needs to retain
+  # CAP_NET_BIND_SERVICE or elevate access to read certificates. traffic_top
+  # needs the ncurses linker script, which adds libtinfo; the bare libcurses.so
+  # symlink that FindCurses prefers does not.
+  - uses: cmake/configure
+    with:
+      opts: |
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_INSTALL_BINDIR=bin \
+        -DCMAKE_INSTALL_SBINDIR=bin \
+        -DCMAKE_INSTALL_LIBDIR=lib \
+        -DCMAKE_INSTALL_LIBEXECDIR=libexec/trafficserver \
+        -DCMAKE_INSTALL_SYSCONFDIR=/etc/trafficserver \
+        -DCMAKE_INSTALL_LOCALSTATEDIR=/var \
+        -DCMAKE_INSTALL_RUNSTATEDIR=/run/trafficserver \
+        -DCMAKE_INSTALL_LOGDIR=/var/log/trafficserver \
+        -DCMAKE_INSTALL_CACHEDIR=/var/cache/trafficserver \
+        -DCMAKE_INSTALL_DATADIR=share/trafficserver \
+        -DWITH_USER=trafficserver \
+        -DWITH_GROUP=trafficserver \
+        -DENABLE_HWLOC=ON \
+        -DENABLE_LUAJIT=ON \
+        -DENABLE_QUIC=ON \
+        -DCURSES_NEED_NCURSES=ON \
+        -DENABLE_POSIX_CAP=OFF \
+        -DENABLE_UNWIND=OFF \
+        -DENABLE_JEMALLOC=OFF \
+        -DENABLE_MIMALLOC=OFF \
+        -DENABLE_CRIPTS=OFF \
+        -DENABLE_EXAMPLE=OFF \
+        -DENABLE_DOCS=OFF \
+        -DENABLE_AUTEST=OFF \
+        -DENABLE_BENCHMARKS=OFF \
+        -DENABLE_PROBES=OFF \
+        -DENABLE_VERIFY_PLUGINS=OFF \
+        -DBUILD_EXPERIMENTAL_PLUGINS=OFF \
+        -DBUILD_REGRESSION_TESTING=OFF \
+        -DBUILD_TESTING=OFF
+
+  - uses: cmake/build
+
+  - uses: cmake/install
+
+  - runs: |
+      d="${{targets.destdir}}"
+      conf="$d/etc/trafficserver"
+      # Runtime state is created by the image (apko paths).
+      rm -rf "$d/var" "$d/run"
+      # install_configs.cmake joins the prefix and an absolute sysconfdir, so the
+      # default configuration lands in /usr/etc/trafficserver; move it into the
+      # compiled-in /etc/trafficserver next to the body factory templates.
+      test -f "$d/usr/etc/trafficserver/records.yaml"
+      test ! -e "$conf/records.yaml"
+      mkdir -p "$conf"
+      mv "$d"/usr/etc/trafficserver/* "$conf"/
+      rmdir "$d/usr/etc/trafficserver" "$d/usr/etc"
+      # Container logging: diagnostics and transaction errors to stderr, the
+      # access log as ASCII to stdout. A source bump that changes these
+      # defaults fails here instead of shipping a different configuration.
+      grep -qx '  diags:' "$conf/records.yaml"
+      if grep -q 'logfile:' "$conf/records.yaml"; then exit 1; fi
+      sed -i 's/^  diags:$/  diags:\n    logfile:\n      filename: stderr/' "$conf/records.yaml"
+      grep -qx '  log:' "$conf/records.yaml"
+      sed -i 's/^  log:$/  error:\n    logfile:\n      filename: stderr\n  log:/' "$conf/records.yaml"
+      test "$(grep -cx '      filename: stderr' "$conf/records.yaml")" -eq 2
+      grep -qx '    - filename: squid' "$conf/logging.yaml"
+      grep -qx '      mode: binary' "$conf/logging.yaml"
+      sed -i -e 's/^    - filename: squid$/    - filename: stdout/' \
+        -e 's/^      mode: binary$/      mode: ascii/' "$conf/logging.yaml"
+      grep -qx '    - filename: stdout' "$conf/logging.yaml"
+      # Upstream hardcodes the cache span relative to the install prefix
+      # (/usr/var/trafficserver); store it in the image's cache directory.
+      grep -qx 'var/trafficserver 256M' "$conf/storage.config"
+      sed -i 's|^var/trafficserver 256M$|/var/cache/trafficserver 256M|' "$conf/storage.config"
+      grep -qx '/var/cache/trafficserver 256M' "$conf/storage.config"
+      # The SysV init wrapper daemonizes and manages pid files; the container
+      # runs traffic_server in the foreground instead.
+      test -f "$d/usr/bin/trafficserver"
+      rm "$d/usr/bin/trafficserver"
+      install -Dm644 LICENSE "$d/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE "$d/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        traffic_server -V 2>&1 | grep -F "Apache Traffic Server - traffic_server - ${{package.version}} "
+        traffic_ctl --version 2>&1 | grep -F "${{package.version}}"
+        traffic_layout info | grep -F '/etc/trafficserver'
+        test -f /usr/libexec/trafficserver/stats_over_http.so
+        test -f /usr/libexec/trafficserver/tslua.so
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
+        test -s /usr/share/licenses/${{package.name}}/LICENSE

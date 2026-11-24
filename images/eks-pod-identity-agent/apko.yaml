@@ -1,0 +1,67 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-eks-pod-identity-agent@local
+
+# Upstream image: eks-distro-minimal-base with /go-runner,
+# /eks-pod-identity-agent and /eks-pod-identity-csi-driver, no USER (root), no
+# ENTRYPOINT and no CMD; the upstream Helm chart sets every command. The agent
+# runs as root because the chart gives the `initialize` init container
+# privileged mode to create the pod-id-link0 interface and routes, and only
+# adds CAP_NET_BIND_SERVICE to the `server` container, which binds port 80 on
+# 169.254.170.23 and fd00:ec2::23. This image keeps root and the two upstream
+# binary paths as symlinks to the packaged binaries. It does not ship the
+# Kubernetes go-runner wrapper: point the chart's agent.command and
+# init.command at /eks-pod-identity-agent without /go-runner.
+accounts:
+  run-as: 0
+
+entrypoint:
+  command: /usr/bin/eks-pod-identity-agent
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+  HOME: /root
+  SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+
+paths:
+  - path: /root
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o700
+  - path: /tmp
+    type: directory
+    uid: 0
+    gid: 0
+    permissions: 0o1777
+  - path: /eks-pod-identity-agent
+    type: symlink
+    source: /usr/bin/eks-pod-identity-agent
+    uid: 0
+    gid: 0
+  - path: /eks-pod-identity-csi-driver
+    type: symlink
+    source: /usr/bin/eks-pod-identity-csi-driver
+    uid: 0
+    gid: 0
+  # apko applies the symlink entry's mode (0) through the link to its target,
+  # so the binary modes are restored explicitly.
+  - path: /usr/bin/eks-pod-identity-agent
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755
+  - path: /usr/bin/eks-pod-identity-csi-driver
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755

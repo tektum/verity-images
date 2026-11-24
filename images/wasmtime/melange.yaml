@@ -1,0 +1,75 @@
+package:
+  name: verity-wasmtime
+  # yamllint disable-line rule:line-length
+  version: "50.0.3"  # renovate: datasource=github-releases depName=bytecodealliance/wasmtime versioning=semver extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Standalone WebAssembly and WASI runtime with the Cranelift compiler
+  copyright:
+    - license: Apache-2.0 WITH LLVM-exception
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "16"
+    memory: 16Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - cargo-auditable
+      - glibc-2.44-dev
+      - rust-1.99
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/bytecodealliance/wasmtime
+      tag: v${{package.version}}
+      expected-commit: 9bbe3e2f859a0d67af6a51e614b77a4b97cdc907
+
+  - uses: cargo/remediate
+
+  - runs: |
+      # cargo-auditable passes the root crate's enabled features to a
+      # workspace-wide cargo metadata call, which rejects the implicit
+      # pulley-interpreter feature in members that enable that optional
+      # dependency with dep: syntax (rust-secure-code/cargo-auditable#124).
+      # Dropping the prefix only re-exposes the implicit feature; the lock
+      # and the enabled dependency set do not change.
+      find . -name Cargo.toml -exec sed -i 's/dep:pulley-interpreter/pulley-interpreter/g' {} +
+      cargo auditable build --release --locked --bin wasmtime
+      install -Dm755 target/release/wasmtime "${{targets.destdir}}/usr/bin/wasmtime"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      rm -rf .cargo
+
+  - uses: strip
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        wasmtime --version | grep -E '^wasmtime ${{package.version}}( |$)'
+        wasmtime run --help | grep -F -- '--invoke'
+        printf '%s\n' '(module (func (export "add") (param i32 i32) (result i32)' \
+          '(i32.add (local.get 0) (local.get 1))))' > add.wat
+        test "$(wasmtime run --invoke add add.wat 2 3)" = 5
+        apk info --who-owns /usr/bin/wasmtime \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+
+update:
+  enabled: true
+  github:
+    identifier: bytecodealliance/wasmtime
+    strip-prefix: v

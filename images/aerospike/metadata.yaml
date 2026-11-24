@@ -1,0 +1,9 @@
+name: aerospike
+track: wolfi
+description: Aerospike Database Server Community Edition built from pinned upstream source, without Enterprise features.
+category: Databases & Caching
+upstream: https://github.com/aerospike/aerospike-server
+versions: [8.2]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:aerospike:aerospike_server, cpe:2.3:a:aerospike:database_server]

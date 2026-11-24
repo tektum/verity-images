@@ -1,0 +1,237 @@
+package:
+  name: verity-mattermost
+  # yamllint disable-line rule:line-length
+  version: "12.1.0"  # renovate: datasource=github-tags depName=mattermost/mattermost versioning=regex:^(?<major>12)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Mattermost Team Edition server and web app built from source
+  copyright:
+    # The server is AGPL-3.0; server/public, templates, i18n and the web app are
+    # Apache-2.0 (LICENSE.txt). No source-available Enterprise code is built.
+    - license: AGPL-3.0-only AND Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      # File content extraction for search (docconv): PDF, RTF and HTML.
+      - poppler-utils
+      - tidy-html5
+      - unrtf
+      # /etc/mime.types for attachment content types, as upstream copies it.
+      - mailcap
+      - tzdata
+  resources:
+    cpu: "16"
+    memory: 32Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  source-commit: 243e3d0135203ab9166fe8f2873b07f697b06fd4
+  prefix: /mattermost
+  protonmail-go-crypto: v1.5.2  # renovate: datasource=go depName=github.com/ProtonMail/go-crypto
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - nodejs-24
+      - npm
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -buildvcs=false
+    GOMODCACHE: /var/cache/melange/gomodcache
+    GOTOOLCHAIN: local
+    HOME: /home/build
+    NODE_OPTIONS: --max-old-space-size=12288
+    # platform/shared builds with Parcel; its worker farm hung with no output
+    # on a 32-vCPU arm64 runner. The package is tiny, so build in-process.
+    PARCEL_WORKERS: "0"
+    # webapp/.npmrc pins the exact upstream node/npm with engine-strict; build
+    # with Wolfi's nodejs-24 and npm instead. Dependency lifecycle scripts are
+    # skipped; the root postinstall is replayed explicitly below. npm 12
+    # refuses git dependencies by default; the lockfile pins its two GitHub
+    # forks (see "Build web app") to full commits.
+    npm_config_allow_git: all
+    npm_config_audit: "false"
+    npm_config_cache: /var/cache/melange/npm
+    npm_config_engine_strict: "false"
+    npm_config_fund: "false"
+    npm_config_ignore_scripts: "true"
+    npm_config_update_notifier: "false"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/mattermost/mattermost
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # Mirrors webapp/Makefile `dist` with the root postinstall (patch-package and
+  # the platform workspace builds) run explicitly, since lifecycle scripts are
+  # disabled for the registry dependencies.
+  - name: Build web app
+    runs: |
+      # Two dependencies are pinned GitHub forks (mattermost/marked and
+      # mattermost/react-bootstrap) recorded with git+ssh URLs; fetch them
+      # anonymously over HTTPS at the same commits.
+      git config --global url."https://github.com/".insteadOf ssh://git@github.com/
+      cd webapp
+      npm ci --include=dev
+      npx --no-install patch-package
+      npm run build --workspace platform/types --workspace platform/client \
+        --workspace platform/shared --workspace platform/components
+      npm run build
+      test -s channels/dist/root.html
+      git diff --exit-code -- package-lock.json
+
+  # Upstream's setup-go-work: the server module and its in-tree public module.
+  - name: Go workspace
+    runs: |
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      go work init ./server ./server/public
+
+  # Plugin and upgrade signature checks use the maintained ProtonMail fork
+  # instead of golang.org/x/crypto/openpgp, which GO-2026-5932 carves out of
+  # golang.org/x/crypto, so go/remediate can move x/crypto past the fix.
+  - name: Migrate openpgp
+    runs: |
+      cd server
+      sig=channels/app/plugin_signature.go
+      upg=platform/services/upgrader/upgrader_linux.go
+      sed -i \
+        -e 's|"golang.org/x/crypto/openpgp"|"github.com/ProtonMail/go-crypto/openpgp"|' \
+        -e 's|"golang.org/x/crypto/openpgp/armor"|"github.com/ProtonMail/go-crypto/openpgp/armor"|' \
+        "$sig" "$upg"
+      sed -i 's|CheckDetachedSignature(\(keyring, [A-Za-z_]*, signature\))|CheckDetachedSignature(\1, nil)|' \
+        "$sig" "$upg"
+      # Busybox grep: no --include, so filter non-test Go files afterwards.
+      if grep -rlF 'golang.org/x/crypto/openpgp' . | grep '\.go$' | grep -v '_test\.go$'; then exit 1; fi
+      grep -Fq 'CheckDetachedSignature(keyring, signedFile, signature, nil)' "$sig"
+      grep -Fq 'CheckDetachedSignature(keyring, mattermost_tar, signature, nil)' "$upg"
+      GOTOOLCHAIN=local go get github.com/ProtonMail/go-crypto/openpgp@${{vars.protonmail-go-crypto}}
+
+  - uses: go/remediate
+    with:
+      modroot: server
+      packages: ./cmd/mattermost
+
+  # Team Edition only. The monorepo also carries source-available Enterprise
+  # code (LICENSE.enterprise) under server/enterprise, compiled only with the
+  # `enterprise` or `sourceavailable` build tags, and upstream's Makefile adds
+  # `sourceavailable` to every build whose BUILD_NUMBER is unset. This recipe
+  # never runs the Makefile, never checks out mattermost/enterprise, builds
+  # with the `production` tag only, and fails if any Enterprise code other
+  # than the empty placeholder package would be linked.
+  - name: Build server
+    runs: |
+      cd server
+      [ ! -e ../../enterprise ]
+      deps=$(go list -deps -tags production ./cmd/mattermost)
+      ee='^github.com/mattermost/(enterprise|mattermost/server/v8/enterprise)'
+      linked=$(printf '%s\n' "$deps" | grep -E "$ee" || true)
+      [ "$linked" = github.com/mattermost/mattermost/server/v8/enterprise ]
+      [ "$(go list -tags production -f '{{.GoFiles}}' ./enterprise)" = '[placeholder.go]' ]
+      model=github.com/mattermost/mattermost/server/public/model
+      build_date=$(TZ=UTC git log -1 --format=%cd --date=format-local:'%a %b %e %H:%M:%S UTC %Y')
+      # The same ldflags as upstream's team build (BUILD_ENTERPRISE_READY=false,
+      # BUILD_HASH_ENTERPRISE=none), with the release as the build number.
+      ldflags="-s -w"
+      ldflags="$ldflags -X $model.BuildNumber=${{package.version}}"
+      ldflags="$ldflags -X '$model.BuildDate=$build_date'"
+      ldflags="$ldflags -X $model.BuildHash=${{vars.source-commit}}"
+      ldflags="$ldflags -X $model.BuildHashEnterprise=none"
+      ldflags="$ldflags -X $model.BuildEnterpriseReady=false"
+      go build -mod=readonly -trimpath -tags production -ldflags "$ldflags" \
+        -o "${{targets.destdir}}${{vars.prefix}}/bin/mattermost" ./cmd/mattermost
+      go version -m "${{targets.destdir}}${{vars.prefix}}/bin/mattermost" |
+        grep -E '^[[:space:]]build[[:space:]]-tags=production$'
+      "${{targets.destdir}}${{vars.prefix}}/bin/mattermost" version > version.txt
+      cat version.txt
+      grep -Fx 'Version: ${{package.version}}' version.txt
+      grep -Fx 'Build Enterprise Ready: false' version.txt
+
+  - name: Package
+    runs: |
+      dest="${{targets.destdir}}${{vars.prefix}}"
+      cd server
+      # Upstream build/release.mk package-prep.
+      install -d "$dest/config" "$dest/i18n" "$dest/client"
+      cp -L config/README.md "$dest/config/"
+      OUTPUT_CONFIG="$dest/config/config.json" go run -mod=readonly ./scripts/config_generator
+      cp -RL fonts templates "$dest/"
+      rm -rf "$dest"/templates/*.mjml "$dest/templates/partials"
+      cp -L i18n/*.json "$dest/i18n/"
+      sed -i \
+        -e 's|"ConsoleLevel": "DEBUG"|"ConsoleLevel": "INFO"|g' \
+        -e 's|"SiteURL": "http://localhost:8065"|"SiteURL": ""|g' \
+        -e 's|"SendEmailNotifications": true,|"SendEmailNotifications": false,|g' \
+        -e 's|"FeedbackEmail": "test@example.com",|"FeedbackEmail": "",|g' \
+        -e 's|"ReplyToAddress": "test@example.com",|"ReplyToAddress": "",|g' \
+        -e 's|"SMTPServer": "localhost",|"SMTPServer": "",|g' \
+        -e 's|"SMTPPort": "2500",|"SMTPPort": "",|g' \
+        "$dest/config/config.json"
+      chown 2000:2000 "$dest/config/config.json"
+      chmod 644 "$dest/config/config.json"
+      cp -RL ../webapp/channels/dist/. "$dest/client/"
+      # A source build is not the MIT-licensed binary distribution Mattermost,
+      # Inc. ships (build/MIT-COMPILED-LICENSE.md); it carries the source
+      # licenses instead.
+      install -m644 ../LICENSE.txt ../NOTICE.txt ../README.md "$dest/"
+      # Writable runtime directories; apko.yaml hands them to uid 2000.
+      install -d "$dest/data" "$dest/logs" "$dest/plugins" "$dest/client/plugins"
+      find "$dest" -type d -exec chmod 755 {} +
+      find "$dest" -type f -exec chmod go-w {} +
+      # Everything else stays root-owned. The server rewrites root.html,
+      # manifest.json and *.css in place when SiteURL has a subpath
+      # (channels/utils/subpath.go), so only those files belong to uid 2000.
+      chown 2000:2000 "$dest/client/root.html"
+      find "$dest/client" \( -name manifest.json -o -name '*.css' \) -type f \
+        -exec chown 2000:2000 {} +
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module and npm metadata for the Mattermost build
+    pipeline:
+      - runs: |
+          out="${{targets.subpkgdir}}/usr/share/mattermost-build"
+          install -Dm644 go.work "$out/go.work"
+          install -Dm644 server/go.mod "$out/server/go.mod"
+          install -Dm644 server/go.sum "$out/server/go.sum"
+          install -Dm644 server/public/go.mod "$out/server/public/go.mod"
+          install -Dm644 server/public/go.sum "$out/server/public/go.sum"
+          install -Dm644 webapp/package-lock.json "$out/webapp/package-lock.json"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /mattermost/bin/mattermost version > /tmp/version
+        grep -Fx 'Version: ${{package.version}}' /tmp/version
+        grep -Fx 'Build Enterprise Ready: false' /tmp/version
+        apk info --who-owns /mattermost/bin/mattermost | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx 'AGPL-3.0-only AND Apache-2.0'
+        grep -F 'GNU AGPL v3.0' /mattermost/LICENSE.txt
+        test -s /mattermost/client/root.html
+        test -s /mattermost/config/config.json
+        test ! -e /mattermost/bin/mmctl
+        test ! -e /mattermost/ENTERPRISE-EDITION-LICENSE.txt
+
+update:
+  enabled: true
+  github:
+    identifier: mattermost/mattermost
+    strip-prefix: v

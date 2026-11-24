@@ -1,0 +1,67 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-mattermost@local
+
+accounts:
+  groups:
+    - groupname: mattermost
+      gid: 2000
+  users:
+    - username: mattermost
+      uid: 2000
+      gid: 2000
+      homedir: /mattermost
+  run-as: 2000
+
+entrypoint:
+  command: /mattermost/bin/mattermost
+
+work-dir: /mattermost
+
+environment:
+  MM_INSTALL_TYPE: docker
+  PATH: /mattermost/bin:/usr/bin:/bin
+
+# Upstream's image owns all of /mattermost as uid 2000. Here the binary, web
+# app, templates and translations stay root-owned; uid 2000 owns the volume
+# paths upstream declares, plus (from the package) config.json and the client
+# files the server rewrites for a SiteURL subpath.
+paths:
+  - path: /mattermost/config
+    type: directory
+    uid: 2000
+    gid: 2000
+    permissions: 0o755
+  - path: /mattermost/data
+    type: directory
+    uid: 2000
+    gid: 2000
+    permissions: 0o755
+  - path: /mattermost/logs
+    type: directory
+    uid: 2000
+    gid: 2000
+    permissions: 0o755
+  - path: /mattermost/plugins
+    type: directory
+    uid: 2000
+    gid: 2000
+    permissions: 0o755
+  - path: /mattermost/client/plugins
+    type: directory
+    uid: 2000
+    gid: 2000
+    permissions: 0o755
+  # Packaged world-readable so melange can archive it; the server stores
+  # generated secrets here and os.WriteFile keeps the existing mode.
+  - path: /mattermost/config/config.json
+    type: permissions
+    uid: 2000
+    gid: 2000
+    permissions: 0o600

@@ -1,0 +1,57 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+  packages:
+    - bash
+    - busybox
+    - ca-certificates-bundle
+    - infinispan-16.3=16.3.2-r0
+    - infinispan-16.3-compat=16.3.2-r0
+    - infinispan-16.3-images=16.3.2-r0
+
+accounts:
+  groups:
+    - groupname: infinispan
+      gid: 65532
+  users:
+    - username: infinispan
+      uid: 65532
+      gid: 65532
+      homedir: /opt/infinispan
+  run-as: 65532
+
+entrypoint:
+  command: /opt/infinispan/bin/launch.sh
+
+environment:
+  PATH: /usr/sbin:/usr/bin:/sbin:/bin
+  HOME: /opt/infinispan
+  ISPN_HOME: /opt/infinispan
+  USER: infinispan
+  JAVA_HOME: /usr/lib/jvm/java-25-openjdk
+  LANG: C.UTF-8
+
+# launch.sh writes generated identity batches to server/conf and the CLI
+# rewrites users.properties and groups.properties; the server writes data and
+# logs under server/.
+paths:
+  - path: /usr/share/java/infinispan/server
+    type: permissions
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+    recursive: true
+  - path: /usr/share/java/infinispan/server/data
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+  - path: /usr/share/java/infinispan/server/log
+    type: directory
+    uid: 65532
+    gid: 65532
+    permissions: 0o755
+
+work-dir: /opt/infinispan

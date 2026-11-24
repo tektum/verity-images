@@ -1,0 +1,8 @@
+name: cert-manager-istio-csr
+track: wolfi
+description: Istio CSR agent that signs Istio workload certificates through cert-manager. Built from pinned source.
+upstream: https://github.com/cert-manager/istio-csr
+versions: [0.19]
+owner: tektum
+enabled: true
+scan-identity: [pkg:golang/github.com/cert-manager/istio-csr]

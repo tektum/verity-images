@@ -1,0 +1,68 @@
+package:
+  name: verity-ferretdb
+  # yamllint disable-line rule:line-length
+  version: "2.7.0"  # renovate: datasource=github-releases depName=FerretDB/FerretDB versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: MongoDB-compatible database proxy backed by PostgreSQL with the DocumentDB extension
+  copyright:
+    - license: Apache-2.0
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: 0d5eb3343a50b800634cc08ace608bb6f3a3f74b
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOAMD64: v1
+    GOARM64: v8.0
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/FerretDB/FerretDB
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  # Go remediation moves github.com/modelcontextprotocol/go-sdk from v0.2.0 to
+  # v1.4.1 (GHSA-89xv-2j6f-qhc8, GHSA-q382-vc8q-7jhj, GHSA-wvj2-96wp-fq3f,
+  # GHSA-xw59-hvm2-8pj6). Port internal/mcp to the v1 tool handler API; the
+  # patch matches the one Wolfi carries for its ferretdb package.
+  - uses: patch
+    with:
+      patches: mcp-go-sdk-v1.patch
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/ferretdb
+  - runs: |
+      # build/version embeds these files; upstream generates them with
+      # `task gen-version` and its production image reports package "docker".
+      printf 'v%s\n' "${{package.version}}" >build/version/version.txt
+      printf '%s\n' "${{vars.source-commit}}" >build/version/commit.txt
+      printf '%s\n' docker >build/version/package.txt
+      go build -mod=readonly -trimpath -o "${{targets.destdir}}/ferretdb" ./cmd/ferretdb
+      go version -m "${{targets.destdir}}/ferretdb" | awk -v v="v${{package.version}}" '
+        $1 == "mod" && $2 == "github.com/FerretDB/FerretDB/v2" && index($3, v) == 1 { ok = 1 }
+        END { exit !ok }'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+test:
+  pipeline:
+    - runs: |
+        /ferretdb --version | grep -Fx "version: v${{package.version}}"
+        /ferretdb --version | grep -Fx "commit: ${{vars.source-commit}}"
+        /ferretdb --version | grep -Fx "package: docker"
+        test -f /usr/share/licenses/${{package.name}}/LICENSE

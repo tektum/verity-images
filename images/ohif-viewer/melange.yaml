@@ -1,0 +1,120 @@
+package:
+  name: verity-ohif-viewer
+  version: "3.13.15"  # renovate: datasource=npm depName=@ohif/app
+  epoch: 0
+  description: OHIF Viewer production web build from the upstream @ohif/app npm release, served by nginx
+  copyright:
+    - license: MIT
+  dependencies:
+    runtime:
+      - nginx-mainline
+      - nginx-mainline-mime-types
+
+vars:
+  webroot: /usr/share/ohif-viewer
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - jq
+      - wolfi-baselayout
+
+pipeline:
+  # The @ohif/app npm release carries the production build (dist/) that upstream's
+  # Dockerfile produces with the default APP_CONFIG and PUBLIC_URL=/, so no JS build
+  # runs here. The tarball is pinned by SHA-256, cross-checked against the registry's
+  # SHA-512 integrity value when it was pinned.
+  - uses: fetch
+    with:
+      uri: https://registry.npmjs.org/@ohif/app/-/app-${{package.version}}.tgz
+      expected-sha256: 1f1db359fbf71e2ea501259835b8e43bec44d9c1cef6194f7976c5359ca0cead
+      extract: false
+
+  - runs: |
+      set -eu
+      tar -xzf app-${{package.version}}.tgz
+      test "$(jq -r .name package/package.json)" = '@ohif/app'
+      test "$(jq -r .version package/package.json)" = '${{package.version}}'
+      test "$(jq -r .license package/package.json)" = MIT
+      test -s package/dist/index.html
+      test -s package/dist/app-config.js
+      install -d "${{targets.destdir}}${{vars.webroot}}"
+      cp -R package/dist/. "${{targets.destdir}}${{vars.webroot}}/"
+      # Hosting-provider files from the upstream build; nginx.conf below owns routing.
+      rm -f "${{targets.destdir}}${{vars.webroot}}/_headers" \
+        "${{targets.destdir}}${{vars.webroot}}/_redirects" \
+        "${{targets.destdir}}${{vars.webroot}}/serve.json"
+      find "${{targets.destdir}}${{vars.webroot}}" -type d -exec chmod 755 {} +
+      find "${{targets.destdir}}${{vars.webroot}}" -type f -exec chmod 644 {} +
+      install -Dm644 package/LICENSE "${{targets.destdir}}/usr/share/licenses/ohif-viewer/LICENSE"
+
+  # Mirrors upstream's .docker/Viewer-v3.x/default.conf.template for PUBLIC_URL=/, but
+  # runs unprivileged on 8080 with every writable path under /tmp, and answers 404
+  # for a missing static asset instead of returning index.html for it.
+  - runs: |
+      set -eu
+      install -d "${{targets.destdir}}/etc/ohif-viewer"
+      cat > "${{targets.destdir}}/etc/ohif-viewer/nginx.conf" <<'CONF'
+      worker_processes auto;
+      pid /tmp/nginx.pid;
+      error_log stderr notice;
+      daemon off;
+
+      events {
+          worker_connections 1024;
+      }
+
+      http {
+          include /etc/nginx/mime.types;
+          default_type application/octet-stream;
+          access_log /dev/stdout;
+          client_body_temp_path /tmp/client_body;
+          proxy_temp_path /tmp/proxy;
+          fastcgi_temp_path /tmp/fastcgi;
+          uwsgi_temp_path /tmp/uwsgi;
+          scgi_temp_path /tmp/scgi;
+          sendfile on;
+          keepalive_timeout 65;
+          server_tokens off;
+          gzip on;
+          gzip_vary on;
+          gzip_types text/css application/javascript application/json application/wasm image/svg+xml;
+
+          server {
+              listen 8080 default_server;
+              root /usr/share/ohif-viewer;
+              index index.html;
+              add_header Cross-Origin-Resource-Policy same-origin always;
+
+              # Client-side routes (/viewer, /segmentation, ...) all load the app shell.
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+
+              # Static assets never fall back to the app shell.
+              location ~* \.(?:css|gif|html|ico|jpe?g|js|jsonc?|map|mjs|png|svg|wasm|webapp|woff2?|xml)$ {
+                  try_files $uri =404;
+              }
+          }
+      }
+      CONF
+      chmod 644 "${{targets.destdir}}/etc/ohif-viewer/nginx.conf"
+
+test:
+  environment:
+    contents:
+      packages:
+        - busybox
+  pipeline:
+    - runs: |
+        set -eu
+        test -s /usr/share/ohif-viewer/index.html
+        grep -q '<title>' /usr/share/ohif-viewer/index.html
+        test -s /usr/share/ohif-viewer/app-config.js
+        grep -q 'root /usr/share/ohif-viewer;' /etc/ohif-viewer/nginx.conf

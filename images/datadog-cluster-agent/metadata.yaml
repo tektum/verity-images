@@ -1,0 +1,9 @@
+name: datadog-cluster-agent
+track: wolfi
+description: Datadog Cluster Agent for Kubernetes cluster checks and metadata, built from pinned upstream source.
+category: Monitoring & Observability
+upstream: https://github.com/DataDog/datadog-agent
+versions: [7.85]
+scan-identity: [pkg:golang/github.com/DataDog/datadog-agent]
+owner: tektum
+enabled: true

@@ -49,10 +49,47 @@ EXPECTED_EXTRACT_VERSION_TEMPLATE = (
 )
 
 
-def source_manager() -> dict:
+PRIMARY_DESCRIPTION = "Melange source pins:"
+SECONDARY_DESCRIPTION = "Melange secondary source pins:"
+COMPANION_DESCRIPTION = "Secondary source pin companions:"
+EXPECTED_SECONDARY_TEMPLATE = (
+    "{{#if newDigest}}{{{replace '@@VERITY_NEW_VERSION@@' newValue "
+    "(replace '^(  [a-z0-9-]+-(?:version|tag): \\W?)v?[0-9][0-9A-Za-z.+_-]*' '$1@@VERITY_NEW_VERSION@@' "
+    "(replace currentDigest newDigest replaceString))}}}"
+    "{{else}}{{{replaceString}}}{{/if}}"
+)
+SECONDARY_COMMIT_REF = re.compile(r"\$\{\{vars\.(?P<name>[A-Za-z0-9_-]+)-commit\}\}")
+SECONDARY_NAME = re.compile(r"^\(\?m\)\^  (?P<name>[a-z0-9-]+)-(?P<kind>version|tag): ")
+# Secondary pins deliberately left without an annotation: trino's airlift
+# launcher must match the airlift version the Trino release was built with,
+# so it moves with the Trino bump by hand rather than with launcher tags.
+UNTRACKED_SECONDARY = {"images/trino/melange.yaml": {"launcher"}}
+
+
+def source_managers() -> list[dict]:
     managers = json.loads(RENOVATE.read_text(encoding="utf-8"))["customManagers"]
     found = [manager for manager in managers if manager.get("depTypeTemplate") == "source"]
+    assert len(found) == 4, (
+        "renovate.json must define primary/secondary melange source managers and their companion managers"
+    )
+    return found
+
+
+def source_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(PRIMARY_DESCRIPTION)]
     assert len(found) == 1, "renovate.json must define exactly one melange source manager"
+    return found[0]
+
+
+def secondary_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(SECONDARY_DESCRIPTION)]
+    assert len(found) == 1, "renovate.json must define exactly one melange secondary source manager"
+    return found[0]
+
+
+def companion_manager() -> dict:
+    found = [m for m in source_managers() if m.get("description", "").startswith(COMPANION_DESCRIPTION)]
+    assert len(found) == 2, "renovate.json must define generic Harbor and prefixed Linkerd companion managers"
     return found[0]
 
 
@@ -477,15 +514,212 @@ def test_manager_shape(manager: dict) -> None:
     assert len(manager["matchStrings"]) == 2
 
 
+def apply_secondary_upgrade(match: re.Match[str], text: str, new_value: str, new_digest: str) -> str:
+    """Mirror EXPECTED_SECONDARY_TEMPLATE: every commit copy, then the leading var version."""
+    region = match[0].replace(match["currentDigest"], new_digest)
+    region = re.sub(
+        r"^(  [a-z0-9-]+-(?:version|tag): \W?)v?[0-9][0-9A-Za-z.+_-]*",
+        lambda prefix: prefix[1] + new_value,
+        region,
+        count=1,
+    )
+    return text[: match.start()] + region + text[match.end() :]
+
+
+def var_scalars(lines: list[str]) -> dict[str, str]:
+    """Top-level vars as bare scalars; unlike parse_vars, also drops a comment after a quoted value."""
+    result = {}
+    for line in top_level_block(lines, "vars"):
+        match = re.match(r"^  (?P<key>[A-Za-z0-9_-]+):[ \t]*[\"']?(?P<value>[^\"'\s#]*)", line)
+        if match:
+            result[match["key"]] = match["value"]
+    return result
+
+
+def test_secondary(manager: dict, primary: dict) -> int:
+    """Secondary pins: `vars.<name>-version` plus `vars.<name>-commit` for a second checkout.
+
+    For every recipe the manager covers, each git-checkout with
+    `expected-commit: ${{vars.<name>-commit}}` (other than source-commit) has
+    exactly one match string, which extracts that checkout's repository, the
+    var version and the var commit; the replacement rewrites exactly those two
+    lines and leaves the primary source pin intact.
+    """
+    assert manager["datasourceTemplate"] == "git-tags"
+    assert manager["packageNameTemplate"] == "{{{repository}}}"
+    assert manager["extractVersionTemplate"] == EXPECTED_EXTRACT_VERSION_TEMPLATE
+    assert manager["autoReplaceStringTemplate"] == EXPECTED_SECONDARY_TEMPLATE
+    names = []
+    kinds = {}
+    for raw in manager["matchStrings"]:
+        name = SECONDARY_NAME.match(raw)
+        assert name, f"secondary match string must start at a vars <name>-version or <name>-tag line: {raw[:60]}"
+        names.append(name["name"])
+        kinds[name["name"]] = name["kind"]
+    assert len(names) == len(set(names)), names
+
+    patterns = file_patterns(manager)
+    covered = 0
+    problems = []
+    recipes = (path for top in ("images", "packages", "patched") for path in (ROOT / top).rglob("*.y*ml"))
+    for path in sorted(recipes):
+        relative = path.relative_to(ROOT).as_posix()
+        text = path.read_text(encoding="utf-8")
+        if not any(pattern.search(relative) for pattern in patterns):
+            # Every recipe with a secondary pin must be covered, so a new one
+            # cannot silently fall back to the security-floor manager.
+            pinned = {ref["name"] for ref in SECONDARY_COMMIT_REF.finditer(text) if ref["name"] != "source"}
+            pinned -= UNTRACKED_SECONDARY.get(relative, set())
+            if pinned:
+                problems.append(f"{relative}: secondary pins {sorted(pinned)} not covered by the secondary manager")
+            continue
+        covered += 1
+        lines = text.splitlines()
+        variables = var_scalars(lines)
+        checkouts = {}
+        for checkout in parse_checkouts(lines):
+            ref = SECONDARY_COMMIT_REF.fullmatch(checkout.fields.get("expected-commit", ""))
+            if ref and ref["name"] != "source":
+                checkouts[ref["name"]] = checkout
+        file_names = [name for name in names if f"\n  {name}-{kinds[name]}:" in text]
+        if sorted(file_names) != sorted(checkouts):
+            problems.append(f"{relative}: secondary pins {sorted(checkouts)} but match strings {sorted(file_names)}")
+            continue
+        primary_before = [match.groupdict() for match in extract(primary, text)]
+        for raw, name in zip(manager["matchStrings"], names):
+            if name not in checkouts:
+                continue
+            matches = list(python_pattern(raw).finditer(text))
+            if len(matches) != 1:
+                problems.append(f"{relative}: {name} matched {len(matches)} times; expected one")
+                continue
+            match = matches[0]
+            checkout = checkouts[name]
+            version = variables.get(f"{name}-{kinds[name]}", "")
+            commit = variables.get(f"{name}-commit", "")
+            if not SHA.fullmatch(commit):
+                problems.append(f"{relative}: vars.{name}-commit must be a full 40-hex commit")
+            expected = {
+                "currentValue": version,
+                "currentDigest": commit,
+                "repository": checkout.fields.get("repository"),
+            }
+            got = {key: match[key] for key in expected}
+            if got != expected:
+                problems.append(f"{relative}: {name} extracted {got}, expected {expected}")
+            tag = match["tagPrefix"] + "${{vars.%s-%s}}" % (name, kinds[name]) + match["tagSuffix"]
+            if tag != checkout.fields.get("tag"):
+                problems.append(f"{relative}: {name} tag {tag!r} is not the checkout tag")
+            if not match["extractVersion"] and not (
+                PLAIN_AFFIX.fullmatch(match["tagPrefix"]) and PLAIN_AFFIX.fullmatch(match["tagSuffix"])
+            ):
+                problems.append(f"{relative}: {name} needs an explicit extractVersion=")
+
+            new_version, new_digest = bumped(version), "f" * 40
+            upgraded = apply_secondary_upgrade(match, text, new_version, new_digest)
+            new_lines = upgraded.splitlines()
+            changed = {index for index, (old, new) in enumerate(zip(lines, new_lines)) if old != new}
+            new_vars = var_scalars(new_lines)
+            if (
+                len(new_lines) != len(lines)
+                or new_vars.get(f"{name}-{kinds[name]}") != new_version
+                or new_vars.get(f"{name}-commit") != new_digest
+                or len(changed) != 2
+            ):
+                problems.append(f"{relative}: {name} replacement did not rewrite exactly its version and commit")
+            if [m.groupdict() for m in extract(primary, upgraded)] != primary_before:
+                problems.append(f"{relative}: {name} replacement changed the primary source pin")
+        if not checkouts:
+            problems.append(f"{relative}: covered by the secondary manager but has no secondary pin")
+    assert not problems, "\n".join(problems)
+    assert covered, "secondary source manager covers no recipe"
+    return covered
+
+
+def test_companions(managers: list[dict], secondary: dict) -> int:
+    """Companions: an apko.yaml value that must equal a secondary pin moves with it.
+
+    The companion manager resolves the value as a git-tags source dep of the
+    pin's repository, so Renovate gives it the pin's update, rules, and branch.
+    Every annotated apko.yaml value must be covered; its annotation and value
+    must equal the pin's, and Renovate's default replacement (currentValue to
+    newValue inside the match) must rewrite exactly that line.
+    """
+    for manager in managers:
+        assert manager["datasourceTemplate"] == "git-tags"
+        assert manager["packageNameTemplate"] == "https://github.com/{{{depName}}}"
+        assert "autoReplaceStringTemplate" not in manager
+        assert len(manager["matchStrings"]) == 1
+    secondary_patterns = file_patterns(secondary)
+    covered = 0
+    problems = []
+    for path in sorted((ROOT / "images").rglob("apko.yaml")):
+        relative = path.relative_to(ROOT).as_posix()
+        companions = [item for item in managers if any(p.search(relative) for p in file_patterns(item))]
+        assert len(companions) <= 1, f"multiple companion managers match {relative}"
+        match_patterns = [python_pattern(raw) for item in companions for raw in item["matchStrings"]]
+        text = path.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        annotated = [index for index, line in enumerate(lines) if re.search(r"#[ \t]*renovate:", line)]
+        if not companions:
+            # Otherwise only the security-floor manager sees the value, and it
+            # opens no ordinary updates, so the value would drift from its pin.
+            if annotated:
+                problems.append(f"{relative}: annotated values are not covered by a companion manager")
+            continue
+        covered += 1
+        matches = sorted((match for pattern in match_patterns for match in pattern.finditer(text)), key=lambda m: m.start())
+        assert len({(match.start(), match.end()) for match in matches}) == len(matches)
+        if [text.count("\n", 0, match.start()) for match in matches] != annotated:
+            problems.append(f"{relative}: the companion match string does not match every annotated line")
+        recipe = path.with_name("melange.yaml")
+        recipe_relative = recipe.relative_to(ROOT).as_posix()
+        if not recipe.exists() or not any(file_pattern.search(recipe_relative) for file_pattern in secondary_patterns):
+            problems.append(f"{relative}: {recipe_relative} is not covered by the secondary manager")
+            continue
+        pins = extract(secondary, recipe.read_text(encoding="utf-8"))
+        for match in matches:
+            name = match["depName"]
+            peers = [pin for pin in pins if pin["depName"] == name]
+            if len(peers) != 1:
+                problems.append(f"{relative}: {name} has {len(peers)} secondary pins in {recipe_relative}; expected one")
+                continue
+            pin = peers[0]
+            annotation = match[0][match[0].index("renovate:") :].rstrip()
+            pin_line = pin[0].splitlines()[0]
+            if pin_line[pin_line.index("renovate:") :].rstrip() != annotation:
+                problems.append(f"{relative}: {name} annotation differs from its pin in {recipe_relative}")
+            if match["currentValue"] != pin["currentValue"]:
+                problems.append(f"{relative}: {name} is {match['currentValue']}, its pin is {pin['currentValue']}")
+            if pin["repository"] != f"https://github.com/{name}":
+                problems.append(f"{relative}: {name} pin checks out {pin['repository']}, not https://github.com/{name}")
+            new_value = bumped(match["currentValue"])
+            region = match[0].replace(match["currentValue"], new_value)
+            upgraded = text[: match.start()] + region + text[match.end() :]
+            new_lines = upgraded.splitlines()
+            changed = [index for index, (old, new) in enumerate(zip(lines, new_lines)) if old != new]
+            rematched = [found["currentValue"] for pattern in match_patterns for found in pattern.finditer(upgraded) if found["depName"] == name]
+            if len(new_lines) != len(lines) or len(changed) != 1 or rematched != [new_value]:
+                problems.append(f"{relative}: {name} replacement did not rewrite exactly its value")
+    assert not problems, "\n".join(problems)
+    assert covered, "secondary source companion manager covers no apko.yaml"
+    return covered
+
+
 def main() -> None:
     manager = source_manager()
+    secondary = test_secondary(secondary_manager(), manager)
+    companions = test_companions([
+        item for item in source_managers() if item.get("description", "").startswith(COMPANION_DESCRIPTION)
+    ], secondary_manager())
     test_manager_shape(manager)
     test_fixtures(manager)
     literal, var = test_repository(manager)
     streams = test_stream_rules(manager)
     print(
         f"passed scripts/test_melange_source_pins.py ({literal} literal, {var} var commit pins; "
-        f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams)"
+        f"{streams['major']} major, {streams['minor']} minor, {streams['manual']} manual streams; "
+        f"{secondary} recipes with secondary pins, {companions} with apko companions)"
     )
 
 

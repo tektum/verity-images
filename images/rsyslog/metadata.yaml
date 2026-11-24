@@ -1,0 +1,9 @@
+name: rsyslog
+track: wolfi
+description: rsyslog with the container config (TCP, UDP and RELP syslog to stdout), nonroot. Built from pinned source.
+category: Logging
+upstream: https://www.rsyslog.com/
+versions: [8.2610]
+owner: tektum
+enabled: true
+scan-identity: [cpe:2.3:a:rsyslog:rsyslog]

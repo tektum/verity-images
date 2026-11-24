@@ -1,0 +1,135 @@
+package:
+  name: verity-headlamp
+  # yamllint disable-line rule:line-length
+  version: "0.46.0"  # renovate: datasource=github-tags depName=kubernetes-sigs/headlamp versioning=regex:^(?<major>0)\.(?<minor>46)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Headlamp Kubernetes web UI server with its static frontend
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "8"
+    memory: 16Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v0.46.0 is an annotated tag; this is its peeled commit.
+  source-commit: 825604fdadbe7ed94b8e61f615d7917c743e9083
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.26
+      - nodejs-22
+      - npm
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+    npm_config_cache: /var/cache/melange/npm
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/kubernetes-sigs/headlamp
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Build frontend
+    runs: |
+      # Same steps as the upstream Dockerfile frontend stage: production
+      # dependencies only (the build tooling is in dependencies, and the dev
+      # set pulls Playwright's browser download), then `npm run build`, whose
+      # prebuild reads ../app/package.json for the version and whose postbuild
+      # writes the brotli sidecars the backend serves.
+      [ "$(git rev-parse HEAD)" = '${{vars.source-commit}}' ]
+      [ "$(node -p "require('./app/package.json').version")" = '${{package.version}}' ]
+      cd frontend
+      npm ci --omit=dev --no-audit --no-fund
+      HEADLAMP_SOURCE_COMMIT='${{vars.source-commit}}' npm run build
+      grep -Fx "REACT_APP_HEADLAMP_VERSION='${{package.version}}'" .env
+      test -f build/index.html
+
+  - uses: go/remediate
+    with:
+      modroot: backend
+      packages: ./cmd
+
+  - name: Build headlamp-server
+    runs: |
+      # Go stamps a nested module's version only when the repository root has a
+      # go.mod and HEAD carries a <subdir>/vX.Y.Z tag. Upstream tags only the
+      # repository (v${{package.version}}), so add both locally so scanners see
+      # github.com/kubernetes-sigs/headlamp/backend at the release version.
+      git tag -f backend/v${{package.version}} '${{vars.source-commit}}'
+      printf 'module github.com/kubernetes-sigs/headlamp\n' > go.mod
+      cd backend
+      # Same version and app name stamping as the upstream Makefile
+      # BUILD_VERSION_FLAGS.
+      pkg=github.com/kubernetes-sigs/headlamp/backend/pkg/kubeconfig
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags "-s -w -X $pkg.Version=${{package.version}} -X $pkg.AppName=Headlamp" \
+        -o "${{targets.destdir}}/headlamp/headlamp-server" ./cmd
+      go version -m "${{targets.destdir}}/headlamp/headlamp-server" \
+        | awk '$1 == "mod" && $2 == "github.com/kubernetes-sigs/headlamp/backend" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+
+  - name: Install
+    runs: |
+      root="${{targets.destdir}}/headlamp"
+      install -d "$root/frontend" "$root/plugins" "$root/static-plugins"
+      cp -R frontend/build/. "$root/frontend/"
+      chmod -R u=rwX,go=rX "$root/frontend"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Headlamp build
+    pipeline:
+      - runs: |
+          install -Dm644 backend/go.mod \
+            "${{targets.subpkgdir}}/usr/share/headlamp-build/go.mod"
+          install -Dm644 backend/go.sum \
+            "${{targets.subpkgdir}}/usr/share/headlamp-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        /headlamp/headlamp-server -version \
+          | grep -Ex 'Headlamp ${{package.version}} \(linux/(amd64|arm64)\)'
+        grep -F 'headlampBaseUrl = __baseUrl__;' /headlamp/frontend/index.html
+        test -d /headlamp/plugins
+        test -d /headlamp/static-plugins
+        apk info --who-owns /headlamp/headlamp-server \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+
+update:
+  enabled: true
+  github:
+    identifier: kubernetes-sigs/headlamp
+    strip-prefix: v
+    use-tag: true

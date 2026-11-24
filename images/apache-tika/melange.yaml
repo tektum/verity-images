@@ -1,0 +1,103 @@
+package:
+  name: verity-apache-tika
+  # yamllint disable-line rule:line-length
+  version: "3.3.3"  # renovate: datasource=maven depName=org.apache.tika:tika-core versioning=regex:^(?<major>3)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Apache Tika server (tika-server-standard) built from the pinned release tag
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - busybox
+      - ca-certificates-bundle
+      - glibc-locale-en
+      - openjdk-17-default-jvm
+      - wolfi-baselayout
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: f82f5d34ffab24069ca222fe4f8888a9d07f9062
+  # Security floors for the server transport Tika 3.3.3 pins below its fixed
+  # releases. CXF 4.0.x has no fix for CVE-2026-49875 and CVE-2026-50645, and
+  # Jetty 11 has none for CVE-2024-6763; CXF 4.1 runs on Jetty 12.0 and
+  # requires Java 17 bytecode, so the build targets release 17.
+  # yamllint disable rule:line-length
+  cxf-version: 4.1.9  # renovate: datasource=maven depName=org.apache.cxf:cxf-core versioning=regex:^(?<major>4)\.(?<minor>1)\.(?<patch>\d+)$
+  jetty-version: 12.0.41  # renovate: datasource=maven depName=org.eclipse.jetty:jetty-server versioning=regex:^(?<major>12)\.(?<minor>0)\.(?<patch>\d+)$
+  # yamllint enable rule:line-length
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - maven
+      - openjdk-17-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/apache/tika
+      tag: ${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  - name: Build tika-server-standard
+    runs: |
+      # Release-only checks (RAT, checkstyle, forbidden APIs, OSS Index, and
+      # dependency convergence against the raised floors) do not change the
+      # shipped jar.
+      mvn -B --no-transfer-progress -DskipTests install \
+        -pl tika-server/tika-server-standard -am \
+        -Dmaven.javadoc.skip=true -Drat.skip=true -Dcheckstyle.skip=true \
+        -Dforbiddenapis.skip=true -Dossindex.skip=true -Denforcer.skip=true \
+        -Dmaven.compiler.release=17 \
+        -Dcxf.version=${{vars.cxf-version}} \
+        -Djetty.version=${{vars.jetty-version}}
+      jar=tika-server/tika-server-standard/target/tika-server-standard-${{package.version}}.jar
+      test -s "$jar"
+      install -Dm644 "$jar" "${{targets.destdir}}/opt/tika/tika-server-standard.jar"
+      install -d -m755 "${{targets.destdir}}/tika-extras"
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 NOTICE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE"
+
+  - name: Install the launcher
+    runs: |
+      install -d "${{targets.destdir}}/usr/bin"
+      cat >"${{targets.destdir}}/usr/bin/tika-server" <<'LAUNCHER'
+      #!/bin/sh
+      # Mirrors the launch command of the upstream apache/tika container image:
+      # extra parser jars go in /tika-extras, server options follow as arguments.
+      # shellcheck disable=SC2086
+      exec java ${JAVA_OPTS} \
+        -cp "/opt/tika/tika-server-standard.jar:/tika-extras/*" \
+        org.apache.tika.server.core.TikaServerCli -h 0.0.0.0 "$@"
+      LAUNCHER
+      chmod 755 "${{targets.destdir}}/usr/bin/tika-server"
+
+test:
+  environment:
+    contents:
+      packages:
+        - openjdk-17-default-jvm
+    environment:
+      JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+  pipeline:
+    - runs: |
+        out=$(java -cp /opt/tika/tika-server-standard.jar org.apache.tika.server.core.TikaServerCli --help 2>&1 || true)
+        printf '%s\n' "$out" | grep -q 'listen port'
+
+update:
+  enabled: true
+  github:
+    identifier: apache/tika
+    use-tag: true
+    tag-filter-prefix: "3."

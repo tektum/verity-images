@@ -1,0 +1,9 @@
+name: vpa-recommender
+track: wolfi
+description: Kubernetes Vertical Pod Autoscaler recommender, built from pinned upstream source.
+category: Kubernetes & Orchestration
+upstream: https://github.com/kubernetes/autoscaler
+versions: [1.8]
+scan-identity: [pkg:golang/k8s.io/autoscaler/vertical-pod-autoscaler]
+owner: tektum
+enabled: true

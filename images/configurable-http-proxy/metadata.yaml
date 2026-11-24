@@ -1,0 +1,9 @@
+name: configurable-http-proxy
+track: wolfi
+description: JupyterHub configurable-http-proxy, a Node.js reverse proxy with a REST API for routes.
+category: Web Servers & Proxies
+upstream: https://github.com/jupyterhub/configurable-http-proxy
+versions: [5.4]
+scan-identity: [pkg:npm/configurable-http-proxy]
+owner: tektum
+enabled: true

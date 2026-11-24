@@ -183,6 +183,79 @@ status=0
 PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
 [[ "$status" -eq 42 ]]
 
+# Run 44536379118: the last native row finished, validate rows resolved, and the
+# poll came before any publish row was queued. Nothing watched was live and a
+# validate row existed, so the guard used to exit 0 and never watched publish,
+# whose apko/kubectl rows then sat queued for hours. Until build-gate exists
+# (it needs publish), that state is still pending.
+JOBS_PAGE=$(jq -n -c \
+  --arg started "$stalled_started" \
+  '{jobs: [
+    {id: 10, name: "matrix", status: "completed", started_at: $started, steps: []},
+    {id: 11, name: "stall-guard", status: "in_progress", started_at: $started, steps: []},
+    {id: 12, name: "native-arm64 (apko, images/apko, desc)", status: "completed", started_at: $started, steps: []},
+    {id: 13, name: "native-arm64 (kubectl, images/kubectl, desc)", status: "completed", started_at: $started, steps: []},
+    {id: 14, name: "validate", status: "completed", conclusion: "skipped", started_at: $started, steps: []},
+    {id: 15, name: "validate (apko, images/apko, desc)", status: "completed", started_at: $started, steps: []},
+    {id: 16, name: "validate (kubectl, images/kubectl, desc)", status: "completed", started_at: $started, steps: []}
+  ]}')
+export JOBS_PAGE
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
+[[ "$status" -eq 42 ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'terminal validate rows without publish rows triggered a cancel\n' >&2
+  exit 1
+fi
+
+# Publish rows that exist but are not yet queued (pending on publish.yaml's
+# job-level concurrency, waiting on the release environment) are not terminal:
+# keep watching, but they are not runner stalls, so never cancel them.
+publish_waiting=$(jq -c \
+  --arg started "$stalled_started" \
+  '.jobs += [
+    {id: 17, name: "publish / publish (apko, images/apko, desc)", status: "pending", started_at: $started, steps: null},
+    {id: 18, name: "publish / publish (kubectl, images/kubectl, desc)", status: "waiting", started_at: $started, steps: null}
+  ]' <<<"$JOBS_PAGE")
+export JOBS_PAGE=$publish_waiting
+: > "$GH_LOG"
+status=0
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh" || status=$?
+[[ "$status" -eq 42 ]]
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'a pending or waiting publish row was cancelled as a runner stall\n' >&2
+  exit 1
+fi
+
+# The same run later: publish rows queued past the stall limit with no runner.
+# The guard is still watching, so it cancels the run.
+publish_stalled=$(jq -c \
+  '.jobs |= map(if .name | startswith("publish / publish (") then .status = "queued" | .steps = [] else . end)' \
+  <<<"$publish_waiting")
+export JOBS_PAGE=$publish_stalled
+: > "$GH_LOG"
+status=0
+output=$(PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh") || status=$?
+[[ "$status" -eq 1 ]]
+grep -Fq 'api -X POST repos/owner/repo/actions/runs/123/cancel' "$GH_LOG"
+grep -Fq '::error title=Runner allocation stalled::Job "publish / publish (apko, images/apko, desc)"' <<<"$output"
+grep -Fq '::error title=Runner allocation stalled::Job "publish / publish (kubectl, images/kubectl, desc)"' <<<"$output"
+
+# Once publish resolves, GitHub creates build-gate and the guard is done.
+publish_done=$(jq -c \
+  --arg started "$stalled_started" \
+  '.jobs |= map(if .name | startswith("publish / publish (") then .status = "completed" else . end)
+   | .jobs += [{id: 19, name: "build-gate", status: "queued", started_at: $started, steps: null}]' \
+  <<<"$publish_stalled")
+export JOBS_PAGE=$publish_done
+: > "$GH_LOG"
+PATH="$work/bin:$PATH" "$root/scripts/cancel_stalled_jobs.sh"
+if grep -q '/cancel' "$GH_LOG"; then
+  printf 'a resolved publish stage triggered a cancel\n' >&2
+  exit 1
+fi
+
 # A native row that never got a runner is cancelled like any other watched job.
 JOBS_PAGE=$(jq -n -c \
   --arg started "$stalled_started" \

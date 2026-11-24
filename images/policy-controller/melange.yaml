@@ -1,0 +1,148 @@
+package:
+  name: verity-policy-controller
+  # yamllint disable-line rule:line-length
+  version: "0.15.1"  # renovate: datasource=github-releases depName=sigstore/policy-controller versioning=regex:^(?<major>0)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Sigstore policy-controller admission webhook
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+      - tzdata
+  resources:
+    cpu: "4"
+    memory: 8Gi
+  test-resources:
+    cpu: "1"
+    memory: 1Gi
+
+vars:
+  # v0.15.1 is an annotated tag that peels to this commit.
+  source-commit: cc75baab1d34d3bae47bde7bd934bf79e5ca3afc
+  # knative.dev/pkg release-1.24 head; see the knative step below.
+  knative-pkg-floor: v0.0.0-20261105010332-38864af657b5  # renovate: datasource=go depName=knative.dev/pkg
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOFLAGS: -p=4
+    GOMAXPROCS: "4"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/sigstore/policy-controller
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+
+  # v0.15.1 pins knative.dev/pkg at a 2023 revision affected by
+  # GHSA-2hw4-c9m4-f2fj (GO-2026-6880, unbounded admission request bodies).
+  # Its first fixed revision (release-1.22) uses OpenTelemetry semconv v1.40.0,
+  # while the otel/sdk fix for GHSA-q7gw-24fr-5p69 (v1.47.0) builds its default
+  # resource on semconv v1.43.0, and knative's resource merge then panics at
+  # start-up with "conflicting Schema URL". release-1.24 is built against
+  # otel/sdk v1.47.0 and semconv v1.43.0, so take it before remediation.
+  - runs: |
+      go get knative.dev/pkg@${{vars.knative-pkg-floor}}
+      go mod tidy
+
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/webhook
+
+  # Same build as the upstream ko image (.ko.yaml build `policy-controller`:
+  # ./cmd/webhook, CGO_ENABLED=0, -trimpath) with the Makefile LDFLAGS stamps
+  # for sigs.k8s.io/release-utils/version. The build date is the commit time,
+  # as the Makefile derives it from SOURCE_DATE_EPOCH, and the tree state is
+  # computed the same way, so a remediated dependency reports "dirty".
+  # release-utils prefers the Go main module version over the gitVersion stamp,
+  # so a remediated build reports v${{package.version}}+dirty there too. ko's
+  # kodata (HEAD, refs, licenses) is not shipped: at this knative.dev/pkg
+  # revision changeset.Get reads vcs.revision from the Go build information,
+  # and nothing else in the binary reads KO_DATA_PATH.
+  - runs: |
+      commit=$(git rev-parse HEAD)
+      test "$commit" = '${{vars.source-commit}}'
+      build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
+      tree_state=clean
+      git diff --quiet || tree_state=dirty
+      pkg=sigs.k8s.io/release-utils/version
+      ldflags="-s -w -buildid= -X $pkg.gitVersion=v${{package.version}} -X $pkg.gitCommit=$commit"
+      ldflags="$ldflags -X $pkg.gitTreeState=$tree_state -X $pkg.buildDate=$build_date"
+      go build -trimpath -buildvcs=true -ldflags "$ldflags" \
+        -o "${{targets.destdir}}/usr/bin/policy-controller" ./cmd/webhook
+      go version -m "${{targets.destdir}}/usr/bin/policy-controller" >buildinfo.txt
+      awk '$1 == "mod" && $2 == "github.com/sigstore/policy-controller" { print $3 }' \
+        buildinfo.txt | grep -Ex 'v${{package.version}}(\+dirty)?'
+      awk '$1 == "path" { print $2 }' buildinfo.txt \
+        | grep -Fx github.com/sigstore/policy-controller/cmd/webhook
+      awk '$1 == "build" && $2 ~ /^vcs.revision=/ { print $2 }' buildinfo.txt \
+        | grep -Fx "vcs.revision=$commit"
+      awk '$1 == "build" && $2 == "CGO_ENABLED=0" { print $2 }' buildinfo.txt | grep -Fx CGO_ENABLED=0
+      # knative.dev/pkg must stay at or after the floor revision; compare the
+      # pseudo-version commit timestamps.
+      knative=$(awk '$1 == "dep" && $2 == "knative.dev/pkg" { print $3 }' buildinfo.txt)
+      [ "$(echo "$knative" | cut -d- -f2)" -ge \
+        "$(echo '${{vars.knative-pkg-floor}}' | cut -d- -f2)" ]
+      rm buildinfo.txt
+      # Upstream's ko image runs /ko-app/webhook; keep that path working.
+      mkdir -p "${{targets.destdir}}/ko-app"
+      ln -s ../usr/bin/policy-controller "${{targets.destdir}}/ko-app/webhook"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the policy-controller build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/policy-controller-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/policy-controller-build/go.sum"
+
+test:
+  environment:
+    contents:
+      packages:
+        - apk-tools
+        - busybox
+  pipeline:
+    - runs: |
+        test "$(readlink -f /ko-app/webhook)" = /usr/bin/policy-controller
+        apk info --who-owns /usr/bin/policy-controller \
+          | grep -F "${{package.name}}-${{package.full-version}}"
+        apk info --license "${{package.name}}" | grep -Fx Apache-2.0
+        grep -F 'Apache License' "/usr/share/licenses/${{package.name}}/LICENSE"
+        work=$(mktemp -d)
+        policy-controller --help >"$work/help" 2>&1
+        grep -F -- '-disable-tuf' "$work/help"
+        grep -F -- '-secure-port int' "$work/help"
+        grep -F 'https://tuf-repo-cdn.sigstore.dev' "$work/help"
+        # TUF stays off so the test never reaches the Sigstore public-good
+        # infrastructure; without a cluster the webhook fails closed after
+        # logging its version stamp.
+        status=0
+        HOME="$work" KUBECONFIG= policy-controller --disable-tuf >"$work/noconfig" 2>&1 || status=$?
+        test "$status" -ne 0
+        grep -E '"gitVersion": "v${{package.version}}(\+dirty)?"' "$work/noconfig"
+        grep -F '"gitCommit": "${{vars.source-commit}}"' "$work/noconfig"
+        grep -F 'Error building kubeconfig' "$work/noconfig"
+        if policy-controller --definitely-invalid >"$work/bad" 2>&1; then exit 1; fi
+        grep -F 'flag provided but not defined: -definitely-invalid' "$work/bad"

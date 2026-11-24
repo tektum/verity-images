@@ -1,0 +1,72 @@
+package:
+  name: verity-kubo-0.43
+  # yamllint disable-line rule:line-length
+  version: "0.43.1"  # renovate: datasource=github-releases depName=ipfs/kubo versioning=regex:^(?<major>0)\.(?<minor>43)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  epoch: 0
+  description: Kubo IPFS node implementation.
+  copyright:
+    - license: MIT OR Apache-2.0
+  dependencies:
+    runtime:
+      - ca-certificates-bundle
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+vars:
+  source-commit: acc53c093810a8fe9a4bc2f023f0b1e0c1d629b5
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - busybox
+      - ca-certificates-bundle
+      - git
+      - go-1.27
+      - python3
+  environment:
+    CGO_ENABLED: "0"
+    GOTOOLCHAIN: local
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/ipfs/kubo
+      tag: v${{package.version}}
+      expected-commit: ${{vars.source-commit}}
+  - uses: go/remediate
+    with:
+      modroot: .
+      packages: ./cmd/ipfs
+  - runs: |
+      go build -mod=readonly -trimpath -buildvcs=true \
+        -ldflags="-s -w -X github.com/ipfs/kubo.CurrentCommit=${{vars.source-commit}}" \
+        -o ipfs ./cmd/ipfs
+      install -Dm755 ipfs "${{targets.destdir}}/usr/bin/ipfs"
+      go version -m "${{targets.destdir}}/usr/bin/ipfs" \
+        | awk '$1 == "mod" && $2 == "github.com/ipfs/kubo" { print $3 }' \
+        | grep -Ex 'v${{package.version}}(\+dirty)?'
+      install -Dm644 LICENSE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 LICENSE-MIT "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-MIT"
+      install -Dm644 LICENSE-APACHE "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-APACHE"
+  - uses: strip
+
+subpackages:
+  - name: ${{package.name}}-build-metadata
+    description: Resolved Go module metadata for the Kubo build
+    pipeline:
+      - runs: |
+          install -Dm644 go.mod \
+            "${{targets.subpkgdir}}/usr/share/kubo-build/go.mod"
+          install -Dm644 go.sum \
+            "${{targets.subpkgdir}}/usr/share/kubo-build/go.sum"
+
+test:
+  pipeline:
+    - runs: |
+        /usr/bin/ipfs version | grep -Fx 'ipfs version ${{package.version}}'
+        test -f /usr/share/licenses/${{package.name}}/LICENSE

@@ -1,0 +1,71 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - verity-nifi-registry-2@local
+
+accounts:
+  groups:
+    - groupname: nifi
+      gid: 1000
+  users:
+    - username: nifi
+      uid: 1000
+      gid: 1000
+  run-as: 1000
+
+entrypoint:
+  command: /opt/nifi-registry/scripts/start.sh
+
+environment:
+  JAVA_HOME: /usr/lib/jvm/java-21-openjdk
+  LANG: en_US.UTF-8
+  NIFI_REGISTRY_BASE_DIR: /opt/nifi-registry
+  NIFI_REGISTRY_HOME: /opt/nifi-registry/nifi-registry-current
+  PATH: /usr/lib/jvm/java-21-openjdk/bin:/usr/local/bin:/usr/bin:/bin
+
+# The start script rewrites conf in place, and the registry writes its
+# database, extension bundles, flow storage, logs, pid file, and Jetty work files under its home.
+paths:
+  - path: /opt/nifi-registry/nifi-registry-current/conf
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+    recursive: true
+  - path: /opt/nifi-registry/nifi-registry-current/database
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /opt/nifi-registry/nifi-registry-current/extension_bundles
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /opt/nifi-registry/nifi-registry-current/flow_storage
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /opt/nifi-registry/nifi-registry-current/logs
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /opt/nifi-registry/nifi-registry-current/run
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+  - path: /opt/nifi-registry/nifi-registry-current/work
+    type: directory
+    uid: 1000
+    gid: 1000
+    permissions: 0o755
+
+work-dir: /opt/nifi-registry/nifi-registry-current

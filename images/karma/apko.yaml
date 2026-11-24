@@ -1,0 +1,40 @@
+contents:
+  repositories:
+    - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
+  keyring:
+    - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
+  packages:
+    - ca-certificates-bundle
+    - verity-karma@local
+
+# Upstream ghcr.io/prymitive/karma: distroless static with /karma,
+# ENTRYPOINT ["/karma"], no CMD, WORKDIR / and EXPOSE 8080 (karma's default
+# listen port). APKO cannot declare exposed ports, so the smoke test asserts
+# the 8080 listener. This image runs as non-root 65532 and keeps /karma as a
+# symlink to the packaged /usr/bin/karma entrypoint.
+accounts:
+  run-as: 65532
+
+entrypoint:
+  command: /usr/bin/karma
+
+work-dir: /
+
+environment:
+  PATH: /usr/bin:/bin
+
+paths:
+  - path: /karma
+    type: symlink
+    source: /usr/bin/karma
+    uid: 0
+    gid: 0
+  # apko applies the symlink entry's mode (0) through the link to its target,
+  # so the binary mode is restored explicitly.
+  - path: /usr/bin/karma
+    type: permissions
+    uid: 0
+    gid: 0
+    permissions: 0o755

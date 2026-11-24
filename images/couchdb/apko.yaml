@@ -6,11 +6,11 @@ contents:
   packages:
     - bash
     - busybox
-    - couchdb-3.5=3.5.3-r1
-    - couchdb-3.5-compat=3.5.3-r1
+    - couchdb-3.5=3.5.3-r2
+    - couchdb-3.5-compat=3.5.3-r2
     # Wolfi moves the whole share/ tree (JavaScript query server main.js, Fauxton)
     # into the -doc subpackage; without it views and design documents fail.
-    - couchdb-3.5-doc=3.5.3-r1
+    - couchdb-3.5-doc=3.5.3-r2
 
 accounts:
   groups:
