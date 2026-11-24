@@ -1,0 +1,205 @@
+package:
+  name: verity-cassandra-reaper
+  # yamllint disable-line rule:line-length
+  version: "5.1.0"  # renovate: datasource=github-tags depName=thelastpickle/cassandra-reaper versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$
+  epoch: 0
+  description: Reaper for Apache Cassandra, a repair orchestration server with web UI
+  copyright:
+    - license: Apache-2.0
+  dependencies:
+    runtime:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      # The upstream image installs curl; Wolfi busybox has no wget or nc applets.
+      - curl
+      # entrypoint.sh register-clusters waits for ports with `nc -zv`.
+      - netcat-openbsd
+      - openjdk-17-default-jvm
+      # spreaper (the register-clusters entrypoint command) is a Python CLI.
+      - py3-requests
+      - python3
+  resources:
+    cpu: "4"
+    memory: 8Gi
+
+# The vars below raise dependency versions that the upstream 5.1.0 release still ships with
+# published advisories.
+vars:
+  # GHSA-jh4v-gfqj-7rhx, GHSA-7822-rcf6-97fx, GHSA-cqgh-8p3p-mx4m, GHSA-h6w7-qmcm-q6xr
+  # yamllint disable-line rule:line-length
+  amqp-client-version: 5.38.0  # renovate: datasource=maven depName=com.rabbitmq:amqp-client versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$
+  # GHSA-xxph-c9ww-hj94
+  # yamllint disable-line rule:line-length
+  guava-version: 33.8.0-jre  # renovate: datasource=maven depName=com.google.guava:guava versioning=regex:^(?<major>33)\.(?<minor>\d+)\.(?<patch>\d+)-jre$
+  # GHSA-hjcp-jmpx-g3qm
+  # yamllint disable-line rule:line-length
+  httpclient5-version: 5.6.5  # renovate: datasource=maven depName=org.apache.httpcomponents.client5:httpclient5 versioning=regex:^(?<major>5)\.(?<minor>6)\.(?<patch>\d+)$
+  # GHSA-jhq6-gfmj-v8fx
+  # yamllint disable-line rule:line-length
+  logback-version: 1.5.38  # renovate: datasource=maven depName=ch.qos.logback:logback-core versioning=regex:^(?<major>1)\.(?<minor>5)\.(?<patch>\d+)$
+  # GHSA-xx22-p4ch-683r, GHSA-4v53-57pg-c464, GHSA-gm45-99xc-r7wv, GHSA-6cx8-rjf8-pr8g, GHSA-343h-94h5-c4wr,
+  # GHSA-mcr4-qmvw-px4g
+  # yamllint disable-line rule:line-length
+  lz4-version: 1.11.4  # renovate: datasource=maven depName=at.yawk.lz4:lz4-java versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - busybox
+      - ca-certificates-bundle
+      # bower fetches the UI's GitHub-hosted components with git; buildnumber-maven-plugin reads the SHA.
+      - git
+      - maven
+      - nodejs-22
+      - npm
+      - openjdk-17-default-jdk
+  environment:
+    JAVA_HOME: /usr/lib/jvm/java-17-openjdk
+    # The UI is built with webpack 4, whose md4 hashing needs the legacy OpenSSL provider on Node 17+.
+    NODE_OPTIONS: --openssl-legacy-provider
+    # bower refuses to run as root without this.
+    bower_allow_root: "true"
+
+pipeline:
+  - uses: git-checkout
+    with:
+      repository: https://github.com/thelastpickle/cassandra-reaper
+      tag: ${{package.version}}
+      expected-commit: a207a8595a52381255172726c5040d3162cbaf12
+  - runs: |
+      pom=src/server/pom.xml
+      # guava and amqp-client carry literal versions in the server POM (amqp-client under
+      # dependencyManagement), so rewrite them in place.
+      v='<version>[^<]*</version>'
+      sed -i \
+        -e "/<artifactId>guava<\/artifactId>/{n;s|$v|<version>${{vars.guava-version}}</version>|;}" \
+        -e "/<artifactId>amqp-client<\/artifactId>/{n;s|$v|<version>${{vars.amqp-client-version}}</version>|;}" \
+        "$pom"
+      grep -c '<version>${{vars.guava-version}}</version>' "$pom" | grep -qx 1
+      grep -c '<version>${{vars.amqp-client-version}}</version>' "$pom" | grep -qx 1
+      # dropwizard-cassandra pulls the abandoned org.lz4:lz4-java 1.8.0 (GHSA-vqf4-7m7x-wgfc and
+      # others, no fix under that coordinate) next to cassandra-all's at.yawk.lz4 fork. Both ship
+      # net.jpountz classes, so drop the old one and manage the fork and httpclient5
+      # (via dropwizard-client) to fixed versions.
+      cat > exclusions.xml <<'XML'
+            <exclusions>
+                <exclusion>
+                    <groupId>org.lz4</groupId>
+                    <artifactId>lz4-java</artifactId>
+                </exclusion>
+            </exclusions>
+      XML
+      cat > pins.xml <<'XML'
+            <dependency>
+                <groupId>at.yawk.lz4</groupId>
+                <artifactId>lz4-java</artifactId>
+                <version>${{vars.lz4-version}}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.httpcomponents.client5</groupId>
+                <artifactId>httpclient5</artifactId>
+                <version>${{vars.httpclient5-version}}</version>
+            </dependency>
+      XML
+      awk '
+        { print }
+        /<artifactId>dropwizard-cassandra<\/artifactId>/ { cassandra = 1; next }
+        cassandra && /<version>/ {
+          while ((getline line < "exclusions.xml") > 0) print line
+          cassandra = 0
+          excluded = 1
+        }
+        /<dependencyManagement>/ { managed = 1 }
+        managed && !pinned && /<dependencies>/ {
+          while ((getline line < "pins.xml") > 0) print line
+          pinned = 1
+        }
+        END { if (!excluded || !pinned) exit 1 }
+      ' "$pom" > "$pom.new"
+      mv "$pom.new" "$pom"
+      rm exclusions.xml pins.xml
+  - runs: |
+      mvn -B -ntp -DskipTests -Djacoco.skip=true -Dmaven.javadoc.skip=true -Dmaven.source.skip=true \
+        -Dlogback.version=${{vars.logback-version}} \
+        -pl src/server -am package
+  - runs: |
+      jar="src/server/target/cassandra-reaper-${{package.version}}.jar"
+      # Every override must have reached the shaded jar, or the build fails.
+      shaded() { unzip -p "$jar" "META-INF/maven/$1/pom.properties" | sed -n 's/^version=//p'; }
+      test "$(shaded com.google.guava/guava)" = "${{vars.guava-version}}"
+      test "$(shaded com.rabbitmq/amqp-client)" = "${{vars.amqp-client-version}}"
+      test "$(shaded org.apache.httpcomponents.client5/httpclient5)" = "${{vars.httpclient5-version}}"
+      test "$(shaded ch.qos.logback/logback-core)" = "${{vars.logback-version}}"
+      test "$(shaded at.yawk.lz4/lz4-java)" = "${{vars.lz4-version}}"
+      if unzip -l "$jar" | grep 'META-INF/maven/org.lz4/'; then
+        echo "excluded org.lz4:lz4-java is present" >&2
+        exit 1
+      fi
+      # The web UI must be inside the shaded jar.
+      unzip -l "$jar" | grep ' assets/index.html$' >/dev/null
+      install -Dm644 "$jar" "${{targets.destdir}}/usr/local/lib/cassandra-reaper.jar"
+      docker=src/server/src/main/docker
+      install -Dm644 "$docker/cassandra-reaper.yml" "${{targets.destdir}}/etc/cassandra-reaper/cassandra-reaper.yml"
+      for script in configure-authentication.sh configure-jmx-credentials.sh \
+        configure-metrics.sh configure-persistence.sh configure-server.sh; do
+        install -Dm755 "$docker/$script" "${{targets.destdir}}/usr/local/bin/$script"
+      done
+      # Upstream signs session JWTs with a public fallback key when JWT_SECRET is unset. The
+      # Verity entrypoint refuses to start the server in that case; keep its copy of the fallback
+      # in step with the shipped config.
+      fallback=MySecretKeyForJWTWhichMustBeLongEnoughForHS256Algorithm
+      grep -F "\${JWT_SECRET:-$fallback}" "$docker/cassandra-reaper.yml" >/dev/null
+      install -Dm755 "$docker/entrypoint.sh" "${{targets.destdir}}/usr/local/bin/reaper-entrypoint.sh"
+      cat > "${{targets.destdir}}/usr/local/bin/entrypoint.sh" <<EOF
+      #!/bin/sh
+      # Verity guard in front of the upstream entrypoint (reaper-entrypoint.sh).
+      fix="set JWT_SECRET to a random value of at least 256 bits"
+      if [ "\${1:-}" = cassandra-reaper ]; then
+        auth=\$(printf '%s' "\${REAPER_AUTH_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')
+        if [ "\$auth" != false ]; then
+          if [ -z "\${JWT_SECRET:-}" ]; then
+            echo "verity: refusing to start: REAPER_AUTH_ENABLED is on and JWT_SECRET is unset; \$fix" >&2
+            exit 64
+          fi
+          if [ "\$JWT_SECRET" = "$fallback" ]; then
+            echo "verity: refusing to start: JWT_SECRET is the public upstream fallback; \$fix" >&2
+            exit 64
+          fi
+        fi
+      fi
+      exec /usr/local/bin/reaper-entrypoint.sh "\$@"
+      EOF
+      chmod 755 "${{targets.destdir}}/usr/local/bin/entrypoint.sh"
+      install -Dm755 src/packaging/bin/spreaper "${{targets.destdir}}/usr/local/bin/spreaper"
+      install -Dm644 LICENSE.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      install -Dm644 LICENSE-EPL-2.0.txt "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE-EPL-2.0"
+      install -Dm644 NOTICE.md "${{targets.destdir}}/usr/share/licenses/${{package.name}}/NOTICE.md"
+  - runs: |
+      # npm and bower leave root-only (0700) config and cache directories in the workspace, which
+      # melange cannot read back when it records workspace xattrs.
+      rm -rf .config .cache .npm .m2 src/ui/node_modules src/ui/bower_components
+
+test:
+  pipeline:
+    - runs: |
+        test -f /usr/local/lib/cassandra-reaper.jar
+        test -x /usr/local/bin/entrypoint.sh
+        test -x /usr/local/bin/reaper-entrypoint.sh
+        sh -n /usr/local/bin/entrypoint.sh
+        test -x /usr/local/bin/configure-server.sh
+        test -f /etc/cassandra-reaper/cassandra-reaper.yml
+        test -f /usr/share/licenses/verity-cassandra-reaper/LICENSE
+        spreaper ping --help >/dev/null
+
+update:
+  enabled: true
+  github:
+    identifier: thelastpickle/cassandra-reaper
+    use-tag: true
+    tag-filter-prefix: "5."
