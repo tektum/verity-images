@@ -1,6 +1,6 @@
 package:
   name: verity-apko
-  version: "1.5.1"  # renovate: datasource=github-releases depName=chainguard-dev/apko
+  version: "1.5.3"  # renovate: datasource=github-releases depName=chainguard-dev/apko
   epoch: 0
   description: Build OCI images from APK packages without a Dockerfile
   copyright:
@@ -36,7 +36,7 @@ pipeline:
     with:
       repository: https://github.com/chainguard-dev/apko
       tag: v${{package.version}}
-      expected-commit: 2af887e71025923c2c9db14cfa3d0be35946bd1d
+      expected-commit: f278240c79db12ba10d4fa13dbc64abaf896f51f
 
   - uses: go/remediate
     with:
