@@ -51,8 +51,8 @@ pipeline:
       modroot: .
       packages: .
 
-  # go/remediate drops the indirect checksum for Cobra documentation imported
-  # by gitsign; restore the graph checksum before the readonly build.
+  # go/remediate drops the indirect checksum for Cobra documentation
+  # (spf13/cobra/doc); restore the graph checksum before the readonly build.
   - runs: go mod tidy
 
   - runs: |
