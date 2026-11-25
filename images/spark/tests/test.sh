@@ -26,6 +26,18 @@ run() {
   timeout -k 10 "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --name "$name" --label "$label" \
     -e SPARK_LOCAL_IP=127.0.0.1 -e JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1 "$@" || rc=$?
   if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+    # Deadline diagnostics: which processes and threads are still alive inside
+    # the stuck container, so the CI log shows where it hung. Best effort only.
+    printf '== deadline diagnostics for %s\n' "$name" >&2
+    docker top "$name" >&2 2>&1 || true
+    docker exec "$name" sh -c '
+      echo "thread count: $(ls -d /proc/[0-9]*/task/* 2>/dev/null | wc -l)"
+      for p in /proc/[0-9]*; do
+        printf "%s: " "$p"
+        tr "\0" " " < "$p/cmdline" 2>/dev/null
+        echo
+      done
+    ' >&2 2>&1 || true
     docker rm -f "$name" >/dev/null 2>&1 || true
     printf 'FAIL: container exceeded the %ss deadline: %s\n' "${SMOKE_STEP_TIMEOUT:-900}" "$*" >&2
   fi
@@ -125,12 +137,28 @@ run "$image" sh -c '
   [ "$(pwd)" = /opt/spark/work-dir ]
   # Direct, single-use Python workers avoid the fork daemon handshake under QEMU.
   export PYSPARK_PYTHON=/usr/bin/python3 PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+  # Pin the py4j client thread to the main thread (avoids a second py4j thread
+  # that can outlive spark.stop() under emulation), unbuffer Python output, and
+  # dump Python stacks every 60s while running so a hang shows where it stalled.
+  export PYSPARK_PIN_THREAD=true PYTHONUNBUFFERED=1 PYTHONFAULTHANDLER=1
+  # Fewer JVM helper threads: SerialGC and no perfdata reduce the non-daemon
+  # thread surface at exit under QEMU.
+  jvm_exit_opts="-XX:+UseSerialGC -XX:-UsePerfData -Xshare:off"
   pyspark_submit() {
     spark-submit --master "local[1]" \
       --conf spark.python.use.daemon=false \
       --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
-      --conf spark.python.worker.reuse=false "$@"
+      --conf spark.python.worker.reuse=false \
+      --conf "spark.driver.extraJavaOptions=$jvm_exit_opts" \
+      --conf "spark.executor.extraJavaOptions=$jvm_exit_opts" "$@"
   }
+  wrap_py() {
+    # Prepend a faulthandler watchdog to user code: every 60s dump Python
+    # tracebacks to stderr so the CI log identifies a hung Python-side exit.
+    { printf "import faulthandler\nfaulthandler.dump_traceback_later(60, repeat=True)\n"; cat "$1"; } > "$1.wrapped"
+    mv "$1.wrapped" "$1"
+  }
+  wrap_py /opt/spark/examples/src/main/python/pi.py
   pyspark_submit /opt/spark/examples/src/main/python/pi.py 2
   cat > roundtrip.py <<EOF
 from pyspark.sql import SparkSession
@@ -145,6 +173,7 @@ table = spark.table("buckets").count()
 print("ROUNDTRIP buckets=%d rows=%d table=%d" % (total, rows, table))
 spark.stop()
 EOF
+  wrap_py roundtrip.py
   pyspark_submit roundtrip.py
   [ -d spark-warehouse/buckets ]
 ' >"$work/pyspark.log" 2>&1 || show_fail "$work/pyspark.log" 'PySpark run failed'
