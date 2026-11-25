@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/git/apko.yaml",
-    "checksum": "sha256-v1NX+GSVM74auaB3FzokBi2qfDAw6Li11yx7axqJ5f8="
+    "checksum": "sha256-vH8GLRPG0D74IQYdvynu49lq0VVMeVegNsfdwUxf//A="
   },
   "contents": {
     "keyring": [
@@ -197,6 +197,25 @@
           "checksum": "sha256-ixxyGBAEwhFDCrv0e1mnUAeHHDkuY3FoOpjeidjogq4="
         },
         "checksum": "Q1jhIRCvcJEWA3sI2roAiWE4IeUIE="
+      },
+      {
+        "name": "glibc-2.44-iconv-common",
+        "url": "https://packages.wolfi.dev/os/x86_64/glibc-2.44-iconv-common-2.44-r25.apk",
+        "version": "2.44-r25",
+        "architecture": "x86_64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-31579",
+          "checksum": "sha1-p/wgkCw54kUKugZGkUBT65kn0ac="
+        },
+        "data": {
+          "range": "bytes=31580-967164",
+          "checksum": "sha256-zFsKKzdDfLUL5uSh8o1rvzwOTRAVvojUwLHe5VXJ+08="
+        },
+        "checksum": "Q1p/wgkCw54kUKugZGkUBT65kn0ac="
       },
       {
         "name": "libpcre2-8-0",
@@ -770,22 +789,22 @@
       },
       {
         "name": "git",
-        "url": "https://packages.wolfi.dev/os/x86_64/git-2.56.1-r1.apk",
-        "version": "2.56.1-r1",
+        "url": "https://packages.wolfi.dev/os/x86_64/git-2.56.1-r2.apk",
+        "version": "2.56.1-r2",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-19683",
-          "checksum": "sha1-+MTGW345KtGvrK4QP4xAjz2UAP8="
+          "range": "bytes=0-20136",
+          "checksum": "sha1-9xkTsOlAV3De3vfOqtvj3Rs4Alw="
         },
         "data": {
-          "range": "bytes=19684-10178757",
-          "checksum": "sha256-GOMvC4/hW1ZuEvJ2+a6feedOqIOHUw/TPG0Fgfy8cwc="
+          "range": "bytes=20137-10189169",
+          "checksum": "sha256-QdjCfyl0BeE5YNLpRYi97+9P7rBB+GghF8zXcMKJymA="
         },
-        "checksum": "Q1+MTGW345KtGvrK4QP4xAjz2UAP8="
+        "checksum": "Q19xkTsOlAV3De3vfOqtvj3Rs4Alw="
       },
       {
         "name": "wolfi-baselayout",
@@ -957,6 +976,25 @@
           "checksum": "sha256-4P+Mp806KHY7XStI9xlSbvukFHgWQbP/nnOJgtN8RKc="
         },
         "checksum": "Q1zF2ydFbnqG3s4WfnZQ9fUUratfI="
+      },
+      {
+        "name": "glibc-2.44-iconv-common",
+        "url": "https://packages.wolfi.dev/os/aarch64/glibc-2.44-iconv-common-2.44-r25.apk",
+        "version": "2.44-r25",
+        "architecture": "aarch64",
+        "signature": {
+          "range": "",
+          "checksum": ""
+        },
+        "control": {
+          "range": "bytes=0-31625",
+          "checksum": "sha1-cGzKYBhQNM4WLt1NVC3h/foYqxo="
+        },
+        "data": {
+          "range": "bytes=31626-1130365",
+          "checksum": "sha256-8EpCoaOIhOeyanJFEOEpIfOHWL7N3mkbKSSO+k8h2JI="
+        },
+        "checksum": "Q1cGzKYBhQNM4WLt1NVC3h/foYqxo="
       },
       {
         "name": "libpcre2-8-0",
@@ -1530,22 +1568,22 @@
       },
       {
         "name": "git",
-        "url": "https://packages.wolfi.dev/os/aarch64/git-2.56.1-r1.apk",
-        "version": "2.56.1-r1",
+        "url": "https://packages.wolfi.dev/os/aarch64/git-2.56.1-r2.apk",
+        "version": "2.56.1-r2",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-19704",
-          "checksum": "sha1-SdYsTeXLBA4L6vVvj7M5Zq62sc0="
+          "range": "bytes=0-20158",
+          "checksum": "sha1-yriNVZaL+ZMWTwWeY067OU6kqRA="
         },
         "data": {
-          "range": "bytes=19705-9645043",
-          "checksum": "sha256-78EYqxK/qnDMaj+NdAtPdhtDREh3gS1hzhE1UAE2sbY="
+          "range": "bytes=20159-9668643",
+          "checksum": "sha256-DfkJsjb2CH6Z689rPJekWYxyulvD1Aw/oG6qpNAZ7zo="
         },
-        "checksum": "Q1SdYsTeXLBA4L6vVvj7M5Zq62sc0="
+        "checksum": "Q1yriNVZaL+ZMWTwWeY067OU6kqRA="
       }
     ]
   }
