@@ -1,10 +1,9 @@
 name: kong
 track: wolfi
-description: Kong Gateway assembled from Wolfi packages with the upstream docker-entrypoint contract.
+description: Kong Gateway built from pinned upstream source with the upstream docker-entrypoint contract.
 category: Web Servers & Proxies
 upstream: https://konghq.com/
 versions: [3.9]
 owner: tektum
 enabled: true
 scan-identity: [cpe:2.3:a:konghq:kong_gateway]
-scan-package: kong
