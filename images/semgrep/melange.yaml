@@ -2,7 +2,7 @@ package:
   name: verity-semgrep
   # yamllint disable-line rule:line-length
   version: "1.185.0"  # renovate: datasource=github-releases depName=semgrep/semgrep versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Semgrep static analysis engine (semgrep-core, osemgrep) and Python CLI, built from the upstream release
   copyright:
     - license: LGPL-2.1-or-later
@@ -43,6 +43,7 @@ vars:
   python-dotenv-version: "1.2.4"  # renovate: datasource=pypi depName=python-dotenv
   python-multipart-version: "0.0.33"  # renovate: datasource=pypi depName=python-multipart
   requests-version: "2.34.2"  # renovate: datasource=pypi depName=requests
+  wcmatch-version: "11.2"  # renovate: datasource=pypi depName=wcmatch
   starlette-version: "1.10.0"  # renovate: datasource=pypi depName=starlette
   # yamllint enable rule:line-length
 
@@ -136,6 +137,7 @@ pipeline:
       python-dotenv==${{vars.python-dotenv-version}}
       python-multipart==${{vars.python-multipart-version}}
       requests==${{vars.requests-version}}
+      wcmatch==${{vars.wcmatch-version}}
       starlette==${{vars.starlette-version}}
       EOF
 
@@ -153,9 +155,11 @@ pipeline:
       sed -i -E \
         -e "s/\"mcp==1\.29\.0\"/\"mcp==${{vars.mcp-version}}\"/" \
         -e "s/\"(opentelemetry-(api|sdk|exporter-otlp-proto-http))~=1\.37\.0\"/\"\1==${otel}\"/" \
+        -e "s/\"wcmatch~=8\.3\"/\"wcmatch==${{vars.wcmatch-version}}\"/" \
         pyproject.toml
       grep -q '"mcp==${{vars.mcp-version}}"' pyproject.toml
       test "$(grep -c '"opentelemetry-[a-z-]*==${{vars.otel-version}}"' pyproject.toml)" = 3
+      grep -q '"wcmatch==${{vars.wcmatch-version}}"' pyproject.toml
 
       names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
       grep -viE "^(${names}|opentelemetry-[a-z-]+)==" upstream.txt > constraints.txt
