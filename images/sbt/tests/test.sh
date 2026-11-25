@@ -81,8 +81,7 @@ docker run --rm --network none -v "$work/project:/work" --entrypoint /bin/sh "$i
   for path in /home/build/.sbt/boot/sbt.boot.lock /home/build/.cache/coursier/v1/https; do
     [ -e "$path" ] && echo "probe: wrote $path"
   done
-  find /home/build/.sbt -path "*/java9-rt-ext-*/rt.jar" 2>/dev/null | sed "s/^/probe: wrote /"
-  find /home/build -maxdepth 3 -type d 2>/dev/null | sed "s/^/probe: dir /"
+  ls -d /home/build/.cache/sbt/rt/java9-rt-ext-*/rt.jar 2>/dev/null | sed "s/^/probe: wrote /"
   exit "$rc"' >"$work/build" 2>&1 || rc=$?
 [ "$rc" -ne 0 ] || fail 'offline build unexpectedly resolved sbt without a network'
 grep -F 'entering thin client' "$work/build" >/dev/null || fail 'sbt 2 project did not use the native client'
@@ -96,7 +95,9 @@ fi
 for path in /home/build/.sbt/boot/sbt.boot.lock /home/build/.cache/coursier/v1/https; do
   grep -Fx "probe: wrote $path" "$work/build" >/dev/null || fail "launcher did not write $path"
 done
-grep -E '^probe: wrote /home/build/\.sbt/[^/]+/java9-rt-ext-[^/]*/rt\.jar$' "$work/build" >/dev/null ||
+# sbt 2.1 ships launcher 1.7.1, which caches the runtime under the local cache
+# base (~/.cache/sbt/rt) instead of ~/.sbt/1.0 (sbt/launcher#160).
+grep -E '^probe: wrote /home/build/\.cache/sbt/rt/java9-rt-ext-[^/]*/rt\.jar$' "$work/build" >/dev/null ||
   fail "runner did not export the JDK runtime into HOME: $(grep '^probe: ' "$work/build")"
 
 # Negative cases: a malformed option and a directory without a build.
