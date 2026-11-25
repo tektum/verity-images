@@ -57,11 +57,12 @@ repositories, credentials, or custom package feeds. Commit every Wolfi lockfile
 update for review with its source change.
 
 An npm dependency tree must be reproducible. Use `npm ci` against a lockfile,
-or run `npm install` only where the recipe names a `package-lock.json` or
-`npm-shrinkwrap.json` before the install (fetched with the source, copied into
-place, or generated). `scripts/test_npm_lockfile.py` (in `lint`) fails a recipe
-that runs a project-tree `npm install` with no lockfile named before it;
-tooling installs (`npm install --global <pkg>@<version>`) are out of scope.
+or run `npm install` only after a `cp`, `install`, `mv`, `ln`, `test` or `[`
+command in the same `runs:` block puts a `package-lock.json` or
+`npm-shrinkwrap.json` in place. `scripts/test_npm_lockfile.py` (in `lint`)
+fails any recipe (flavor recipes included) that runs a project-tree
+`npm install` without that proof or with the lockfile disabled; tooling
+installs (`npm install --global <pkg>@<version>`) are out of scope.
 
 ### Package names
 

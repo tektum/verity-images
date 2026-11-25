@@ -5,17 +5,16 @@
 every version range on every build: two builds of the same recipe can ship
 different dependency versions, and a compromised or newly vulnerable transitive
 release slips in without any recipe change. `npm ci` never resolves; it installs
-exactly the lockfile. So a recipe must either use `npm ci`, or name a lockfile
-(`package-lock.json` or `npm-shrinkwrap.json`) before the `npm install` command:
-fetched with the upstream source, copied into place, or generated. Naming it
-proves the recipe author pinned the resolution; the build then fails on its own
-if the file is absent, because `npm install` has no lockfile to resolve from.
+exactly the lockfile. So a recipe must either use `npm ci`, or put a lockfile
+(`package-lock.json` or `npm-shrinkwrap.json`) in place before `npm install`
+in the same `runs:` block, with a `cp`, `install`, `mv`, `ln`, `test` or `[`
+command naming it. A mention elsewhere (a comment, `rm`, `echo`) proves nothing.
 
-This test walks each recipe's `runs:` blocks, finds every project-tree
-`npm install`, and requires a lockfile name earlier in the recipe. Tooling
-installs (`npm install --global <pkg>@<version>`) pin their own package and
-install no project tree, so they are out of scope. A lockfile generated inside
-the same block after the install does not count: the check is order-sensitive.
+This test scans every melange recipe of each image (flavor recipes included)
+with comments stripped, finds every project-tree `npm install`, and requires
+that proof earlier in the same block. Tooling installs (`npm install --global
+<pkg>@<version>`) pin their own package and install no project tree, so they
+are out of scope. Installs that disable the lockfile always fail.
 """
 
 from __future__ import annotations
@@ -28,59 +27,39 @@ import gen_matrix
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCKFILES = ("package-lock.json", "npm-shrinkwrap.json")
-# A project-tree install: `npm install`/`npm i` with no --global flag. Comments are stripped first.
-NPM_INSTALL = re.compile(r"(?<![\w-])npm\s+(?:install|i)(?=[\s)&;|]|$)(?P<args>[^\n;&|)]*)")
-RUNS_BLOCK = re.compile(r"(?m)^(?P<indent>\s*)-?\s*runs:\s*\|\s*$")
-
-
-def recipe_blocks(contents: str) -> list[str]:
-    """The bodies of every `runs: |` block in a melange recipe."""
-    lines = contents.splitlines(keepends=True)
-    blocks, current, indent = [], [], None
-    for line in lines:
-        match = RUNS_BLOCK.match(line)
-        if match:
-            if current:
-                blocks.append("".join(current))
-            current, indent = [], len(match.group("indent"))
-            continue
-        if indent is None:
-            continue
-        if line.strip() and len(line) - len(line.lstrip()) <= indent:
-            if current:
-                blocks.append("".join(current))
-            current, indent = [], None
-            continue
-        current.append(line)
-    if current:
-        blocks.append("".join(current))
-    return blocks
+# A project-tree install: `npm [opts] install`/`npm [opts] i`. Comments are stripped first.
+NPM_INSTALL = re.compile(
+    r"(?<![\w-])npm(?:\s+-{1,2}[\w-]+(?:[=\s][^-\s][^\s;&|)]*)?)*\s+(?:install|i)(?=[\s)&;|]|$)"
+    r"(?P<args>[^\n;&|)]*)"
+)
+GLOBAL = re.compile(r"(?<![\w-])(?:--global|-g)(?![\w=-])")
+NO_LOCK = re.compile(r"--no-package-lock|--package-lock=false")
+# A lockfile only proves a pinned resolution when a command puts it in place or asserts it exists.
+PROOF = re.compile(r"(?m)^\s*(?:\(?\s*cd\s+\S+\s*&&\s*)?(?:cp|install|mv|ln|test|\[)\s[^\n]*(?:%s)" % "|".join(map(re.escape, LOCKFILES)))
 
 
 def uncommented(contents: str) -> str:
-    """The recipe with comment-only lines blanked, so string positions stay aligned."""
-    return "\n".join("" if line.strip().startswith("#") else line for line in contents.splitlines())
-
-
-def installs(block: str):
-    """Yield (position in block, args) for every project-tree `npm install`."""
-    for match in NPM_INSTALL.finditer(block):
-        args = match.group("args")
-        if "--global" in args or re.search(r"(?<![\w-])-g(?![\w-])", args):
-            continue
-        yield match.start(), args
+    """The recipe with comment lines and trailing ` # ...` comments removed."""
+    return "\n".join(
+        "" if line.strip().startswith("#") else re.sub(r"\s+#.*$", "", line)
+        for line in contents.splitlines()
+    )
 
 
 def violations(recipe: Path) -> list[str]:
     contents = uncommented(recipe.read_text(encoding="utf-8"))
     failures = []
-    for block in recipe_blocks(contents):
-        start = contents.index(block)
-        for position, _ in installs(block):
-            before = contents[: start + position]
-            if any(name in before for name in LOCKFILES):
-                continue
-            failures.append(f"{recipe}: npm install without a lockfile named before it")
+    for match in NPM_INSTALL.finditer(contents):
+        command = match.group(0)
+        if GLOBAL.search(command):
+            continue
+        if NO_LOCK.search(command):
+            failures.append(f"{recipe}: npm install disables the lockfile")
+            continue
+        # Only a proof in the same `runs:` block, before the install, counts.
+        block = contents[max(contents.rfind("runs:", 0, match.start()), 0) : match.start()]
+        if not PROOF.search(block):
+            failures.append(f"{recipe}: npm install without a lockfile put in place before it")
     return failures
 
 
@@ -101,10 +80,16 @@ def check() -> None:
     assert count('      npm install --global "npm@12.0.0" --ignore-scripts\n') == 0
     # A lockfile named only after the install proves nothing.
     assert count("      npm install\n      cp package-lock.json /out/\n") == 1
-    # A comment naming a lockfile must not satisfy the check.
+    # A comment, inline or whole-line, naming a lockfile must not satisfy the check.
     assert count("      # upstream ships no package-lock.json\n      npm install\n") == 1
-    # Two installs in one block, the second unlocked by a cd into a fresh tree.
+    assert count("      cd ui  # no package-lock.json upstream\n      npm install\n") == 1
+    assert count("      rm -f package-lock.json\n      npm install\n") == 1
     assert count("      cp package-lock.json ui/\n      npm install\n") == 0
+    assert count("      cp package-lock.json ui/\n      npm install --no-package-lock\n") == 1
+    assert count("      npm --prefix ui install\n") == 1
+    assert count("      npm install --global-style\n") == 1
+    # A proof in an earlier block does not cover a later one.
+    assert count("      cp package-lock.json ui/\n  - runs: npm install\n") == 1
 
 
 def main() -> None:
@@ -112,8 +97,8 @@ def main() -> None:
     failures = [
         failure
         for directory in gen_matrix.image_directories()
-        if (directory / "melange.yaml").is_file()
-        for failure in violations(directory / "melange.yaml")
+        for recipe in sorted(directory.glob("*melange.yaml"))
+        for failure in violations(recipe)
     ]
     for failure in failures:
         print(failure, file=sys.stderr)
