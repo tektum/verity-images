@@ -99,6 +99,7 @@ check_pi() {
 step 'SparkPi local mode'
 # SparkPi in local mode, through the pass-through entrypoint.
 run "$image" /opt/spark/bin/spark-submit --master 'local[1]' \
+  --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 2 \
   >"$work/pi.log" 2>&1 || show_fail "$work/pi.log" 'SparkPi failed'
 check_pi "$work/pi.log" SparkPi
@@ -109,6 +110,7 @@ step 'driver mode'
 # also sets spark.driver.host (the driver service); here both are loopback.
 run -e SPARK_DRIVER_BIND_ADDRESS=127.0.0.1 "$image" driver --master 'local[1]' \
   --conf spark.driver.host=127.0.0.1 \
+  --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 2 \
   >"$work/driver.log" 2>&1 || show_fail "$work/driver.log" 'driver-mode SparkPi failed'
 check_pi "$work/driver.log" 'driver-mode SparkPi'
@@ -126,6 +128,7 @@ run "$image" sh -c '
   pyspark_submit() {
     spark-submit --master "local[1]" \
       --conf spark.python.use.daemon=false \
+      --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
       --conf spark.python.worker.reuse=false "$@"
   }
   pyspark_submit /opt/spark/examples/src/main/python/pi.py 2
@@ -163,6 +166,7 @@ expect_failure() {
   [ "$status" -ne 0 ]
 }
 expect_failure "$work/missing.log" "$image" spark-submit --master 'local[1]' \
+  --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
   --class org.example.Missing /opt/spark/examples/jars/spark-examples.jar ||
   fail 'spark-submit with a missing class succeeded'
 grep -q 'Failed to load class org.example.Missing' "$work/missing.log" ||
@@ -171,6 +175,7 @@ expect_failure "$work/hive.log" "$image" spark-sql -e 'SELECT 1' ||
   fail 'spark-sql (Hive) unexpectedly available'
 grep -q 'You need to build Spark with -Phive' "$work/hive.log" || show_fail "$work/hive.log" 'spark-sql did not fail clearly'
 expect_failure "$work/uid.log" -u 1000770000:0 -e HOME=/tmp "$image" spark-submit --master 'local[1]' \
+  --conf spark.ui.enabled=false --conf spark.ui.showConsoleProgress=false \
   --class org.apache.spark.examples.SparkPi /opt/spark/examples/jars/spark-examples.jar 1 ||
   fail 'a UID without a passwd entry unexpectedly ran Spark'
 grep -q 'Invalid UID, could not determine effective user' "$work/uid.log" ||
