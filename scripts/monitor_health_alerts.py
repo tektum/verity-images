@@ -20,17 +20,17 @@ TITLE: Final = "Published image monitor is failing"
 REPOSITORY: Final = re.compile(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+")
 
 
-def request(method: str, path: str, **values: object) -> dict:
-    command = ["gh"]
-    if method == "POST":
-        command.extend(["api", "--method", method, path])
+def request(method: str, path: str, **values: object) -> dict | list:
+    if method == "GET":
+        command = ["scripts/gh_api_backoff.sh", "--method", method, "--paginate", "--slurp", path]
     else:
-        command.extend(["exec", "scripts/gh_api_backoff.sh", "api", "--method", method, path])
+        command = ["gh", "api", "--method", method, path]
     for key, value in values.items():
-        raw = json.dumps(value) if isinstance(value, list) else str(value)
-        command.extend(["--raw-field", f"{key}={raw}"])
+        for item in value if isinstance(value, list) else [value]:
+            command.extend(["--raw-field", f"{key}{'[]' if isinstance(value, list) else ''}={item}"])
     result = subprocess.run(command, check=True, capture_output=True, text=True).stdout
-    return json.loads(result) if result else {}
+    data = json.loads(result) if result else {}
+    return [item for page in data for item in page] if method == "GET" else data
 
 
 def reconcile(
@@ -44,7 +44,7 @@ def reconcile(
         raise ValueError("monitor failed must be a boolean")
     if REPOSITORY.fullmatch(repository) is None:
         raise ValueError("repository must be in owner/name form")
-    matches = lookup("GET", f"repos/{repository}/issues?labels={LABEL}&state=all")
+    matches = lookup("GET", f"repos/{repository}/issues?labels={LABEL}&state=all&per_page=100")
     if not isinstance(matches, list):
         raise ValueError("monitor issue search did not return an array")
     existing = [

@@ -32,7 +32,7 @@ def failing_monitor_creates_owned_issue() -> None:
             assert path == f"repos/{REPOSITORY}/issues"
             created.update(values)
             return {"number": 45}
-        assert (method, path) == ("GET", f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all")
+        assert (method, path) == ("GET", f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all&per_page=100")
         if created:
             return [issue(number=45, body=str(created["body"]))]
         return []
@@ -72,7 +72,7 @@ def failure_reopens_and_updates_only_owned_issue() -> None:
 def clean_without_prior_failure_is_quiet() -> None:
     lookup = Mock(return_value=[])
     assert reconcile(False, RUN_URL, "monitor: success", REPOSITORY, lookup) is None
-    lookup.assert_called_once_with("GET", f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all")
+    lookup.assert_called_once_with("GET", f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all&per_page=100")
 
 
 def duplicates_fail_closed() -> None:
@@ -96,10 +96,10 @@ def real_cli_serializes_commands() -> None:
             "import json, os, sys\n"
             "with open(os.environ['CALL_LOG'], 'a') as calls:\n"
             "  calls.write(json.dumps(sys.argv[1:]) + '\\n')\n"
-            "if sys.argv[1] == 'api':\n"
-            "  print(json.dumps({'number': 73}))\n"
+            "if '--paginate' in sys.argv:\n"
+            "  print(json.dumps([[]]))\n"
             "else:\n"
-            "  print('[]')\n"
+            "  print(json.dumps({'number': 73}))\n"
         )
         stub.chmod(0o755)
         output = scratch / "output"
@@ -112,11 +112,12 @@ def real_cli_serializes_commands() -> None:
         )
         calls = [json.loads(line) for line in log.read_text().splitlines()]
         assert calls[0] == [
-            "exec", "scripts/gh_api_backoff.sh", "api", "--method", "GET",
-            f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all",
+            "api", "--method", "GET", "--paginate", "--slurp",
+            f"repos/{REPOSITORY}/issues?labels={LABEL}&state=all&per_page=100",
         ]
         assert calls[1][0:4] == ["api", "--method", "POST", f"repos/{REPOSITORY}/issues"]
         assert any("monitor: failure" in field for field in calls[1])
+        assert f"labels[]={LABEL}" in calls[1]
         assert output.read_text() == "monitor_failure_issue=73\n"
     invalid_cli = subprocess.run(
         [sys.executable, str(root / "scripts/monitor_health_alerts.py"),
