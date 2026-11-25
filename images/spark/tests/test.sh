@@ -158,8 +158,11 @@ run "$image" sh -c '
     { printf "import faulthandler\nfaulthandler.dump_traceback_later(60, repeat=True)\n"; cat "$1"; } > "$1.wrapped"
     mv "$1.wrapped" "$1"
   }
-  wrap_py /opt/spark/examples/src/main/python/pi.py
-  pyspark_submit /opt/spark/examples/src/main/python/pi.py 2
+  # pi.py is packaged root-owned and read-only for the runtime UID, so wrap a
+  # writable copy in the working directory instead of the packaged original.
+  cp /opt/spark/examples/src/main/python/pi.py pi.py
+  wrap_py pi.py
+  pyspark_submit pi.py 2
   cat > roundtrip.py <<EOF
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("verity-roundtrip").getOrCreate()
