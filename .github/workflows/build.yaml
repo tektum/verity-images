@@ -45,6 +45,7 @@ jobs:
     permissions:
       actions: read
       contents: read
+    timeout-minutes: 10
     outputs:
       images: ${{ steps.generate.outputs.images }}
       count: ${{ steps.generate.outputs.count }}
@@ -171,6 +172,7 @@ jobs:
       fromJSON(needs.matrix.outputs.images).include[0] != null
     needs: [matrix, native-arm64]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-validate-${{ strategy.job-index }}/family=c8i.*+m8i.*/cpu=32/ram=64+128/image=ubuntu24-full-x64/volume=100gb:gp3/extras=otel  # yamllint disable-line rule:line-length
+    timeout-minutes: 300
     permissions:
       contents: read
     strategy:
@@ -320,6 +322,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    timeout-minutes: 10
     steps:
       - name: Require successful image jobs
         shell: bash
@@ -422,6 +425,7 @@ jobs:
     permissions:
       actions: write
       contents: read
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
