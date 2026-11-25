@@ -131,7 +131,7 @@ def serve():
     except Exception as e:
         errors.append(e)
 
-thread = threading.Thread(target=serve)
+thread = threading.Thread(target=serve, daemon=True)
 thread.start()
 client = imaplib.IMAP4('localhost', listener.getsockname()[1], timeout=5)
 context = ssl.create_default_context(cafile='/test-identity.pem')
@@ -225,7 +225,7 @@ def handshake():
         except (ConnectionError, OSError):
             pass
 
-threads = [threading.Thread(target=handshake) for _ in range(2)]
+threads = [threading.Thread(target=handshake, daemon=True) for _ in range(2)]
 for thread in threads: thread.start()
 port = listener.getsockname()[1]
 cert = '/test-identity.pem'
