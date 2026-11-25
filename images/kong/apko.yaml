@@ -1,14 +1,16 @@
 contents:
   repositories:
     - https://packages.wolfi.dev/os
+    - "@local @LOCAL_REPOSITORY@"
   keyring:
     - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    - "@LOCAL_KEY@"
   packages:
     - bash
     - busybox
     - ca-certificates-bundle
-    - kong=3.9.2-r1
-    - kong-entrypoint=3.9.4-r0
+    - verity-kong@local
+    - kong-entrypoint=3.9.5-r0
     - tzdata
 
 accounts:

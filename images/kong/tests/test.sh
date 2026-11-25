@@ -118,25 +118,28 @@ services:
           message: verity-kong-ok
 EOF
 chmod 644 "$tmp/kong.yml"
+# 0.0.0.0 binds only to the user-defined Docker network. No host port is
+# published for Admin; only the proxy is exposed on loopback.
 printf '0.0.0.0:8001' >"$tmp/admin_listen"
 chmod 644 "$tmp/admin_listen"
 
 docker network create "$network" >/dev/null
 docker run --name "$upstream" -d --network "$network" --network-alias upstream "$upstream_image" >/dev/null
 
-# Database-less mode, with the admin listener supplied through a _FILE variable.
+# Database-less mode, with the Admin listener supplied through a _FILE variable.
 docker run --platform "$platform" --name "$gateway" -d --network "$network" \
-  -p 127.0.0.1::8000 -p 127.0.0.1::8001 \
+  -p 127.0.0.1::8000 \
   -e KONG_DATABASE=off -e KONG_DECLARATIVE_CONFIG=/cfg/kong.yml \
   -e KONG_ADMIN_LISTEN_FILE=/cfg/admin_listen -e KONG_NGINX_WORKER_PROCESSES=2 \
   -v "$tmp:/cfg:ro" "$image" >/dev/null
-admin=$(docker port "$gateway" 8001/tcp | awk -F: 'NR == 1 { print $2 }')
+admin_published=$(docker port "$gateway" 8001/tcp) || admin_published=
+test -z "$admin_published" || fail 'Admin API is exposed on a host port'
 proxy=$(docker port "$gateway" 8000/tcp | awk -F: 'NR == 1 { print $2 }')
-test -n "$admin" || fail 'admin port is not published'
 test -n "$proxy" || fail 'proxy port is not published'
-
+admin_ip=$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "$gateway")
+test -n "$admin_ip" || fail 'Admin API internal network address is missing'
 i=0
-until curl --silent --fail --max-time 3 "http://127.0.0.1:$admin/status" >/dev/null 2>&1; do
+until curl --silent --fail --max-time 3 "http://$admin_ip:8001/status" >/dev/null 2>&1; do
   [ "$(docker inspect -f '{{.State.Running}}' "$gateway")" = true ] || {
     docker logs "$gateway" >&2
     fail 'kong exited before becoming ready'
@@ -149,11 +152,15 @@ until curl --silent --fail --max-time 3 "http://127.0.0.1:$admin/status" >/dev/n
   sleep 1
 done
 
-root=$(curl --silent --fail "http://127.0.0.1:$admin/")
+root=$(curl --silent --fail "http://$admin_ip:8001/")
 printf '%s' "$root" | jq -e --arg v "$version" '.version == $v' >/dev/null ||
   fail 'admin API does not report the CLI version'
 printf '%s' "$root" | jq -e '.configuration.database == "off"' >/dev/null ||
   fail 'gateway is not running database-less'
+admin_listen=$(printf '%s' "$root" | jq -c '.configuration.admin_listen | if type == "string" then [.] else . end')
+printf 'Admin listen: %s\n' "$admin_listen"
+printf '%s' "$admin_listen" | jq -e '. == ["0.0.0.0:8001"]' >/dev/null ||
+  fail 'Admin API is not restricted to the internal Docker network'
 # The bundled Lua plugin set is complete.
 for plugin in acl basic-auth cors jwt key-auth oauth2 prometheus proxy-cache rate-limiting \
   request-termination request-transformer session; do
