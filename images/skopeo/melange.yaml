@@ -1,6 +1,6 @@
 package:
   name: verity-skopeo
-  version: "1.25.1"  # renovate: datasource=github-releases depName=containers/skopeo extractVersion=^v(?<version>.+)$
+  version: "1.25.2"  # renovate: datasource=github-releases depName=containers/skopeo extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Work with remote container images and image repositories
   copyright:
@@ -39,7 +39,7 @@ pipeline:
     with:
       repository: https://github.com/containers/skopeo
       tag: v${{package.version}}
-      expected-commit: 1fb351f23dbde474416ba33c3786a8d04304429b
+      expected-commit: bd981d14098835b559d02e7ca46d2a9696490e12
 
   - uses: go/remediate
     with:
