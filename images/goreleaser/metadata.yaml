@@ -6,3 +6,4 @@ upstream: https://github.com/goreleaser/goreleaser
 versions: [2.20]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/github.com/goreleaser/goreleaser]
