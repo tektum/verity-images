@@ -2,7 +2,7 @@ package:
   name: verity-hugo
   # yamllint disable-line rule:line-length
   version: "0.169.0"  # renovate: datasource=github-releases depName=gohugoio/hugo versioning=regex:^(?<major>0)\.(?<minor>169)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Static site generator, extended edition with Sass and WebP support
   copyright:
     - license: Apache-2.0
@@ -50,6 +50,10 @@ pipeline:
     with:
       modroot: .
       packages: .
+
+  # go/remediate drops the indirect checksum for Cobra documentation
+  # (spf13/cobra/doc); restore the graph checksum before the readonly build.
+  - runs: go mod tidy
 
   - runs: |
       # The extended edition (Sass, WebP, image processing) needs cgo.
