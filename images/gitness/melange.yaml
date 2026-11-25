@@ -2,7 +2,7 @@ package:
   name: verity-gitness
   # yamllint disable-line rule:line-length
   version: "3.3.0"  # renovate: datasource=github-tags depName=harness/gitness versioning=regex:^(?<major>3)\.(?<minor>3)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Gitness (Harness Open Source) server with its embedded web UI
   copyright:
     - license: Apache-2.0
@@ -78,11 +78,14 @@ pipeline:
       done
       test "$(grep -c '^+.*network.CreateOptions{' docker-network-create.patch)" -eq 2
 
+  # The docker/distribution fix moves its reference package onto
+  # github.com/distribution/reference, whose v0.6.0 dropped SplitHostname;
+  # docker-distribution-split-hostname.patch uses Domain and Path instead.
   - uses: go/remediate
     with:
       modroot: .
       packages: ./cmd/gitness
-      vendor-patches: docker-network-create.patch
+      vendor-patches: docker-network-create.patch docker-distribution-split-hostname.patch
 
   # Upstream links the version and commit into the binary; the published
   # Wolfi package did not, so its version endpoint reported 0.0.0.
