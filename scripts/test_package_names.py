@@ -50,7 +50,6 @@ ALLOWLIST: Final[dict[str, frozenset[str]]] = {
     "images/envoy": frozenset({"envoy-1.37", "envoy-1.37-config"}),
     "images/fluent-bit": frozenset({"fluent-bit-4.2"}),
     "images/imagemagick": frozenset({"imagemagick-7"}),
-    "images/ko": frozenset({"ko"}),
     "images/kubernetes-reflector": frozenset({"kubernetes-reflector"}),
     "images/loki": frozenset({"loki-3.6"}),
     "images/mailpit": frozenset({"mailpit"}),
