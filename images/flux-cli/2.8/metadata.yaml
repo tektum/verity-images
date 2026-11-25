@@ -6,3 +6,4 @@ upstream: https://github.com/fluxcd/flux2
 versions: [2.8]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/github.com/fluxcd/flux2]

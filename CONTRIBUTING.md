@@ -105,6 +105,21 @@ matched through GHSA, and its version gets a `v` prefix. A scoped npm package
 percent-encodes its scope (`pkg:npm/%40scope/name`); the injected package is
 named `@scope/name`, the spelling GHSA uses.
 
+A bundled component whose version differs from the recipe version appends
+`@vars.<name>` to its entry, naming the melange var that holds its release
+version. Each entry is then versioned from its own var:
+
+```yaml
+scan-identity: [cpe:2.3:a:getambassador:emissary-ingress, cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]
+```
+
+Only the `@vars.<name>` form is accepted; a literal version is still rejected.
+Keep the var's `# renovate:` annotation so a bump moves the scanned version with
+no second version string to keep in sync. A missing var, or one whose value is
+not a release version, fails the build rather than scanning the wrong version.
+The suffix needs a melange recipe: a pure APKO identity is versioned by its
+`scan-package`.
+
 An asserted identity must be correct. A wrong vendor, product, or module path
 scans nothing and silently blinds the gate again, because nothing checks the
 declaration against the software. Take the CPE from the NVD CPE dictionary and
@@ -667,6 +682,13 @@ A Cargo image resolves fixable crate advisories with the shared
   live catalog source SHA after a failed `main` build. Catalog source-run failure
   must remain loud. Use the documented manual delta recovery only when the
   automatic path cannot complete.
+- `build-gate` only warns when a `main` run publishes some images but not others, so
+  `.github/workflows/main-failures.yaml` checks trusted `main` Build runs daily from
+  their `native-arm64` and `publish` job conclusions. An image that failed three
+  consecutive runs, or has failed for more than 24 hours without a later success,
+  gets one `main-failure` issue, reopened or updated instead of duplicated. The issue
+  closes on that image's next successful `main` build. Pull request and merge queue
+  runs never count, and a cancelled or timed out job is a failure.
 
 ## Recommended branch protection
 

@@ -1,7 +1,7 @@
 package:
-  name: velero
+  name: verity-velero
   version: "1.18.4"
-  epoch: 7
+  epoch: 0
   description: Backup and migrate Kubernetes applications and their persistent volumes
   copyright:
     - license: Apache-2.0
@@ -91,6 +91,6 @@ test:
         velero install --help >/dev/null
         velero completion bash > /tmp/velero-completion.bash
         grep -F "velero" /tmp/velero-completion.bash
-        apk info --license velero | grep -Fx Apache-2.0
+        apk info --license ${{package.name}} | grep -Fx Apache-2.0
         apk info --who-owns /usr/bin/velero | grep -F 'velero-'
         test -s /usr/share/licenses/${{package.name}}/LICENSE

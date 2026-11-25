@@ -1,7 +1,7 @@
 package:
   name: verity-cfssl
   # yamllint disable-line rule:line-length
-  version: "1.7.1"  # renovate: datasource=github-releases depName=cloudflare/cfssl versioning=regex:^(?<major>1)\.(?<minor>7)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "1.7.2"  # renovate: datasource=github-releases depName=cloudflare/cfssl versioning=regex:^(?<major>1)\.(?<minor>7)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Cloudflare PKI and TLS toolkit
   copyright:
@@ -15,7 +15,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: ab47f0d984778865b3f5b5adf6ba336a15b96c31
+  source-commit: e67926cc38c87f38a7c11a2d77d6d46b72163b3b
 
 environment:
   contents:

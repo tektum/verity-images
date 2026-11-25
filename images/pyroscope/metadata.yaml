@@ -4,6 +4,6 @@ description: Grafana Pyroscope continuous profiling database built from pinned u
 category: Monitoring & Observability
 upstream: https://github.com/grafana/pyroscope
 versions: [2.4]
-scan-identity: [cpe:2.3:a:grafana:pyroscope]
+scan-identity: [cpe:2.3:a:grafana:pyroscope, pkg:golang/github.com/grafana/pyroscope]
 owner: tektum
 enabled: true

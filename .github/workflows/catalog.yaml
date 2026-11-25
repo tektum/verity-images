@@ -55,6 +55,7 @@ jobs:
       (github.event_name == 'workflow_run' && github.event.workflow_run.head_branch == 'main')
       )
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-catalog/runner=4cpu-linux-x64
+    timeout-minutes: 60
     outputs:
       ready: ${{ steps.reconcile.outputs.ready }}
       monitor-shards: ${{ steps.monitor-scope.outputs.shards }}
@@ -570,6 +571,7 @@ jobs:
     if: needs.catalog.outputs.ready == 'true'
     needs: catalog
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-deploy/runner=4cpu-linux-x64
+    timeout-minutes: 15
     permissions:
       id-token: write
       pages: write

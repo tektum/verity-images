@@ -538,6 +538,133 @@ def test_republish_needs_every_architecture_fixed_and_understands_newer_upstream
         assert plan["blocked"] == []
 
 
+def pin_packages(root: Path, context: str, *entries: str) -> None:
+    path = root / context / "apko.yaml"
+    listing = "".join(f"    - {entry}\n" for entry in entries)
+    path.write_text(path.read_text(encoding="utf-8").replace("  packages: []\n", f"  packages:\n{listing}"), encoding="utf-8")
+
+
+def test_exact_pin_below_the_fix_is_flagged_not_refreshed() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/pinned", name="pinned")
+        pin_packages(root, "images/pinned", "busybox", "openssl=1-r0")
+        repository = SignedRepository(
+            root, {architecture: {("openssl", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
+        )
+        plan = classify(root, [finding("pinned", "1", "openssl", "1-r0", ["1-r1"], "CVE-pinned")], repository.query)
+        assert plan["apko"] == [] and plan["exact"] == [] and plan["localPackageRevisions"] == []
+        assert plan["blocked"] == [{
+            "stream": "pinned@1",
+            "advisory": "CVE-pinned",
+            "package": "openssl",
+            "reason": "exact pin, needs a bump: apko.yaml pins openssl=1-r0, fixed in 1-r1",
+        }]
+
+
+def test_flavored_exact_pin_names_its_actual_config() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/flavored", name="flavored", flavors=("plain", "fips"))
+        pin_packages(root, "images/flavored", "openssl=1-r0")
+        config = root / "images/flavored/apko.yaml"
+        (root / "images/flavored/fips.apko.yaml").write_text(config.read_text(encoding="utf-8"), encoding="utf-8")
+        config.write_text("contents:\n  packages: [openssl]\n", encoding="utf-8")
+        repository = SignedRepository(
+            root, {architecture: {("openssl", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
+        )
+        plan = classify(root, [finding("flavored", "1-fips", "openssl", "1-r0", ["1-r1"], "CVE-fips")], repository.query)
+        assert plan["blocked"] == [{
+            "stream": "flavored@1-fips",
+            "advisory": "CVE-fips",
+            "package": "openssl",
+            "reason": "exact pin, needs a bump: fips.apko.yaml pins openssl=1-r0, fixed in 1-r1",
+        }]
+        assert plan["apko"] == []
+        assert plan["exact"] == [] and plan["localPackageRevisions"] == []
+
+
+def test_exact_pin_does_not_hide_other_refreshable_findings_silently() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/mixed", name="mixed")
+        pin_packages(root, "images/mixed", "openssl=1-r0", "zlib")
+        repository = SignedRepository(
+            root,
+            {architecture: {("openssl", "1-r1"), ("zlib", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES},
+        )
+        findings = [
+            finding("mixed", "1", "openssl", "1-r0", ["1-r1"], "CVE-pinned"),
+            finding("mixed", "1", "zlib", "1-r0", ["1-r1"], "CVE-free"),
+        ]
+        for ordered in (findings, findings[::-1]):
+            plan = classify(root, ordered, repository.query)
+            assert plan["apko"] == []
+            assert {(item["package"], item["reason"].split(":")[0]) for item in plan["blocked"]} == {
+                ("openssl", "exact pin, needs a bump"),
+                ("zlib", "remediation suppressed by another blocked finding in build input group"),
+            }
+
+
+def test_pins_that_a_refresh_can_move_or_that_already_fix_still_refresh() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        image(root, "images/unpinned", name="unpinned")
+        image(root, "images/ranged", name="ranged")
+        image(root, "images/fixedpin", name="fixedpin")
+        image(root, "images/newerpin", name="newerpin")
+        image(root, "images/otherpin", name="otherpin")
+        pin_packages(root, "images/unpinned", "openssl")
+        pin_packages(root, "images/ranged", "openssl~1")
+        pin_packages(root, "images/fixedpin", "openssl=1-r1")
+        pin_packages(root, "images/newerpin", "openssl=2-r0")
+        pin_packages(root, "images/otherpin", "openssl-dev=1-r0", "openssl")
+        repository = SignedRepository(
+            root, {architecture: {("openssl", "1-r1")} for architecture in classify_monitor_remediation.APK_ARCHITECTURES}
+        )
+        names = ["unpinned", "ranged", "fixedpin", "newerpin", "otherpin"]
+        plan = classify(
+            root,
+            [finding(name, "1", "openssl", "1-r0", ["1-r1"], f"CVE-{name}") for name in names],
+            repository.query,
+        )
+        assert plan["blocked"] == [] and plan["exact"] == []
+        assert sorted(item["context"] for item in plan["apko"]) == sorted(f"images/{name}" for name in names)
+
+
+def test_exact_pin_parsing_ignores_ranges_and_unreadable_configs() -> None:
+    with TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        config = root / "apko.yaml"
+        config.write_text(
+            "contents:\n  packages:\n    - openssl=1-r0\n    - zlib~1\n    - curl>=2\n    - 'busybox=1.37-r2'\n",
+            encoding="utf-8",
+        )
+        assert classify_monitor_remediation.exact_pin(config, "openssl") == "1-r0"
+        assert classify_monitor_remediation.exact_pin(config, "busybox") == "1.37-r2"
+        assert classify_monitor_remediation.exact_pin(config, "zlib") is None
+        assert classify_monitor_remediation.exact_pin(config, "curl") is None
+        assert classify_monitor_remediation.exact_pin(config, "missing") is None
+        assert classify_monitor_remediation.exact_pin(config, None) is None
+        assert classify_monitor_remediation.exact_pin(root / "absent.yaml", "openssl") is None
+        for pinned, fixed, expected in (
+            ("1.9-r0", ("1.10-r0",), False),
+            ("1.10-r0", ("1.9-r0",), True),
+            ("2.0.12-r0", ("2.0.12-r1",), False),
+            ("2.0.12-r1", ("2.0.12-r1",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261108-r0",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261110-r0",), False),
+            ("1.11.2_git20261109-r0", ("1.11.2-r0",), True),
+            ("1.11.2_git20261109-r0", ("1.11.2_git20261231-r0",), False),
+            ("1.11.2_p1-r0", ("1.11.2_git99999999-r0",), True),
+            ("1.0_p1.2-r0", ("1.0_p1.3-r0",), False),
+            ("1.0_p1.3-r0", ("1.0_p1.2-r0",), False),
+            ("not a version", ("1-r1",), False),
+            ("not a version", ("1-r1",), False),
+        ):
+            assert classify_monitor_remediation.pins_fix(pinned, fixed) is expected
+
+
 def main() -> None:
     test_available_on_both_architectures_and_deduplication()
     test_missing_one_and_both_architectures_block_context()
@@ -552,6 +679,11 @@ def main() -> None:
     test_patched_embedded_findings_suppress_rebuild_but_library_findings_do_not()
     test_lock_that_already_pins_the_fix_is_republished_not_refreshed()
     test_republish_needs_every_architecture_fixed_and_understands_newer_upstream()
+    test_exact_pin_below_the_fix_is_flagged_not_refreshed()
+    test_flavored_exact_pin_names_its_actual_config()
+    test_exact_pin_does_not_hide_other_refreshable_findings_silently()
+    test_pins_that_a_refresh_can_move_or_that_already_fix_still_refresh()
+    test_exact_pin_parsing_ignores_ranges_and_unreadable_configs()
     print("passed scripts/test_classify_monitor_remediation.py")
 
 

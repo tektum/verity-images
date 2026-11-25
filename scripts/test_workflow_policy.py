@@ -1370,7 +1370,10 @@ def main() -> None:
         f"{RUNS_ON_PREFIX}monitor-${{{{ matrix.shard }}}}/runner=4cpu-linux-x64"
     )
     assert runner(dashboard_job) == "ubuntu-latest"
-    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes:" not in validate_job
+    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes: 300\n" in validate_job
+    assert "\n    timeout-minutes: 10\n" in matrix_job
+    assert "\n    timeout-minutes: 10\n" in build_gate_job
+    assert "\n    timeout-minutes: 15\n" in catalog_catch_up_job
 
     # The arm64 compile is the only emulation-heavy step; it runs natively and
     # hands signed packages to the per-image jobs. A failed native row must leave
