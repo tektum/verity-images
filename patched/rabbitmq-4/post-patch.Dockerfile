@@ -1,12 +1,12 @@
 # RabbitMQ builds Erlang against a vendored /opt/openssl, so Copa cannot patch
-# CVE-2026-14456. Rebuild the OpenSSL 3.5 branch at the upstream fix commit.
+# the binary. Build the immutable 3.5.10-dev commit carrying the five CVE fixes.
 ARG BASE=scratch
 
 FROM ${BASE} AS openssl-builder
 USER 0
 
-ARG OPENSSL_COMMIT=45e844fa2a14ec92d146bd8f5778ac130b6625fb
-ARG OPENSSL_SHA256=f54250b21795bb01240f3f9b42c384868d04460e339e39275aaaf93487f2d903
+ARG OPENSSL_COMMIT=5fba8ad64875ff1aff6cd2ad111ca12c33fa6ba2
+ARG OPENSSL_SHA256=b6e5d334086e91e35476a95bcd6559a05b3d07de656b4b1cf24694e46beaa3c9
 
 RUN set -eux; \
 	apt-get update; \

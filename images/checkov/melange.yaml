@@ -1,7 +1,7 @@
 package:
   name: verity-checkov
   # yamllint disable-line rule:line-length
-  version: "3.4.6"  # renovate: datasource=github-releases depName=bridgecrewio/checkov versioning=regex:^(?<major>3)\.(?<minor>4)\.(?<patch>\d+)$
+  version: "3.4.10"  # renovate: datasource=github-releases depName=bridgecrewio/checkov versioning=regex:^(?<major>3)\.(?<minor>4)\.(?<patch>\d+)$
   epoch: 0
   description: Checkov static analysis for infrastructure as code, installed from the upstream source release
   copyright:
@@ -25,7 +25,7 @@ package:
     memory: 4Gi
 
 vars:
-  source-commit: 286946086f105c8edee1d9968823671da17b7242
+  source-commit: d266c8a52241f877d7a216d420061ba217a0c144
   python-version: "3.13"
   venv: /opt/checkov
   # Dependencies resolve from the ranges in checkov's setup.py. checkov pins
