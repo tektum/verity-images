@@ -18,7 +18,7 @@ fail() {
 version=$(docker run --rm --label "$label" --network none "$image" --version)
 printf '%s\n' "$version"
 case "$version" in
-  'Dart SDK version: 3.13.'*) ;;
+  'Dart SDK version: 3.14.'*) ;;
   *) fail "unexpected dart version: $version" ;;
 esac
 
