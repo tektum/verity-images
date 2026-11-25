@@ -1,0 +1,111 @@
+package:
+  name: verity-kong
+  # yamllint disable-line rule:line-length
+  version: "3.9.5"  # renovate: datasource=github-releases depName=Kong/kong versioning=regex:^(?<major>3)\.(?<minor>9)\.(?<patch>\d+)$
+  epoch: 0
+  description: Kong Gateway built from pinned upstream source with maintained system OpenSSL
+  copyright:
+    - license: Apache-2.0
+  options:
+    no-commands: true
+  dependencies:
+    runtime:
+      - openssl-3.6
+      - perl
+  resources:
+    cpu: "8"
+    memory: 16Gi
+
+environment:
+  contents:
+    repositories:
+      - https://packages.wolfi.dev/os
+    keyring:
+      - https://packages.wolfi.dev/os/wolfi-signing.rsa.pub
+    packages:
+      - bash
+      - bazel-7
+      - bubblewrap
+      - build-base
+      - busybox
+      - ca-certificates-bundle
+      - curl
+      - expat-dev
+      - jq
+      - libelf
+      - lua5.1-mpack
+      - luajit-dev
+      - openjdk-21-default-jdk
+      - openssl-3.6
+      - openssl-3.6-dev
+      - python3
+      - patch
+      - pcre2-dev
+      - perl
+      - pkgconf
+      - procps
+      - protobuf-dev
+      - rust
+      - valgrind-dev
+      - yaml-dev
+      - zlib-dev
+
+pipeline:
+  # The Bazel dependency graph and upstream .requirements pin native and Lua
+  # dependency commits and archive checksums. Pre-fetch and checksum the official
+  # upstream Kong Manager prebuilt web asset; its upstream wrapper has no hash.
+  - uses: git-checkout
+    with:
+      repository: https://github.com/Kong/kong
+      tag: ${{package.version}}
+      expected-commit: b8299857f4e3db3ab29cdcc7859b435909de43a1
+  - uses: fetch
+    with:
+      # renovate: datasource=github-releases depName=Kong/kong-manager
+      uri: https://github.com/Kong/kong-manager/releases/download/v3.9.0.0/release.tar.gz
+      expected-sha256: 0e5028f8ecfcc611de8d0a015a1985d46fe207d09a87ffe644a2d19b189db70a
+      extract: false
+  - uses: patch
+    with:
+      patches: http-archive.patch openssl.patch
+  - runs: |
+      # Use Wolfi's maintained OpenSSL instead of upstream's obsolete private copy.
+      cat > build/openresty/openssl/openssl_repositories.bzl <<'EOF'
+      def openssl_repositories():
+          """OpenResty links Wolfi's maintained OpenSSL instead of a bundled archive."""
+      EOF
+      python3 - <<'EOF'
+      from pathlib import Path
+      path = Path("build/openresty/repositories.bzl")
+      source = path.read_text()
+      marker = '        patches = KONG_VAR["OPENRESTY_PATCHES"],\n'
+      assert source.count(marker) == 1
+      # yamllint disable-line rule:line-length
+      replacement = '        patches = KONG_VAR["OPENRESTY_PATCHES"] + ' \
+        ' ["@kong//build:openssl4.patch"],\n'
+      path.write_text(source.replace(marker, replacement))
+      EOF
+      install -Dm644 /home/build/openssl4.patch build/openssl4.patch
+      install -Dm644 /home/build/release.tar.gz /home/build/kong-manager-release.tar.gz
+      # Kong/OpenResty's LuaJIT ABI expects OpenSSL 3 getters. Wolfi maintains
+      # the OpenSSL 3.6 stream separately from the OpenSSL 4 default.
+      bazel build //build:kong --verbose_failures --config release
+      test -x bazel-bin/build/kong-dev/openresty/nginx/sbin/nginx
+      test -x bazel-bin/build/kong-dev/bin/luarocks
+      test -d bazel-bin/build/kong-dev/openresty/site/lualib/resty
+  - runs: |
+      cp -R -L bazel-bin/build/kong-dev "$HOME/kong-output"
+      rm -rf "$HOME/.cache/bazel"
+      mkdir -p ${{targets.contextdir}}/usr/local
+      mkdir -p ${{targets.contextdir}}/usr/bin
+      mkdir -p ${{targets.destdir}}/etc/kong
+      mv kong.conf.default ${{targets.destdir}}/etc/kong/
+      mv build/package/kong.logrotate ${{targets.destdir}}/etc/kong/
+      cp -R -L "$HOME/kong-output"/. ${{targets.contextdir}}/usr/local/
+      rm -rf "$HOME/kong-output"
+      mv bin/kong* ${{targets.destdir}}/usr/local/bin/
+      cp -R kong/include/. ${{targets.destdir}}/usr/local/kong/include/
+      ln -s /usr/local/openresty/bin/resty ${{targets.contextdir}}/usr/local/bin/resty
+      ln -s /usr/local/openresty/luajit/bin/luajit ${{targets.contextdir}}/usr/local/bin/luajit
+      ln -s /usr/local/openresty/luajit/bin/luajit ${{targets.contextdir}}/usr/local/bin/lua
+      ln -s /usr/local/openresty/nginx/sbin/nginx ${{targets.contextdir}}/usr/local/bin/nginx
