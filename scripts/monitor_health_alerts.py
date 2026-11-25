@@ -40,7 +40,7 @@ def reconcile(
     repository: str,
     lookup: Callable[..., dict] = request,
 ) -> int | None:
-    if isinstance(failed, bool) is False:
+    if not isinstance(failed, bool):
         raise ValueError("monitor failed must be a boolean")
     if REPOSITORY.fullmatch(repository) is None:
         raise ValueError("repository must be in owner/name form")
@@ -85,9 +85,9 @@ def main() -> None:
     if len(sys.argv) != 6:
         raise SystemExit("usage: monitor_health_alerts.py FAILED RUN_URL REASON REPOSITORY OUTPUT")
     print(f"Monitor run {sys.argv[2]}: {sys.argv[3]}")
-    failed = {"true": True, "false": False}.get(sys.argv[1])
-    if failed is None:
+    if sys.argv[1] not in {"true", "false"}:
         raise SystemExit("FAILED must be true or false")
+    failed = {"true": True, "false": False}.get(sys.argv[1])
     number = reconcile(failed, sys.argv[2], sys.argv[3], sys.argv[4])
     with Path(sys.argv[5]).open("a", encoding="utf-8") as output:
         if number is not None:

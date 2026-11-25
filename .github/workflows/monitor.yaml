@@ -259,8 +259,7 @@ jobs:
 
   health:
     if: always() && github.repository == 'tektum/verity-images'
-    needs: [snapshot, monitor]
-    # A whole-job fail-fast cancellation updates the issue on the next daily run.
+    needs: [snapshot, monitor, dashboard]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -276,7 +275,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-          FAILED: ${{ needs.snapshot.result != 'success' || needs.monitor.result != 'success' }}
-          MONITOR_RESULT: ${{ needs.monitor.result }}
+          FAILED: >-
+            ${{ needs.snapshot.result != 'success' || needs.monitor.result != 'success' ||
+                needs.dashboard.result != 'success' }}
+          RESULTS: >-
+            snapshot=${{ needs.snapshot.result }}, scan=${{ needs.monitor.result }},
+            remediation=${{ needs.dashboard.result }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
-        run: python3 scripts/monitor_health_alerts.py "$FAILED" "$RUN_URL" "scan outcome: $MONITOR_RESULT" "$REPOSITORY" "$GITHUB_OUTPUT"
+        run: python3 scripts/monitor_health_alerts.py "$FAILED" "$RUN_URL" "$RESULTS" "$REPOSITORY" "$GITHUB_OUTPUT"
