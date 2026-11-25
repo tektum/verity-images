@@ -10,7 +10,7 @@ failures=0
 
 # check NAME: run the Python program on stdin in the image; it must exit 0.
 check() {
-  if docker run --rm -i --network none "$image" - >"$tmp" 2>&1; then
+  if docker run --rm -i --network none -v "$(cd "$(dirname "$0")" && pwd)/test-identity.pem:/test-identity.pem:ro" "$image" - >"$tmp" 2>&1; then
     echo "PASS: $1"
   else
     echo "FAIL: $1" >&2
@@ -87,6 +87,159 @@ for c in '\0\r\n':
         assert 'not allowed' in str(e), e
     else:
         raise AssertionError(f'select() sent {c!r} in a command: {typ} {data}')
+EOF
+
+check "CVE-2026-115559: IMAP STARTTLS discards cached plaintext" <<'EOF'
+import imaplib, socket, ssl, threading
+server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+errors = []
+
+def serve():
+    try:
+        conn, _ = listener.accept()
+        conn.settimeout(5)
+        f = conn.makefile('rwb')
+        f.write(b'* OK ready\r\n')
+        f.flush()
+        for line in f:
+            tag, command = line.split()[:2]
+            if command == b'CAPABILITY':
+                f.write(b'* CAPABILITY IMAP4rev1 STARTTLS\r\n' + tag + b' OK done\r\n')
+                f.flush()
+            elif command == b'STARTTLS':
+                # Injected plaintext: an untagged response before the tagged
+                # OK and a capability line after it, read ahead with it.
+                f.write(b'* 3 EXISTS\r\n' + tag + b' OK Begin TLS\r\n'
+                        b'* CAPABILITY IMAP4rev1 INJECTED\r\n')
+                f.flush()
+                break
+        tls = server_context.wrap_socket(conn, server_side=True)
+        tf = tls.makefile('rwb')
+        for line in tf:
+            tag, command = line.split()[:2]
+            if command == b'CAPABILITY':
+                tf.write(b'* CAPABILITY IMAP4rev1 GENUINE\r\n' + tag + b' OK done\r\n')
+            elif command == b'LOGOUT':
+                tf.write(b'* BYE bye\r\n' + tag + b' OK done\r\n')
+            tf.flush()
+            if command == b'LOGOUT':
+                break
+    except Exception as e:
+        errors.append(e)
+
+thread = threading.Thread(target=serve, daemon=True)
+thread.start()
+client = imaplib.IMAP4('localhost', listener.getsockname()[1], timeout=5)
+context = ssl.create_default_context(cafile='/test-identity.pem')
+assert client.starttls(context)[0] == 'OK'
+assert isinstance(client.sock, ssl.SSLSocket), client.sock
+assert client.untagged_responses == {}, client.untagged_responses
+assert client.response('EXISTS') == ('EXISTS', [None]), client.response('EXISTS')
+assert client.capabilities == ('IMAP4REV1', 'GENUINE'), client.capabilities
+client.logout()
+thread.join(timeout=5)
+assert not thread.is_alive(), 'IMAP server did not finish'
+assert not errors, errors
+listener.close()
+EOF
+
+check "CVE-2026-115791: archive CLIs remove the shadowing import path" <<'EOF'
+import gzip, sys, tarfile, tempfile, zipfile
+assert sys._path0 == '', repr(sys._path0)
+with tempfile.TemporaryDirectory() as work:
+    payload = work + '/payload.gz'
+    with gzip.open(payload, 'wb') as f:
+        f.write(b'payload')
+    sys.argv = ['gzip', '-d', payload]
+    sys.path.insert(0, sys._path0)
+    gzip.main()
+    assert sys._path0 not in sys.path, sys.path[:2]
+    with open(payload[:-3], 'rb') as f:
+        assert f.read() == b'payload'
+for module in (tarfile, zipfile):
+    sys.argv = [module.__name__]
+    sys.path.insert(0, sys._path0)
+    try:
+        module.main()
+    except SystemExit as e:
+        assert e.code == 2, (module.__name__, e.code)
+    else:
+        raise AssertionError(f'{module.__name__}.main() did not report usage')
+    assert sys._path0 not in sys.path, (module.__name__, sys.path[:2])
+EOF
+
+check "CVE-2026-124249: expired foreign-domain cookies cannot delete cookies" <<'EOF'
+from http.cookiejar import CookieJar
+from email.message import Message
+from urllib.request import Request
+
+def receive(host, cookie):
+    headers = Message()
+    headers['Set-Cookie'] = cookie
+    class Response:
+        def info(self):
+            return headers
+    jar.extract_cookies(Response(), Request('http://' + host + '/'))
+
+jar = CookieJar()
+receive('www.victim.test', 'session=secret; Domain=.victim.test; Path=/')
+receive('www.attacker.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 1, list(jar)
+receive('www.victim.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 0, list(jar)
+EOF
+
+check "CVE-2026-16052: Morsel rejects attribute semicolons" <<'EOF'
+from http.cookies import CookieError, Morsel
+m = Morsel()
+for operation in (lambda: m.__setitem__('samesite', 'lax; Domain=attacker.test'),
+                  lambda: m.setdefault('domain', 'safe.test; Domain=attacker.test'),
+                  lambda: m.update({'path': '/; SameSite=None'})):
+    try:
+        operation()
+    except CookieError:
+        pass
+    else:
+        raise AssertionError('attribute semicolon was accepted')
+assert 'attacker.test' not in m.OutputString(), m.OutputString()
+EOF
+
+check "CVE-2026-19552: get_server_certificate verifies hostname" <<'EOF'
+import socket, ssl, threading
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+
+def handshake():
+    conn, _ = listener.accept()
+    conn.settimeout(5)
+    with conn:
+        try:
+            context.wrap_socket(conn, server_side=True).close()
+        except (ConnectionError, OSError):
+            pass
+
+threads = [threading.Thread(target=handshake, daemon=True) for _ in range(2)]
+for thread in threads: thread.start()
+port = listener.getsockname()[1]
+cert = '/test-identity.pem'
+assert ssl.get_server_certificate(('localhost', port), ca_certs=cert).startswith('-----BEGIN CERTIFICATE-----')
+try:
+    ssl.get_server_certificate(('127.0.0.1', port), ca_certs=cert)
+except ssl.CertificateError:
+    pass
+else:
+    raise AssertionError('trusted certificate accepted for the wrong hostname')
+for thread in threads:
+    thread.join(timeout=5)
+    assert not thread.is_alive(), 'TLS server did not finish'
+listener.close()
 EOF
 
 check "CVE-2025-15367: poplib rejects control characters in commands" <<'EOF'
