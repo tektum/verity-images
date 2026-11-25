@@ -20,9 +20,18 @@ trap cleanup EXIT INT TERM
 # CI also runs this test for arm64 under emulation: bind Spark to loopback, and
 # stop the JIT at C1 so emulated C2 compilation does not dominate the run.
 run() {
-  timeout "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --label "$label" \
-    -e SPARK_LOCAL_IP=127.0.0.1 -e JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1 "$@"
+  rc=0
+  counter=$((counter + 1))
+  name="spark-smoke-$$-$counter"
+  timeout -k 10 "${SMOKE_STEP_TIMEOUT:-900}" docker run --rm --name "$name" --label "$label" \
+    -e SPARK_LOCAL_IP=127.0.0.1 -e JAVA_TOOL_OPTIONS=-XX:TieredStopAtLevel=1 "$@" || rc=$?
+  if [ "$rc" -eq 124 ] || [ "$rc" -eq 137 ]; then
+    docker rm -f "$name" >/dev/null 2>&1 || true
+    printf 'FAIL: container exceeded the %ss deadline: %s\n' "${SMOKE_STEP_TIMEOUT:-900}" "$*" >&2
+  fi
+  return "$rc"
 }
+counter=0
 
 step() {
   printf '== %s (+%ss)\n' "$1" "$(($(date +%s) - start))" >&2
@@ -112,7 +121,14 @@ step 'PySpark'
 run "$image" sh -c '
   set -e
   [ "$(pwd)" = /opt/spark/work-dir ]
-  spark-submit --master "local[1]" /opt/spark/examples/src/main/python/pi.py 2
+  # Direct, single-use Python workers avoid the fork daemon handshake under QEMU.
+  export PYSPARK_PYTHON=/usr/bin/python3 PYSPARK_DRIVER_PYTHON=/usr/bin/python3
+  pyspark_submit() {
+    spark-submit --master "local[1]" \
+      --conf spark.python.use.daemon=false \
+      --conf spark.python.worker.reuse=false "$@"
+  }
+  pyspark_submit /opt/spark/examples/src/main/python/pi.py 2
   cat > roundtrip.py <<EOF
 from pyspark.sql import SparkSession
 spark = SparkSession.builder.appName("verity-roundtrip").getOrCreate()
@@ -126,7 +142,7 @@ table = spark.table("buckets").count()
 print("ROUNDTRIP buckets=%d rows=%d table=%d" % (total, rows, table))
 spark.stop()
 EOF
-  spark-submit --master "local[1]" roundtrip.py
+  pyspark_submit roundtrip.py
   [ -d spark-warehouse/buckets ]
 ' >"$work/pyspark.log" 2>&1 || show_fail "$work/pyspark.log" 'PySpark run failed'
 check_pi "$work/pyspark.log" 'PySpark pi.py'
