@@ -87,7 +87,7 @@ def main() -> None:
     print(f"Monitor run {sys.argv[2]}: {sys.argv[3]}")
     if sys.argv[1] not in {"true", "false"}:
         raise SystemExit("FAILED must be true or false")
-    failed = {"true": True, "false": False}.get(sys.argv[1])
+    failed = sys.argv[1] == "true"
     number = reconcile(failed, sys.argv[2], sys.argv[3], sys.argv[4])
     with Path(sys.argv[5]).open("a", encoding="utf-8") as output:
         if number is not None:
