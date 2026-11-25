@@ -1,0 +1,21 @@
+From: verity
+Subject: cassandra-reaper UI: install the committed npm lockfile with npm ci
+
+Upstream's exec-npm-install runs `npm install` in src/ui, which ships no
+package-lock.json, so every build re-resolves the UI dependency ranges. The
+Verity recipe copies its own lockfile (ui-package-lock.json, generated with
+`npm install --package-lock-only` on the same Node 22 / npm 10 line the build
+uses) into src/ui before the Maven build; this patch makes the pom install
+exactly that lockfile instead of re-resolving.
+
+--- a/src/server/pom.xml
++++ b/src/server/pom.xml
+@@ -680,7 +680,7 @@
+                             <executable>npm</executable>
+                             <workingDirectory>../ui</workingDirectory>
+                             <arguments>
+-                                <argument>install</argument>
++                                <argument>ci</argument>
+                             </arguments>
+                         </configuration>
+                         <goals>

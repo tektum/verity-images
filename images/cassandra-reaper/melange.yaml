@@ -72,6 +72,18 @@ pipeline:
       repository: https://github.com/thelastpickle/cassandra-reaper
       tag: ${{package.version}}
       expected-commit: a207a8595a52381255172726c5040d3162cbaf12
+  # Upstream's exec-npm-install runs `npm install` in src/ui, which ships no
+  # package-lock.json, so every build re-resolved the UI dependency ranges. The
+  # committed ui-package-lock.json was generated from this checkout's
+  # src/ui/package.json with `npm install --package-lock-only` on Node 22 / npm
+  # 10 (the toolchain the build uses); npm-ci.patch switches the pom to `npm ci`
+  # so the build installs exactly that lockfile.
+  - uses: patch
+    with:
+      patches: npm-ci.patch
+  - runs: |
+      install -Dm644 ui-package-lock.json src/ui/package-lock.json
+      test -f src/ui/package-lock.json
   - runs: |
       pom=src/server/pom.xml
       # guava and amqp-client carry literal versions in the server POM (amqp-client under
