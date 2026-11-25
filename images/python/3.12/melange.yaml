@@ -144,7 +144,7 @@ pipeline:
   - name: Run the regression tests of the patched modules
     runs: |
       LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 \
-        test_base64 test_binascii test_cookiejar test_gzip test_http_cookies \
+        test_base64 test_binascii test_gzip test_http_cookiejar test_http_cookies \
         test_httplib test_imaplib test_pkgutil test_poplib test_runpy \
         test_socket test_ssl test_tarfile test_tempfile test_zipfile
       # gh-127301.patch FIPS wrappers, under the mock FIPS OPENSSL_CONF that

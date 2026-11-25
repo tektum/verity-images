@@ -10,7 +10,7 @@ failures=0
 
 # check NAME: run the Python program on stdin in the image; it must exit 0.
 check() {
-  if docker run --rm -i --network none -v "$(dirname "$0")/test-identity.pem:/test-identity.pem:ro" "$image" - >"$tmp" 2>&1; then
+  if docker run --rm -i --network none -v "$(cd "$(dirname "$0")" && pwd)/test-identity.pem:/test-identity.pem:ro" "$image" - >"$tmp" 2>&1; then
     echo "PASS: $1"
   else
     echo "FAIL: $1" >&2
@@ -90,49 +90,79 @@ for c in '\0\r\n':
 EOF
 
 check "CVE-2026-115559: IMAP STARTTLS discards cached plaintext" <<'EOF'
-import imaplib, socket
-plain, injected = socket.socketpair()
-plain.settimeout(5)
-client = imaplib.IMAP4.__new__(imaplib.IMAP4)
-client.host = 'imap.example'
-client.sock = plain
-client.file = plain.makefile('rb')
-client._tls_established = False
-client.capabilities = [b'IMAP4REV1', b'STARTTLS']
-client.tagged_commands = {}
-client.untagged_responses = {}
-client.debug = 0
-injected.sendall(b'A001 OK start TLS\r\n* CAPABILITY injected\r\n')
+import imaplib, socket, ssl, threading
+server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+errors = []
 
-class Context:
-    def wrap_socket(self, sock, server_hostname):
-        assert client.file is None
-        assert client.untagged_responses == {}
-        tls, server = socket.socketpair()
-        server.sendall(b'* CAPABILITY genuine\r\nA002 OK TLS\r\n')
-        client._simple_command = lambda name: ('OK', [b'TLS'])
-        return tls
+def serve():
+    try:
+        conn, _ = listener.accept()
+        conn.settimeout(5)
+        f = conn.makefile('rwb')
+        f.write(b'* OK ready\r\n')
+        f.flush()
+        for line in f:
+            tag, command = line.split()[:2]
+            if command == b'CAPABILITY':
+                f.write(b'* CAPABILITY IMAP4rev1 STARTTLS\r\n' + tag + b' OK done\r\n')
+                f.flush()
+            elif command == b'STARTTLS':
+                # Injected plaintext: an untagged response before the tagged
+                # OK and a capability line after it, read ahead with it.
+                f.write(b'* 3 EXISTS\r\n' + tag + b' OK Begin TLS\r\n'
+                        b'* CAPABILITY IMAP4rev1 INJECTED\r\n')
+                f.flush()
+                break
+        tls = server_context.wrap_socket(conn, server_side=True)
+        tf = tls.makefile('rwb')
+        for line in tf:
+            tag, command = line.split()[:2]
+            if command == b'CAPABILITY':
+                tf.write(b'* CAPABILITY IMAP4rev1 GENUINE\r\n' + tag + b' OK done\r\n')
+            elif command == b'LOGOUT':
+                tf.write(b'* BYE bye\r\n' + tag + b' OK done\r\n')
+            tf.flush()
+            if command == b'LOGOUT':
+                break
+    except Exception as e:
+        errors.append(e)
 
-client.starttls(Context())
-assert client.file.peek() == b'', client.file.peek()
-assert client.capabilities == ('GENUINE',), client.capabilities
+thread = threading.Thread(target=serve)
+thread.start()
+client = imaplib.IMAP4('localhost', listener.getsockname()[1], timeout=5)
+context = ssl.create_default_context(cafile='/test-identity.pem')
+assert client.starttls(context)[0] == 'OK'
+assert isinstance(client.sock, ssl.SSLSocket), client.sock
+assert client.untagged_responses == {}, client.untagged_responses
+assert client.response('EXISTS') == ('EXISTS', [None]), client.response('EXISTS')
+assert client.capabilities == ('IMAP4REV1', 'GENUINE'), client.capabilities
+client.logout()
+thread.join(timeout=5)
+assert not thread.is_alive(), 'IMAP server did not finish'
+assert not errors, errors
+listener.close()
 EOF
 
 check "CVE-2026-115791: archive CLIs remove the shadowing import path" <<'EOF'
 import gzip, sys, tarfile, tempfile, zipfile
 assert sys._path0 == '', repr(sys._path0)
-sys.argv = ['gzip']
 with tempfile.TemporaryDirectory() as work:
     payload = work + '/payload.gz'
     with gzip.open(payload, 'wb') as f:
         f.write(b'payload')
-    sys.argv.append(payload)
+    sys.argv = ['gzip', '-d', payload]
+    sys.path.insert(0, sys._path0)
     gzip.main()
     assert sys._path0 not in sys.path, sys.path[:2]
     with open(payload[:-3], 'rb') as f:
         assert f.read() == b'payload'
 for module in (tarfile, zipfile):
     sys.argv = [module.__name__]
+    sys.path.insert(0, sys._path0)
     try:
         module.main()
     except SystemExit as e:
