@@ -40,6 +40,9 @@ environment:
   # packages are covered by the Anaconda Terms of Service.
   CONDA_CHANNELS: conda-forge
   CONDA_CHANNEL_PRIORITY: strict
+  # conda 26.10 selects the rattler solver by default, which Wolfi does not package;
+  # the image ships conda-libmamba-solver.
+  CONDA_SOLVER: libmamba
 
 paths:
   - path: /home/nonroot
