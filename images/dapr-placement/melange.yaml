@@ -1,7 +1,7 @@
 package:
   name: verity-dapr-placement
   # yamllint disable-line rule:line-length
-  version: "1.19.1"  # renovate: datasource=github-releases depName=dapr/dapr versioning=regex:^(?<major>1)\.(?<minor>19)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "1.19.2"  # renovate: datasource=github-releases depName=dapr/dapr versioning=regex:^(?<major>1)\.(?<minor>19)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Dapr placement service, the actor placement table and consistent hash ring server
   copyright:
@@ -14,7 +14,7 @@ package:
     memory: 16Gi
 
 vars:
-  source-commit: cfb5ee090dda7cfc26145c7703605d831350aa2a
+  source-commit: 66efc169ba72dca18ab73394c98381d68cda88f0
 
 environment:
   contents:
