@@ -121,6 +121,8 @@ pipeline:
     environment:
       UV_PYTHON: python${{vars.python-version}}
       UV_NO_CACHE: "1"
+      # bracex 3.2.4 was published just after upstream's rolling dependency
+      # cutoff; the explicit per-package exception below preserves all others.
     runs: |
       cp ../_build/install/default/bin/semgrep-core src/semgrep/bin/semgrep-core
 
@@ -167,6 +169,7 @@ pipeline:
       names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
       grep -viE "^(${names}|opentelemetry-[a-z-]+)==" upstream.txt > constraints.txt
       uv pip compile pyproject.toml --override overrides.txt --constraint constraints.txt \
+        --exclude-newer-package bracex=9999-01-01T00:00:00Z \
         --no-header --no-annotate -o resolved.txt
       echo "Python dependency changes against upstream cli/uv.lock:"
       diff upstream.txt resolved.txt || true
