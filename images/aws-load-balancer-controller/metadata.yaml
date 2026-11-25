@@ -6,3 +6,4 @@ upstream: https://github.com/kubernetes-sigs/aws-load-balancer-controller
 versions: [3.6]
 owner: tektum
 enabled: true
+scan-identity: [pkg:golang/sigs.k8s.io/aws-load-balancer-controller]
