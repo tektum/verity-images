@@ -5,6 +5,8 @@
   "automerge": false,
   "platformAutomerge": false,
   "prCreation": "immediate",
+  "prConcurrentLimit": 25,
+  "branchConcurrentLimit": 25,
   "dependencyDashboard": false,
   "enabledManagers": ["custom.regex"],
   "customManagers": [

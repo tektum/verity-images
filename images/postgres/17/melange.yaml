@@ -2,7 +2,7 @@ package:
   # Keeps Wolfi's package identity so the image contents, the APKO package
   # references, and the vulnerability feed match stay the same as before.
   name: postgresql-17
-  version: "17.11"  # renovate: datasource=docker depName=postgres versioning=docker
+  version: "17.12"  # renovate: datasource=docker depName=postgres versioning=docker
   epoch: 0
   description: PostgreSQL 17 server built from the official source release
   copyright:
@@ -52,13 +52,13 @@ vars:
 
 pipeline:
   # The official release tarball. Its SHA-256 matches the published
-  # postgresql-17.11.tar.bz2.sha256 next to it; tag REL_17_11 in
+  # postgresql-17.12.tar.bz2.sha256 next to it; tag REL_17_12 in
   # https://github.com/postgres/postgres resolves to
-  # 083ac033419f690758508e08c1736089384bbee8.
+  # 702b3dc86d35bcc08c8e23cffa3c4d9fe9d32c85.
   - uses: fetch
     with:
       uri: https://ftp.postgresql.org/pub/source/v${{package.version}}/postgresql-${{package.version}}.tar.bz2
-      expected-sha256: dd27f2b3c59e73ed14aa3324901242bf69a032a6347805f274e6260322d42979
+      expected-sha256: 9cf136a703d8ee2f83465c43be4e9e8e7930c82b0bfba13be7e2537be769ac55
 
   # The docker-library entrypoint the image runs, installed by the
   # oci-entrypoint-compat subpackage. Same pinned commit and SHA-256 as Wolfi's

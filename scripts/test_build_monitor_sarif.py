@@ -11,6 +11,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -304,7 +305,60 @@ def fingerprint_for(results: list[dict], advisory: str, package: str) -> str:
     return result_for(results, advisory, package)["partialFingerprints"][FINGERPRINT]
 
 
+def go_match(advisory: str, module: str, installed: str, fixed: str) -> dict:
+    finding = match(advisory, module, installed, severity="High", fixes=[fixed],
+                    related=[{"id": "CVE-2022-31045"}])
+    finding["artifact"]["type"] = "go-module"
+    finding["artifact"]["purl"] = f"pkg:golang/{module}@{installed}"
+    return finding
+
+
+def test_untagged_go_modules() -> None:
+    # Parity with scripts/evaluate_scan_gate.sh through scripts/untagged_go_modules.py:
+    # an allowlisted untagged module whose pseudo-version includes the corrected
+    # fixed release is not a remediation candidate; any other untagged module is.
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import go_proxy_fixture
+
+    istio = "v0.0.0-20260528141032-c51394391cf5"
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        proxy_root = root / "proxy"
+        info = proxy_root / "istio.io/istio/@v/1.12.8.info"
+        info.parent.mkdir(parents=True)
+        info.write_text('{"Version":"v0.0.0-20220606151702-83a7f5f171c0"}\n', encoding="utf-8")
+        untagged = proxy_root / "example.com/untagged/@v/1.0.0.info"
+        untagged.parent.mkdir(parents=True)
+        untagged.write_text('{"Version":"v0.0.0-20200101000000-0123456789ab"}\n', encoding="utf-8")
+        allowlisted = go_match("GHSA-xwx5-5c9g-x68x", "istio.io/istio", istio, "1.12.18")
+        outside = go_match("GHSA-untagged", "example.com/untagged", istio, "1.0.0")
+        write_json(root / "verity-amd64.json", scan([allowlisted, outside]))
+        write_json(root / "verity-arm64.json", scan([allowlisted]))
+        write_json(root / "edge-amd64.json", scan([]))
+        previous = os.environ.get("GO_MODULE_PROXY")
+        with go_proxy_fixture.serve(proxy_root) as proxy:
+            os.environ["GO_MODULE_PROXY"] = proxy
+            try:
+                sarif, report, _, _ = run_builder(
+                    root, manifest(reference="registry.example/verity@sha256:old", digest="sha256:old"), "untagged"
+                )
+            finally:
+                if previous is None:
+                    os.environ.pop("GO_MODULE_PROXY")
+                else:
+                    os.environ["GO_MODULE_PROXY"] = previous
+        results = sarif["runs"][0]["results"]
+        assert [(result["ruleId"], result["properties"]["package"]) for result in results] == [
+            ("GHSA-untagged", "example.com/untagged")
+        ]
+        verity = next(subject for subject in report["subjects"] if subject["name"] == "verity")
+        assert verity["fixable"] == 1
+        assert verity["monitored"]["high"] == 3
+        assert [finding["advisory"] for finding in report["findings"]] == ["GHSA-untagged"]
+
+
 def main() -> None:
+    test_untagged_go_modules()
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
         amd64, arm64, edge = fixture_scans()

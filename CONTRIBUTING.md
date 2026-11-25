@@ -105,6 +105,21 @@ matched through GHSA, and its version gets a `v` prefix. A scoped npm package
 percent-encodes its scope (`pkg:npm/%40scope/name`); the injected package is
 named `@scope/name`, the spelling GHSA uses.
 
+A bundled component whose version differs from the recipe version appends
+`@vars.<name>` to its entry, naming the melange var that holds its release
+version. Each entry is then versioned from its own var:
+
+```yaml
+scan-identity: [cpe:2.3:a:getambassador:emissary-ingress, cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]
+```
+
+Only the `@vars.<name>` form is accepted; a literal version is still rejected.
+Keep the var's `# renovate:` annotation so a bump moves the scanned version with
+no second version string to keep in sync. A missing var, or one whose value is
+not a release version, fails the build rather than scanning the wrong version.
+The suffix needs a melange recipe: a pure APKO identity is versioned by its
+`scan-package`.
+
 An asserted identity must be correct. A wrong vendor, product, or module path
 scans nothing and silently blinds the gate again, because nothing checks the
 declaration against the software. Take the CPE from the NVD CPE dictionary and
@@ -398,19 +413,31 @@ Keep external sources in these layouts:
   the same pull request. A smoke test needs no edit when it derives its expected
   primary version from the image or the recipe; a test that hardcodes that
   version, or asserts a bundled tool version, still changes with the bump.
-- A second source checked out next to the main one (jellyfin-web and FFmpeg in
-  `images/jellyfin`) keeps `<name>-version` with an inline annotation and
-  `<name>-commit: <40 hex>` on the next line under `vars:`, and its
-  `git-checkout` uses `tag: ...${{vars.<name>-version}}...` and
-  `expected-commit: ${{vars.<name>-commit}}`. The secondary source manager in
-  `renovate.json` lists each recipe and var name explicitly (Renovate's regex
-  engine has no backreferences to pair them) and rewrites the version and
-  commit together, as a `source` dependency. Add the recipe and name there when
-  you add such a pin; `scripts/test_melange_source_pins.py` fails a covered
-  recipe whose secondary pins and match strings disagree.
+- A second source checked out next to the main one (for example envoy in
+  `images/emissary`, step-cli in `images/step-ca`, jellyfin-web and FFmpeg in
+  `images/jellyfin`) keeps `<name>-version` (or `<name>-tag`) with an inline
+  annotation and `<name>-commit: <40 hex>` after it under `vars:` (comment lines
+  may sit between them), and its `git-checkout` uses
+  `tag: ...${{vars.<name>-version}}...` and `expected-commit: ${{vars.<name>-commit}}`.
+  The secondary source manager in `renovate.json` lists each recipe and var name
+  explicitly (Renovate's regex engine has no backreferences to pair them) and
+  rewrites the version and commit together, as a `source` dependency. Add the
+  recipe and name there when you add such a pin; `scripts/test_melange_source_pins.py`
+  fails a recipe with an uncovered secondary pin, and a covered recipe whose
+  secondary pins and match strings disagree.
+- An `apko.yaml` value that must equal a secondary pin (for example
+  `TRIVY_VERSION` in `images/harbor-scanner-trivy`, which the adapter reports
+  as the scanner version) carries the pin's annotation verbatim. The companion
+  manager in `renovate.json` lists each such `apko.yaml` and resolves the value
+  as a `source` dependency of the same GitHub repository, so it gets the pin's
+  update and branch and both files change in one pull request.
+  `scripts/test_melange_source_pins.py` fails an annotated `apko.yaml` value
+  that the manager does not cover, or one whose annotation, value, or
+  repository differs from its pin.
 - A smoke-test peer image in `images/datadog-cluster-agent/tests/test.sh` uses
   `registry/repository:tag@sha256:...`. The tag names the stream; Renovate
-  moves only the digest within it, weekly. Extend the manager's file pattern to
+  moves only the digest within it, weekly, as a review-required pull request
+  that never automerges. Extend the manager's file pattern to
   cover another test script.
 - A workflow helper image must use `image: registry/repository:tag@sha256:...`
   in `.github/workflows/*.yaml`. A tagless digest is treated as the registry's

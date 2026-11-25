@@ -1,6 +1,6 @@
 package:
   name: loki-3.6
-  version: "3.6.21"  # renovate: datasource=github-releases depName=grafana/loki
+  version: "3.6.22"  # renovate: datasource=github-releases depName=grafana/loki
   epoch: 0
   description: Like Prometheus, but for logs
   copyright:
@@ -17,8 +17,9 @@ package:
     memory: 1Gi
 
 vars:
-  source-commit: af033ff9e624baf8c966089f01d5f34da2123e38
+  source-commit: 38e4020516b25119f795a8a5f55e06ccd9c9d1fc
   grpc-floor: v1.83.2  # renovate: datasource=go depName=google.golang.org/grpc
+  otel-floor: v1.47.0  # renovate: datasource=go depName=go.opentelemetry.io/otel
 
 environment:
   contents:
@@ -59,6 +60,23 @@ pipeline:
         GOTOOLCHAIN=local go get google.golang.org/grpc@${{vars.grpc-floor}}
       fi
 
+  # Upstream Loki still resolves otel before the fixes in v1.47.0.
+  - runs: |
+      for module in go.opentelemetry.io/otel go.opentelemetry.io/otel/trace go.opentelemetry.io/otel/sdk; do
+        current="$(go list -mod=mod -m -f '{{.Version}}' "$module")"
+        if awk -v have="$current" -v want=${{vars.otel-floor}} 'BEGIN {
+          split(substr(have, 2), h, /[.+-]/)
+          split(substr(want, 2), w, ".")
+          for (i = 1; i <= 3; i++) {
+            if (h[i] + 0 != w[i] + 0) exit (h[i] + 0 < w[i] + 0) ? 0 : 1
+          }
+          exit (have ~ /-/) ? 0 : 1
+        }'; then
+          GOTOOLCHAIN=local go get "$module@${{vars.otel-floor}}"
+        fi
+      done
+      GOTOOLCHAIN=local go mod tidy
+
   - runs: |
       flags="-s -w"
       flags="$flags -X github.com/grafana/loki/v3/pkg/util/build.Branch=release-3.6.x"
@@ -83,6 +101,23 @@ pipeline:
         exit (have ~ /-/) ? 1 : 0
       }' || {
         echo "google.golang.org/grpc version $actual is below required floor ${{vars.grpc-floor}}" >&2
+        exit 1
+      }
+      actual="$(go version -m "${{targets.destdir}}/usr/bin/loki" \
+        | awk '$1 == "dep" && $2 ~ "^go\\.opentelemetry\\.io/otel(/trace|/sdk)?$" { print $2 " " $3 }' | sort)"
+      [ -n "$actual" ]
+      printf '%s\n' "$actual" | awk -v want=${{vars.otel-floor}} 'BEGIN {
+        split(substr(want, 2), w, ".")
+        count=0; bad=0
+      } {
+        count++
+        split(substr($2, 2), h, /[.+-]/)
+        for (i = 1; i <= 3; i++) {
+          if (h[i] + 0 != w[i] + 0) break
+        }
+        if (i <= 3 ? h[i] + 0 < w[i] + 0 : $2 ~ /-/) bad=1
+      } END { exit (bad || count != 3) ? 1 : 0 }' || {
+        echo "Loki links OpenTelemetry modules below the floor ${{vars.otel-floor}}: $actual" >&2
         exit 1
       }
       install -Dm644 cmd/loki/loki-docker-config.yaml \

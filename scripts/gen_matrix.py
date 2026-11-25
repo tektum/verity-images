@@ -26,11 +26,17 @@ GLOBAL_PATHS: Final = {
     ".github/workflows/publish.yaml",
     "scripts/replace_gosu.sh",
     "scripts/evaluate_scan_gate.sh",
+    "pipelines/go/untagged-release-modules.json",
+    "scripts/untagged_go_modules.py",
     "scripts/parse_push_digest.sh",
     "scripts/install_image_tools.sh",
     "scripts/runner_environment.sh",
 }
-GO_REMEDIATE_PATHS: Final = {"pipelines/go/remediate.yaml", "scripts/build_candidate.sh"}
+GO_REMEDIATE_PATHS: Final = {
+    "pipelines/go/remediate.yaml",
+    "pipelines/go/untagged-release-modules.json",
+    "scripts/build_candidate.sh",
+}
 COREPACK_INSTALL_PATHS: Final = {"pipelines/corepack/install.yaml", "scripts/build_candidate.sh"}
 CARGO_REMEDIATE_PATHS: Final = {"pipelines/cargo/remediate.yaml", "scripts/build_candidate.sh"}
 COREPACK_INSTALL_SAMPLE: Final = "images/argocd"
@@ -55,6 +61,20 @@ SCAN_IDENTITY_CPE: Final = re.compile(
     r"cpe:2\.3:a:([a-z0-9][a-z0-9_.-]*):([a-z0-9][a-z0-9_.-]*(?:/[a-z0-9][a-z0-9_.-]*)*)"
 )
 SCAN_IDENTITY_PURL: Final = re.compile(r"pkg:[a-z][a-z0-9.+-]*/[^@?#\s]+")
+
+# An optional `@vars.<name>` suffix versions one scan identity from that melange var instead of the recipe
+# version (a bundled component, e.g. emissary's Envoy). The var keeps its own `# renovate:` annotation, so
+# an upstream bump moves the scanned version with no second version string to keep in sync.
+SCAN_IDENTITY_VERSION_VAR: Final = re.compile(r"[A-Za-z0-9_-]+")
+
+
+def split_scan_identity(entry: str) -> tuple[str, str | None]:
+    """(bare identity, version var or None) for one metadata scan-identity entry."""
+    identity, at, ref = entry.rpartition("@vars.")
+    if not at:
+        return entry, None
+    return identity, ref
+
 # A Wolfi package name, and an APK version whose upstream part versions a pure APKO scan identity:
 # the `-rN` build epoch is dropped, and so is a `_gitYYYYMMDD` snapshot suffix, which leaves the
 # release the snapshot was cut after. Any other APK suffix (_p1, _rc1, ...) has no reliable
@@ -107,7 +127,8 @@ class Metadata:
     owner: str
     enabled: bool
     category: str
-    scan_identity: tuple[str, ...]
+    scan_identity: tuple[str, ...]              # raw entries; keep the @vars. suffix for the input digest
+    scan_identity_vars: tuple[str | None, ...]  # per entry: version var from a @vars.<name> suffix, or None
     scan_package: str
 
 
@@ -197,21 +218,31 @@ def parse_metadata(path: Path) -> Metadata:
         )
     scan_identity = values.get("scan-identity", ())
     scan_package = values.get("scan-package", "")
+    identity_parts = tuple(split_scan_identity(entry) for entry in scan_identity) if isinstance(scan_identity, tuple) else ()
+    is_melange = (path.parent / "melange.yaml").is_file()
     if "scan-identity" in values:
         if (
             not isinstance(scan_identity, tuple)
             or not scan_identity
-            or len(set(scan_identity)) != len(scan_identity)
-            or not all(SCAN_IDENTITY_CPE.fullmatch(i) or SCAN_IDENTITY_PURL.fullmatch(i) for i in scan_identity)
+            or len(set(identity for identity, _ in identity_parts)) != len(scan_identity)
+            or not all(
+                (SCAN_IDENTITY_CPE.fullmatch(i) or SCAN_IDENTITY_PURL.fullmatch(i))
+                and (var is None or SCAN_IDENTITY_VERSION_VAR.fullmatch(var))
+                for i, var in identity_parts
+            )
         ):
             raise MetadataError(
                 f"{path}: scan-identity must be a unique list of cpe:2.3:a:VENDOR:PRODUCT or pkg:TYPE/NAME "
-                "entries without a version"
+                "entries without a version; an optional @vars.<name> suffix versions one entry from that melange var"
             )
-        if (path.parent / "melange.yaml").is_file():
+        if is_melange:
             if "scan-package" in values:
                 raise MetadataError(f"{path}: scan-package is for pure APKO images; melange.yaml versions the identity")
         elif track == "wolfi" and is_pure_apko(path.parent):
+            if any(var is not None for _, var in identity_parts):
+                raise MetadataError(
+                    f"{path}: @vars.<name> is for melange recipes; a pure APKO identity is versioned by scan-package"
+                )
             if not isinstance(scan_package, str) or not SCAN_PACKAGE.fullmatch(scan_package):
                 raise MetadataError(
                     f"{path}: scan-identity on a pure APKO image requires scan-package, the Wolfi package "
@@ -237,6 +268,7 @@ def parse_metadata(path: Path) -> Metadata:
         enabled=enabled,
         category=str(values.get("category", "")),
         scan_identity=scan_identity,
+        scan_identity_vars=tuple(var for _, var in identity_parts),
         scan_package=str(scan_package),
     )
 
