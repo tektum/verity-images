@@ -194,7 +194,7 @@ def check_declared_identity() -> None:
         assert package["name"] == "@scope/tool"
         assert package["externalRefs"][0]["referenceLocator"] == "pkg:npm/%40scope/tool@1.2.3"
         assert scan_identity.declared_missing(
-            json.loads(image.sbom.read_text(encoding="utf-8")), ("pkg:npm/%40scope/tool",), "1.2.3"
+            json.loads(image.sbom.read_text(encoding="utf-8")), ("pkg:npm/%40scope/tool",), ["1.2.3"]
         ) == []
     with TemporaryDirectory() as directory:
         # A flavor-only helper recipe packages glue, not the runtime: nothing to declare or check.
@@ -209,6 +209,52 @@ def check_declared_identity() -> None:
         )
         image.apply()
         assert "cpe:2.3:a:pingcap:tidb:26.3.12:" in image.sbom.read_text(encoding="utf-8")
+
+def check_identity_version_vars() -> None:
+    # A bundled component is versioned from its own recipe var, not the recipe version.
+    with TemporaryDirectory() as directory:
+        image = Image(
+            Path(directory),
+            [],
+            identity=(
+                "scan-identity: [cpe:2.3:a:getambassador:emissary-ingress,"
+                " cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]\n"
+            ),
+        )
+        image.recipe.write_text(
+            'package:\n  name: verity-tool\n  version: 4.2.0\n  epoch: 0\nvars:\n  envoy-version: "1.40.2"\n',
+            encoding="utf-8",
+        )
+        status = image.apply()
+        assert "cpe:2.3:a:getambassador:emissary-ingress@4.2.0" in status, status
+        assert "cpe:2.3:a:envoyproxy:envoy@1.40.2" in status, status
+        sbom = json.loads(image.sbom.read_text(encoding="utf-8"))
+        added = {package["name"]: package for package in sbom["packages"][1:]}
+        assert [ref["referenceLocator"] for ref in added["envoy"]["externalRefs"]] == [
+            "cpe:2.3:a:envoyproxy:envoy:1.40.2:*:*:*:*:*:*:*",
+            "pkg:generic/envoy@1.40.2",
+        ]
+        assert added["emissary-ingress"]["externalRefs"][0]["referenceLocator"] == (
+            "cpe:2.3:a:getambassador:emissary-ingress:4.2.0:*:*:*:*:*:*:*"
+        )
+    # A Go purl still gains the v prefix when its version comes from a var.
+    with TemporaryDirectory() as directory:
+        image = Image(Path(directory), [], identity="scan-identity: [pkg:golang/example.com/tool@vars.tool-version]\n")
+        image.recipe.write_text(
+            "package:\n  name: verity-tool\n  version: 4.2.0\nvars:\n  tool-version: 1.40.2\n", encoding="utf-8"
+        )
+        image.apply()
+        package = json.loads(image.sbom.read_text(encoding="utf-8"))["packages"][-1]
+        assert package["externalRefs"][0]["referenceLocator"] == "pkg:golang/example.com/tool@v1.40.2"
+    # A missing or non-version var fails closed instead of silently scanning the recipe version.
+    for vars_block in ("vars:\n  other: 1.40.2\n", 'vars:\n  envoy-version: "v1.40.2"\n'):
+        with TemporaryDirectory() as directory:
+            image = Image(Path(directory), [], identity="scan-identity: [cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]\n")
+            image.recipe.write_text(
+                f"package:\n  name: verity-tool\n  version: 4.2.0\n{vars_block}", encoding="utf-8"
+            )
+            assert "vars.envoy-version" in image.rejected()
+            assert json.loads(image.sbom.read_text(encoding="utf-8")) == sbom_fixture()
 
 
 def check_allowlist() -> None:
@@ -275,6 +321,15 @@ def check_metadata_validation() -> None:
         "cpe:2.3:a:nodejs:node.js",
     )
     assert parse("scan-identity: [cpe:2.3:a:erlang:erlang/otp]\n").scan_identity == ("cpe:2.3:a:erlang:erlang/otp",)
+    versioned = parse(
+        "scan-identity: [cpe:2.3:a:getambassador:emissary-ingress, cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]\n"
+    )
+    assert versioned.scan_identity == (
+        "cpe:2.3:a:getambassador:emissary-ingress",
+        "cpe:2.3:a:envoyproxy:envoy@vars.envoy-version",
+    )
+    assert versioned.scan_identity_vars == (None, "envoy-version")
+    assert parse("").scan_identity_vars == ()
     for identity in (
         "scan-identity: []\n",
         "scan-identity: [cpe:2.3:a:oracle:mysql, cpe:2.3:a:oracle:mysql]\n",
@@ -289,6 +344,11 @@ def check_metadata_validation() -> None:
         "scan-identity: [cpe:2.3:a:erlang:erlang/]\n",
         "scan-identity: [cpe:2.3:a:erlang:/otp]\n",
         "scan-identity: [cpe:2.3:a:erlang/otp:otp]\n",
+        "scan-identity: [cpe:2.3:a:oracle:mysql@vars.envoy version]\n",
+        "scan-identity: [cpe:2.3:a:oracle:mysql@vars.]\n",
+        "scan-identity: [cpe:2.3:a:oracle:mysql@1.40.2]\n",
+        "scan-identity: [cpe:2.3:a:oracle:mysql@vars.a@vars.b]\n",
+        "scan-identity: [cpe:2.3:a:oracle:mysql@vars.a, cpe:2.3:a:oracle:mysql]\n",
     ):
         try:
             parse(identity)
@@ -558,6 +618,7 @@ def check_apko_metadata_validation() -> None:
     with TemporaryDirectory() as directory:
         assert gen_matrix.parse_metadata(ApkoImage(Path(directory), declared="").metadata).scan_package == ""
     assert "requires scan-package" in rejected("scan-identity: [cpe:2.3:a:example:tool]\n")
+    assert "is for melange recipes" in rejected("scan-identity: [cpe:2.3:a:example:tool@vars.tool-version]\nscan-package: tool\n")
     assert "is not installed by apko.lock.json" in rejected(APKO_DECLARED.replace("scan-package: tool", "scan-package: other"))
     assert "only valid with scan-identity" in rejected("scan-package: tool\n")
     assert "only N-rN and N_gitDATE-rN" in rejected(APKO_DECLARED, locked="9.9_p1-r0")
@@ -599,6 +660,7 @@ def main() -> None:
     check_blind_spot_fails_closed()
     check_native_coverage()
     check_declared_identity()
+    check_identity_version_vars()
     check_allowlist()
     check_metadata_validation()
     check_underscore_heavy_paths()
