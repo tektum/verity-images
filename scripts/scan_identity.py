@@ -57,6 +57,35 @@ def recipe_version(recipe: Path) -> str:
     return version
 
 
+def identity_versions(metadata: gen_matrix.Metadata, recipe: Path, default_version: str | None = None) -> list[str]:
+    """One resolved version per declared scan-identity entry, in entry order.
+
+    An entry carrying `@vars.<name>` takes its version from that melange var; every other entry uses
+    default_version (the recipe version for a melange image, or the scan-package version for pure APKO).
+    """
+    if default_version is None:
+        default_version = recipe_version(recipe)
+    contents = recipe.read_text(encoding="utf-8")
+    resolved = []
+    for entry, var in zip(metadata.scan_identity, metadata.scan_identity_vars, strict=True):
+        if var is None:
+            resolved.append(default_version)
+            continue
+        value = gen_matrix.block_scalar(contents, "vars", var)
+        if value is None or not VERSION.fullmatch(value):
+            raise CoverageError(
+                f"{recipe}: vars.{var} {value!r} cannot version scan identity {entry.split('@vars.')[0]}; "
+                "declare a vars entry whose value is a release version"
+            )
+        resolved.append(value)
+    return resolved
+
+
+def flatten_identities(metadata: gen_matrix.Metadata) -> tuple[str, ...]:
+    """The declared identities with any @vars.<name> suffix stripped."""
+    return tuple(gen_matrix.split_scan_identity(entry)[0] for entry in metadata.scan_identity)
+
+
 def recipe_package(recipe: Path) -> str:
     name = gen_matrix.block_scalar(recipe.read_text(encoding="utf-8"), "package", "name")
     if name is None:
@@ -100,8 +129,11 @@ def identity_package(identity: str, version: str, index: int, source: str) -> di
     }
 
 
-def inject(sbom: dict, identities: tuple[str, ...], version: str, source: str) -> None:
-    packages = [identity_package(item, version, index, source) for index, item in enumerate(identities)]
+def inject(sbom: dict, identities: tuple[str, ...], versions: list[str], source: str) -> None:
+    packages = [
+        identity_package(item, version, index, source)
+        for index, (item, version) in enumerate(zip(identities, versions, strict=True))
+    ]
     sbom.setdefault("packages", []).extend(packages)
     root = next(
         (r["relatedSpdxElement"] for r in sbom.get("relationships", []) if r.get("relationshipType") == "DESCRIBES"),
@@ -114,14 +146,14 @@ def inject(sbom: dict, identities: tuple[str, ...], version: str, source: str) -
         )
 
 
-def declared_missing(sbom: dict, identities: tuple[str, ...], version: str) -> list[str]:
+def declared_missing(sbom: dict, identities: tuple[str, ...], versions: list[str]) -> list[str]:
     """Declared identities with no matching package in the SBOM."""
     present = {
         ref["referenceLocator"] for package in sbom.get("packages", []) for ref in package.get("externalRefs", [])
     }
     return [
         item
-        for item in identities
+        for item, version in zip(identities, versions, strict=True)
         if identity_package(item, version, 0, "")["externalRefs"][0]["referenceLocator"] not in present
     ]
 
@@ -191,16 +223,19 @@ def apply(context: Path, recipe: Path, sbom_path: Path, syft_path: Path, allowli
     """Inject the declared identity and enforce the coverage rule; returns a one-line status."""
     if recipe.name != "melange.yaml":
         return NOT_APPLICABLE
-    version = recipe_version(recipe)
     sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
-    identities = gen_matrix.parse_metadata(context / "metadata.yaml").scan_identity
+    metadata = gen_matrix.parse_metadata(context / "metadata.yaml")
+    identities = flatten_identities(metadata)
     key = relative_context(context)
     if identities:
-        inject(sbom, identities, version, f"{key}/metadata.yaml")
+        versions = identity_versions(metadata, recipe)
+        inject(sbom, identities, versions, f"{key}/metadata.yaml")
         sbom_path.write_text(json.dumps(sbom, indent=2) + "\n", encoding="utf-8")
-        if missing := declared_missing(json.loads(sbom_path.read_text(encoding="utf-8")), identities, version):
+        if missing := declared_missing(json.loads(sbom_path.read_text(encoding="utf-8")), identities, versions):
             raise CoverageError(f"{key}: declared scan-identity missing from the SBOM: {', '.join(missing)}")
-        return f"{key}: scanning declared identity {', '.join(identities)} at {version}"
+        scanned = ", ".join(f"{identity}@{version}" for identity, version in zip(identities, versions, strict=True))
+        return f"{key}: scanning declared identity {scanned}"
+    version = recipe_version(recipe)
     syft = json.loads(syft_path.read_text(encoding="utf-8"))
     listed = read_allowlist(allowlist)
     if components := native_components(syft, recipe_package(recipe), version):
@@ -277,7 +312,8 @@ def apply_apko(sbom_path: Path, directories: list[Path] | None = None) -> str | 
     if declaration is None:
         return None
     directory, metadata = declaration
-    key, package, identities = relative_context(directory), metadata.scan_package, metadata.scan_identity
+    key, package = relative_context(directory), metadata.scan_package
+    identities = flatten_identities(metadata)
     sbom = json.loads(sbom_path.read_text(encoding="utf-8"))
     installed = apk_versions(sbom, package)
     if len(installed) != 1:
@@ -289,11 +325,13 @@ def apply_apko(sbom_path: Path, directories: list[Path] | None = None) -> str | 
     if version is None:
         raise CoverageError(f"{key}: {package} {apk} has no upstream version to scan (see gen_matrix.APK_UPSTREAM_VERSION)")
     status = f"{key}: scanning declared identity {', '.join(identities)} at {version} ({package} {apk})"
-    if not declared_missing(sbom, identities, version):
+    if not declared_missing(sbom, identities, [version] * len(identities)):
         return status
-    inject(sbom, identities, version, f"{key}/metadata.yaml")
+    inject(sbom, identities, [version] * len(identities), f"{key}/metadata.yaml")
     sbom_path.write_text(json.dumps(sbom, indent=2) + "\n", encoding="utf-8")
-    if missing := declared_missing(json.loads(sbom_path.read_text(encoding="utf-8")), identities, version):
+    if missing := declared_missing(
+        json.loads(sbom_path.read_text(encoding="utf-8")), identities, [version] * len(identities)
+    ):
         raise CoverageError(f"{key}: declared scan-identity missing from the SBOM: {', '.join(missing)}")
     return status
 
