@@ -1,0 +1,38 @@
+name: Main build failures
+
+# Opens one main-failure issue per image whose trusted main build keeps failing:
+# three consecutive failed main Build runs, or a failure older than 24 hours with
+# no later success. The issue closes on the image's next successful main build.
+# Outcomes come from the native-arm64 and publish job conclusions, because
+# build-gate only warns when a main run publishes some images but not others.
+on:
+  schedule:
+    - cron: "41 4 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: main-failure-alerts
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    if: github.repository == 'tektum/verity-images' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Open, update, or close main-failure issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+        run: python3 scripts/main_failure_alerts.py
