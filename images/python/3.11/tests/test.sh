@@ -2,7 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-recipe=$(dirname "$0")/../melange.yaml
+here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+recipe=$here/../melange.yaml
 version=$(sed -n 's/^  version: "\([0-9.]*\)".*/\1/p' "$recipe")
 [ -n "$version" ] || { echo "FAIL: no package.version in $recipe" >&2; exit 1; }
 
@@ -11,7 +12,7 @@ user=
 
 # check NAME: run the Python program on stdin in the image; it must exit 0.
 check() {
-  if docker run --rm -i --network none -v "$(dirname "$0")/test-identity.pem:/test-identity.pem:ro" ${user:+--user "$user"} "$image" - >"$tmp" 2>&1; then
+  if docker run --rm -i --network none -v "$here/test-identity.pem:/test-identity.pem:ro" ${user:+--user "$user"} "$image" - >"$tmp" 2>&1; then
     echo "PASS: $1"
   else
     echo "FAIL: $1" >&2
@@ -90,33 +91,48 @@ for c in '\0\r\n':
         raise AssertionError(f'select() sent {c!r} in a command: {typ} {data}')
 EOF
 
-check "CVE-2026-115559: IMAP STARTTLS discards cached plaintext" <<'EOF'
-import imaplib, socket
-plain, injected = socket.socketpair()
-plain.settimeout(5)
-client = imaplib.IMAP4.__new__(imaplib.IMAP4)
-client.host = 'imap.example'
-client.sock = plain
-client.file = plain.makefile('rb')
-client._tls_established = False
-client.capabilities = [b'IMAP4REV1', b'STARTTLS']
-client.tagged_commands = {}
-client.untagged_responses = {}
-client.debug = 0
-injected.sendall(b'A001 OK start TLS\r\n* CAPABILITY injected\r\n')
+check "CVE-2026-115559: IMAP STARTTLS discards pre-TLS untagged responses" <<'EOF'
+import imaplib, socket, ssl, threading
+server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+listener.settimeout(5)
 
-class Context:
-    def wrap_socket(self, sock, server_hostname):
-        assert client.file is None
-        assert client.untagged_responses == {}
-        tls, server = socket.socketpair()
-        server.sendall(b'* CAPABILITY genuine\r\nA002 OK TLS\r\n')
-        client._simple_command = lambda name: ('OK', [b'TLS'])
-        return tls
+def serve():
+    conn, _ = listener.accept()
+    conn.settimeout(5)
+    reader = conn.makefile('rb')
+    conn.sendall(b'* OK ready\r\n')
+    tls = False
+    while True:
+        line = reader.readline()
+        if not line:
+            return
+        tag, command = line.split()[:2]
+        if command == b'CAPABILITY':
+            caps = b'AUTH=PLAIN' if tls else b'STARTTLS'
+            conn.sendall(b'* CAPABILITY IMAP4rev1 ' + caps + b'\r\n' + tag + b' OK done\r\n')
+        elif command == b'STARTTLS':
+            # A MITM injects an untagged response before the tagged OK; it
+            # must not survive the switch to TLS.
+            conn.sendall(b'* 7 EXISTS\r\n' + tag + b' OK begin\r\n')
+            conn = server_context.wrap_socket(conn, server_side=True)
+            reader = conn.makefile('rb')
+            tls = True
+        else:
+            conn.sendall(tag + b' OK done\r\n')
 
-client.starttls(Context())
-assert client.file.peek() == b'', client.file.peek()
-assert client.capabilities == ('GENUINE',), client.capabilities
+threading.Thread(target=serve, daemon=True).start()
+client = imaplib.IMAP4('localhost', listener.getsockname()[1], timeout=5)
+assert client.capabilities == ('IMAP4REV1', 'STARTTLS'), client.capabilities
+context = ssl.create_default_context(cafile='/test-identity.pem')
+typ, _ = client.starttls(context)
+assert typ == 'OK', typ
+assert client.capabilities == ('IMAP4REV1', 'AUTH=PLAIN'), client.capabilities
+assert 'EXISTS' not in client.untagged_responses, client.untagged_responses
+client.shutdown()
 EOF
 
 check "CVE-2026-115791: archive CLIs remove the shadowing import path" <<'EOF'
@@ -126,7 +142,7 @@ with tempfile.TemporaryDirectory() as work:
     payload = work + '/payload.gz'
     with gzip.open(payload, 'wb') as f:
         f.write(b'payload')
-    sys.argv.append(payload)
+    sys.argv[1:] = ['-d', payload]
     gzip.main()
     assert sys._path0 not in sys.path, sys.path[:2]
     with open(payload[:-3], 'rb') as f:
@@ -185,6 +201,7 @@ context.load_cert_chain('/test-identity.pem')
 listener = socket.socket()
 listener.bind(('127.0.0.1', 0))
 listener.listen()
+listener.settimeout(5)
 
 def handshake():
     conn, _ = listener.accept()
@@ -195,7 +212,7 @@ def handshake():
         except (ConnectionError, OSError):
             pass
 
-threads = [threading.Thread(target=handshake) for _ in range(2)]
+threads = [threading.Thread(target=handshake, daemon=True) for _ in range(2)]
 for thread in threads: thread.start()
 port = listener.getsockname()[1]
 cert = '/test-identity.pem'
