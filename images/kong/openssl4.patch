@@ -1,0 +1,20 @@
+OpenSSL 4 makes ASN1_STRING opaque. Its public accessors preserve the exact
+20-byte serial limit and zero padding of the original OCSP key implementation.
+
+--- a/bundle/nginx-1.25.3/src/event/ngx_event_openssl_stapling.c
++++ b/bundle/nginx-1.25.3/src/event/ngx_event_openssl_stapling.c
+@@ -2666,11 +2666,11 @@
+     p += 20;
+ 
+     serial = X509_get_serialNumber(ctx->cert);
+-    if (serial->length > 20) {
++    if (ASN1_STRING_length(serial) > 20) {
+         return NGX_ERROR;
+     }
+ 
+-    p = ngx_cpymem(p, serial->data, serial->length);
+-    ngx_memzero(p, 20 - serial->length);
++    p = ngx_cpymem(p, ASN1_STRING_get0_data(serial), ASN1_STRING_length(serial));
++    ngx_memzero(p, 20 - ASN1_STRING_length(serial));
+ 
+     ngx_log_debug1(NGX_LOG_DEBUG_EVENT, ctx->log, 0,
