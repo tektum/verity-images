@@ -281,7 +281,9 @@ jobs:
           RESULTS: >-
             snapshot=${{ needs.snapshot.result }}, scan=${{ needs.monitor.result }},
             remediation=${{ needs.dashboard.result }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+          RUN_URL: >-
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/
+            ${{ github.run_id }}/attempts/${{ github.run_attempt }}
         run: >
           python3 scripts/monitor_health_alerts.py "$FAILED" "$RUN_URL" "$RESULTS"
           "$REPOSITORY" "$GITHUB_OUTPUT"
