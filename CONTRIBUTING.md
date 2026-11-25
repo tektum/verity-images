@@ -519,6 +519,12 @@ finding in a Wolfi recipe receives the same exact rebuild route only when that e
 recipe invokes `go/remediate`; other language-package findings remain blocked rather
 than causing speculative source edits.
 
+The daily scan must complete all shards, not only report successful ones. After
+every run, `scripts/monitor_health_alerts.py` reconciles one `main-failure` issue
+for scan failures: it creates or reopens it on failure and closes it when every
+shard succeeds. The issue links directly to the failed monitor so interrupted
+attestation or Grype scans cannot silently leave unrelated streams stale.
+
 Before dispatching any Wolfi APK route, the classifier verifies the configured Wolfi
 signing key against the signed `APKINDEX.tar.gz` for both `x86_64` and `aarch64`. It
 loads each architecture index once and groups exact package/version lookups across
