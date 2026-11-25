@@ -5,7 +5,7 @@ package:
   # security fixes that 3.12 releases do not carry (CVE-*.patch below).
   # yamllint disable-line rule:line-length
   version: "3.12.16"  # renovate: datasource=github-tags depName=python/cpython versioning=regex:^(?<major>3)\.(?<minor>12)\.(?<patch>\d+)$ extractVersion=^v(?<version>\d+\.\d+\.\d+)$
-  epoch: 0
+  epoch: 1
   description: CPython 3.12 built from pinned upstream source with security patches
   copyright:
     - license: PSF-2.0
