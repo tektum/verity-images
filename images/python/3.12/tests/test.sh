@@ -10,7 +10,7 @@ failures=0
 
 # check NAME: run the Python program on stdin in the image; it must exit 0.
 check() {
-  if docker run --rm -i --network none "$image" - >"$tmp" 2>&1; then
+  if docker run --rm -i --network none -v "$(dirname "$0")/test-identity.pem:/test-identity.pem:ro" "$image" - >"$tmp" 2>&1; then
     echo "PASS: $1"
   else
     echo "FAIL: $1" >&2
@@ -87,6 +87,129 @@ for c in '\0\r\n':
         assert 'not allowed' in str(e), e
     else:
         raise AssertionError(f'select() sent {c!r} in a command: {typ} {data}')
+EOF
+
+check "CVE-2026-115559: IMAP STARTTLS discards cached plaintext" <<'EOF'
+import imaplib, socket
+plain, injected = socket.socketpair()
+plain.settimeout(5)
+client = imaplib.IMAP4.__new__(imaplib.IMAP4)
+client.host = 'imap.example'
+client.sock = plain
+client.file = plain.makefile('rb')
+client._tls_established = False
+client.capabilities = [b'IMAP4REV1', b'STARTTLS']
+client.tagged_commands = {}
+client.untagged_responses = {}
+client.debug = 0
+injected.sendall(b'A001 OK start TLS\r\n* CAPABILITY injected\r\n')
+
+class Context:
+    def wrap_socket(self, sock, server_hostname):
+        assert client.file is None
+        assert client.untagged_responses == {}
+        tls, server = socket.socketpair()
+        server.sendall(b'* CAPABILITY genuine\r\nA002 OK TLS\r\n')
+        client._simple_command = lambda name: ('OK', [b'TLS'])
+        return tls
+
+client.starttls(Context())
+assert client.file.peek() == b'', client.file.peek()
+assert client.capabilities == ('GENUINE',), client.capabilities
+EOF
+
+check "CVE-2026-115791: archive CLIs remove the shadowing import path" <<'EOF'
+import gzip, sys, tarfile, tempfile, zipfile
+assert sys._path0 == '', repr(sys._path0)
+sys.argv = ['gzip']
+with tempfile.TemporaryDirectory() as work:
+    payload = work + '/payload.gz'
+    with gzip.open(payload, 'wb') as f:
+        f.write(b'payload')
+    sys.argv.append(payload)
+    gzip.main()
+    assert sys._path0 not in sys.path, sys.path[:2]
+    with open(payload[:-3], 'rb') as f:
+        assert f.read() == b'payload'
+for module in (tarfile, zipfile):
+    sys.argv = [module.__name__]
+    try:
+        module.main()
+    except SystemExit as e:
+        assert e.code == 2, (module.__name__, e.code)
+    else:
+        raise AssertionError(f'{module.__name__}.main() did not report usage')
+    assert sys._path0 not in sys.path, (module.__name__, sys.path[:2])
+EOF
+
+check "CVE-2026-124249: expired foreign-domain cookies cannot delete cookies" <<'EOF'
+from http.cookiejar import CookieJar
+from email.message import Message
+from urllib.request import Request
+
+def receive(host, cookie):
+    headers = Message()
+    headers['Set-Cookie'] = cookie
+    class Response:
+        def info(self):
+            return headers
+    jar.extract_cookies(Response(), Request('http://' + host + '/'))
+
+jar = CookieJar()
+receive('www.victim.test', 'session=secret; Domain=.victim.test; Path=/')
+receive('www.attacker.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 1, list(jar)
+receive('www.victim.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 0, list(jar)
+EOF
+
+check "CVE-2026-16052: Morsel rejects attribute semicolons" <<'EOF'
+from http.cookies import CookieError, Morsel
+m = Morsel()
+for operation in (lambda: m.__setitem__('samesite', 'lax; Domain=attacker.test'),
+                  lambda: m.setdefault('domain', 'safe.test; Domain=attacker.test'),
+                  lambda: m.update({'path': '/; SameSite=None'})):
+    try:
+        operation()
+    except CookieError:
+        pass
+    else:
+        raise AssertionError('attribute semicolon was accepted')
+assert 'attacker.test' not in m.OutputString(), m.OutputString()
+EOF
+
+check "CVE-2026-19552: get_server_certificate verifies hostname" <<'EOF'
+import socket, ssl, threading
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+
+def handshake():
+    conn, _ = listener.accept()
+    conn.settimeout(5)
+    with conn:
+        try:
+            context.wrap_socket(conn, server_side=True).close()
+        except (ConnectionError, OSError):
+            pass
+
+threads = [threading.Thread(target=handshake) for _ in range(2)]
+for thread in threads: thread.start()
+port = listener.getsockname()[1]
+cert = '/test-identity.pem'
+assert ssl.get_server_certificate(('localhost', port), ca_certs=cert).startswith('-----BEGIN CERTIFICATE-----')
+try:
+    ssl.get_server_certificate(('127.0.0.1', port), ca_certs=cert)
+except ssl.CertificateError:
+    pass
+else:
+    raise AssertionError('trusted certificate accepted for the wrong hostname')
+for thread in threads:
+    thread.join(timeout=5)
+    assert not thread.is_alive(), 'TLS server did not finish'
+listener.close()
 EOF
 
 check "CVE-2025-15367: poplib rejects control characters in commands" <<'EOF'

@@ -58,9 +58,12 @@ pipeline:
 
   # Upstream security fixes that no 3.12 release carries. Each patch header
   # names the upstream commit, issue and CVE, and how it was backported.
-  # CVE-2026-103995-3.patch, CVE-2025-15366-2.patch and
-  # CVE-2026-12345-tempfile-bytes.patch are local fixes for upstream bugs in
-  # those fixes (not upstream; see their headers).
+  # CVE-2026-115559.patch and CVE-2026-115791.patch are upstream's open
+  # 3.12 backport PRs at the immutable heads recorded in their headers,
+  # pending upstream review; replace them with merged branch commits.
+  # CVE-2026-115559-2.patch, CVE-2026-103995-3.patch, CVE-2025-15366-2.patch
+  # and CVE-2026-12345-tempfile-bytes.patch are local fixes for upstream bugs
+  # in those fixes (not upstream; see their headers).
   - name: Apply upstream security fixes
     uses: patch
     with:
@@ -76,6 +79,12 @@ pipeline:
         CVE-2026-116566.patch
         CVE-2025-15366.patch
         CVE-2025-15366-2.patch
+        CVE-2026-115559.patch
+        CVE-2026-115559-2.patch
+        CVE-2026-115791.patch
+        CVE-2026-124249.patch
+        CVE-2026-16052.patch
+        CVE-2026-19552.patch
         CVE-2026-12345-tempfile-bytes.patch
 
   - name: Force use of system libraries
@@ -135,9 +144,9 @@ pipeline:
   - name: Run the regression tests of the patched modules
     runs: |
       LD_LIBRARY_PATH="$PWD" ./python -m test -j0 --timeout 600 \
-        test_base64 test_binascii test_http_cookies test_httplib \
-        test_imaplib test_poplib test_socket test_pkgutil test_ssl \
-        test_tempfile
+        test_base64 test_binascii test_cookiejar test_gzip test_http_cookies \
+        test_httplib test_imaplib test_pkgutil test_poplib test_runpy \
+        test_socket test_ssl test_tarfile test_tempfile test_zipfile
       # gh-127301.patch FIPS wrappers, under the mock FIPS OPENSSL_CONF that
       # upstream's test_builtins_in_openssl_fips_mode uses. Its
       # test_algorithms_available is not run: it assumes every builtin hash
