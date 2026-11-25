@@ -1,0 +1,19 @@
+diff --git a/build/repositories.bzl b/build/repositories.bzl
+index 61c568c..4fca581 100644
+--- a/build/repositories.bzl
++++ b/build/repositories.bzl
+@@ -49,11 +49,9 @@ def github_cli_repositories():
+         )
+ 
+ def kong_github_repositories():
+-    maybe(
+-        github_release,
++    http_archive(
+         name = "kong_admin_gui",
+-        repo = "kong/kong-manager",
+-        tag = KONG_VAR["KONG_MANAGER"],
+-        pattern = "release.tar.gz",
++        url = "file:///home/build/kong-manager-release.tar.gz",
++        strip_prefix = "dist",
+         build_file_content = _DIST_BUILD_FILE_CONTENT,
+     )
