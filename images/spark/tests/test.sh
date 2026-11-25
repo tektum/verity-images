@@ -153,13 +153,13 @@ step 'negative cases'
 # Negative cases: a missing main class fails, the Hive SQL CLI is not built in, and
 # a UID without a passwd entry is rejected by Hadoop's login (Wolfi has no
 # nss_wrapper for the entrypoint's fake-passwd fallback).
-# A timeout (124) is a hang, not the expected failure.
+# A timeout (124, or 137 after the grace period) is a hang, not the expected failure.
 expect_failure() {
   log=$1
   shift
   status=0
   run "$@" >"$log" 2>&1 || status=$?
-  [ "$status" -ne 124 ] || show_fail "$log" "timed out instead of failing: $*"
+  case $status in 124 | 137) show_fail "$log" "timed out instead of failing: $*" ;; esac
   [ "$status" -ne 0 ]
 }
 expect_failure "$work/missing.log" "$image" spark-submit --master 'local[1]' \
