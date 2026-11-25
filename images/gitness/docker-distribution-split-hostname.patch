@@ -1,0 +1,7 @@
+--- a/vendor/github.com/docker/distribution/reference/reference_deprecated.go
++++ b/vendor/github.com/docker/distribution/reference/reference_deprecated.go
+@@ -121,3 +121,3 @@
+ func SplitHostname(named reference.Named) (string, string) {
+-	return reference.SplitHostname(named)
++	return reference.Domain(named), reference.Path(named)
+ }
