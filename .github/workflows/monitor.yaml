@@ -256,3 +256,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
         run: scripts/dispatch_vulnerability_rebuilds.sh image-dashboard.json
+
+  health:
+    if: always() && github.repository == 'tektum/verity-images'
+    needs: [snapshot, monitor]
+    # A whole-job fail-fast cancellation updates the issue on the next daily run.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Open, update, or close monitor failure issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          FAILED: ${{ needs.snapshot.result != 'success' || needs.monitor.result != 'success' }}
+          MONITOR_RESULT: ${{ needs.monitor.result }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}/attempts/${{ github.run_attempt }}
+        run: python3 scripts/monitor_health_alerts.py "$FAILED" "$RUN_URL" "scan outcome: $MONITOR_RESULT" "$REPOSITORY" "$GITHUB_OUTPUT"

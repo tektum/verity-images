@@ -1236,8 +1236,17 @@ def main() -> None:
         "scripts/dispatch_vulnerability_rebuilds.sh"
     )
 
-    assert monitor.count("uses: actions/checkout@") == 3
+    assert monitor.count("uses: actions/checkout@") == 4
     assert monitor.count("uses: ./.github/actions/setup-jq") == 2
+    health_job = monitor.split("\n  health:\n", maxsplit=1)[1]
+    assert "if: always() && github.repository == 'tektum/verity-images'" in health_job
+    assert "needs: [snapshot, monitor]" in health_job
+    assert "security-events: write" not in health_job
+    assert "actions: write" not in health_job
+    assert "\n    permissions:\n      contents: read\n      issues: write\n    steps:\n" in health_job
+    assert "needs.snapshot.result != 'success'" in health_job
+    assert "needs.monitor.result != 'success'" in health_job
+    assert "github.run_attempt" in health_job
     assert 'export PATH="$RUNNER_TEMP/verity-tools:$PATH"' in monitor
     assert "verity-image-dashboard/v1" in dashboard_script
 
