@@ -27,13 +27,13 @@ test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$image")" =
   fail 'unexpected entrypoint'
 
 docker run --rm --network none "$image" --version >"$work/version" || fail 'syslog-ng --version failed'
-grep -E '^Installer-Version: 4\.12\.[0-9]+$' "$work/version" >/dev/null || fail 'unexpected syslog-ng version'
+grep -E '^Installer-Version: 4\.13\.[0-9]+$' "$work/version" >/dev/null || fail 'unexpected syslog-ng version'
 for module in afsocket affile json-plugin; do
   grep -E "^Available-Modules: .*\b$module\b" "$work/version" >/dev/null || fail "module $module is missing"
 done
 
 cat >"$work/syslog-ng.conf" <<'EOF'
-@version: 4.12
+@version: 4.13
 options { stats(freq(0)); };
 source s_net { network(transport("tcp") port(5514) flags(no-parse)); };
 destination d_file { file("/var/log/syslog-ng/messages" template("received $MSG\n") perm(0644)); };
@@ -46,7 +46,7 @@ docker run --rm --network none -v "$work/syslog-ng.conf:/etc/syslog-ng/syslog-ng
   fail 'valid configuration did not pass --syntax-only'
 
 # Negative: a broken configuration must be rejected by --syntax-only.
-printf '@version: 4.12\nsource s_bad { no_such_driver(); };\n' >"$work/broken.conf"
+printf '@version: 4.13\nsource s_bad { no_such_driver(); };\n' >"$work/broken.conf"
 chmod 0644 "$work/broken.conf"
 if docker run --rm --network none -v "$work/broken.conf:/etc/syslog-ng/syslog-ng.conf:ro" "$image" \
   --syntax-only >"$work/broken.log" 2>&1; then

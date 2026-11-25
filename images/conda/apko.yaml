@@ -7,8 +7,8 @@ contents:
     - bash
     - busybox
     - ca-certificates-bundle
-    - py3.12-conda=26.9.4-r1
-    - py3.12-conda-bin=26.9.4-r1
+    - py3.12-conda=26.10.0-r0
+    - py3.12-conda-bin=26.10.0-r0
     - python-3.12
 
 accounts:
@@ -40,6 +40,9 @@ environment:
   # packages are covered by the Anaconda Terms of Service.
   CONDA_CHANNELS: conda-forge
   CONDA_CHANNEL_PRIORITY: strict
+  # conda 26.10 selects the rattler solver by default, which Wolfi does not package;
+  # the image ships conda-libmamba-solver.
+  CONDA_SOLVER: libmamba
 
 paths:
   - path: /home/nonroot
