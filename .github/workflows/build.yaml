@@ -42,10 +42,10 @@ env:
 jobs:
   matrix:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       actions: read
       contents: read
+    timeout-minutes: 10
     outputs:
       images: ${{ steps.generate.outputs.images }}
       count: ${{ steps.generate.outputs.count }}
@@ -320,9 +320,9 @@ jobs:
     if: always()
     needs: [matrix, native-arm64, validate, publish]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
     permissions:
       contents: read
+    timeout-minutes: 10
     steps:
       - name: Require successful image jobs
         shell: bash
@@ -422,10 +422,10 @@ jobs:
       needs.build-gate.result == 'failure'
     needs: build-gate
     runs-on: ubuntu-latest
-    timeout-minutes: 15
     permissions:
       actions: write
       contents: read
+    timeout-minutes: 15
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
