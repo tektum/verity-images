@@ -1359,7 +1359,7 @@ def main() -> None:
         f"{RUNS_ON_PREFIX}monitor-${{{{ matrix.shard }}}}/runner=4cpu-linux-x64"
     )
     assert runner(dashboard_job) == "ubuntu-latest"
-    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes: 300\n" in validate_job
+    assert "\n    timeout-minutes: 300\n" in publish_job and "\n    timeout-minutes: 60\n" in validate_job
     assert "\n    timeout-minutes: 10\n" in matrix_job
     assert "\n    timeout-minutes: 10\n" in build_gate_job
     assert "\n    timeout-minutes: 15\n" in catalog_catch_up_job
@@ -1381,6 +1381,7 @@ def main() -> None:
     assert '          NATIVE_ARM64_ONLY: "true"\n' in native_job
     assert '[[ "$(uname -m)" == aarch64 ]]\n' in native_job
     assert "\n    permissions:\n      contents: read\n" in native_job
+    assert "\n    timeout-minutes: 60\n" in native_job
     assert "id-token" not in native_job and "packages: write" not in native_job
     assert "qemu" not in native_job.lower()
     assert "name: native-arm64-${{ matrix.name }}-${{ matrix.tag_version }}\n" in native_job
@@ -1416,8 +1417,8 @@ def main() -> None:
         "      contents: read\n"
         in stall_guard_job
     )
-    # validate/publish rows exist only after the slowest native-arm64 compile (up to 300 minutes).
-    assert "\n    timeout-minutes: 360\n" in stall_guard_job
+    # It must outlive every job it watches; publish on main is capped at 300 minutes.
+    assert "\n    timeout-minutes: 310\n" in stall_guard_job
     assert "github.event_name != 'merge_group' &&" in stall_guard_job
     assert "fromJSON(needs.matrix.outputs.images).include[0] != null" in stall_guard_job
     guard_script = stall_guard_job.split("        run: |\n", maxsplit=1)[1]
