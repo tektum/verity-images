@@ -44,6 +44,8 @@ vars:
   python-multipart-version: "0.0.33"  # renovate: datasource=pypi depName=python-multipart
   requests-version: "2.34.2"  # renovate: datasource=pypi depName=requests
   wcmatch-version: "11.2"  # renovate: datasource=pypi depName=wcmatch
+  # wcmatch 11 requires bracex>=3.2; upstream locks 2.6.
+  bracex-version: "3.2.4"  # renovate: datasource=pypi depName=bracex
   starlette-version: "1.10.0"  # renovate: datasource=pypi depName=starlette
   # yamllint enable rule:line-length
 
@@ -138,6 +140,7 @@ pipeline:
       python-multipart==${{vars.python-multipart-version}}
       requests==${{vars.requests-version}}
       wcmatch==${{vars.wcmatch-version}}
+      bracex==${{vars.bracex-version}}
       starlette==${{vars.starlette-version}}
       EOF
 
