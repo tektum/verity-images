@@ -1,6 +1,6 @@
 package:
   name: verity-argocd-image-updater
-  version: "1.4.0"  # renovate: datasource=github-releases depName=argoproj-labs/argocd-image-updater
+  version: "1.4.1"  # renovate: datasource=github-releases depName=argoproj-labs/argocd-image-updater
   epoch: 0
   description: Argo CD Image Updater controller built from pinned upstream source.
   copyright:
@@ -34,7 +34,7 @@ pipeline:
     with:
       repository: https://github.com/argoproj-labs/argocd-image-updater
       tag: v${{package.version}}
-      expected-commit: ed3b8b6a19909cace74172645e02e1ebd4959ad5
+      expected-commit: a8f67384e7cf12c77f421468ca108e461ef84c2b
 
   # argo-cd declares k8s.io/cri-streaming v0.0.0 and resolves it through a
   # replace in its own go.mod, which does not apply to dependents, so
