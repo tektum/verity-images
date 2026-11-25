@@ -32,6 +32,7 @@ permissions: {}
 jobs:
   apk-matrix:
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-matrix/runner=4cpu-linux-x64
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
@@ -86,6 +87,7 @@ jobs:
     # pinned published index fail loudly instead of silently never reaching Pages.
     if: github.event_name == 'push'
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-publication-drift/runner=4cpu-linux-x64  # yamllint disable-line rule:line-length
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -120,6 +122,7 @@ jobs:
       fromJSON(needs.apk-matrix.outputs.x86_64).include[0] != null
     needs: [apk-matrix]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-x86_64-${{ strategy.job-index }}/runner=4cpu-linux-x64  # yamllint disable-line rule:line-length
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.x86_64) }}
@@ -174,6 +177,7 @@ jobs:
       fromJSON(needs.apk-matrix.outputs.aarch64).include[0] != null
     needs: [apk-matrix]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-build-aarch64-${{ strategy.job-index }}/runner=4cpu-linux-arm64  # yamllint disable-line rule:line-length
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.apk-matrix.outputs.aarch64) }}
@@ -225,6 +229,7 @@ jobs:
     if: always()
     needs: [apk-matrix, build-x86_64, build-aarch64, apk-signing]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-gate/runner=4cpu-linux-x64
+    timeout-minutes: 10
     permissions:
       contents: read
     steps:
@@ -275,6 +280,7 @@ jobs:
       (needs.build-x86_64.result == 'success' && needs.build-aarch64.result == 'success'))
     needs: [build-x86_64, build-aarch64]
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-apk-signing/runner=4cpu-linux-x64/spot=false
+    timeout-minutes: 30
     environment: apk-signing
     permissions:
       actions: read

@@ -9,6 +9,7 @@ jobs:
   sign-and-verify:
     if: github.ref == 'refs/heads/main'
     runs-on: runs-on=${{ github.run_id }}-${{ github.run_attempt }}-sign-and-verify/runner=4cpu-linux-x64/spot=false
+    timeout-minutes: 15
     environment: apk-signing
     permissions:
       contents: read
