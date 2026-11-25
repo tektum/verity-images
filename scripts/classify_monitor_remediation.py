@@ -329,9 +329,9 @@ def streams() -> dict[tuple[str, str], list[Stream]]:
 
 APK_VERSION: Final = re.compile(
     r"(?P<numbers>[0-9]+(?:\.[0-9]+)*)(?P<letter>[a-z])?"
-    r"(?P<suffixes>(?:_(?:alpha|beta|pre|rc|p)[0-9]*)*)(?:-r(?P<epoch>[0-9]+))?"
+    r"(?P<suffixes>(?:_(?:cvs|svn|git|hg|alpha|beta|pre|rc|p)[0-9]*)*)(?:-r(?P<epoch>[0-9]+))?"
 )
-APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "p": 1}
+APK_SUFFIX_RANK: Final = {"alpha": -4, "beta": -3, "pre": -2, "rc": -1, "cvs": 1, "svn": 2, "git": 3, "hg": 4, "p": 5}
 
 
 def apk_version_key(value: str) -> tuple[object, ...] | None:
@@ -341,7 +341,7 @@ def apk_version_key(value: str) -> tuple[object, ...] | None:
         return None
     suffixes = tuple(
         (APK_SUFFIX_RANK[name], int(number or 0))
-        for name, number in re.findall(r"_(alpha|beta|pre|rc|p)([0-9]*)", match.group("suffixes"))
+        for name, number in re.findall(r"_(cvs|svn|git|hg|alpha|beta|pre|rc|p)([0-9]*)", match.group("suffixes"))
     )
     return (
         tuple(int(part) for part in match.group("numbers").split(".")),
@@ -378,6 +378,25 @@ def lock_already_fixed(lockfile: Path, finding: dict[str, object], fixed: tuple[
     except (OSError, ValueError, KeyError, TypeError):
         return False
     return bool(versions) and all(pins_fix(current, fixed) for current in versions)
+
+
+def exact_pin(config: Path, package: object) -> str | None:
+    """The exact `name=version` pin of a package in an APKO config, if it has one.
+
+    A lock refresh resolves the config again, so it cannot move an exact pin.
+    Unpinned, ranged (`~`, `<`, `>`) and unlisted packages return None.
+    """
+    if not isinstance(package, str) or not package:
+        return None
+    try:
+        entries = configured_values(config, "packages")
+    except (OSError, UnicodeDecodeError, RepositoryError):
+        return None
+    prefix = f"{package}="
+    for entry in entries:
+        if entry.startswith(prefix) and not re.search(r"[<>~=]", entry[len(prefix) :]):
+            return entry[len(prefix) :]
+    return None
 
 
 def safe_epoch(
@@ -699,6 +718,21 @@ def classify(
                     "flavor": stream.flavor,
                     "kind": "apko-republish",
                 }
+                continue
+            package_name = finding["package"].get("name") if isinstance(finding["package"], dict) else None
+            pinned = exact_pin(candidate.config, package_name)
+            if pinned is not None and not pins_fix(pinned, candidate.fixed_versions):
+                # A refresh re-resolves the config and cannot move an exact pin, so
+                # queueing one proposes nothing and reports success. Fail loudly.
+                context_blocked.append(
+                    blocked(
+                        target,
+                        finding,
+                        f"exact pin, needs a bump: {candidate.config.name} pins {package_name}={pinned},"
+                        f" fixed in {', '.join(candidate.fixed_versions)}",
+                    )
+                )
+                context_blocked_ids.add(id(candidate))
                 continue
             context_apko.add(target)
             context_apko_locks[(lock["config"], lock["lockfile"])] = lock
