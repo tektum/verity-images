@@ -91,7 +91,7 @@ index 81ad172..157f6b7 100644
      "--with-ld-opt=\"-L$$EXT_BUILD_DEPS/luajit/lib\"",
      "--with-ld-opt=\"-L$$EXT_BUILD_DEPS/lib\"",
      # Here let's try not having --disable-new-dtags; --disable-new-dtags creates rpath instead of runpath
-@@ -326,7 +324,6 @@ configure_make(
+@@ -326,6 +324,5 @@ configure_make(
      visibility = ["//visibility:public"],
      deps = [
          "@openresty//:luajit",
