@@ -661,6 +661,13 @@ A Cargo image resolves fixable crate advisories with the shared
   live catalog source SHA after a failed `main` build. Catalog source-run failure
   must remain loud. Use the documented manual delta recovery only when the
   automatic path cannot complete.
+- `build-gate` only warns when a `main` run publishes some images but not others, so
+  `.github/workflows/main-failures.yaml` checks trusted `main` Build runs daily from
+  their `native-arm64` and `publish` job conclusions. An image that failed three
+  consecutive runs, or has failed for more than 24 hours without a later success,
+  gets one `main-failure` issue, reopened or updated instead of duplicated. The issue
+  closes on that image's next successful `main` build. Pull request and merge queue
+  runs never count, and a cancelled or timed out job is a failure.
 
 ## Recommended branch protection
 
