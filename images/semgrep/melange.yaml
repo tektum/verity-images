@@ -175,7 +175,8 @@ pipeline:
       diff upstream.txt resolved.txt || true
 
       uv venv "${{vars.venv}}"
-      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode -r resolved.txt
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode \
+        --exclude-newer-package bracex=9999-01-01T00:00:00Z -r resolved.txt
       uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode --no-deps .
       uv pip check --python "${{vars.venv}}/bin/python"
 
