@@ -1,7 +1,7 @@
 package:
   name: verity-pluto
   # yamllint disable-line rule:line-length
-  version: "5.24.5"  # renovate: datasource=github-releases depName=FairwindsOps/pluto versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "5.24.6"  # renovate: datasource=github-releases depName=FairwindsOps/pluto versioning=regex:^(?<major>5)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Detects deprecated and removed Kubernetes API versions in manifests and Helm releases
   copyright:
@@ -14,7 +14,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: d7d4f3f312f5b65c989a5a4eb92eb6b4ef86e29f
+  source-commit: 436c77cea5a73e95a1a1d8a64e5177f0b3942fc0
 
 environment:
   contents:
