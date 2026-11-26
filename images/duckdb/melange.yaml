@@ -1,7 +1,7 @@
 package:
   name: verity-duckdb
   # yamllint disable-line rule:line-length
-  version: "2.0.0"  # renovate: datasource=github-releases depName=duckdb/duckdb versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "2.0.1"  # renovate: datasource=github-releases depName=duckdb/duckdb versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: DuckDB in-process analytical SQL database command-line shell
   copyright:
@@ -11,7 +11,7 @@ package:
     memory: 32Gi
 
 vars:
-  source-commit: d54cbbe3df17e8e5ce68312f483b4155836112aa
+  source-commit: 8d78114e90a53823803660bf821f6073ac87da8c
 
 environment:
   contents:
@@ -33,14 +33,6 @@ pipeline:
       repository: https://github.com/duckdb/duckdb
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
-
-  # Upstream commit 2b942af6319783a5cc3c21d76a8e560e191978b2 on main ports the
-  # brotli decoder fix for CVE-2026-111497 into the vendored copy that the
-  # parquet reader uses. No DuckDB release carries it yet; drop the patch once
-  # a release includes it.
-  - uses: patch
-    with:
-      patches: brotli-cve-2026-111497.patch
 
   - runs: |
       # The CLI statically links the extensions of upstream's release CLI
