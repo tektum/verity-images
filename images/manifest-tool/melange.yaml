@@ -1,7 +1,7 @@
 package:
   name: verity-manifest-tool
   # yamllint disable-line rule:line-length
-  version: "2.2.2"  # renovate: datasource=github-releases depName=estesp/manifest-tool versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "2.2.3"  # renovate: datasource=github-releases depName=estesp/manifest-tool versioning=regex:^(?<major>2)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Command line tool to create and query container image manifest lists and indexes
   copyright:
@@ -14,7 +14,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: b2e25427f2d1c4af2c52249eefa1afa58f662487
+  source-commit: 7742999e7c00b5af37db7f831b4fc6a839c7cfd7
 
 environment:
   contents:
