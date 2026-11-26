@@ -2,7 +2,7 @@ package:
   name: verity-semgrep
   # yamllint disable-line rule:line-length
   version: "1.185.0"  # renovate: datasource=github-releases depName=semgrep/semgrep versioning=regex:^(?<major>1)\.(?<minor>\d+)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Semgrep static analysis engine (semgrep-core, osemgrep) and Python CLI, built from the upstream release
   copyright:
     - license: LGPL-2.1-or-later
@@ -43,6 +43,9 @@ vars:
   python-dotenv-version: "1.2.4"  # renovate: datasource=pypi depName=python-dotenv
   python-multipart-version: "0.0.33"  # renovate: datasource=pypi depName=python-multipart
   requests-version: "2.34.2"  # renovate: datasource=pypi depName=requests
+  wcmatch-version: "11.2"  # renovate: datasource=pypi depName=wcmatch
+  # wcmatch 11 requires bracex>=3.2; upstream locks 2.6.
+  bracex-version: "3.2.4"  # renovate: datasource=pypi depName=bracex
   starlette-version: "1.10.0"  # renovate: datasource=pypi depName=starlette
   # yamllint enable rule:line-length
 
@@ -118,6 +121,8 @@ pipeline:
     environment:
       UV_PYTHON: python${{vars.python-version}}
       UV_NO_CACHE: "1"
+      # bracex 3.2.4 was published just after upstream's rolling dependency
+      # cutoff; the explicit per-package exception below preserves all others.
     runs: |
       cp ../_build/install/default/bin/semgrep-core src/semgrep/bin/semgrep-core
 
@@ -136,6 +141,8 @@ pipeline:
       python-dotenv==${{vars.python-dotenv-version}}
       python-multipart==${{vars.python-multipart-version}}
       requests==${{vars.requests-version}}
+      wcmatch==${{vars.wcmatch-version}}
+      bracex==${{vars.bracex-version}}
       starlette==${{vars.starlette-version}}
       EOF
 
@@ -153,19 +160,23 @@ pipeline:
       sed -i -E \
         -e "s/\"mcp==1\.29\.0\"/\"mcp==${{vars.mcp-version}}\"/" \
         -e "s/\"(opentelemetry-(api|sdk|exporter-otlp-proto-http))~=1\.37\.0\"/\"\1==${otel}\"/" \
+        -e "s/\"wcmatch~=8\.3\"/\"wcmatch==${{vars.wcmatch-version}}\"/" \
         pyproject.toml
       grep -q '"mcp==${{vars.mcp-version}}"' pyproject.toml
       test "$(grep -c '"opentelemetry-[a-z-]*==${{vars.otel-version}}"' pyproject.toml)" = 3
+      grep -q '"wcmatch==${{vars.wcmatch-version}}"' pyproject.toml
 
       names=$(sed 's/==.*//' overrides.txt | paste -sd'|')
       grep -viE "^(${names}|opentelemetry-[a-z-]+)==" upstream.txt > constraints.txt
       uv pip compile pyproject.toml --override overrides.txt --constraint constraints.txt \
+        --exclude-newer-package bracex=9999-01-01T00:00:00Z \
         --no-header --no-annotate -o resolved.txt
       echo "Python dependency changes against upstream cli/uv.lock:"
       diff upstream.txt resolved.txt || true
 
       uv venv "${{vars.venv}}"
-      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode -r resolved.txt
+      uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode \
+        --exclude-newer-package bracex=9999-01-01T00:00:00Z -r resolved.txt
       uv pip install --python "${{vars.venv}}/bin/python" --compile-bytecode --no-deps .
       uv pip check --python "${{vars.venv}}/bin/python"
 
