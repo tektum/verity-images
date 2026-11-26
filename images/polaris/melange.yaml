@@ -1,7 +1,7 @@
 package:
   name: verity-polaris
   # yamllint disable-line rule:line-length
-  version: "10.2.6"  # renovate: datasource=github-releases depName=FairwindsOps/polaris extractVersion=^v(?<version>.+)$
+  version: "10.2.7"  # renovate: datasource=github-releases depName=FairwindsOps/polaris extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Kubernetes best-practice auditor with a dashboard and an admission webhook
   copyright:
@@ -18,7 +18,7 @@ package:
 
 vars:
   # v10.2.6 is a lightweight tag on this commit.
-  source-commit: 6e76dd36aea6a5d8dd380ddf3e9199a83d252c55
+  source-commit: 3aa5859048d9e535db9d9ae393593bf4bb4101e1
 
 environment:
   contents:
