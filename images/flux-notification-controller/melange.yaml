@@ -1,7 +1,7 @@
 package:
   name: verity-flux-notification-controller-1.10
   # yamllint disable-line rule:line-length
-  version: "1.10.0"  # renovate: datasource=github-releases depName=fluxcd/notification-controller versioning=regex:^(?<major>1)\.(?<minor>10)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "1.10.1"  # renovate: datasource=github-releases depName=fluxcd/notification-controller versioning=regex:^(?<major>1)\.(?<minor>10)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Kubernetes controller for Flux notifications, alerts and webhook receivers.
   copyright:
@@ -14,7 +14,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: 08d8de010a16def89c1195b9360ceb1bd0042f70
+  source-commit: 841beb3902457dddc40caf8d99175f24445afb81
 
 environment:
   contents:
