@@ -6,4 +6,4 @@ upstream: https://emissary-ingress.dev/
 versions: [4.2]
 owner: tektum
 enabled: true
-scan-identity: [cpe:2.3:a:getambassador:emissary-ingress]
+scan-identity: [cpe:2.3:a:getambassador:emissary-ingress, cpe:2.3:a:envoyproxy:envoy@vars.envoy-version]
