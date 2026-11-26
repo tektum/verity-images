@@ -70,6 +70,52 @@ ignore:
   - vulnerability: CVE-2026-115559
     package:
       name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      images/python/3.11 applies pending upstream 3.11 backport
+      eb4919ca7f7e46128d546330f480a9eb900f93a9 plus a local file-buffer
+      reset; gh-160369 has no merged 3.11 fix. Scoped to its versioned identity.
+  - vulnerability: CVE-2026-115791
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      images/python/3.11 applies pending upstream 3.11 backport
+      dad645daa2de1d1ccb1a905627ab0bf56dd23b8f; no merged 3.11 fix exists.
+      Scoped to the scan-identity package at 3.11.18.
+  - vulnerability: CVE-2026-124249
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      images/python/3.11 applies main commit
+      8eb3d2c1c41ca7ce628554413981c1eb763a1494: cookie policy is checked
+      before expired cookie deletion. Scoped to its identity at 3.11.18.
+  - vulnerability: CVE-2026-16052
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      images/python/3.11 applies main commit
+      27026842f6774c167295f4b59972589f12ec5987: Morsel rejects semicolons
+      except in Comment. Scoped to its versioned identity at 3.11.18.
+  - vulnerability: CVE-2026-19552
+    package:
+      name: python
+      version: 3.11.18
+      type: UnknownPackage
+    reason: >-
+      images/python/3.11 applies main commit
+      8dde46eaa6baf5f027a7234845b20d50b509624e: get_server_certificate
+      checks the hostname when ca_certs is used. Scoped to 3.11.18 identity.
+
+  - vulnerability: CVE-2026-115559
+    package:
+      name: python
       version: 3.12.16
       type: UnknownPackage
     reason: >-

@@ -2,7 +2,8 @@
 set -eu
 
 image=${1:?usage: test.sh IMAGE}
-recipe=$(dirname "$0")/../melange.yaml
+here=$(CDPATH='' cd -- "$(dirname "$0")" && pwd)
+recipe=$here/../melange.yaml
 version=$(sed -n 's/^  version: "\([0-9.]*\)".*/\1/p' "$recipe")
 [ -n "$version" ] || { echo "FAIL: no package.version in $recipe" >&2; exit 1; }
 
@@ -11,7 +12,7 @@ user=
 
 # check NAME: run the Python program on stdin in the image; it must exit 0.
 check() {
-  if docker run --rm -i --network none ${user:+--user "$user"} "$image" - >"$tmp" 2>&1; then
+  if docker run --rm -i --network none -v "$here/test-identity.pem:/test-identity.pem:ro" ${user:+--user "$user"} "$image" - >"$tmp" 2>&1; then
     echo "PASS: $1"
   else
     echo "FAIL: $1" >&2
@@ -88,6 +89,144 @@ for c in '\0\r\n':
         assert 'not allowed' in str(e), e
     else:
         raise AssertionError(f'select() sent {c!r} in a command: {typ} {data}')
+EOF
+
+check "CVE-2026-115559: IMAP STARTTLS discards pre-TLS untagged responses" <<'EOF'
+import imaplib, socket, ssl, threading
+server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+listener.settimeout(5)
+
+def serve():
+    conn, _ = listener.accept()
+    conn.settimeout(5)
+    reader = conn.makefile('rb')
+    conn.sendall(b'* OK ready\r\n')
+    tls = False
+    while True:
+        line = reader.readline()
+        if not line:
+            return
+        tag, command = line.split()[:2]
+        if command == b'CAPABILITY':
+            caps = b'AUTH=PLAIN' if tls else b'STARTTLS'
+            conn.sendall(b'* CAPABILITY IMAP4rev1 ' + caps + b'\r\n' + tag + b' OK done\r\n')
+        elif command == b'STARTTLS':
+            # A MITM injects an untagged response before the tagged OK; it
+            # must not survive the switch to TLS.
+            conn.sendall(b'* 7 EXISTS\r\n' + tag + b' OK begin\r\n')
+            conn = server_context.wrap_socket(conn, server_side=True)
+            reader = conn.makefile('rb')
+            tls = True
+        else:
+            conn.sendall(tag + b' OK done\r\n')
+
+threading.Thread(target=serve, daemon=True).start()
+client = imaplib.IMAP4('localhost', listener.getsockname()[1], timeout=5)
+assert client.capabilities == ('IMAP4REV1', 'STARTTLS'), client.capabilities
+context = ssl.create_default_context(cafile='/test-identity.pem')
+typ, _ = client.starttls(context)
+assert typ == 'OK', typ
+assert client.capabilities == ('IMAP4REV1', 'AUTH=PLAIN'), client.capabilities
+assert 'EXISTS' not in client.untagged_responses, client.untagged_responses
+client.shutdown()
+EOF
+
+check "CVE-2026-115791: archive CLIs remove the shadowing import path" <<'EOF'
+import gzip, sys, tarfile, tempfile, zipfile
+assert sys._path0 == '', repr(sys._path0)
+with tempfile.TemporaryDirectory() as work:
+    payload = work + '/payload.gz'
+    with gzip.open(payload, 'wb') as f:
+        f.write(b'payload')
+    sys.argv[1:] = ['-d', payload]
+    gzip.main()
+    assert sys._path0 not in sys.path, sys.path[:2]
+    with open(payload[:-3], 'rb') as f:
+        assert f.read() == b'payload'
+for module in (tarfile, zipfile):
+    sys.argv = [module.__name__]
+    try:
+        module.main()
+    except SystemExit as e:
+        assert e.code == 2, (module.__name__, e.code)
+    else:
+        raise AssertionError(f'{module.__name__}.main() did not report usage')
+    assert sys._path0 not in sys.path, (module.__name__, sys.path[:2])
+EOF
+
+check "CVE-2026-124249: expired foreign-domain cookies cannot delete cookies" <<'EOF'
+from http.cookiejar import CookieJar
+from email.message import Message
+from urllib.request import Request
+
+def receive(host, cookie):
+    headers = Message()
+    headers['Set-Cookie'] = cookie
+    class Response:
+        def info(self):
+            return headers
+    jar.extract_cookies(Response(), Request('http://' + host + '/'))
+
+jar = CookieJar()
+receive('www.victim.test', 'session=secret; Domain=.victim.test; Path=/')
+receive('www.attacker.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 1, list(jar)
+receive('www.victim.test', 'session=x; Domain=.victim.test; Path=/; Max-Age=0')
+assert len(jar) == 0, list(jar)
+EOF
+
+check "CVE-2026-16052: Morsel rejects attribute semicolons" <<'EOF'
+from http.cookies import CookieError, Morsel
+m = Morsel()
+for operation in (lambda: m.__setitem__('samesite', 'lax; Domain=attacker.test'),
+                  lambda: m.setdefault('domain', 'safe.test; Domain=attacker.test'),
+                  lambda: m.update({'path': '/; SameSite=None'})):
+    try:
+        operation()
+    except CookieError:
+        pass
+    else:
+        raise AssertionError('attribute semicolon was accepted')
+assert 'attacker.test' not in m.OutputString(), m.OutputString()
+EOF
+
+check "CVE-2026-19552: get_server_certificate verifies hostname" <<'EOF'
+import socket, ssl, threading
+context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+context.load_cert_chain('/test-identity.pem')
+listener = socket.socket()
+listener.bind(('127.0.0.1', 0))
+listener.listen()
+listener.settimeout(5)
+
+def handshake():
+    conn, _ = listener.accept()
+    conn.settimeout(5)
+    with conn:
+        try:
+            context.wrap_socket(conn, server_side=True).close()
+        except (ConnectionError, OSError):
+            pass
+
+threads = [threading.Thread(target=handshake, daemon=True) for _ in range(2)]
+for thread in threads: thread.start()
+port = listener.getsockname()[1]
+cert = '/test-identity.pem'
+assert ssl.get_server_certificate(('localhost', port), ca_certs=cert).startswith('-----BEGIN CERTIFICATE-----')
+try:
+    ssl.get_server_certificate(('127.0.0.1', port), ca_certs=cert)
+except ssl.CertificateError:
+    pass
+else:
+    raise AssertionError('trusted certificate accepted for the wrong hostname')
+for thread in threads:
+    thread.join(timeout=5)
+    assert not thread.is_alive(), 'TLS server did not finish'
+listener.close()
 EOF
 
 # CVE-2025-15366-2.patch: a rejected APPEND does not leave its message
