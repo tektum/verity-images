@@ -1,7 +1,7 @@
 package:
   name: verity-dependency-track
   # yamllint disable-line rule:line-length
-  version: "4.14.6"  # renovate: datasource=github-releases depName=DependencyTrack/dependency-track versioning=regex:^(?<major>4)\.(?<minor>14)\.(?<patch>\d+)$
+  version: "4.14.7"  # renovate: datasource=github-releases depName=DependencyTrack/dependency-track versioning=regex:^(?<major>4)\.(?<minor>14)\.(?<patch>\d+)$
   epoch: 0
   description: Dependency-Track API server (embedded Jetty) built from the upstream source release
   copyright:
@@ -21,7 +21,7 @@ package:
     memory: 4Gi
 
 vars:
-  source-commit: 75d7fe1ccf3b9fe23bb908402877ef85573773b0
+  source-commit: 9484c8be2dba4e56219ed7e957024c83468ccc71
   # Dependency versions raised above the ones upstream's Alpine parent POM
   # manages, to releases that fix the advisories in them. Each is a property
   # the Alpine parent or the project POM already exposes.
