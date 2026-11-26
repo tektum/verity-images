@@ -1,0 +1,55 @@
+--- a/pkg/server/mcp.go
++++ b/pkg/server/mcp.go
+@@ -17,6 +17,7 @@
+ 	"context"
+ 	"encoding/json"
+ 	"fmt"
++	"log/slog"
+ 	"regexp"
+ 
+ 	schemav1 "buf.build/gen/go/k8sgpt-ai/k8sgpt/protocolbuffers/go/schema/v1"
+@@ -67,7 +68,7 @@
+ 	if useHTTP {
+ 		// Create HTTP server with streamable transport
+ 		httpOpts := []server.StreamableHTTPOption{
+-			server.WithLogger(&zapLoggerAdapter{logger: logger}),
++			server.WithStreamableHTTPLogger(slog.New(&zapSlogHandler{logger: logger})),
+ 			// Enable stateless mode for one-off tool invocations without session management
+ 			server.WithStateLess(true),
+ 		}
+@@ -726,18 +727,26 @@
+ 	return nil
+ }
+ 
+-// zapLoggerAdapter adapts zap.Logger to the interface expected by mark3labs/mcp-go
+-type zapLoggerAdapter struct {
++// zapSlogHandler adapts zap.Logger to the slog.Handler interface expected by
++// mark3labs/mcp-go.
++type zapSlogHandler struct {
+ 	logger *zap.Logger
+ }
+ 
+-func (z *zapLoggerAdapter) Infof(format string, v ...any) {
+-	z.logger.Info(fmt.Sprintf(format, v...))
+-}
+-
+-func (z *zapLoggerAdapter) Errorf(format string, v ...any) {
+-	z.logger.Error(fmt.Sprintf(format, v...))
+-}
++func (z *zapSlogHandler) Enabled(context.Context, slog.Level) bool { return true }
++
++func (z *zapSlogHandler) Handle(_ context.Context, r slog.Record) error {
++	if r.Level >= slog.LevelError {
++		z.logger.Error(r.Message)
++		return nil
++	}
++	z.logger.Info(r.Message)
++	return nil
++}
++
++func (z *zapSlogHandler) WithAttrs([]slog.Attr) slog.Handler { return z }
++
++func (z *zapSlogHandler) WithGroup(string) slog.Handler { return z }
+ 
+ // stripANSI removes ANSI escape sequences from a string
+ func stripANSI(input string) string {

@@ -17,6 +17,13 @@ vars:
   source-commit: 3644ecfd4f932be3901838b35e250a95f7732114
   kubectl-floor: v0.36.4  # renovate: datasource=go depName=k8s.io/kubectl
   gnostic-floor: v0.7.1  # renovate: datasource=go depName=github.com/google/gnostic
+  # GO-2026-6911 (SSRF and credential leak) is fixed only on this mcp-go v1
+  # pre-release snapshot, which renames the StreamableHTTPOption WithLogger to
+  # WithStreamableHTTPLogger and switches it to log/slog. k8sgpt v0.4.41 (the
+  # latest release) still targets v0.36.0, so pin the fixed module and carry a
+  # small call-site patch.
+  # yamllint disable-line rule:line-length
+  mcp-go-floor: v1.5.1-0.20261109144041-2f5b9637ea84  # renovate: datasource=go depName=github.com/mark3labs/mcp-go
 
 environment:
   contents:
@@ -40,6 +47,14 @@ pipeline:
       repository: https://github.com/k8sgpt-ai/k8sgpt
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
+  # GO-2026-6911 is fixed only on the pinned mcp-go v1 snapshot; apply the
+  # call-site patch, then raise the floor before go/remediate.
+  - uses: patch
+    with:
+      patches: patches/mcp-go-v1-slog.patch
+  - runs: |
+      go get github.com/mark3labs/mcp-go@${{vars.mcp-go-floor}}
+      go list -m github.com/mark3labs/mcp-go
   # go/remediate raises k8s.io/api and helm to fixed releases but leaves the
   # indirect k8s.io/kubectl behind, whose scheme package then imports API groups
   # the newer k8s.io/api removed. gnostic v0.7.0 does not compile against the
