@@ -20,6 +20,11 @@ package:
 vars:
   # v2.15.5 is a lightweight tag on this commit.
   source-commit: 8c17ef6ede52bf95c8b98c530d5d50cb315a134d
+  # GHSA-685w-q87j-wqw3 (GO-2026-6778): fixed only on this distribution
+  # pseudo-version; go/remediate reports (no-compatible-fix) for the replaced
+  # module, so the recipe raises it explicitly.
+  # yamllint disable-line rule:line-length
+  distribution-floor: v2.8.4-0.20260923142519-db037680f2ac+incompatible  # renovate: datasource=go depName=github.com/distribution/distribution
 
 environment:
   contents:
@@ -45,10 +50,23 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
 
+  # Raise the distribution replacement to the GO-2026-6778 fix before
+  # go/remediate so the resolved graph already includes it.
+  - working-directory: src
+    runs: |
+      floor=github.com/distribution/distribution@${{vars.distribution-floor}}
+      go mod edit -replace=github.com/docker/distribution="$floor"
+      go mod download github.com/docker/distribution
+      go list -m all | grep -E '(docker/distribution|distribution/distribution)'
+      # Vendor so go/remediate can reapply patches/distribution-split-hostname.patch.
+      go list -mod=mod -deps ./jobservice >/dev/null
+      go mod vendor
+
   - uses: go/remediate
     with:
       modroot: src
       packages: ./jobservice
+      vendor-patches: patches/distribution-split-hostname.patch
 
   # Upstream release builds use GOBUILDTAGS="include_oss include_gcs"; the
   # version stamp matches the core build so every component reports the same

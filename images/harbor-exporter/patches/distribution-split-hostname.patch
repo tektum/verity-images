@@ -1,0 +1,12 @@
+GHSA-685w-q87j-wqw3 (GO-2026-6778) is fixed only on the distribution
+db037680f2ac snapshot, whose reference_deprecated.go still forwards
+SplitHostname to github.com/distribution/reference v0.6.0. That release
+removed SplitHostname in favour of Domain and Path, so the vendored copy
+does not compile; inline the forwarding, matching the upstream removal.
+--- a/vendor/github.com/docker/distribution/reference/reference_deprecated.go
++++ b/vendor/github.com/docker/distribution/reference/reference_deprecated.go
+@@ -121,3 +121,3 @@
+ func SplitHostname(named reference.Named) (string, string) {
+-	return reference.SplitHostname(named)
++	return reference.Domain(named), reference.Path(named)
+ }
