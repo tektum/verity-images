@@ -1,7 +1,7 @@
 package:
   name: verity-flannel-0.28
   # yamllint disable-line rule:line-length
-  version: "0.28.10"  # renovate: datasource=github-releases depName=flannel-io/flannel versioning=regex:^(?<major>0)\.(?<minor>28)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "0.28.11"  # renovate: datasource=github-releases depName=flannel-io/flannel versioning=regex:^(?<major>0)\.(?<minor>28)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Flannel overlay network daemon and CNI plugin for Kubernetes.
   copyright:
@@ -14,7 +14,7 @@ package:
     memory: 8Gi
 
 vars:
-  source-commit: 0f70536f15f281279dab39fb9d575c646c7eea34
+  source-commit: 6fe2579f6588feaaf44fc9f576c3f66af2c2e822
   # The CNI plugin ships from its own repository and is copied into /opt/cni/bin by the flannel chart.
   # yamllint disable-line rule:line-length
   cni-plugin-version: v1.9.1-flannel3  # renovate: datasource=github-releases depName=flannel-io/cni-plugin versioning=regex:^v(?<major>1)\.(?<minor>9)\.(?<patch>\d+)-flannel(?<build>\d+)$
