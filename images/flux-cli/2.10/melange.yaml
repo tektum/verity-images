@@ -1,6 +1,6 @@
 package:
   name: verity-flux-cli-2.10
-  version: "2.10.0"  # renovate: datasource=github-releases depName=fluxcd/flux2
+  version: "2.10.1"  # renovate: datasource=github-releases depName=fluxcd/flux2
   epoch: 1
   description: Flux CLI for the GitOps Toolkit.
   copyright:
@@ -36,7 +36,7 @@ pipeline:
     with:
       repository: https://github.com/fluxcd/flux2
       tag: v${{package.version}}
-      expected-commit: 3fa784edd773d56630bb9f62645e08f70c2cff0a
+      expected-commit: 23dcfe98fe672acdf44ecd9c60cbac41b57f5de8
 
   - runs: |
       # bundle.sh fetches the pinned controller release manifests from GitHub, which
