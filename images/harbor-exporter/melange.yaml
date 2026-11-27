@@ -55,6 +55,8 @@ pipeline:
   # replacement explicitly to the advisory fix.
   - working-directory: src
     runs: |
+      floor=github.com/distribution/distribution@${{vars.distribution-floor}}
+      go mod edit -replace=github.com/docker/distribution="$floor"
       current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
       if [ "$current" != '${{vars.distribution-floor}}' ]; then
         echo "distribution replacement $current differs from pinned floor ${{vars.distribution-floor}}" >&2
