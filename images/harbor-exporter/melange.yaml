@@ -2,7 +2,7 @@ package:
   name: verity-harbor-exporter
   # yamllint disable-line rule:line-length
   version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Harbor Prometheus exporter
   copyright:
     - license: Apache-2.0
@@ -20,6 +20,9 @@ package:
 vars:
   # v2.15.5 is a lightweight tag on this commit.
   source-commit: 8c17ef6ede52bf95c8b98c530d5d50cb315a134d
+  # GO-2026-6778 is fixed only on this distribution pseudo-version.
+  # yamllint disable-line rule:line-length
+  distribution-floor: v2.8.4-0.20260923142519-db037680f2ac+incompatible  # renovate: datasource=go depName=github.com/distribution/distribution
 
 environment:
   contents:
@@ -45,10 +48,31 @@ pipeline:
       tag: v${{package.version}}
       expected-commit: ${{vars.source-commit}}
 
+  # GHSA-685w-q87j-wqw3 (GO-2026-6778): the client digest-verification fix is
+  # only published as this v2 pseudo-version. Harbor replaces docker/distribution
+  # with github.com/distribution/distribution@v2.8.2+incompatible and
+  # go/remediate reports (no-compatible-fix) for that module, so raise the
+  # replacement explicitly to the advisory fix.
+  - working-directory: src
+    runs: |
+      floor=github.com/distribution/distribution@${{vars.distribution-floor}}
+      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
+      case "$current" in
+        v2.8.2+incompatible) ;;
+        *) echo "unexpected distribution replacement $current; review distribution-floor" >&2; exit 1 ;;
+      esac
+      go mod edit -replace=github.com/docker/distribution="$floor"
+      go mod download github.com/docker/distribution
+      go list -m all | grep -E '(docker/distribution|distribution/distribution)'
+      # Vendor so go/remediate can reapply patches/distribution-split-hostname.patch.
+      go list -mod=mod -deps ./cmd/exporter >/dev/null
+      go mod vendor
+
   - uses: go/remediate
     with:
       modroot: src
       packages: ./cmd/exporter
+      vendor-patches: patches/distribution-split-hostname.patch
 
   # Upstream release builds use GOBUILDTAGS="include_oss include_gcs"; the
   # version stamp matches the core build so every component reports the same

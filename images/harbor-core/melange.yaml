@@ -2,7 +2,7 @@ package:
   name: verity-harbor-core
   # yamllint disable-line rule:line-length
   version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Harbor core API server and token service
   copyright:
     - license: Apache-2.0
@@ -28,6 +28,11 @@ vars:
   # GHSA-pjcq-xvwq-hhpj (GO-2026-5543): Harbor 2.15.5 requires v0.1.0, and the
   # OSV-Scanner run inside go/remediate does not report it for that version.
   go-ntlmssp-floor: v0.1.1  # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
+  # GHSA-685w-q87j-wqw3 (GO-2026-6778): fixed only on this distribution
+  # pseudo-version; go/remediate reports (no-compatible-fix) for the replaced
+  # module, so the recipe raises it explicitly.
+  # yamllint disable-line rule:line-length
+  distribution-floor: v2.8.4-0.20260923142519-db037680f2ac+incompatible  # renovate: datasource=go depName=github.com/distribution/distribution
 
 environment:
   contents:
@@ -83,10 +88,29 @@ pipeline:
         go get github.com/Azure/go-ntlmssp@${{vars.go-ntlmssp-floor}}
       fi
 
+  # Raise the distribution replacement to the GO-2026-6778 fix before
+  # go/remediate so the resolved graph already includes it.
+  - working-directory: src
+    runs: |
+      floor=github.com/distribution/distribution@${{vars.distribution-floor}}
+      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
+      case "$current" in
+        v2.8.2+incompatible) ;;
+        *) echo "unexpected distribution replacement $current; review distribution-floor" >&2; exit 1 ;;
+      esac
+      go mod edit -replace=github.com/docker/distribution="$floor"
+      go mod download github.com/docker/distribution
+      go list -m all | grep -E '(docker/distribution|distribution/distribution)'
+      # The pseudo-version snapshot needs a small reference_deprecated.go fix;
+      # vendor so go/remediate can reapply patches/distribution-split-hostname.patch.
+      go list -mod=mod -deps ./core >/dev/null
+      go mod vendor
+
   - uses: go/remediate
     with:
       modroot: src
       packages: ./core
+      vendor-patches: patches/distribution-split-hostname.patch
 
   # Upstream release builds use GOBUILDTAGS="include_oss include_gcs" and the
   # CORE_LDFLAGS version stamp with an 8 character commit.
