@@ -2,7 +2,7 @@
   "version": "v1",
   "config": {
     "name": "images/opa-envoy/apko.yaml",
-    "checksum": "sha256-LA0BBAoIxEDXT5Y5EtL/YCwXRUFC6BkeLPKzSKSoGE4="
+    "checksum": "sha256-Mj/b/nYophTrtdYpKIHp3G+QH/w8+vGYCXCPaG5ujE8="
   },
   "contents": {
     "keyring": [
@@ -67,22 +67,22 @@
       },
       {
         "name": "opa-envoy",
-        "url": "https://packages.wolfi.dev/os/x86_64/opa-envoy-1.22.4-r0.apk",
-        "version": "1.22.4-r0",
+        "url": "https://packages.wolfi.dev/os/x86_64/opa-envoy-1.23.0-r0.apk",
+        "version": "1.23.0-r0",
         "architecture": "x86_64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-17245",
-          "checksum": "sha1-wqswJZ5zGULb+VPAgNz+uqroUhg="
+          "range": "bytes=0-17392",
+          "checksum": "sha1-wOkonKwyhOVKRpTz2vX2DG+cdzk="
         },
         "data": {
-          "range": "bytes=17246-17110386",
-          "checksum": "sha256-fDfMLidm7zqYh58O0kAg0VD/bskeVO/fuiZgy3AoJuc="
+          "range": "bytes=17393-17228951",
+          "checksum": "sha256-ersImFD5C2xCXjVWp+/+Rt1e0IqoCSsfJSNWw9rw7zU="
         },
-        "checksum": "Q1wqswJZ5zGULb+VPAgNz+uqroUhg="
+        "checksum": "Q1wOkonKwyhOVKRpTz2vX2DG+cdzk="
       },
       {
         "name": "wolfi-baselayout",
@@ -124,22 +124,22 @@
       },
       {
         "name": "opa-envoy",
-        "url": "https://packages.wolfi.dev/os/aarch64/opa-envoy-1.22.4-r0.apk",
-        "version": "1.22.4-r0",
+        "url": "https://packages.wolfi.dev/os/aarch64/opa-envoy-1.23.0-r0.apk",
+        "version": "1.23.0-r0",
         "architecture": "aarch64",
         "signature": {
           "range": "",
           "checksum": ""
         },
         "control": {
-          "range": "bytes=0-17281",
-          "checksum": "sha1-swljvzGtaWj2xqEjOix5WPKEUW4="
+          "range": "bytes=0-17424",
+          "checksum": "sha1-CWmKE9HRO+HVPb09txjUwZXehIQ="
         },
         "data": {
-          "range": "bytes=17282-15431030",
-          "checksum": "sha256-c9WPq7mj5ujDS57RlF06uP3ANMb6eag4k29hPOjL6Mo="
+          "range": "bytes=17425-15547161",
+          "checksum": "sha256-7MxL4zGYPC/JUtd9ch3WPTeiPnFMH9Qi66tk5QzS3ow="
         },
-        "checksum": "Q1swljvzGtaWj2xqEjOix5WPKEUW4="
+        "checksum": "Q1CWmKE9HRO+HVPb09txjUwZXehIQ="
       }
     ]
   }
