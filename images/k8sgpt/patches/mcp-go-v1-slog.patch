@@ -1,13 +1,22 @@
 --- a/pkg/server/mcp.go
 +++ b/pkg/server/mcp.go
-@@ -17,6 +17,7 @@
+@@ -17,6 +17,8 @@
  	"context"
  	"encoding/json"
  	"fmt"
 +	"log/slog"
  	"regexp"
++	"strings"
  
  	schemav1 "buf.build/gen/go/k8sgpt-ai/k8sgpt/protocolbuffers/go/schema/v1"
+@@ -27,6 +29,7 @@
+ 	"github.com/mark3labs/mcp-go/mcp"
+ 	"github.com/mark3labs/mcp-go/server"
+ 	"github.com/spf13/viper"
+ 	"go.uber.org/zap"
++	"go.uber.org/zap/zapcore"
+ 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+ )
 @@ -67,7 +68,7 @@
  	if useHTTP {
  		// Create HTTP server with streamable transport
@@ -17,16 +26,18 @@
  			// Enable stateless mode for one-off tool invocations without session management
  			server.WithStateLess(true),
  		}
-@@ -726,18 +727,26 @@
+@@ -726,18 +729,86 @@
  	return nil
  }
  
 -// zapLoggerAdapter adapts zap.Logger to the interface expected by mark3labs/mcp-go
 -type zapLoggerAdapter struct {
 +// zapSlogHandler adapts zap.Logger to the slog.Handler interface expected by
-+// mark3labs/mcp-go.
++// mark3labs/mcp-go, preserving structured fields, groups, and levels.
 +type zapSlogHandler struct {
  	logger *zap.Logger
++	fields []zap.Field
++	groups []string
  }
  
 -func (z *zapLoggerAdapter) Infof(format string, v ...any) {
@@ -35,21 +46,78 @@
 -
 -func (z *zapLoggerAdapter) Errorf(format string, v ...any) {
 -	z.logger.Error(fmt.Sprintf(format, v...))
--}
-+func (z *zapSlogHandler) Enabled(context.Context, slog.Level) bool { return true }
++func (z *zapSlogHandler) Enabled(_ context.Context, level slog.Level) bool {
++	return z.logger.Core().Enabled(zapLevel(level))
++}
 +
 +func (z *zapSlogHandler) Handle(_ context.Context, r slog.Record) error {
-+	if r.Level >= slog.LevelError {
-+		z.logger.Error(r.Message)
-+		return nil
-+	}
-+	z.logger.Info(r.Message)
++	fields := append([]zap.Field(nil), z.fields...)
++	r.Attrs(func(a slog.Attr) bool {
++		fields = appendSlogAttr(fields, z.groups, a)
++		return true
++	})
++	z.logger.Log(zapLevel(r.Level), r.Message, fields...)
 +	return nil
 +}
 +
-+func (z *zapSlogHandler) WithAttrs([]slog.Attr) slog.Handler { return z }
++func (z *zapSlogHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
++	clone := z.clone()
++	for _, a := range attrs {
++		clone.fields = appendSlogAttr(clone.fields, z.groups, a)
++	}
++	return clone
++}
 +
-+func (z *zapSlogHandler) WithGroup(string) slog.Handler { return z }
++func (z *zapSlogHandler) WithGroup(name string) slog.Handler {
++	if name == "" {
++		return z
++	}
++	clone := z.clone()
++	clone.groups = append(clone.groups, name)
++	return clone
++}
++
++func (z *zapSlogHandler) clone() *zapSlogHandler {
++	clone := *z
++	clone.fields = append([]zap.Field(nil), z.fields...)
++	clone.groups = append([]string(nil), z.groups...)
++	return &clone
++}
++
++func appendSlogAttr(fields []zap.Field, groups []string, a slog.Attr) []zap.Field {
++	a.Value = a.Value.Resolve()
++	if a.Equal(slog.Attr{}) {
++		return fields
++	}
++	if a.Value.Kind() == slog.KindGroup {
++		if a.Key == "" {
++			for _, nested := range a.Value.Group() {
++				fields = appendSlogAttr(fields, groups, nested)
++			}
++			return fields
++		}
++		groups = append(groups[:len(groups):len(groups)], a.Key)
++		for _, nested := range a.Value.Group() {
++			fields = appendSlogAttr(fields, groups, nested)
++		}
++		return fields
++	}
++	key := strings.Join(append(groups[:len(groups):len(groups)], a.Key), ".")
++	return append(fields, zap.Any(key, a.Value.Any()))
++}
++
++func zapLevel(level slog.Level) zapcore.Level {
++	switch {
++	case level < slog.LevelInfo:
++		return zap.DebugLevel
++	case level < slog.LevelWarn:
++		return zap.InfoLevel
++	case level < slog.LevelError:
++		return zap.WarnLevel
++	default:
++		return zap.ErrorLevel
++	}
+ }
  
  // stripANSI removes ANSI escape sequences from a string
  func stripANSI(input string) string {
