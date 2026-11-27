@@ -54,6 +54,11 @@ pipeline:
   # go/remediate so the resolved graph already includes it.
   - working-directory: src
     runs: |
+      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
+      case "$current" in
+        v2.8.2+incompatible) ;;
+        *) echo "unexpected distribution replacement $current; review distribution-floor" >&2; exit 1 ;;
+      esac
       floor=github.com/distribution/distribution@${{vars.distribution-floor}}
       go mod edit -replace=github.com/docker/distribution="$floor"
       go mod download github.com/docker/distribution
@@ -61,11 +66,6 @@ pipeline:
       # Vendor so go/remediate can reapply patches/distribution-split-hostname.patch.
       go list -mod=mod -deps ./jobservice >/dev/null
       go mod vendor
-      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
-      if [ "$current" != '${{vars.distribution-floor}}' ]; then
-        echo "distribution replacement $current differs from pinned floor ${{vars.distribution-floor}}" >&2
-        exit 1
-      fi
 
   - uses: go/remediate
     with:
@@ -98,6 +98,8 @@ pipeline:
         | grep -Fx github.com/goharbor/harbor/src/jobservice
       install -d "${{targets.destdir}}/harbor"
       ln -s /usr/bin/harbor_jobservice "${{targets.destdir}}/harbor/harbor_jobservice"
+      install -Dm644 LICENSE \
+        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
 
   - uses: strip
 

@@ -93,12 +93,12 @@ pipeline:
   - working-directory: src
     runs: |
       floor=github.com/distribution/distribution@${{vars.distribution-floor}}
-      go mod edit -replace=github.com/docker/distribution="$floor"
       current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
-      if [ "$current" != '${{vars.distribution-floor}}' ]; then
-        echo "distribution replacement $current differs from pinned floor ${{vars.distribution-floor}}" >&2
-        exit 1
-      fi
+      case "$current" in
+        v2.8.2+incompatible) ;;
+        *) echo "unexpected distribution replacement $current; review distribution-floor" >&2; exit 1 ;;
+      esac
+      go mod edit -replace=github.com/docker/distribution="$floor"
       go mod download github.com/docker/distribution
       go list -m all | grep -E '(docker/distribution|distribution/distribution)'
       # The pseudo-version snapshot needs a small reference_deprecated.go fix;
