@@ -2,7 +2,7 @@ package:
   name: verity-harbor-jobservice
   # yamllint disable-line rule:line-length
   version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Harbor job service for replication, garbage collection, scans, and webhooks
   copyright:
     - license: Apache-2.0
@@ -93,8 +93,11 @@ pipeline:
         | grep -Fx github.com/goharbor/harbor/src/jobservice
       install -d "${{targets.destdir}}/harbor"
       ln -s /usr/bin/harbor_jobservice "${{targets.destdir}}/harbor/harbor_jobservice"
-      install -Dm644 LICENSE \
-        "${{targets.destdir}}/usr/share/licenses/${{package.name}}/LICENSE"
+      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
+      if [ "$current" != '${{vars.distribution-floor}}' ]; then
+        echo "distribution replacement $current differs from pinned floor ${{vars.distribution-floor}}" >&2
+        exit 1
+      fi
 
   - uses: strip
 

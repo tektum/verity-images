@@ -2,7 +2,7 @@ package:
   name: verity-harbor-exporter
   # yamllint disable-line rule:line-length
   version: "2.15.5"  # renovate: datasource=github-releases depName=goharbor/harbor versioning=regex:^(?<major>2)\.(?<minor>15)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
-  epoch: 0
+  epoch: 1
   description: Harbor Prometheus exporter
   copyright:
     - license: Apache-2.0
@@ -55,8 +55,11 @@ pipeline:
   # replacement explicitly to the advisory fix.
   - working-directory: src
     runs: |
-      floor=github.com/distribution/distribution@${{vars.distribution-floor}}
-      go mod edit -replace=github.com/docker/distribution="$floor"
+      current="$(go list -mod=mod -m -f '{{if .Replace}}{{.Replace.Version}}{{end}}' github.com/docker/distribution)"
+      if [ "$current" != '${{vars.distribution-floor}}' ]; then
+        echo "distribution replacement $current differs from pinned floor ${{vars.distribution-floor}}" >&2
+        exit 1
+      fi
       go mod download github.com/docker/distribution
       go list -m all | grep -E '(docker/distribution|distribution/distribution)'
       # Vendor so go/remediate can reapply patches/distribution-split-hostname.patch.
