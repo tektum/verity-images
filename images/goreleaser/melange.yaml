@@ -1,7 +1,7 @@
 package:
   name: verity-goreleaser
   # yamllint disable-line rule:line-length
-  version: "2.20.0"  # renovate: datasource=github-releases depName=goreleaser/goreleaser versioning=regex:^(?<major>2)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
+  version: "2.20.3"  # renovate: datasource=github-releases depName=goreleaser/goreleaser versioning=regex:^(?<major>2)\.(?<minor>20)\.(?<patch>\d+)$ extractVersion=^v(?<version>.+)$
   epoch: 0
   description: Release automation tool for Go projects
   copyright:
@@ -20,7 +20,7 @@ package:
 
 vars:
   # The release tag is annotated; this is the peeled commit it points to.
-  source-commit: b8f79e0399c46895220e8479e24d599576b563a8
+  source-commit: a6edafaafe0fd15a4725e917beac26305ba67738
 
 environment:
   contents:
@@ -52,6 +52,12 @@ pipeline:
       packages: .
 
   - runs: |
+      # Upstream also tags release commits as v2.21.0-<sha>-nightly, which sorts
+      # above the release tag, so Go would stamp the nightly version. Keep only
+      # the release tag for the VCS stamp.
+      for tag in $(git tag -l); do
+        [ "$tag" = 'v${{package.version}}' ] || git tag -d "$tag" >/dev/null
+      done
       build_date=$(date -u -d "@$(git log -1 --format=%ct)" +%Y-%m-%dT%H:%M:%SZ)
       commit=$(git rev-parse HEAD)
       go build -mod=readonly -trimpath -buildvcs=true \
