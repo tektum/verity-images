@@ -488,6 +488,17 @@ queue: the `lint`, `build-gate` (build, smoke test, zero-fixable scan), and
 pool, source pull requests are capped at 5 open and 2 created per hour, are
 created only between 19:00 and 07:00 UTC, and are rebased only on conflict.
 
+A pure APKO image publishes the stream in `versions:` but installs a Wolfi
+package, so Wolfi decides when that stream ends. When a lock refresh or pin bump
+moves the package past the published `X.Y`, roll the stream forward in one
+image-local pull request: set `versions:` to the new stream, update the test's
+version expectation, and regenerate the lock. The previous tag stops updating.
+Do not hold it on a frozen pin: Wolfi publishes no further builds for a
+superseded minor line, so a frozen pin goes stale against the zero-fixable gate.
+Keep a parallel stream only when Wolfi ships a separate package line for it,
+such as a versioned `<name>-<X.Y>` package, and add it as its own
+`images/<name>/<stream>/` directory.
+
 Versioned `go get` overrides are compatibility constraints rather than upstream
 image versions. A Go module major upgrade changes its import path and requires a
 source migration, so Renovate only updates these overrides within their current
