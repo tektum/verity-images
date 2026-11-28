@@ -1,7 +1,7 @@
 package:
   name: verity-clamav-1.4
   # yamllint disable-line rule:line-length
-  version: "1.4.6"  # renovate: datasource=github-tags depName=Cisco-Talos/clamav versioning=regex:^(?<major>1)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^clamav-(?<version>.+)$
+  version: "1.4.7"  # renovate: datasource=github-tags depName=Cisco-Talos/clamav versioning=regex:^(?<major>1)\.(?<minor>4)\.(?<patch>\d+)$ extractVersion=^clamav-(?<version>.+)$
   epoch: 0
   description: ClamAV 1.4 scanner, daemon and signature updater built from the upstream release
   copyright:
@@ -48,25 +48,7 @@ pipeline:
     with:
       repository: https://github.com/Cisco-Talos/clamav
       tag: clamav-${{package.version}}
-      expected-commit: 5853e1396777bae4d909cd3dd44f58352e7cf9b3
-
-  # OpenSSL 4 (the only OpenSSL curl-dev links against in Wolfi) makes ASN1_STRING
-  # opaque, and libclamav 1.4 and 1.5 still read its fields directly in
-  # cl_ASN1_GetTimeT (upstream main dropped that function). Use the public
-  # accessors; the function's behavior is unchanged. A source bump that no
-  # longer matches fails here instead of building a different function.
-  - runs: |
-      f=libclamav/crypto.c
-      test "$(grep -c 'timeobj->data' "$f")" -eq 2
-      test "$(grep -c 'timeobj->type' "$f")" -eq 2
-      sed -i \
-        -e 's/!(timeobj->data)/!(ASN1_STRING_get0_data(timeobj))/' \
-        -e 's/(char \*)(timeobj->data)/(char *)ASN1_STRING_get0_data(timeobj)/' \
-        -e 's/timeobj->type ==/ASN1_STRING_type(timeobj) ==/' \
-        "$f"
-      ! grep -n 'timeobj->' "$f"
-      test "$(grep -c 'ASN1_STRING_get0_data(timeobj)' "$f")" -eq 2
-      test "$(grep -c 'ASN1_STRING_type(timeobj)' "$f")" -eq 2
+      expected-commit: 664452aed0a0e53f1c5cd9cdda0f4f4b5714c292
 
   # UnRAR is left out: libclamunrar is under the non-free UnRAR license, not
   # GPL-2.0-only. Milter needs sendmail's libmilter and on-access scanning
