@@ -1,7 +1,7 @@
 package:
   name: verity-ffmpeg-9.0
   # yamllint disable-line rule:line-length
-  version: "9.0.2"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
+  version: "9.0.3"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
   epoch: 0
   description: FFmpeg 9.0 ffmpeg and ffprobe, LGPL build from the upstream release
   copyright:
@@ -44,7 +44,7 @@ pipeline:
     with:
       repository: https://github.com/FFmpeg/FFmpeg
       tag: n${{package.version}}
-      expected-commit: 946fcce07b6dcd0331c8cc609192aeff5e1924f8
+      expected-commit: 76c070aa057b590b75343e848f8b98b03c496572
 
   # A shallow checkout has no tag history for ffbuild/version.sh, so pin the
   # reported version to the release instead of a git describe fallback.
