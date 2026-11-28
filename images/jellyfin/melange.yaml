@@ -42,8 +42,8 @@ vars:
   web-commit: 0a580ce8df89282dfd120b6d5efb8e106da23bd5
   # Same FFmpeg release stream as images/ffmpeg/9.0.
   # yamllint disable-line rule:line-length
-  ffmpeg-version: "9.0.2"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
-  ffmpeg-commit: 946fcce07b6dcd0331c8cc609192aeff5e1924f8
+  ffmpeg-version: "9.0.3"  # renovate: datasource=github-tags depName=FFmpeg/FFmpeg versioning=regex:^(?<major>9)\.(?<minor>0)\.(?<patch>\d+)$ extractVersion=^n(?<version>.+)$
+  ffmpeg-commit: 76c070aa057b590b75343e848f8b98b03c496572
   # Official Microsoft ASP.NET Core runtime (with Microsoft.NETCore.App), the
   # same release stream and checksums as images/aspnet-runtime/10. Wolfi
   # stopped publishing dotnet-10 at 10.0.114.
